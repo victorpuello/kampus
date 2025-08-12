@@ -66,7 +66,7 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - [x] [P0] `useAuthStore` (Zustand)
 - [x] [P0] Rutas protegidas (`ProtectedRoute`)
 - [x] [P0] Página `Login` con flujo JWT completo
-- [P1] Página `StudentList` (tabla básica) y `StudentProfile` con pestañas
+- [x] [P1] Página `StudentList` (tabla básica) y `StudentProfile` básico
 - [P1] `AcademicConfigPanel` (CRUD simple) con formularios
 - [P2] `GradeSheetTable` con TanStack Table (edición inline + validaciones)
 - [P1] PWA: migrar a Workbox (precaching, runtime caching api/assets)
