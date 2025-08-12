@@ -16,7 +16,7 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 ## Infraestructura y repositorio
 - [x] [P0] Configurar remoto y publicar `main` en GitHub
 - [x] [P0] Crear archivos de entorno de ejemplo para backend y frontend (SECRET_KEY, DB, CORS, JWT, FCM)
-- [P0] Resolver conflicto de puerto local en dev (8000 en uso) o parametrizar puerto (ej. 8001)
+- [x] [P0] Puerto dev 8000 verificado y activo
 - [P1] Pre-commit hooks: black, isort, flake8 (backend) y ESLint/Prettier (frontend)
 - [P1] Docker Compose (dev): Postgres, backend, frontend, Redis (para Celery)
 - [P1] CI/CD (GitHub Actions): lint + tests + build
@@ -29,9 +29,9 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - [P1] Documentar endpoints en `docs/api_endpoints.md`
 
 ### SIS (Estudiantes)
-- [P0] Modelos: `Student`, `FamilyMember`, `Enrollment`
-- [P0] Serializers + ViewSets con permisos (SECRETARY/ADMIN editan)
-- [P1] Endpoints: `/api/students/`, `/api/students/<id>/family/`, `/api/enrollments/`
+- [x] [P0] Modelos: `Student`, `FamilyMember`, `Enrollment`
+- [x] [P0] Serializers + ViewSets con permisos (SECRETARY/ADMIN editan)
+- [x] [P1] Endpoints: `/api/students/`, `/api/students/<id>/family/`, `/api/enrollments/`
 - [P2] Exportación preliminar a SIMAT (CSV/TXT) con pre-validación
 
 ### Académico
@@ -62,9 +62,10 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - [P2] Almacenamiento S3/MinIO para medios y PDFs
 
 ## Frontend (React + TS + Tailwind)
-- [P0] Configurar Axios base con interceptores (JWT attach/refresh)
-- [P0] `useAuthStore` (Zustand) y `ProtectedRoute`
-- [P0] Página `Login` con flujo JWT completo
+- [x] [P0] Configurar Axios base con interceptores (JWT attach/refresh)
+- [x] [P0] `useAuthStore` (Zustand)
+- [x] [P0] Rutas protegidas (`ProtectedRoute`)
+- [x] [P0] Página `Login` con flujo JWT completo
 - [P1] Página `StudentList` (tabla básica) y `StudentProfile` con pestañas
 - [P1] `AcademicConfigPanel` (CRUD simple) con formularios
 - [P2] `GradeSheetTable` con TanStack Table (edición inline + validaciones)
