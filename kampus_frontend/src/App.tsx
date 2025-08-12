@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import { useAuthStore } from './store/auth'
 import StudentList from './pages/StudentList'
 import StudentProfile from './pages/StudentProfile'
+import AcademicConfigPanel from './pages/AcademicConfigPanel'
 
 function Dashboard() {
   const user = useAuthStore((s) => s.user)
@@ -19,6 +20,7 @@ function Dashboard() {
       <nav className="space-x-4">
         <Link to="/">Inicio</Link>
         <Link to="/students">Estudiantes</Link>
+        <Link to="/academic-config">Académico</Link>
       </nav>
     </div>
   )
@@ -33,6 +35,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/students" element={<StudentList />} />
           <Route path="/students/:id" element={<StudentProfile />} />
+          <Route path="/academic-config" element={<AcademicConfigPanel />} />
         </Route>
       </Routes>
     </BrowserRouter>
