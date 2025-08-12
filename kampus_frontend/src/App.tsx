@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import { useAuthStore } from './store/auth'
+import StudentList from './pages/StudentList'
 
 function Dashboard() {
   const user = useAuthStore((s) => s.user)
@@ -16,6 +17,7 @@ function Dashboard() {
       <p>Bienvenido{user ? `, ${user.first_name || user.username}` : ''}.</p>
       <nav className="space-x-4">
         <Link to="/">Inicio</Link>
+        <Link to="/students">Estudiantes</Link>
       </nav>
     </div>
   )
@@ -28,6 +30,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/students" element={<StudentList />} />
         </Route>
       </Routes>
     </BrowserRouter>
