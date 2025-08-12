@@ -8,18 +8,23 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - [x] [P0] Modelo `users.User` extendido con `role` y migraciones aplicadas
 - [x] [P0] PWA básico en frontend: `manifest.json`, `service-worker.js`, registro en `main.tsx`
 - [x] [P0] `.gitignore` y primer commit
+- [x] [P0] Remoto `origin` configurado y `main` publicada en GitHub
+- [x] [P0] Archivos de entorno de ejemplo: `env.backend.example` y `env.frontend.example`
+- [x] [P0] API de usuarios: CRUD con permisos (ADMIN/SUPERADMIN) y endpoint `GET /api/users/me/`
+- [x] [P0] `README.md` actualizado con instrucciones de setup
 
 ## Infraestructura y repositorio
-- [P0] Configurar remoto y publicar `main` en GitHub
-- [P0] Crear `.env.example` para backend y frontend (SECRET_KEY, DB, CORS, JWT, FCM)
+- [x] [P0] Configurar remoto y publicar `main` en GitHub
+- [x] [P0] Crear archivos de entorno de ejemplo para backend y frontend (SECRET_KEY, DB, CORS, JWT, FCM)
+- [P0] Resolver conflicto de puerto local en dev (8000 en uso) o parametrizar puerto (ej. 8001)
 - [P1] Pre-commit hooks: black, isort, flake8 (backend) y ESLint/Prettier (frontend)
 - [P1] Docker Compose (dev): Postgres, backend, frontend, Redis (para Celery)
 - [P1] CI/CD (GitHub Actions): lint + tests + build
 
 ## Backend (Django/DRF)
 ### Usuarios y Autenticación
-- [P0] Serializers y ViewSet de `users.User` con permisos (solo ADMIN/SUPERADMIN)
-- [P0] Endpoint `api/users/me/` para perfil propio
+- [x] [P0] Serializers y ViewSet de `users.User` con permisos (solo ADMIN/SUPERADMIN)
+- [x] [P0] Endpoint `api/users/me/` para perfil propio
 - [P1] Comando de gestión para crear SUPERADMIN inicial desde env
 - [P1] Documentar endpoints en `docs/api_endpoints.md`
 
@@ -74,7 +79,7 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 
 ## Documentación
 - [P0] Crear `docs/architecture.md`, `docs/api_endpoints.md`, `docs/setup_guide.md`
-- [P0] Actualizar `README.md` con instrucciones de ejecución (backend/frontend)
+- [x] [P0] Actualizar `README.md` con instrucciones de ejecución (backend/frontend)
 - [P2] Esquema OpenAPI (drf-spectacular o similar) y publicar en `/api/schema/`
 
 ## Seguridad
