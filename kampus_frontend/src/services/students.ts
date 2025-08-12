@@ -16,5 +16,6 @@ export type Student = {
 
 export const studentsApi = {
   list: () => api.get<Student[]>('/api/students/'),
+  get: (id: number) => api.get<Student>(`/api/students/${id}/`),
 }
 

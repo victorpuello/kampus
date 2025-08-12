@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { studentsApi, Student } from '../services/students'
+import { Link } from 'react-router-dom'
 
 export default function StudentList() {
   const [data, setData] = useState<Student[]>([])
@@ -39,7 +40,11 @@ export default function StudentList() {
             {data.map((s) => (
               <tr key={s.user} className="border-b last:border-0">
                 <td className="py-2 pr-4">{s.user_username}</td>
-                <td className="py-2 pr-4">{`${s.user_first_name} ${s.user_last_name}`}</td>
+                <td className="py-2 pr-4">
+                  <Link className="underline" to={`/students/${s.user}`}>
+                    {`${s.user_first_name} ${s.user_last_name}`}
+                  </Link>
+                </td>
                 <td className="py-2 pr-4">{s.document_number}</td>
               </tr>
             ))}

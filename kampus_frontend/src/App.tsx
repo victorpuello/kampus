@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import { useAuthStore } from './store/auth'
 import StudentList from './pages/StudentList'
+import StudentProfile from './pages/StudentProfile'
 
 function Dashboard() {
   const user = useAuthStore((s) => s.user)
@@ -31,6 +32,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/students" element={<StudentList />} />
+          <Route path="/students/:id" element={<StudentProfile />} />
         </Route>
       </Routes>
     </BrowserRouter>
