@@ -1,6 +1,6 @@
 import { api } from './api'
 
-export type Student = {
+export interface Student {
   user: number
   user_username: string
   user_first_name: string
