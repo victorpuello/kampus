@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from core.models import Campus
 
 
 class AcademicYear(models.Model):
@@ -28,8 +29,25 @@ class Period(models.Model):
         return f"{self.name} ({self.academic_year})"
 
 
+class AcademicLevel(models.Model):
+    LEVEL_TYPES = (
+        ('PRESCHOOL', 'Preescolar'),
+        ('PRIMARY', 'Básica Primaria'),
+        ('SECONDARY', 'Básica Secundaria'),
+        ('MEDIA', 'Media Académica'),
+    )
+    name = models.CharField(max_length=100, verbose_name="Nombre del Nivel")
+    level_type = models.CharField(max_length=20, choices=LEVEL_TYPES, default='PRIMARY')
+    min_age = models.PositiveIntegerField(default=5, verbose_name="Edad Mínima")
+    max_age = models.PositiveIntegerField(default=100, verbose_name="Edad Máxima")
+    
+    def __str__(self):
+        return self.name
+
+
 class Grade(models.Model):
     name = models.CharField(max_length=50)
+    level = models.ForeignKey(AcademicLevel, related_name="grades", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -42,6 +60,7 @@ class Grade(models.Model):
 class Group(models.Model):
     name = models.CharField(max_length=50)  # e.g. "A", "10-1"
     grade = models.ForeignKey(Grade, related_name="groups", on_delete=models.CASCADE)
+    campus = models.ForeignKey(Campus, related_name="groups", on_delete=models.CASCADE, null=True, blank=True)
     academic_year = models.ForeignKey(
         AcademicYear, related_name="groups", on_delete=models.CASCADE
     )

@@ -2,6 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AcademicLevelViewSet,
     AcademicYearViewSet,
     AchievementViewSet,
     AreaViewSet,
@@ -18,6 +19,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r"academic-years", AcademicYearViewSet, basename="academicyear")
+router.register(r"academic-levels", AcademicLevelViewSet, basename="academiclevel")
 router.register(r"periods", PeriodViewSet, basename="period")
 router.register(r"grades", GradeViewSet, basename="grade")
 router.register(r"groups", GroupViewSet, basename="group")

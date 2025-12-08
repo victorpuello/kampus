@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import (
+    AcademicLevel,
     AcademicYear,
     Achievement,
     Area,
@@ -28,11 +29,57 @@ class PeriodSerializer(serializers.ModelSerializer):
         model = Period
         fields = "__all__"
 
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+        academic_year = data.get("academic_year")
+
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError(
+                {"end_date": "La fecha de fin debe ser posterior a la fecha de inicio."}
+            )
+
+        # Validate that dates match the academic year
+        if academic_year:
+            if start_date and start_date.year != academic_year.year:
+                raise serializers.ValidationError(
+                    {"start_date": f"La fecha de inicio debe corresponder al año lectivo {academic_year.year}."}
+                )
+            if end_date and end_date.year != academic_year.year:
+                raise serializers.ValidationError(
+                    {"end_date": f"La fecha de fin debe corresponder al año lectivo {academic_year.year}."}
+                )
+
+        # Check for overlapping periods in the same academic year
+        if academic_year and start_date and end_date:
+            overlapping_periods = Period.objects.filter(
+                academic_year=academic_year,
+                start_date__lte=end_date,
+                end_date__gte=start_date,
+            )
+            if self.instance:
+                overlapping_periods = overlapping_periods.exclude(pk=self.instance.pk)
+
+            if overlapping_periods.exists():
+                raise serializers.ValidationError(
+                    "El rango de fechas se solapa con otro periodo existente en este año lectivo."
+                )
+
+        return data
+
+
+class AcademicLevelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicLevel
+        fields = "__all__"
+
 
 class GradeSerializer(serializers.ModelSerializer):
+    level_name = serializers.CharField(source="level.name", read_only=True)
+    
     class Meta:
         model = Grade
-        fields = ["id", "name"]
+        fields = ["id", "name", "level", "level_name"]
         read_only_fields = ["id"]
 
 
@@ -41,6 +88,7 @@ class GroupSerializer(serializers.ModelSerializer):
     director_name = serializers.CharField(
         source="director.get_full_name", read_only=True
     )
+    campus_name = serializers.CharField(source="campus.name", read_only=True)
 
     class Meta:
         model = Group

@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 
 from .models import (
+    AcademicLevel,
     AcademicYear,
     Achievement,
     Area,
@@ -16,6 +17,7 @@ from .models import (
 )
 from .permissions import IsCoordinatorOrAdminOrReadOnly
 from .serializers import (
+    AcademicLevelSerializer,
     AcademicYearSerializer,
     AchievementSerializer,
     AreaSerializer,
@@ -40,6 +42,12 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
 class PeriodViewSet(viewsets.ModelViewSet):
     queryset = Period.objects.all()
     serializer_class = PeriodSerializer
+    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+
+
+class AcademicLevelViewSet(viewsets.ModelViewSet):
+    queryset = AcademicLevel.objects.all()
+    serializer_class = AcademicLevelSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
 
 

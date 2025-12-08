@@ -22,6 +22,15 @@ export interface StudentNovelty {
   created_at: string
 }
 
+export interface StudentDocument {
+  id: number
+  student: number
+  document_type: 'IDENTITY' | 'VACCINES' | 'EPS' | 'ACADEMIC' | 'PHOTO' | 'OTHER'
+  file: string
+  description: string
+  uploaded_at: string
+}
+
 export interface Student {
   user: User
   // Identification
@@ -51,10 +60,17 @@ export interface Student {
   disability_description: string
   disability_type: string
   support_needs: string
+
+  // Health & Emergency
+  allergies: string
+  emergency_contact_name: string
+  emergency_contact_phone: string
+  emergency_contact_relationship: string
   
   // Relations
   family_members: FamilyMember[]
   novelties: StudentNovelty[]
+  documents: StudentDocument[]
 }
 
 export const studentsApi = {
@@ -62,6 +78,13 @@ export const studentsApi = {
   get: (id: number) => api.get<Student>(`/api/students/${id}/`),
   create: (data: any) => api.post<Student>('/api/students/', data),
   update: (id: number, data: any) => api.patch<Student>(`/api/students/${id}/`, data),
+}
+
+export const documentsApi = {
+  create: (data: FormData) => api.post('/api/documents/', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  delete: (id: number) => api.delete(`/api/documents/${id}/`),
 }
 
 export const familyMembersApi = {

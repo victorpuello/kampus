@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from .models import (
+    AcademicLevel,
     AcademicYear,
     Achievement,
     Area,
@@ -16,6 +17,12 @@ from .models import (
 )
 
 
+@admin.register(AcademicLevel)
+class AcademicLevelAdmin(admin.ModelAdmin):
+    list_display = ("name", "level_type", "min_age", "max_age")
+    list_filter = ("level_type",)
+
+
 @admin.register(AcademicYear)
 class AcademicYearAdmin(admin.ModelAdmin):
     list_display = ("year",)
@@ -29,13 +36,14 @@ class PeriodAdmin(admin.ModelAdmin):
 
 @admin.register(Grade)
 class GradeAdmin(admin.ModelAdmin):
-    list_display = ("name",)
+    list_display = ("name", "level")
+    list_filter = ("level",)
 
 
 @admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
-    list_display = ("name", "grade", "academic_year", "director")
-    list_filter = ("academic_year", "grade")
+    list_display = ("name", "grade", "campus", "academic_year", "director")
+    list_filter = ("academic_year", "grade", "campus")
 
 
 @admin.register(Area)

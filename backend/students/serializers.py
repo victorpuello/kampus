@@ -1,9 +1,16 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Student, FamilyMember, Enrollment, StudentNovelty
+from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument
 import unicodedata
 
 User = get_user_model()
+
+class StudentDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentDocument
+        fields = ["id", "student", "document_type", "file", "description", "uploaded_at"]
+        read_only_fields = ["id", "uploaded_at"]
+
 
 class StudentNoveltySerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,6 +54,7 @@ class StudentSerializer(serializers.ModelSerializer):
     
     family_members = FamilyMemberSerializer(many=True, read_only=True)
     novelties = StudentNoveltySerializer(many=True, read_only=True)
+    documents = StudentDocumentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Student
@@ -79,9 +87,15 @@ class StudentSerializer(serializers.ModelSerializer):
             "disability_description",
             "disability_type",
             "support_needs",
+            # Health & Emergency
+            "allergies",
+            "emergency_contact_name",
+            "emergency_contact_phone",
+            "emergency_contact_relationship",
             # Relations
             "family_members",
             "novelties",
+            "documents",
         ]
 
     def generate_username(self, first_name, last_name):
@@ -157,8 +171,34 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             "student",
             "academic_year",
             "grade",
+            "group",
+            "campus",
             "status",
             "origin_school",
             "final_status",
         ]
         read_only_fields = ["id"]
+
+    def validate(self, data):
+        group = data.get('group')
+        grade = data.get('grade')
+        academic_year = data.get('academic_year')
+        campus = data.get('campus')
+
+        if group:
+            # Validate Group belongs to Grade
+            if group.grade != grade:
+                raise serializers.ValidationError({"group": "El grupo seleccionado no pertenece al grado indicado."})
+            
+            # Validate Group belongs to Academic Year
+            if group.academic_year != academic_year:
+                raise serializers.ValidationError({"group": "El grupo no corresponde al año lectivo seleccionado."})
+            
+            # Validate Group belongs to Campus (if campus is provided)
+            if campus and group.campus != campus:
+                raise serializers.ValidationError({"group": "El grupo no pertenece a la sede seleccionada."})
+            
+            # If campus not provided but group is, infer campus? Or enforce consistency?
+            # For now, let's ensure consistency if both are present.
+
+        return data

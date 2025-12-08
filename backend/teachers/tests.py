@@ -41,14 +41,9 @@ class TeacherTests(TestCase):
     def test_create_teacher_as_admin(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer " + self.admin_token)
         data = {
-            "user": {
-                "username": "newteacher",
-                "password": "password",
-                "email": "new@teacher.com",
-                "first_name": "New",
-                "last_name": "Teacher",
-                "role": "TEACHER",  # Required by UserCreateSerializer
-            },
+            "first_name": "New",
+            "last_name": "Teacher",
+            "email": "new@teacher.com",
             "title": "Master",
             "specialty": "History",
         }
@@ -56,7 +51,8 @@ class TeacherTests(TestCase):
         if response.status_code != status.HTTP_201_CREATED:
             print(response.data)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(Teacher.objects.filter(user__username="newteacher").exists())
+        # Username is generated as new.teacher
+        self.assertTrue(Teacher.objects.filter(user__username="new.teacher").exists())
 
     def test_teacher_can_view_own_profile(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer " + self.teacher_token)

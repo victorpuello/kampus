@@ -1,12 +1,13 @@
 from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Student, FamilyMember, Enrollment, StudentNovelty
+from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument
 from .serializers import (
     StudentSerializer,
     FamilyMemberSerializer,
     EnrollmentSerializer,
     StudentNoveltySerializer,
+    StudentDocumentSerializer,
 )
 from .permissions import IsSecretaryOrAdminOrReadOnly
 import traceback
@@ -82,3 +83,9 @@ class StudentNoveltyViewSet(viewsets.ModelViewSet):
         elif novelty.novelty_type == "REINGRESO":
             user.is_active = True
             user.save()
+
+
+class StudentDocumentViewSet(viewsets.ModelViewSet):
+    queryset = StudentDocument.objects.all().order_by("-uploaded_at")
+    serializer_class = StudentDocumentSerializer
+    permission_classes = [IsSecretaryOrAdminOrReadOnly]

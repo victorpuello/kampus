@@ -8,7 +8,7 @@ class Student(models.Model):
     )
     # Identification
     document_type = models.CharField(max_length=20, blank=True)
-    document_number = models.CharField(max_length=50, blank=True)
+    document_number = models.CharField(max_length=50, blank=True, unique=True, verbose_name="Número de documento")
     place_of_issue = models.CharField(max_length=100, blank=True, verbose_name="Lugar de expedición")
     nationality = models.CharField(max_length=50, blank=True, default="Colombiana")
     birth_date = models.DateField(null=True, blank=True)
@@ -33,6 +33,12 @@ class Student(models.Model):
     disability_description = models.TextField(blank=True, verbose_name="Descripción discapacidad")
     disability_type = models.CharField(max_length=100, blank=True, verbose_name="Tipo de discapacidad")
     support_needs = models.TextField(blank=True, verbose_name="Apoyos requeridos")
+
+    # Health & Emergency
+    allergies = models.TextField(blank=True, verbose_name="Alergias/Restricciones")
+    emergency_contact_name = models.CharField(max_length=200, blank=True, verbose_name="Nombre Contacto Emergencia")
+    emergency_contact_phone = models.CharField(max_length=50, blank=True, verbose_name="Teléfono Emergencia")
+    emergency_contact_relationship = models.CharField(max_length=50, blank=True, verbose_name="Parentesco Emergencia")
 
     def __str__(self) -> str:
         return f"{self.user.get_full_name()} ({self.user.username})"
@@ -59,11 +65,14 @@ class FamilyMember(models.Model):
 
 
 class Enrollment(models.Model):
-    from academic.models import AcademicYear, Grade
+    from academic.models import AcademicYear, Grade, Group
+    from core.models import Campus
 
     student = models.ForeignKey(Student, on_delete=models.CASCADE)
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE)
     grade = models.ForeignKey(Grade, on_delete=models.CASCADE)
+    group = models.ForeignKey(Group, on_delete=models.SET_NULL, null=True, blank=True)
+    campus = models.ForeignKey(Campus, on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(
         max_length=20,
         choices=(
@@ -103,3 +112,22 @@ class StudentNovelty(models.Model):
 
     def __str__(self) -> str:
         return f"{self.get_novelty_type_display()} - {self.student} ({self.date})"
+
+
+class StudentDocument(models.Model):
+    DOCUMENT_TYPES = (
+        ('IDENTITY', 'Documento de Identidad'),
+        ('VACCINES', 'Carnet de Vacunas'),
+        ('EPS', 'Certificado EPS'),
+        ('ACADEMIC', 'Certificado Académico Anterior'),
+        ('PHOTO', 'Foto Tipo Documento'),
+        ('OTHER', 'Otro'),
+    )
+    student = models.ForeignKey(Student, related_name='documents', on_delete=models.CASCADE)
+    document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES)
+    file = models.FileField(upload_to='student_documents/')
+    description = models.CharField(max_length=200, blank=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.get_document_type_display()} - {self.student}"

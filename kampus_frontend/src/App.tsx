@@ -9,6 +9,9 @@ import TeacherForm from './pages/TeacherForm'
 import UserList from './pages/UserList'
 import UserForm from './pages/UserForm'
 import AcademicConfigPanel from './pages/AcademicConfigPanel'
+import InstitutionSettings from './pages/InstitutionSettings'
+import CampusList from './pages/CampusList'
+import CampusForm from './pages/CampusForm'
 import DashboardLayout from './layouts/DashboardLayout'
 import DashboardHome from './pages/DashboardHome'
 
@@ -31,6 +34,10 @@ export default function App() {
             <Route path="/users/new" element={<UserForm />} />
             <Route path="/users/:id" element={<UserForm />} />
             <Route path="/academic-config" element={<AcademicConfigPanel />} />
+            <Route path="/institution" element={<InstitutionSettings />} />
+            <Route path="/campuses" element={<CampusList />} />
+            <Route path="/campuses/new" element={<CampusForm />} />
+            <Route path="/campuses/:id/edit" element={<CampusForm />} />
           </Route>
         </Route>
       </Routes>

@@ -5,7 +5,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
+import { Toast, type ToastType } from '../components/ui/Toast'
 import { ArrowLeft, Save } from 'lucide-react'
+
+const REGIME_OPTIONS = [
+  { value: '2277', label: 'Estatuto 2277 de 1979 (Antiguo)' },
+  { value: '1278', label: 'Estatuto 1278 de 2002 (Nuevo)' },
+]
+
+const SCALE_OPTIONS_2277 = Array.from({ length: 14 }, (_, i) => ({
+  value: String(i + 1),
+  label: `Grado ${i + 1}`
+}))
+
+const SCALE_OPTIONS_1278 = [
+  { value: '1A', label: '1A' }, { value: '1B', label: '1B' }, { value: '1C', label: '1C' }, { value: '1D', label: '1D' },
+  { value: '2A', label: '2A' }, { value: '2B', label: '2B' }, { value: '2C', label: '2C' }, { value: '2D', label: '2D' },
+  { value: '3A', label: '3A' }, { value: '3B', label: '3B' }, { value: '3C', label: '3C' }, { value: '3D', label: '3D' },
+]
 
 export default function TeacherForm() {
   const navigate = useNavigate()
@@ -13,22 +30,58 @@ export default function TeacherForm() {
   const isEditing = !!id
 
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false
+  })
+  
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }
+
+  const getErrorMessage = (error: any, defaultMessage: string): string => {
+    if (error.response?.data) {
+      const data = error.response.data
+      // Manejar errores de validación de Django
+      if (typeof data === 'object') {
+        // Buscar errores de unicidad comunes
+        const errorStr = JSON.stringify(data)
+        if (errorStr.includes('email') && (errorStr.includes('unique') || errorStr.includes('already exists') || errorStr.includes('ya existe'))) {
+          return 'El correo electrónico ya está registrado en el sistema'
+        }
+        if (errorStr.includes('document_number') && (errorStr.includes('unique') || errorStr.includes('already exists') || errorStr.includes('ya existe'))) {
+          return 'El número de documento ya está registrado en el sistema'
+        }
+        // Otros errores de campo
+        const messages: string[] = []
+        for (const [field, value] of Object.entries(data)) {
+          if (Array.isArray(value)) {
+            messages.push(`${field}: ${value.join(', ')}`)
+          } else if (typeof value === 'string') {
+            messages.push(value)
+          }
+        }
+        if (messages.length > 0) {
+          return messages.join('. ')
+        }
+      }
+      if (data.detail) return data.detail
+    }
+    return defaultMessage
+  }
   
   const [formData, setFormData] = useState({
-    user: {
-      username: '',
-      email: '',
-      first_name: '',
-      last_name: '',
-      password: '',
-    },
+    first_name: '',
+    last_name: '',
+    email: '',
     document_type: 'CC',
     document_number: '',
     phone: '',
     address: '',
     title: '',
     specialty: '',
+    regime: '',
     salary_scale: '',
     hiring_date: '',
   })
@@ -40,78 +93,71 @@ export default function TeacherForm() {
         .then(res => {
           const teacher = res.data
           setFormData({
-            user: {
-              username: teacher.user.username,
-              email: teacher.user.email,
-              first_name: teacher.user.first_name,
-              last_name: teacher.user.last_name,
-              password: '', // Password not returned
-            },
+            first_name: teacher.user.first_name,
+            last_name: teacher.user.last_name,
+            email: teacher.user.email,
             document_type: teacher.document_type || 'CC',
             document_number: teacher.document_number || '',
             phone: teacher.phone || '',
             address: teacher.address || '',
             title: teacher.title || '',
             specialty: teacher.specialty || '',
+            regime: teacher.regime || '',
             salary_scale: teacher.salary_scale || '',
             hiring_date: teacher.hiring_date || '',
           })
         })
         .catch((err) => {
           console.error(err)
-          setError('Error al cargar el docente')
+          showToast('Error al cargar el docente', 'error')
         })
         .finally(() => setLoading(false))
     }
   }, [id, isEditing])
 
-  const handleUserChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      user: { ...prev.user, [name]: value }
-    }))
-  }
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
+    setFormData(prev => {
+      const newData = { ...prev, [name]: value }
+      // Clear salary scale if regime changes
+      if (name === 'regime') {
+        newData.salary_scale = ''
+      }
+      return newData
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    setError(null)
 
     try {
       // Prepare data: convert empty strings to null for optional fields
       const payload = {
         ...formData,
-        user: {
-          ...formData.user,
-          role: 'TEACHER',
-        },
         hiring_date: formData.hiring_date || null,
       }
 
       if (isEditing) {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { password, ...userWithoutPassword } = payload.user
-        const dataToUpdate = {
-          ...payload,
-          user: userWithoutPassword
-        }
-        await teachersApi.update(Number(id), dataToUpdate)
+        await teachersApi.update(Number(id), payload)
+        showToast('Docente actualizado correctamente', 'success')
       } else {
         await teachersApi.create(payload)
+        showToast('Docente creado correctamente', 'success')
       }
-      navigate('/teachers')
+      setTimeout(() => navigate('/teachers'), 1500)
     } catch (err: any) {
       console.error(err)
-      setError(err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Error al guardar el docente')
+      showToast(getErrorMessage(err, 'Error al guardar el docente'), 'error')
     } finally {
       setLoading(false)
     }
+  }
+
+  const getScaleOptions = () => {
+    if (formData.regime === '2277') return SCALE_OPTIONS_2277
+    if (formData.regime === '1278') return SCALE_OPTIONS_1278
+    return []
   }
 
   if (loading && isEditing) return <div className="p-6">Cargando...</div>
@@ -129,46 +175,25 @@ export default function TeacherForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {error && (
-          <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
-            {error}
-          </div>
-        )}
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          isVisible={toast.isVisible}
+          onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
+        />
 
         <Card>
           <CardHeader>
-            <CardTitle>Información Personal (Usuario)</CardTitle>
+            <CardTitle>Información Personal</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="username">Usuario</Label>
-              <Input
-                id="username"
-                name="username"
-                value={formData.user.username}
-                onChange={handleUserChange}
-                required
-                disabled={isEditing}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.user.email}
-                onChange={handleUserChange}
-                required
-              />
-            </div>
             <div className="space-y-2">
               <Label htmlFor="first_name">Nombres</Label>
               <Input
                 id="first_name"
                 name="first_name"
-                value={formData.user.first_name}
-                onChange={handleUserChange}
+                value={formData.first_name}
+                onChange={handleChange}
                 required
               />
             </div>
@@ -177,25 +202,22 @@ export default function TeacherForm() {
               <Input
                 id="last_name"
                 name="last_name"
-                value={formData.user.last_name}
-                onChange={handleUserChange}
+                value={formData.last_name}
+                onChange={handleChange}
                 required
               />
             </div>
-            {!isEditing && (
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor="password">Contraseña</Label>
-                <Input
-                  id="password"
-                  name="password"
-                  type="password"
-                  value={formData.user.password}
-                  onChange={handleUserChange}
-                  required={!isEditing}
-                  minLength={8}
-                />
-              </div>
-            )}
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleChange}
+                required
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -264,15 +286,40 @@ export default function TeacherForm() {
                 onChange={handleChange}
               />
             </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="regime">Régimen</Label>
+              <select
+                id="regime"
+                name="regime"
+                value={formData.regime}
+                onChange={handleChange}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Seleccione un régimen</option>
+                {REGIME_OPTIONS.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="salary_scale">Escalafón</Label>
-              <Input
+              <select
                 id="salary_scale"
                 name="salary_scale"
                 value={formData.salary_scale}
                 onChange={handleChange}
-              />
+                disabled={!formData.regime}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+              >
+                <option value="">Seleccione un grado</option>
+                {getScaleOptions().map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="hiring_date">Fecha Contratación</Label>
               <Input

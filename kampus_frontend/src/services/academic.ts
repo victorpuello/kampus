@@ -2,8 +2,9 @@ import { api } from './api'
 
 export interface AcademicYear { id: number; year: number }
 export interface Period { id: number; name: string; start_date: string; end_date: string; is_closed: boolean; academic_year: number }
-export interface Grade { id: number; name: string }
-export interface Group { id: number; name: string; grade: number; grade_name?: string; academic_year: number; director: number | null; director_name?: string }
+export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
+export interface Grade { id: number; name: string; level: number | null; level_name?: string }
+export interface Group { id: number; name: string; grade: number; grade_name?: string; academic_year: number; director: number | null; director_name?: string; campus: number | null; campus_name?: string }
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
 export interface TeacherAssignment { id: number; teacher: number; teacher_name?: string; subject: number; subject_name?: string; group: number; group_name?: string; academic_year: number }
@@ -18,18 +19,26 @@ export const academicApi = {
   // Years
   listYears: () => api.get<AcademicYear[]>('/api/academic-years/'),
   createYear: (year: number) => api.post<AcademicYear>('/api/academic-years/', { year }),
+  updateYear: (id: number, year: number) => api.put<AcademicYear>(`/api/academic-years/${id}/`, { year }),
+  deleteYear: (id: number) => api.delete(`/api/academic-years/${id}/`),
   
   // Periods
   listPeriods: () => api.get<Period[]>('/api/periods/'),
   createPeriod: (data: Omit<Period, 'id'>) => api.post<Period>('/api/periods/', data),
+  updatePeriod: (id: number, data: Omit<Period, 'id'>) => api.put<Period>(`/api/periods/${id}/`, data),
+  deletePeriod: (id: number) => api.delete(`/api/periods/${id}/`),
   
+  // Academic Levels
+  listLevels: () => api.get<AcademicLevel[]>('/api/academic-levels/'),
+  createLevel: (data: Omit<AcademicLevel, 'id'>) => api.post<AcademicLevel>('/api/academic-levels/', data),
+
   // Grades
   listGrades: () => api.get<Grade[]>('/api/grades/'),
-  createGrade: (name: string) => api.post<Grade>('/api/grades/', { name }),
+  createGrade: (data: { name: string; level?: number }) => api.post<Grade>('/api/grades/', data),
 
   // Groups
   listGroups: () => api.get<Group[]>('/api/groups/'),
-  createGroup: (data: Omit<Group, 'id' | 'grade_name' | 'director_name'>) => api.post<Group>('/api/groups/', data),
+  createGroup: (data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.post<Group>('/api/groups/', data),
 
   // Areas
   listAreas: () => api.get<Area[]>('/api/areas/'),

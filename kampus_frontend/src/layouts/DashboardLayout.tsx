@@ -9,7 +9,9 @@ import {
   X,
   GraduationCap,
   Briefcase,
-  Shield
+  Shield,
+  Building2,
+  MapPinned
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from '../components/ui/Button'
@@ -26,6 +28,8 @@ export default function DashboardLayout() {
     { name: 'Docentes', href: '/teachers', icon: Briefcase },
     { name: 'Usuarios', href: '/users', icon: Shield },
     { name: 'Académico', href: '/academic-config', icon: GraduationCap },
+    { name: 'Institución', href: '/institution', icon: Building2 },
+    { name: 'Sedes', href: '/campuses', icon: MapPinned },
   ]
 
   return (

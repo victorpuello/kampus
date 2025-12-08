@@ -4,7 +4,8 @@ import { teachersApi } from '../services/teachers'
 import type { Teacher } from '../services/teachers'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { Plus, Search } from 'lucide-react'
+import { Toast, type ToastType } from '../components/ui/Toast'
+import { Plus, Search, Trash2 } from 'lucide-react'
 import { Input } from '../components/ui/Input'
 
 export default function TeacherList() {
@@ -12,20 +13,43 @@ export default function TeacherList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false
+  })
 
-  useEffect(() => {
-    let mounted = true
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }
+
+  const loadTeachers = () => {
+    setLoading(true)
     teachersApi
       .getAll()
       .then((res) => {
-        if (mounted) setData(res.data)
+        setData(res.data)
       })
       .catch(() => setError('No se pudo cargar la lista de docentes'))
       .finally(() => setLoading(false))
-    return () => {
-      mounted = false
-    }
+  }
+
+  useEffect(() => {
+    loadTeachers()
   }, [])
+
+  const handleDelete = async (id: number) => {
+    try {
+      await teachersApi.delete(id)
+      showToast('Docente eliminado correctamente', 'success')
+      setDeleteConfirm(null)
+      loadTeachers()
+    } catch (err) {
+      console.error(err)
+      showToast('Error al eliminar el docente', 'error')
+    }
+  }
 
   const filteredData = data.filter(t => 
     t.user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -40,6 +64,36 @@ export default function TeacherList() {
 
   return (
     <div className="space-y-6">
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
+      />
+
+      {/* Modal de confirmación de eliminación */}
+      {deleteConfirm !== null && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2">¿Eliminar docente?</h3>
+            <p className="text-slate-600 mb-4">
+              Esta acción no se puede deshacer. Se eliminará el docente y su cuenta de usuario asociada.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+                Cancelar
+              </Button>
+              <Button 
+                variant="destructive" 
+                onClick={() => handleDelete(deleteConfirm)}
+              >
+                Eliminar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">Docentes</h2>
@@ -88,7 +142,7 @@ export default function TeacherList() {
                   </tr>
                 ) : (
                   filteredData.map((t) => (
-                    <tr key={t.user.id} className="bg-white border-b hover:bg-slate-50">
+                    <tr key={t.id} className="bg-white border-b hover:bg-slate-50">
                       <td className="px-6 py-4 font-medium text-slate-900">{t.user.username}</td>
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -105,11 +159,26 @@ export default function TeacherList() {
                         <div className="font-medium">{t.title}</div>
                         <div className="text-xs text-slate-500">{t.specialty}</div>
                       </td>
-                      <td className="px-6 py-4">{t.salary_scale}</td>
                       <td className="px-6 py-4">
-                        <Link to={`/teachers/${t.user.id}`}>
-                          <Button variant="ghost" size="sm">Editar</Button>
-                        </Link>
+                        <div className="font-medium">{t.salary_scale}</div>
+                        <div className="text-xs text-slate-500">
+                          {t.regime === '2277' ? 'Estatuto 2277' : t.regime === '1278' ? 'Estatuto 1278' : ''}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex gap-2">
+                          <Link to={`/teachers/${t.id}`}>
+                            <Button variant="ghost" size="sm">Editar</Button>
+                          </Link>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteConfirm(t.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
