@@ -20,3 +20,5 @@ dist/
 # Env
 .env
 .env.*
+backend/debug_curl.py
+backend/get_token.py

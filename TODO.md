@@ -25,6 +25,7 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 ### Usuarios y Autenticación
 - ✅ [P0] Serializers y ViewSet de `users.User` con permisos (solo ADMIN/SUPERADMIN)
 - ✅ [P0] Endpoint `api/users/me/` para perfil propio
+- ✅ [P0] Tests unitarios (pytest) para módulo de usuarios
 - [P1] Comando de gestión para crear SUPERADMIN inicial desde env
 - [P1] Documentar endpoints en `docs/api_endpoints.md`
 
@@ -66,7 +67,10 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - ✅ [P0] `useAuthStore` (Zustand)
 - ✅ [P0] Rutas protegidas (`ProtectedRoute`)
 - ✅ [P0] Página `Login` con flujo JWT completo
+- ✅ [P0] Módulo de Usuarios: Listado (`UserList`), Formulario (`UserForm`), Eliminación con Modal
+- ✅ [P1] Componente `ConfirmationModal` reutilizable
 - ✅ [P1] Página `StudentList` (tabla básica) y `StudentProfile` básico
+- ✅ [P1] Página `TeacherList` (tabla básica)
 - [P1] `AcademicConfigPanel` (CRUD simple) con formularios
 - [P2] `GradeSheetTable` con TanStack Table (edición inline + validaciones)
 - [P1] PWA: migrar a Workbox (precaching, runtime caching api/assets)

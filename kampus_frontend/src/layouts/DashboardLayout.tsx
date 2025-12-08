@@ -7,7 +7,9 @@ import {
   LogOut, 
   Menu, 
   X,
-  GraduationCap
+  GraduationCap,
+  Briefcase,
+  Shield
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from '../components/ui/Button'
@@ -21,6 +23,8 @@ export default function DashboardLayout() {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Estudiantes', href: '/students', icon: Users },
+    { name: 'Docentes', href: '/teachers', icon: Briefcase },
+    { name: 'Usuarios', href: '/users', icon: Shield },
     { name: 'Académico', href: '/academic-config', icon: GraduationCap },
   ]
 

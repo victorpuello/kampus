@@ -1,0 +1,40 @@
+export const epsList = [
+  "Aliansalud",
+  "Anas Wayuu",
+  "Asmet Salud",
+  "Cajacopi",
+  "Capital Salud",
+  "Capresoca",
+  "Comfachocó",
+  "Comfaoriente",
+  "Compensar",
+  "Coosalud",
+  "Dusakawi",
+  "Emssanar",
+  "Famisanar",
+  "Ferrocarriles Nacionales",
+  "Mallamas",
+  "Mutual Ser",
+  "Nueva EPS",
+  "Pijaos Salud",
+  "Salud Total",
+  "Sanitas",
+  "Savia Salud",
+  "Servicio Occidental de Salud (S.O.S.)",
+  "Sura",
+  "Salud Mía",
+  "Ecoopsos",
+  "AIC",
+  "P.N.N.",
+  "Otra"
+];
+
+export const ethnicityList = [
+  "Indígena",
+  "Afrocolombiano",
+  "Raizal del Archipiélago de San Andrés y Providencia",
+  "Palenquero de San Basilio",
+  "Gitano (Rrom)",
+  "Mestizo",
+  "Ninguna"
+];
