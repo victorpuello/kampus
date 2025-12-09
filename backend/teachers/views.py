@@ -14,3 +14,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
         if self.action in ["retrieve", "update", "partial_update"]:
             return [IsAuthenticated(), IsOwnerOrAdmin()]
         return super().get_permissions()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['year_id'] = self.request.query_params.get('year_id')
+        return context

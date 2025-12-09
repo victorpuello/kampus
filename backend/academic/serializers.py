@@ -18,10 +18,12 @@ from .models import (
 
 
 class AcademicYearSerializer(serializers.ModelSerializer):
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = AcademicYear
-        fields = ["id", "year"]
-        read_only_fields = ["id"]
+        fields = ["id", "year", "status", "status_display", "start_date", "end_date"]
+        read_only_fields = ["id", "status_display"]
 
 
 class PeriodSerializer(serializers.ModelSerializer):
@@ -125,6 +127,13 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = TeacherAssignment
         fields = "__all__"
+        validators = [
+            serializers.UniqueTogetherValidator(
+                queryset=TeacherAssignment.objects.all(),
+                fields=['subject', 'group', 'academic_year'],
+                message='Esta asignatura ya tiene un docente asignado en este grupo para el año seleccionado.'
+            )
+        ]
 
 
 class EvaluationScaleSerializer(serializers.ModelSerializer):

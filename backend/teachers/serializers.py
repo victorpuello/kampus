@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.db.models import Sum
 from .models import Teacher
 import unicodedata
 
@@ -20,6 +21,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     # Read-only nested user info
     user = TeacherUserSerializer(read_only=True)
     id = serializers.ReadOnlyField(source='pk')
+    assigned_hours = serializers.SerializerMethodField()
 
     class Meta:
         model = Teacher
@@ -37,8 +39,31 @@ class TeacherSerializer(serializers.ModelSerializer):
             "specialty",
             "regime",
             "salary_scale",
+            "teaching_level",
+            "assigned_hours",
             "hiring_date",
         ]
+
+    def get_assigned_hours(self, obj):
+        from academic.models import TeacherAssignment, AcademicYear
+        
+        year_id = self.context.get('year_id')
+        if year_id:
+            target_year = AcademicYear.objects.filter(id=year_id).first()
+        else:
+            target_year = AcademicYear.objects.order_by('-year').first()
+            
+        if not target_year:
+            return 0
+            
+        total_hours = TeacherAssignment.objects.filter(
+            teacher=obj.user,
+            academic_year=target_year
+        ).aggregate(
+            total=Sum('subject__hours_per_week')
+        )['total']
+        
+        return total_hours or 0
 
     def generate_username(self, first_name, last_name):
         def normalize(text):

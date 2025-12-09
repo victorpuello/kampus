@@ -26,7 +26,12 @@ export default function AcademicConfigPanel() {
   const [users, setUsers] = useState<User[]>([])
 
   // Form states
-  const [yearInput, setYearInput] = useState('')
+  const [yearInput, setYearInput] = useState({
+    year: '',
+    status: 'PLANNING',
+    start_date: '',
+    end_date: ''
+  })
   const [editingYearId, setEditingYearId] = useState<number | null>(null)
   const [periodInput, setPeriodInput] = useState({ name: '', start_date: '', end_date: '', academic_year: '' })
   const [editingPeriodId, setEditingPeriodId] = useState<number | null>(null)
@@ -182,16 +187,24 @@ export default function AcademicConfigPanel() {
 
   const onAddYear = async (e: FormEvent) => {
     e.preventDefault()
-    const y = parseInt(yearInput, 10)
+    const y = parseInt(yearInput.year, 10)
     if (!y) return
+    
+    const data = {
+      year: y,
+      status: yearInput.status as any,
+      start_date: yearInput.start_date || null,
+      end_date: yearInput.end_date || null
+    }
+
     try {
       if (editingYearId) {
-        await academicApi.updateYear(editingYearId, y)
+        await academicApi.updateYear(editingYearId, data)
         setEditingYearId(null)
       } else {
-        await academicApi.createYear(y)
+        await academicApi.createYear(data)
       }
-      setYearInput('')
+      setYearInput({ year: '', status: 'PLANNING', start_date: '', end_date: '' })
       await load()
       showToast(editingYearId ? 'Año lectivo actualizado correctamente' : 'Año lectivo creado correctamente', 'success')
     } catch (error: any) {
@@ -201,7 +214,12 @@ export default function AcademicConfigPanel() {
   }
 
   const onEditYear = (year: AcademicYear) => {
-    setYearInput(year.year.toString())
+    setYearInput({
+      year: year.year.toString(),
+      status: year.status,
+      start_date: year.start_date || '',
+      end_date: year.end_date || ''
+    })
     setEditingYearId(year.id)
   }
 
@@ -268,7 +286,7 @@ export default function AcademicConfigPanel() {
   }
 
   const onCancelEditYear = () => {
-    setYearInput('')
+    setYearInput({ year: '', status: 'PLANNING', start_date: '', end_date: '' })
     setEditingYearId(null)
   }
 
@@ -957,23 +975,70 @@ export default function AcademicConfigPanel() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 pt-4">
-              <form onSubmit={onAddYear} className="flex gap-2">
-                <Input
-                  placeholder="Ej: 2025"
-                  value={yearInput}
-                  onChange={(e) => setYearInput(e.target.value)}
-                  type="number"
-                  className="border-blue-100 focus:border-blue-300 focus:ring-blue-200"
-                />
-                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">{editingYearId ? 'Actualizar' : 'Agregar'}</Button>
-                {editingYearId && (
-                  <Button type="button" variant="outline" onClick={onCancelEditYear}>Cancelar</Button>
-                )}
+              <form onSubmit={onAddYear} className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Ej: 2025"
+                    value={yearInput.year}
+                    onChange={(e) => setYearInput({...yearInput, year: e.target.value})}
+                    type="number"
+                    className="border-blue-100 focus:border-blue-300 focus:ring-blue-200"
+                  />
+                  <select
+                    value={yearInput.status}
+                    onChange={(e) => setYearInput({...yearInput, status: e.target.value})}
+                    className="border border-blue-100 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  >
+                    <option value="PLANNING">En Planeación</option>
+                    <option value="ACTIVE">Activo</option>
+                    <option value="CLOSED">Finalizado</option>
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Inicio</label>
+                    <Input
+                      type="date"
+                      value={yearInput.start_date}
+                      onChange={(e) => setYearInput({...yearInput, start_date: e.target.value})}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Fin</label>
+                    <Input
+                      type="date"
+                      value={yearInput.end_date}
+                      onChange={(e) => setYearInput({...yearInput, end_date: e.target.value})}
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" className="bg-blue-600 hover:bg-blue-700 w-full">{editingYearId ? 'Actualizar' : 'Agregar'}</Button>
+                  {editingYearId && (
+                    <Button type="button" variant="outline" onClick={onCancelEditYear}>Cancelar</Button>
+                  )}
+                </div>
               </form>
               <div className="space-y-2">
                 {years.map((y) => (
                   <div key={y.id} className="p-3 bg-white hover:bg-blue-50 rounded-lg border border-slate-200 flex justify-between items-center transition-colors shadow-sm">
-                    <span className="font-bold text-slate-700 text-lg">{y.year}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-700 text-lg">{y.year}</span>
+                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          y.status === 'ACTIVE' ? 'bg-green-100 text-green-700' :
+                          y.status === 'CLOSED' ? 'bg-slate-100 text-slate-600' :
+                          'bg-blue-100 text-blue-700'
+                        }`}>
+                          {y.status_display}
+                        </span>
+                      </div>
+                      {(y.start_date || y.end_date) && (
+                        <div className="text-xs text-slate-500 mt-1">
+                          {y.start_date || 'N/A'} - {y.end_date || 'N/A'}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-800 hover:bg-blue-100" onClick={() => onEditYear(y)}>✎</Button>
                       <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteYear(y.id)}>×</Button>

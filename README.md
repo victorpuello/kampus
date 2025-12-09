@@ -142,5 +142,5 @@ Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) par
 
 ---
 
-Desarrollado con ❤️ para la educación en Colombia.
+Desarrollado con ❤️ por Víctor Puello, para la educación en Colombia.
 

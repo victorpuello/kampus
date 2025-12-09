@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
+import { academicApi, type AcademicYear } from '../services/academic'
 import type { Teacher } from '../services/teachers'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -10,6 +11,8 @@ import { Input } from '../components/ui/Input'
 
 export default function TeacherList() {
   const [data, setData] = useState<Teacher[]>([])
+  const [years, setYears] = useState<AcademicYear[]>([])
+  const [selectedYear, setSelectedYear] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -24,27 +27,41 @@ export default function TeacherList() {
     setToast({ message, type, isVisible: true })
   }
 
-  const loadTeachers = () => {
+  const loadData = async () => {
     setLoading(true)
-    teachersApi
-      .getAll()
-      .then((res) => {
-        setData(res.data)
-      })
-      .catch(() => setError('No se pudo cargar la lista de docentes'))
-      .finally(() => setLoading(false))
+    try {
+      // Load years first if not loaded
+      let currentYearId = selectedYear
+      if (years.length === 0) {
+        const yearsRes = await academicApi.listYears()
+        setYears(yearsRes.data)
+        if (yearsRes.data.length > 0 && !currentYearId) {
+          const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
+          currentYearId = String(activeYear ? activeYear.id : yearsRes.data[0].id)
+          setSelectedYear(currentYearId)
+        }
+      }
+
+      const teachersRes = await teachersApi.getAll(currentYearId ? Number(currentYearId) : undefined)
+      setData(teachersRes.data)
+    } catch (err) {
+      console.error(err)
+      setError('No se pudo cargar la información')
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
-    loadTeachers()
-  }, [])
+    loadData()
+  }, [selectedYear])
 
   const handleDelete = async (id: number) => {
     try {
       await teachersApi.delete(id)
       showToast('Docente eliminado correctamente', 'success')
       setDeleteConfirm(null)
-      loadTeachers()
+      loadData()
     } catch (err) {
       console.error(err)
       showToast('Error al eliminar el docente', 'error')
@@ -58,6 +75,24 @@ export default function TeacherList() {
     t.document_number.includes(searchTerm) ||
     t.title.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const getTargetHours = (level: string) => {
+    switch (level) {
+      case 'PRESCHOOL': return 20;
+      case 'PRIMARY': return 25;
+      case 'SECONDARY': return 22;
+      default: return 22;
+    }
+  }
+
+  const getLevelLabel = (level: string) => {
+    switch (level) {
+      case 'PRESCHOOL': return 'Preescolar';
+      case 'PRIMARY': return 'Primaria';
+      case 'SECONDARY': return 'Secundaria';
+      default: return '';
+    }
+  }
 
   if (loading) return <div className="p-6">Cargando…</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
@@ -99,11 +134,24 @@ export default function TeacherList() {
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">Docentes</h2>
           <p className="text-slate-500">Gestiona la planta docente de la institución.</p>
         </div>
-        <Link to="/teachers/new">
-          <Button className="w-full md:w-auto">
-            <Plus className="mr-2 h-4 w-4" /> Nuevo Docente
-          </Button>
-        </Link>
+        <div className="flex items-center gap-4">
+          <div className="w-40">
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {years.map(y => (
+                <option key={y.id} value={y.id}>Año {y.year} {y.status_display ? `(${y.status_display})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <Link to="/teachers/new">
+            <Button className="w-full md:w-auto">
+              <Plus className="mr-2 h-4 w-4" /> Nuevo Docente
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Card>
@@ -129,6 +177,7 @@ export default function TeacherList() {
                   <th className="px-6 py-3">Usuario</th>
                   <th className="px-6 py-3">Nombre Completo</th>
                   <th className="px-6 py-3">Título / Especialidad</th>
+                  <th className="px-6 py-3">Carga Académica</th>
                   <th className="px-6 py-3">Escalafón</th>
                   <th className="px-6 py-3">Acciones</th>
                 </tr>
@@ -136,7 +185,7 @@ export default function TeacherList() {
               <tbody>
                 {filteredData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-slate-500">
+                    <td colSpan={6} className="px-6 py-4 text-center text-slate-500">
                       No se encontraron docentes.
                     </td>
                   </tr>
@@ -158,6 +207,34 @@ export default function TeacherList() {
                       <td className="px-6 py-4">
                         <div className="font-medium">{t.title}</div>
                         <div className="text-xs text-slate-500">{t.specialty}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="w-full max-w-[180px]">
+                          <div className="flex justify-between text-xs mb-1 font-medium">
+                            <span className={
+                                (t.assigned_hours || 0) > getTargetHours(t.teaching_level) ? 'text-amber-600 font-bold' : 
+                                (t.assigned_hours || 0) === getTargetHours(t.teaching_level) ? 'text-emerald-600 font-bold' : 'text-slate-700'
+                            }>
+                                {t.assigned_hours || 0} / {getTargetHours(t.teaching_level)}h
+                            </span>
+                            <span className="text-slate-500 text-[10px] uppercase tracking-wider">{getLevelLabel(t.teaching_level)}</span>
+                          </div>
+                          <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden border border-slate-300">
+                            <div 
+                              className={`h-full rounded-full transition-all duration-500 ${
+                                (t.assigned_hours || 0) > getTargetHours(t.teaching_level) ? 'bg-amber-500' : 
+                                (t.assigned_hours || 0) === getTargetHours(t.teaching_level) ? 'bg-emerald-500' : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${Math.min(((t.assigned_hours || 0) / getTargetHours(t.teaching_level)) * 100, 100)}%` }}
+                            />
+                          </div>
+                          {(t.assigned_hours || 0) > getTargetHours(t.teaching_level) && (
+                            <div className="text-xs font-medium text-amber-600 mt-1 flex items-center">
+                                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>
+                                +{(t.assigned_hours || 0) - getTargetHours(t.teaching_level)} horas extras
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-medium">{t.salary_scale}</div>

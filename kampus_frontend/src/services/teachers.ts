@@ -12,6 +12,8 @@ export interface Teacher {
   specialty: string;
   regime: string;
   salary_scale: string;
+  teaching_level: 'PRESCHOOL' | 'PRIMARY' | 'SECONDARY';
+  assigned_hours: number;
   hiring_date: string | null;
 }
 
@@ -27,11 +29,12 @@ export interface CreateTeacherData {
   specialty: string;
   regime: string;
   salary_scale: string;
+  teaching_level: 'PRESCHOOL' | 'PRIMARY' | 'SECONDARY';
   hiring_date: string | null;
 }
 
 export const teachersApi = {
-  getAll: () => api.get<Teacher[]>('/api/teachers/'),
+  getAll: (yearId?: number) => api.get<Teacher[]>('/api/teachers/', { params: { year_id: yearId } }),
   getById: (id: number) => api.get<Teacher>(`/api/teachers/${id}/`),
   create: (data: CreateTeacherData) => api.post<Teacher>('/api/teachers/', data),
   update: (id: number, data: Partial<CreateTeacherData>) => api.patch<Teacher>(`/api/teachers/${id}/`, data),

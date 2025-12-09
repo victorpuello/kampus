@@ -1,6 +1,13 @@
 import { api } from './api'
 
-export interface AcademicYear { id: number; year: number }
+export interface AcademicYear { 
+  id: number; 
+  year: number;
+  status: 'PLANNING' | 'ACTIVE' | 'CLOSED';
+  status_display: string;
+  start_date: string | null;
+  end_date: string | null;
+}
 export interface Period { id: number; name: string; start_date: string; end_date: string; is_closed: boolean; academic_year: number }
 export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
 export interface Grade { id: number; name: string; level: number | null; level_name?: string }
@@ -38,8 +45,8 @@ export interface Achievement { id: number; description: string; subject: number;
 export const academicApi = {
   // Years
   listYears: () => api.get<AcademicYear[]>('/api/academic-years/'),
-  createYear: (year: number) => api.post<AcademicYear>('/api/academic-years/', { year }),
-  updateYear: (id: number, year: number) => api.put<AcademicYear>(`/api/academic-years/${id}/`, { year }),
+  createYear: (data: Partial<AcademicYear>) => api.post<AcademicYear>('/api/academic-years/', data),
+  updateYear: (id: number, data: Partial<AcademicYear>) => api.put<AcademicYear>(`/api/academic-years/${id}/`, data),
   deleteYear: (id: number) => api.delete(`/api/academic-years/${id}/`),
   
   // Periods
@@ -81,6 +88,7 @@ export const academicApi = {
   // Assignments
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
   createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'subject_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
+  deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
 
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),

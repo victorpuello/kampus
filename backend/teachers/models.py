@@ -53,6 +53,23 @@ class Teacher(models.Model):
         verbose_name="Escalafón"
     )
 
+    LEVEL_PRESCHOOL = 'PRESCHOOL'
+    LEVEL_PRIMARY = 'PRIMARY'
+    LEVEL_SECONDARY = 'SECONDARY'
+    
+    TEACHING_LEVEL_CHOICES = [
+        (LEVEL_PRESCHOOL, 'Preescolar (20 horas)'),
+        (LEVEL_PRIMARY, 'Básica Primaria (25 horas)'),
+        (LEVEL_SECONDARY, 'Básica Secundaria y Media (22 horas)'),
+    ]
+    
+    teaching_level = models.CharField(
+        max_length=20,
+        choices=TEACHING_LEVEL_CHOICES,
+        default=LEVEL_SECONDARY,
+        verbose_name="Nivel de Enseñanza"
+    )
+
     hiring_date = models.DateField(
         null=True, blank=True, verbose_name="Fecha de Contratación"
     )

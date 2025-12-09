@@ -4,13 +4,37 @@ from core.models import Campus
 
 
 class AcademicYear(models.Model):
+    STATUS_PLANNING = 'PLANNING'
+    STATUS_ACTIVE = 'ACTIVE'
+    STATUS_CLOSED = 'CLOSED'
+    
+    STATUS_CHOICES = [
+        (STATUS_PLANNING, 'En Planeación'),
+        (STATUS_ACTIVE, 'Activo'),
+        (STATUS_CLOSED, 'Finalizado'),
+    ]
+
     year = models.PositiveIntegerField(unique=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PLANNING,
+        verbose_name="Estado"
+    )
+    start_date = models.DateField(null=True, blank=True, verbose_name="Fecha Inicio")
+    end_date = models.DateField(null=True, blank=True, verbose_name="Fecha Fin")
 
     class Meta:
         ordering = ["-year"]
 
     def __str__(self) -> str:
-        return str(self.year)
+        return f"{self.year} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        if self.status == self.STATUS_ACTIVE:
+            # Si este año se marca como activo, cerrar los otros activos
+            AcademicYear.objects.filter(status=self.STATUS_ACTIVE).exclude(pk=self.pk).update(status=self.STATUS_CLOSED)
+        super().save(*args, **kwargs)
 
 
 class Period(models.Model):
@@ -126,7 +150,8 @@ class TeacherAssignment(models.Model):
     academic_year = models.ForeignKey(AcademicYear, on_delete=models.CASCADE)
 
     class Meta:
-        unique_together = ("teacher", "subject", "group", "academic_year")
+        # A subject in a group can only be assigned to one teacher per year
+        unique_together = ("subject", "group", "academic_year")
 
     def __str__(self) -> str:
         return f"{self.teacher} - {self.subject} - {self.group}"
