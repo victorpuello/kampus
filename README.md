@@ -1,43 +1,146 @@
-# Kampus
+# 🎓 Kampus - Plataforma de Gestión Escolar
 
-Plataforma de gestión escolar (Colombia) — Backend: Django/DRF, Frontend: React/Tailwind, DB: PostgreSQL, PWA.
+![Status](https://img.shields.io/badge/Status-En%20Desarrollo-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Python](https://img.shields.io/badge/Python-3.10%2B-yellow)
+![Django](https://img.shields.io/badge/Django-5.0-092E20)
+![React](https://img.shields.io/badge/React-18-61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6)
 
-## Estructura
+**Kampus** es un sistema integral para la administración académica diseñado específicamente para instituciones educativas en **Colombia**. Su arquitectura moderna permite gestionar de manera eficiente procesos de matrícula, evaluación (SIEE), y organización institucional, cumpliendo con los lineamientos del Ministerio de Educación Nacional.
 
-- `backend/`: proyecto Django (`kampus_backend`) y apps (`users`, `students`, `academic`, ...)
-- `kampus_frontend/`: Vite + React + TypeScript + Tailwind + PWA básico
+---
 
-## Entorno
+## ✨ Características Principales
 
-1) Backend
-- Copiar `.env.backend.example` a `.env` en la raíz del repo o exportar variables en el entorno.
-- Instalar dependencias:
-  - `python3 -m venv .venv && source .venv/bin/activate`
-  - `pip install -r requirements.txt` (pendiente) o `pip install Django djangorestframework django-cors-headers djangorestframework-simplejwt psycopg2-binary`
-- Migraciones: `cd backend && python manage.py migrate`
-- Ejecutar: `python manage.py runserver`
+### 🏫 Gestión Institucional
+- Configuración de múltiples sedes.
+- Gestión de años lectivos y periodos académicos.
+- Organización de niveles (Preescolar, Básica, Media), grados y grupos.
 
-2) Frontend
-- `cd kampus_frontend && npm install`
-- Ejecutar: `npm run dev` (por defecto en `http://localhost:5173`)
+### 📊 Sistema de Evaluación (SIEE)
+- **Escalas Híbridas**: Soporte simultáneo para escalas **Numéricas** (1.0 - 5.0) y **Cualitativas** (Descriptores).
+- **Flexibilidad**: Configuración personalizada por año lectivo.
+- **Herramientas de Productividad**: Funcionalidad para copiar escalas entre años lectivos.
 
-## Variables de entorno (backend)
+### 👥 Comunidad Educativa
+- **Perfiles de Usuario**: Rectores, Coordinadores, Docentes, Estudiantes y Acudientes.
+- **Hoja de Vida del Estudiante**: Información personal, familiar, médica y académica.
+- **Gestión de Matrículas**: Proceso de inscripción y seguimiento.
 
-Ver archivo `env.backend.example` para valores de ejemplo (SECRET_KEY, DB, CORS, etc.).
+### 💻 Experiencia de Usuario
+- Interfaz moderna y responsiva (Mobile-first).
+- Panel de configuración centralizado.
+- Navegación intuitiva y rápida (SPA).
 
-## Tareas
+---
 
-Consultar `TODO.md` para el plan priorizado.
+## 🛠️ Stack Tecnológico
 
-## Actualizaciones Recientes (Diciembre 2025)
+### Backend (API REST)
+- **Framework**: Django 5 & Django REST Framework.
+- **Autenticación**: JWT (JSON Web Tokens).
+- **Base de Datos**: PostgreSQL (Producción) / SQLite (Desarrollo).
+- **Documentación**: Swagger / Redoc.
 
-### Gestión Académica (SIEE)
-- **Escalas de Valoración Híbridas**: Soporte para escalas numéricas (Básica/Media) y cualitativas (Preescolar) en la misma institución.
-- **Copia de Escalas**: Funcionalidad para copiar configuraciones de escalas de valoración entre años lectivos.
-- **Filtros por Año**: Visualización filtrada por defecto al año actual en el panel de configuración.
+### Frontend (SPA)
+- **Core**: React 18 + TypeScript.
+- **Build Tool**: Vite.
+- **Estilos**: Tailwind CSS + Shadcn/ui components.
+- **Iconos**: Lucide React.
+- **Estado**: React Hooks & Context API.
 
-### Correcciones y Mejoras
-- **Gestión de Sedes**: Solucionado error en la edición de sedes (Institutional Tab).
-- **Backend**: Corrección de integridad de datos (emails duplicados) y migraciones de base de datos.
-- **Frontend**: Optimización de componentes y corrección de errores de compilación.
+---
+
+## 🚀 Instalación y Configuración
+
+### Prerrequisitos
+- Python 3.10 o superior.
+- Node.js 18 o superior.
+- Git.
+
+### 1. Configuración del Backend
+
+```bash
+# Clonar el repositorio
+git clone https://github.com/victorpuello/kampus.git
+cd kampus
+
+# Crear y activar entorno virtual
+python3 -m venv .venv
+source .venv/bin/activate  # En Windows: .venv\Scripts\activate
+
+# Instalar dependencias
+pip install -r requirements.txt
+
+# Configurar variables de entorno
+cp env.backend.example .env
+# (Editar .env con tus credenciales de base de datos si es necesario)
+
+# Aplicar migraciones
+python backend/manage.py migrate
+
+# Crear superusuario
+python backend/manage.py createsuperuser
+
+# Iniciar servidor de desarrollo
+python backend/manage.py runserver
+```
+
+### 2. Configuración del Frontend
+
+```bash
+# Navegar al directorio del frontend
+cd kampus_frontend
+
+# Instalar dependencias
+npm install
+
+# Iniciar servidor de desarrollo
+npm run dev
+```
+
+El frontend estará disponible en `http://localhost:5173` y el backend en `http://localhost:8000`.
+
+---
+
+## 📂 Estructura del Proyecto
+
+```
+kampus/
+├── backend/                 # Código fuente del Backend (Django)
+│   ├── academic/            # App: Gestión académica y SIEE
+│   ├── communications/      # App: Mensajería y notificaciones
+│   ├── core/                # App: Modelos base e institución
+│   ├── students/            # App: Gestión de estudiantes
+│   ├── users/               # App: Autenticación y usuarios
+│   └── manage.py            # CLI de Django
+├── kampus_frontend/         # Código fuente del Frontend (React)
+│   ├── src/
+│   │   ├── components/      # Componentes reutilizables UI
+│   │   ├── pages/           # Vistas principales
+│   │   ├── services/        # Integración con API
+│   │   └── store/           # Gestión de estado global
+│   └── vite.config.ts       # Configuración de Vite
+└── docs/                    # Documentación adicional
+```
+
+---
+
+## 🔄 Actualizaciones Recientes (Diciembre 2025)
+
+- **SIEE Mejorado**: Implementación completa de escalas de valoración cualitativas y numéricas.
+- **Gestión de Datos**: Corrección de duplicidad en correos electrónicos de usuarios.
+- **UX**: Nuevos filtros por año en paneles de configuración.
+- **DevOps**: Scripts de limpieza y corrección de migraciones.
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+
+---
+
+Desarrollado con ❤️ para la educación en Colombia.
 
