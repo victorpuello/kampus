@@ -105,6 +105,7 @@ class Group(models.Model):
     )
     shift = models.CharField(max_length=20, choices=SHIFT_CHOICES, default='MORNING')
     classroom = models.CharField(max_length=50, blank=True, null=True)
+    capacity = models.PositiveIntegerField(default=40, verbose_name="Cupo Máximo")
 
     class Meta:
         unique_together = ("name", "grade", "academic_year")

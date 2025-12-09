@@ -44,6 +44,7 @@ class StudentUserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name', 'email']
 
 class StudentSerializer(serializers.ModelSerializer):
+    id = serializers.ReadOnlyField(source='pk')
     # Write-only fields for User creation
     first_name = serializers.CharField(write_only=True, required=False)
     last_name = serializers.CharField(write_only=True, required=False)
@@ -59,6 +60,7 @@ class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = [
+            "id",
             "user",
             "first_name",
             "last_name",
@@ -92,6 +94,9 @@ class StudentSerializer(serializers.ModelSerializer):
             "emergency_contact_name",
             "emergency_contact_phone",
             "emergency_contact_relationship",
+            # New fields
+            "photo",
+            "financial_status",
             # Relations
             "family_members",
             "novelties",
@@ -119,28 +124,44 @@ class StudentSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         first_name = validated_data.pop('first_name', None)
         last_name = validated_data.pop('last_name', None)
-        email = validated_data.pop('email', '')
+        email = validated_data.pop('email', None)
         
         if not first_name:
             raise serializers.ValidationError({"first_name": "Este campo es requerido."})
         if not last_name:
             raise serializers.ValidationError({"last_name": "Este campo es requerido."})
+            
+        # Handle empty email
+        if email == '':
+            email = None
+            
+        # Check email uniqueness if provided
+        if email and User.objects.filter(email=email).exists():
+            raise serializers.ValidationError({"email": "Ya existe un usuario con este correo electrónico."})
         
         username = self.generate_username(first_name, last_name)
         
-        # Create User
-        user = User.objects.create_user(
-            username=username,
-            first_name=first_name,
-            last_name=last_name,
-            email=email,
-            role=User.ROLE_STUDENT,
-            password=username # Default password is the username
-        )
-        
-        # Create Student
-        student = Student.objects.create(user=user, **validated_data)
-        return student
+        try:
+            # Create User
+            user = User.objects.create_user(
+                username=username,
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                role=User.ROLE_STUDENT,
+                password=username # Default password is the username
+            )
+            
+            # Create Student
+            student = Student.objects.create(user=user, **validated_data)
+            return student
+        except Exception as e:
+            # If user was created but student failed, we should probably rollback or delete user
+            # But since we are in a transaction (atomic request usually), it should be fine.
+            # However, explicit handling is better.
+            if 'user' in locals() and user.pk:
+                user.delete()
+            raise serializers.ValidationError({"detail": f"Error creando estudiante: {str(e)}"})
 
     def update(self, instance, validated_data):
         first_name = validated_data.pop('first_name', None)
@@ -179,11 +200,42 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
+    def to_representation(self, instance):
+        response = super().to_representation(instance)
+        response['student'] = {
+            'id': instance.student.pk,
+            'full_name': instance.student.user.get_full_name(),
+            'document_number': instance.student.document_number
+        }
+        response['academic_year'] = {
+            'id': instance.academic_year.pk,
+            'year': instance.academic_year.year
+        }
+        response['grade'] = {
+            'id': instance.grade.pk,
+            'name': instance.grade.name
+        }
+        if instance.group:
+            response['group'] = {
+                'id': instance.group.pk,
+                'name': instance.group.name
+            }
+        return response
+
     def validate(self, data):
         group = data.get('group')
         grade = data.get('grade')
         academic_year = data.get('academic_year')
         campus = data.get('campus')
+        student = data.get('student')
+
+        # 1. Validate Financial Status (Paz y Salvo)
+        if student and student.financial_status == 'DEBT':
+            # Check if user is admin to override? For now, strict block.
+            # You can add logic here to allow admins to bypass.
+            user = self.context['request'].user
+            if not (user.is_superuser or user.role == 'ADMIN'):
+                 raise serializers.ValidationError({"student": "El estudiante se encuentra en mora (No Paz y Salvo)."})
 
         if group:
             # Validate Group belongs to Grade
@@ -198,7 +250,14 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             if campus and group.campus != campus:
                 raise serializers.ValidationError({"group": "El grupo no pertenece a la sede seleccionada."})
             
-            # If campus not provided but group is, infer campus? Or enforce consistency?
-            # For now, let's ensure consistency if both are present.
+            # 2. Validate Group Capacity
+            # Count active enrollments for this group
+            current_enrollments = Enrollment.objects.filter(group=group, status='ACTIVE').count()
+            if current_enrollments >= group.capacity:
+                 # Check if we are updating an existing enrollment to this group (don't count itself)
+                 if self.instance and self.instance.group == group:
+                     pass
+                 else:
+                     raise serializers.ValidationError({"group": f"El grupo ha alcanzado su capacidad máxima ({group.capacity})."})
 
         return data

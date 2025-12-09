@@ -92,10 +92,15 @@ class GroupSerializer(serializers.ModelSerializer):
     grade_name = serializers.CharField(source="grade.name", read_only=True)
     director_name = serializers.SerializerMethodField()
     campus_name = serializers.SerializerMethodField()
+    enrolled_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
         fields = "__all__"
+
+    def get_enrolled_count(self, obj):
+        # Count active enrollments
+        return obj.enrollment_set.filter(status='ACTIVE').count()
 
     def get_director_name(self, obj):
         return obj.director.get_full_name() if obj.director else None

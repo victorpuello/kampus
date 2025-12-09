@@ -40,6 +40,15 @@ class Student(models.Model):
     emergency_contact_phone = models.CharField(max_length=50, blank=True, verbose_name="Teléfono Emergencia")
     emergency_contact_relationship = models.CharField(max_length=50, blank=True, verbose_name="Parentesco Emergencia")
 
+    # New fields for Enrollment Module
+    photo = models.ImageField(upload_to='student_photos/', blank=True, null=True, verbose_name="Foto")
+    financial_status = models.CharField(
+        max_length=20,
+        choices=(('SOLVENT', 'Paz y Salvo'), ('DEBT', 'En Mora')),
+        default='SOLVENT',
+        verbose_name="Estado Financiero"
+    )
+
     def __str__(self) -> str:
         return f"{self.user.get_full_name()} ({self.user.username})"
 
