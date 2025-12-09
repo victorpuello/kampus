@@ -75,7 +75,7 @@ class AcademicLevelSerializer(serializers.ModelSerializer):
 
 
 class GradeSerializer(serializers.ModelSerializer):
-    level_name = serializers.CharField(source="level.name", read_only=True)
+    level_name = serializers.CharField(source="level.name", read_only=True, allow_null=True)
     
     class Meta:
         model = Grade
@@ -86,9 +86,9 @@ class GradeSerializer(serializers.ModelSerializer):
 class GroupSerializer(serializers.ModelSerializer):
     grade_name = serializers.CharField(source="grade.name", read_only=True)
     director_name = serializers.CharField(
-        source="director.get_full_name", read_only=True
+        source="director.get_full_name", read_only=True, allow_null=True
     )
-    campus_name = serializers.CharField(source="campus.name", read_only=True)
+    campus_name = serializers.CharField(source="campus.name", read_only=True, allow_null=True)
 
     class Meta:
         model = Group

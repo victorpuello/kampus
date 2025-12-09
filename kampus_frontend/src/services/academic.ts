@@ -31,10 +31,14 @@ export const academicApi = {
   // Academic Levels
   listLevels: () => api.get<AcademicLevel[]>('/api/academic-levels/'),
   createLevel: (data: Omit<AcademicLevel, 'id'>) => api.post<AcademicLevel>('/api/academic-levels/', data),
+  updateLevel: (id: number, data: Omit<AcademicLevel, 'id'>) => api.put<AcademicLevel>(`/api/academic-levels/${id}/`, data),
+  deleteLevel: (id: number) => api.delete(`/api/academic-levels/${id}/`),
 
   // Grades
   listGrades: () => api.get<Grade[]>('/api/grades/'),
   createGrade: (data: { name: string; level?: number }) => api.post<Grade>('/api/grades/', data),
+  updateGrade: (id: number, data: { name: string; level?: number }) => api.put<Grade>(`/api/grades/${id}/`, data),
+  deleteGrade: (id: number) => api.delete(`/api/grades/${id}/`),
 
   // Groups
   listGroups: () => api.get<Group[]>('/api/groups/'),
@@ -43,10 +47,14 @@ export const academicApi = {
   // Areas
   listAreas: () => api.get<Area[]>('/api/areas/'),
   createArea: (data: Omit<Area, 'id'>) => api.post<Area>('/api/areas/', data),
+  updateArea: (id: number, data: Omit<Area, 'id'>) => api.put<Area>(`/api/areas/${id}/`, data),
+  deleteArea: (id: number) => api.delete(`/api/areas/${id}/`),
 
   // Subjects
   listSubjects: () => api.get<Subject[]>('/api/subjects/'),
   createSubject: (data: Omit<Subject, 'id' | 'area_name' | 'grade_name'>) => api.post<Subject>('/api/subjects/', data),
+  updateSubject: (id: number, data: Omit<Subject, 'id' | 'area_name' | 'grade_name'>) => api.put<Subject>(`/api/subjects/${id}/`, data),
+  deleteSubject: (id: number) => api.delete(`/api/subjects/${id}/`),
 
   // Assignments
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
