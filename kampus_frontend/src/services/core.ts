@@ -147,12 +147,8 @@ export const CALENDAR_OPTIONS = [
 export const coreApi = {
   // Institutions
   listInstitutions: () => api.get<Institution[]>('/api/institutions/'),
-  createInstitution: (data: FormData) => api.post<Institution>('/api/institutions/', data, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
-  updateInstitution: (id: number, data: FormData) => api.patch<Institution>(`/api/institutions/${id}/`, data, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
+  createInstitution: (data: FormData) => api.post<Institution>('/api/institutions/', data),
+  updateInstitution: (id: number, data: FormData) => api.patch<Institution>(`/api/institutions/${id}/`, data),
 
   // Campuses
   listCampuses: () => api.get<Campus[]>('/api/campuses/'),

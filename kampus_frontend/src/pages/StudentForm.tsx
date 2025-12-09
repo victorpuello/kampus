@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { studentsApi, familyMembersApi } from '../services/students'
 import type { FamilyMember } from '../services/students'
+import StudentDocuments from '../components/students/StudentDocuments'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
-import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X } from 'lucide-react'
+import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText } from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 
@@ -333,6 +334,7 @@ export default function StudentForm() {
     { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
     { id: 'support', label: 'Apoyos', icon: Heart },
     { id: 'family', label: 'Familia', icon: Users },
+    { id: 'documents', label: 'Documentos', icon: FileText },
   ]
 
   if (loading && isEditing && !formData.first_name) return <div className="p-6">Cargando...</div>
@@ -673,31 +675,33 @@ export default function StudentForm() {
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+                            <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                                 <tr>
-                                    <th className="px-4 py-2">Nombre</th>
-                                    <th className="px-4 py-2">Parentesco</th>
-                                    <th className="px-4 py-2">Teléfono</th>
-                                    <th className="px-4 py-2">Acudiente</th>
-                                    <th className="px-4 py-2">Acciones</th>
+                                    <th className="px-6 py-3 font-semibold">Nombre</th>
+                                    <th className="px-6 py-3 font-semibold">Parentesco</th>
+                                    <th className="px-6 py-3 font-semibold">Teléfono</th>
+                                    <th className="px-6 py-3 font-semibold">Acudiente</th>
+                                    <th className="px-6 py-3 font-semibold text-right">Acciones</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-slate-100">
                                 {familyMembers.map((member) => (
-                                    <tr key={member.id} className="border-b hover:bg-slate-50">
-                                        <td className="px-4 py-2 font-medium">{member.full_name}</td>
-                                        <td className="px-4 py-2">{member.relationship}</td>
-                                        <td className="px-4 py-2">{member.phone}</td>
-                                        <td className="px-4 py-2">
-                                            {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-full">Principal</span>}
+                                    <tr key={member.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                                        <td className="px-6 py-3 font-medium text-slate-900">{member.full_name}</td>
+                                        <td className="px-6 py-3">{member.relationship}</td>
+                                        <td className="px-6 py-3">{member.phone}</td>
+                                        <td className="px-6 py-3">
+                                            {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200">Principal</span>}
                                         </td>
-                                        <td className="px-4 py-2 flex gap-2">
-                                            <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button">
-                                                <Edit2 className="h-4 w-4" />
-                                            </Button>
-                                            <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="text-red-600 hover:text-red-700 hover:bg-red-50">
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                        <td className="px-6 py-3 text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                                                    <Edit2 className="h-4 w-4" />
+                                                </Button>
+                                                <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -708,11 +712,28 @@ export default function StudentForm() {
             </CardContent>
             <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
                 <Button variant="outline" onClick={() => setActiveTab('support')}>Anterior</Button>
-                <Button onClick={() => navigate('/students')} disabled={loading}>
-                    Finalizar
+                <Button onClick={() => setActiveTab('documents')} disabled={loading}>
+                    Siguiente
                 </Button>
             </div>
             </Card>
+        </div>
+
+        {/* DOCUMENTS TAB */}
+        <div className={activeTab === 'documents' ? 'block' : 'hidden'}>
+            {!isEditing ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500">
+                        Guarde el estudiante primero para gestionar sus documentos.
+                    </CardContent>
+                </Card>
+            ) : (
+                <StudentDocuments studentId={Number(id)} />
+            )}
+            <div className="flex justify-between p-4 mt-4">
+                <Button variant="outline" onClick={() => setActiveTab('family')}>Anterior</Button>
+                <Button onClick={() => navigate('/students')}>Finalizar</Button>
+            </div>
         </div>
 
         {showFamilyModal && id && (

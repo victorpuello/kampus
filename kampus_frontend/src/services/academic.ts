@@ -23,6 +23,8 @@ export interface Group {
   campus_name?: string;
   shift: string;
   classroom?: string;
+  capacity: number;
+  enrolled_count: number;
 }
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
@@ -68,7 +70,7 @@ export const academicApi = {
   deleteGrade: (id: number) => api.delete(`/api/grades/${id}/`),
 
   // Groups
-  listGroups: () => api.get<Group[]>('/api/groups/'),
+  listGroups: (params?: any) => api.get<Group[]>('/api/groups/', { params }),
   createGroup: (data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.post<Group>('/api/groups/', data),
   updateGroup: (id: number, data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.put<Group>(`/api/groups/${id}/`, data),
   deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),

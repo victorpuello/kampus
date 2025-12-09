@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
 import { academicApi, type AcademicYear } from '../services/academic'
 import type { Teacher } from '../services/teachers'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Toast, type ToastType } from '../components/ui/Toast'
-import { Plus, Search, Trash2 } from 'lucide-react'
+import { Plus, Search, Trash2, GraduationCap, BookOpen, Users, School } from 'lucide-react'
 import { Input } from '../components/ui/Input'
 
 export default function TeacherList() {
+  const navigate = useNavigate()
   const [data, setData] = useState<Teacher[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
@@ -68,14 +69,6 @@ export default function TeacherList() {
     }
   }
 
-  const filteredData = data.filter(t => 
-    t.user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.user.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.document_number.includes(searchTerm) ||
-    t.title.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
   const getTargetHours = (level: string) => {
     switch (level) {
       case 'PRESCHOOL': return 20;
@@ -93,6 +86,21 @@ export default function TeacherList() {
       default: return '';
     }
   }
+
+  const filteredData = data.filter(t => 
+    t.user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    t.user.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    t.user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    t.document_number.includes(searchTerm) ||
+    t.title.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  // Stats
+  const totalTeachers = data.length
+  const fullLoadTeachers = data.filter(t => (t.assigned_hours || 0) >= getTargetHours(t.teaching_level)).length
+  const avgHours = data.length > 0 
+    ? (data.reduce((acc, t) => acc + (t.assigned_hours || 0), 0) / data.length).toFixed(1) 
+    : '0'
 
   if (loading) return <div className="p-6">Cargando…</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
@@ -131,8 +139,13 @@ export default function TeacherList() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Docentes</h2>
-          <p className="text-slate-500">Gestiona la planta docente de la institución.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <GraduationCap className="h-6 w-6 text-blue-600" />
+            </div>
+            Docentes
+          </h2>
+          <p className="text-slate-500 mt-1">Gestiona la planta docente de la institución.</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="w-40">
@@ -147,79 +160,129 @@ export default function TeacherList() {
             </select>
           </div>
           <Link to="/teachers/new">
-            <Button className="w-full md:w-auto">
+            <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
               <Plus className="mr-2 h-4 w-4" /> Nuevo Docente
             </Button>
           </Link>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <p className="text-sm font-medium text-slate-500">Total Docentes</p>
+              <Users className="h-4 w-4 text-slate-500" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900">{totalTeachers}</div>
+            <p className="text-xs text-slate-500 mt-1">
+              Registrados en el sistema
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <p className="text-sm font-medium text-slate-500">Carga Completa</p>
+              <BookOpen className="h-4 w-4 text-emerald-500" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900">{fullLoadTeachers}</div>
+            <p className="text-xs text-slate-500 mt-1">
+              Docentes con asignación completa
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between space-y-0 pb-2">
+              <p className="text-sm font-medium text-slate-500">Promedio Horas</p>
+              <School className="h-4 w-4 text-blue-500" />
+            </div>
+            <div className="text-2xl font-bold text-slate-900">{avgHours}h</div>
+            <p className="text-xs text-slate-500 mt-1">
+              Promedio de asignación por docente
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-white">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle>Listado de Docentes</CardTitle>
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
+            <CardTitle className="text-lg font-semibold text-slate-900">Listado de Docentes</CardTitle>
+            <div className="relative w-full md:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input 
-                placeholder="Buscar docente..." 
-                className="pl-8"
+                placeholder="Buscar por nombre, documento..." 
+                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-slate-50">
+              <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
-                  <th className="px-6 py-3">Usuario</th>
-                  <th className="px-6 py-3">Nombre Completo</th>
-                  <th className="px-6 py-3">Título / Especialidad</th>
-                  <th className="px-6 py-3">Carga Académica</th>
-                  <th className="px-6 py-3">Escalafón</th>
-                  <th className="px-6 py-3">Acciones</th>
+                  <th className="px-6 py-4 font-semibold">Docente</th>
+                  <th className="px-6 py-4 font-semibold">Título / Especialidad</th>
+                  <th className="px-6 py-4 font-semibold">Carga Académica</th>
+                  <th className="px-6 py-4 font-semibold">Escalafón</th>
+                  <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {filteredData.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-slate-500">
-                      No se encontraron docentes.
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                      <div className="flex flex-col items-center justify-center py-4">
+                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                          <Search className="h-6 w-6 text-slate-400" />
+                        </div>
+                        <p className="font-medium text-slate-900">No se encontraron docentes</p>
+                        <p className="text-sm text-slate-500 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   filteredData.map((t) => (
-                    <tr key={t.id} className="bg-white border-b hover:bg-slate-50">
-                      <td className="px-6 py-4 font-medium text-slate-900">{t.user.username}</td>
+                    <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center mr-3 text-emerald-700 font-bold text-xs">
+                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
                             {t.user.first_name[0]}{t.user.last_name[0]}
                           </div>
                           <div>
-                            <div className="font-medium">{t.user.first_name} {t.user.last_name}</div>
-                            <div className="text-xs text-slate-500">{t.user.email}</div>
+                            <div className="font-medium text-slate-900 uppercase">{t.user.first_name} {t.user.last_name}</div>
+                            <div className="text-xs text-slate-500 flex items-center gap-1">
+                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{t.user.username}</span>
+                              <span>•</span>
+                              <span>{t.user.email}</span>
+                            </div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-medium">{t.title}</div>
-                        <div className="text-xs text-slate-500">{t.specialty}</div>
+                        <div className="font-medium text-slate-900">{t.title}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{t.specialty}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="w-full max-w-[180px]">
-                          <div className="flex justify-between text-xs mb-1 font-medium">
+                          <div className="flex justify-between text-xs mb-1.5 font-medium">
                             <span className={
                                 (t.assigned_hours || 0) > getTargetHours(t.teaching_level) ? 'text-amber-600 font-bold' : 
                                 (t.assigned_hours || 0) === getTargetHours(t.teaching_level) ? 'text-emerald-600 font-bold' : 'text-slate-700'
                             }>
                                 {t.assigned_hours || 0} / {getTargetHours(t.teaching_level)}h
                             </span>
-                            <span className="text-slate-500 text-[10px] uppercase tracking-wider">{getLevelLabel(t.teaching_level)}</span>
+                            <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                              {getLevelLabel(t.teaching_level)}
+                            </span>
                           </div>
-                          <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden border border-slate-300">
+                          <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
                             <div 
                               className={`h-full rounded-full transition-all duration-500 ${
                                 (t.assigned_hours || 0) > getTargetHours(t.teaching_level) ? 'bg-amber-500' : 
@@ -229,30 +292,36 @@ export default function TeacherList() {
                             />
                           </div>
                           {(t.assigned_hours || 0) > getTargetHours(t.teaching_level) && (
-                            <div className="text-xs font-medium text-amber-600 mt-1 flex items-center">
-                                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>
-                                +{(t.assigned_hours || 0) - getTargetHours(t.teaching_level)} horas extras
+                            <div className="text-[10px] font-medium text-amber-600 mt-1.5 flex items-center bg-amber-50 px-2 py-0.5 rounded w-fit">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                                +{(t.assigned_hours || 0) - getTargetHours(t.teaching_level)}h extras
                             </div>
                           )}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-medium">{t.salary_scale}</div>
-                        <div className="text-xs text-slate-500">
+                        <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                          {t.salary_scale}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1.5 ml-1">
                           {t.regime === '2277' ? 'Estatuto 2277' : t.regime === '1278' ? 'Estatuto 1278' : ''}
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex gap-2">
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
                           <Link to={`/teachers/${t.id}`}>
-                            <Button variant="ghost" size="sm">Editar</Button>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                              <span className="sr-only">Editar</span>
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+                            </Button>
                           </Link>
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
                             onClick={() => setDeleteConfirm(t.id)}
                           >
+                            <span className="sr-only">Eliminar</span>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>

@@ -49,6 +49,10 @@ export interface Student {
   phone: string
   living_with: string
   stratum: string
+
+  // New fields
+  photo?: string
+  financial_status?: 'SOLVENT' | 'DEBT'
   
   // Socioeconomic
   ethnicity: string
@@ -75,15 +79,15 @@ export interface Student {
 }
 
 export const studentsApi = {
-  list: () => api.get<Student[]>('/api/students/'),
+  list: (params?: any) => api.get<Student[]>('/api/students/', { params }),
   get: (id: number) => api.get<Student>(`/api/students/${id}/`),
   create: (data: any) => api.post<Student>('/api/students/', data),
   update: (id: number, data: any) => api.patch<Student>(`/api/students/${id}/`, data),
 }
 
 export const documentsApi = {
-  create: (data: FormData) => api.post('/api/documents/', data, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+  create: (data: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/api/documents/', data, {
+    onUploadProgress
   }),
   delete: (id: number) => api.delete(`/api/documents/${id}/`),
 }

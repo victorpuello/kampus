@@ -1,4 +1,5 @@
 from rest_framework import viewsets, filters
+from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
@@ -6,10 +7,18 @@ from rest_framework import status
 from django.http import HttpResponse
 from django.db import transaction
 from django.contrib.auth import get_user_model
+from django.template.loader import render_to_string
+from django.conf import settings
 import csv
 import io
 from academic.models import AcademicYear, Grade, Group
+from core.models import Institution
 from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument
+try:
+    from xhtml2pdf import pisa
+except ImportError:
+    pisa = None
+
 from .serializers import (
     StudentSerializer,
     FamilyMemberSerializer,
@@ -79,6 +88,94 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
     queryset = Enrollment.objects.select_related("student").all().order_by("id")
     serializer_class = EnrollmentSerializer
     permission_classes = [IsSecretaryOrAdminOrReadOnly]
+
+    @action(detail=False, methods=['get'])
+    def report(self, request):
+        # Filters
+        year_id = request.query_params.get('year')
+        grade_id = request.query_params.get('grade')
+        group_id = request.query_params.get('group')
+        report_format = request.query_params.get('format', 'csv')
+        
+        enrollments = Enrollment.objects.select_related('student', 'student__user', 'grade', 'group', 'academic_year').all().order_by('student__user__last_name', 'student__user__first_name')
+        
+        # Filter logic
+        year_name = "Todos"
+        grade_name = ""
+        group_name = ""
+
+        if year_id:
+            enrollments = enrollments.filter(academic_year_id=year_id)
+            try:
+                year_name = AcademicYear.objects.get(pk=year_id).year
+            except: pass
+        else:
+            # Default to active year
+            active_year = AcademicYear.objects.filter(status='ACTIVE').first()
+            if active_year:
+                enrollments = enrollments.filter(academic_year=active_year)
+                year_name = active_year.year
+        
+        if grade_id:
+            enrollments = enrollments.filter(grade_id=grade_id)
+            try:
+                grade_name = Grade.objects.get(pk=grade_id).name
+            except: pass
+
+        if group_id:
+            enrollments = enrollments.filter(group_id=group_id)
+            try:
+                group_name = Group.objects.get(pk=group_id).name
+            except: pass
+            
+        # PDF Generation
+        if report_format == 'pdf':
+            if not pisa:
+                return Response({"error": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            institution = Institution.objects.first()
+            
+            html_string = render_to_string('students/reports/enrollment_list_pdf.html', {
+                'enrollments': enrollments,
+                'institution': institution,
+                'year_name': year_name,
+                'grade_name': grade_name,
+                'group_name': group_name,
+                'MEDIA_ROOT': settings.MEDIA_ROOT,
+            })
+            
+            result = io.BytesIO()
+            pdf = pisa.pisaDocument(io.BytesIO(html_string.encode("UTF-8")), result)
+            
+            if not pdf.err:
+                response = HttpResponse(result.getvalue(), content_type='application/pdf')
+                response['Content-Disposition'] = 'inline; filename="reporte_matriculados.pdf"'
+                return response
+            else:
+                return Response({"error": "Error generating PDF"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # CSV Generation (Default)
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="matriculados.csv"'
+        
+        writer = csv.writer(response)
+        writer.writerow(['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo'])
+        
+        for enrollment in enrollments:
+            student = enrollment.student
+            user = student.user
+            writer.writerow([
+                student.document_number,
+                (user.first_name or '').upper(),
+                (user.last_name or '').upper(),
+                enrollment.grade.name if enrollment.grade else '',
+                enrollment.group.name if enrollment.group else '',
+                enrollment.academic_year.year,
+                enrollment.get_status_display(),
+                student.get_financial_status_display()
+            ])
+            
+        return response
 
 
 class StudentNoveltyViewSet(viewsets.ModelViewSet):
@@ -196,48 +293,4 @@ class BulkEnrollmentView(APIView):
         return Response(results)
 
 
-class EnrollmentReportView(APIView):
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
 
-    def get(self, request, format=None):
-        # Filters
-        year_id = request.query_params.get('year')
-        grade_id = request.query_params.get('grade')
-        group_id = request.query_params.get('group')
-        
-        enrollments = Enrollment.objects.select_related('student', 'student__user', 'grade', 'group', 'academic_year').all()
-        
-        if year_id:
-            enrollments = enrollments.filter(academic_year_id=year_id)
-        else:
-            # Default to active year
-            active_year = AcademicYear.objects.filter(status='ACTIVE').first()
-            if active_year:
-                enrollments = enrollments.filter(academic_year=active_year)
-        
-        if grade_id:
-            enrollments = enrollments.filter(grade_id=grade_id)
-        if group_id:
-            enrollments = enrollments.filter(group_id=group_id)
-            
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="matriculados.csv"'
-        
-        writer = csv.writer(response)
-        writer.writerow(['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo'])
-        
-        for enrollment in enrollments:
-            student = enrollment.student
-            user = student.user
-            writer.writerow([
-                student.document_number,
-                user.first_name,
-                user.last_name,
-                enrollment.grade.name if enrollment.grade else '',
-                enrollment.group.name if enrollment.group else '',
-                enrollment.academic_year.year,
-                enrollment.get_status_display(),
-                student.get_financial_status_display()
-            ])
-            
-        return response

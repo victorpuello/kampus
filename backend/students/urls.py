@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     StudentViewSet, FamilyMemberViewSet, EnrollmentViewSet, 
     StudentNoveltyViewSet, StudentDocumentViewSet,
-    BulkEnrollmentView, EnrollmentReportView
+    BulkEnrollmentView
 )
 
 
@@ -17,6 +17,5 @@ router.register(r"documents", StudentDocumentViewSet, basename="document")
 urlpatterns = [
     path("", include(router.urls)),
     path("enrollments/bulk-upload/", BulkEnrollmentView.as_view(), name="bulk-enrollment"),
-    path("enrollments/report/", EnrollmentReportView.as_view(), name="enrollment-report"),
 ]
 

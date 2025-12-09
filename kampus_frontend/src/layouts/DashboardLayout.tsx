@@ -11,20 +11,37 @@ import {
   Briefcase,
   Shield,
   Building2,
-  MapPinned
+  MapPinned,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from '../components/ui/Button'
 
 export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
 
+  const toggleMenu = (name: string) => {
+    setExpandedMenus(prev => 
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
+    )
+  }
+
   const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { name: 'Estudiantes', href: '/students', icon: Users },
+    { 
+      name: 'Estudiantes', 
+      icon: Users,
+      children: [
+        { name: 'Directorio', href: '/students' },
+        { name: 'Matrículas', href: '/enrollments' },
+        { name: 'Reportes', href: '/enrollments/reports' },
+      ]
+    },
     { name: 'Docentes', href: '/teachers', icon: Briefcase },
     { name: 'Usuarios', href: '/users', icon: Shield },
     { name: 'Académico', href: '/academic-config', icon: GraduationCap },
@@ -65,8 +82,55 @@ export default function DashboardLayout() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1">
+          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
             {navigation.map((item) => {
+              if (item.children) {
+                const isExpanded = expandedMenus.includes(item.name)
+                const isActive = item.children.some(child => location.pathname === child.href)
+                
+                return (
+                  <div key={item.name}>
+                    <button
+                      onClick={() => toggleMenu(item.name)}
+                      className={cn(
+                        "w-full flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                        isActive 
+                          ? "bg-blue-50 text-blue-700" 
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      )}
+                    >
+                      <div className="flex items-center">
+                        <item.icon className={cn("w-5 h-5 mr-3", isActive ? "text-blue-600" : "text-slate-400")} />
+                        {item.name}
+                      </div>
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                    
+                    {isExpanded && (
+                      <div className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4">
+                        {item.children.map(child => {
+                           const isChildActive = location.pathname === child.href
+                           return (
+                             <Link
+                               key={child.name}
+                               to={child.href}
+                               className={cn(
+                                 "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                 isChildActive
+                                   ? "text-blue-700 bg-blue-50"
+                                   : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                               )}
+                             >
+                               {child.name}
+                             </Link>
+                           )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+
               const isActive = location.pathname === item.href
               return (
                 <Link

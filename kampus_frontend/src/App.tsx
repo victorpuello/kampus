@@ -14,6 +14,10 @@ import CampusList from './pages/CampusList'
 import CampusForm from './pages/CampusForm'
 import DashboardLayout from './layouts/DashboardLayout'
 import DashboardHome from './pages/DashboardHome'
+import EnrollmentList from './pages/enrollments/EnrollmentList'
+import EnrollmentWizard from './pages/enrollments/EnrollmentWizard'
+import EnrollmentExisting from './pages/enrollments/EnrollmentExisting'
+import EnrollmentReports from './pages/enrollments/EnrollmentReports'
 
 export default function App() {
   return (
@@ -27,6 +31,10 @@ export default function App() {
             <Route path="/students" element={<StudentList />} />
             <Route path="/students/new" element={<StudentForm />} />
             <Route path="/students/:id" element={<StudentForm />} />
+            <Route path="/enrollments" element={<EnrollmentList />} />
+            <Route path="/enrollments/new" element={<EnrollmentWizard />} />
+            <Route path="/enrollments/existing" element={<EnrollmentExisting />} />
+            <Route path="/enrollments/reports" element={<EnrollmentReports />} />
             <Route path="/teachers" element={<TeacherList />} />
             <Route path="/teachers/new" element={<TeacherForm />} />
             <Route path="/teachers/:id" element={<TeacherForm />} />

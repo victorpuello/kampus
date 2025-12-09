@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Reporte de Matriculados</title>
+    <style>
+        @page {
+            size: letter;
+            margin: 2cm;
+            @frame footer_frame {           /* Static Frame */
+                -pdf-frame-content: footerContent;
+                bottom: 1cm;
+                margin-left: 1cm;
+                margin-right: 1cm;
+                height: 1cm;
+            }
+        }
+        body {
+            font-family: Helvetica, sans-serif;
+            font-size: 10pt;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .header img {
+            height: 60px;
+            margin-bottom: 5px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 14pt;
+            text-transform: uppercase;
+            color: #1a365d;
+        }
+        .header p {
+            margin: 2px 0;
+            font-size: 8pt;
+            color: #666;
+        }
+        .report-info {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #f8fafc;
+            border-radius: 4px;
+            font-size: 9pt;
+        }
+        .report-info strong {
+            color: #475569;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #e2e8f0;
+            padding: 6px 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f1f5f9;
+            color: #475569;
+            font-weight: bold;
+            font-size: 9pt;
+            text-transform: uppercase;
+        }
+        td {
+            font-size: 9pt;
+        }
+        tr:nth-child(even) {
+            background-color: #f8fafc;
+        }
+        .status-active {
+            color: #059669;
+            font-weight: bold;
+        }
+        .status-inactive {
+            color: #dc2626;
+        }
+    </style>
+</head>
+<body>
+    <div id="footerContent" style="text-align: center; font-size: 9px; color: #999;">
+        Página <pdf:pagenumber> de <pdf:pagecount>
+    </div>
+
+    <div class="header">
+        {% if institution.logo %}
+            <img src="{{ institution.logo.path }}" alt="Logo">
+        {% endif %}
+        <h1>{{ institution.name|default:"INSTITUCIÓN EDUCATIVA" }}</h1>
+        <p>
+            {% if institution.nit %}NIT: {{ institution.nit }}{% endif %}
+            {% if institution.dane_code %} | DANE: {{ institution.dane_code }}{% endif %}
+        </p>
+        <p>{{ institution.address|default:"" }}</p>
+    </div>
+
+    <div class="report-info">
+        <strong>REPORTE DE MATRICULADOS</strong><br>
+        Año Lectivo: {{ year_name }}
+        {% if grade_name %} | Grado: {{ grade_name }}{% endif %}
+        {% if group_name %} | Grupo: {{ group_name }}{% endif %}
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>No.</th>
+                <th>Documento</th>
+                <th>Apellidos y Nombres</th>
+                <th>Grado</th>
+                <th>Grupo</th>
+                <th>Estado</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for enrollment in enrollments %}
+            <tr>
+                <td style="text-align: center; width: 30px;">{{ forloop.counter }}</td>
+                <td>{{ enrollment.student.document_number }}</td>
+                <td style="text-transform: uppercase;">
+                    {{ enrollment.student.user.last_name }} {{ enrollment.student.user.first_name }}
+                </td>
+                <td>{{ enrollment.grade.name|default:"-" }}</td>
+                <td>{{ enrollment.group.name|default:"-" }}</td>
+                <td>{{ enrollment.get_status_display }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 20px;">
+                    No se encontraron estudiantes matriculados con los filtros seleccionados.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
