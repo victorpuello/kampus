@@ -58,6 +58,13 @@ class Grade(models.Model):
 
 
 class Group(models.Model):
+    SHIFT_CHOICES = (
+        ('MORNING', 'Mañana'),
+        ('AFTERNOON', 'Tarde'),
+        ('NIGHT', 'Noche'),
+        ('FULL', 'Jornada Única'),
+        ('WEEKEND', 'Fin de Semana'),
+    )
     name = models.CharField(max_length=50)  # e.g. "A", "10-1"
     grade = models.ForeignKey(Grade, related_name="groups", on_delete=models.CASCADE)
     campus = models.ForeignKey(Campus, related_name="groups", on_delete=models.CASCADE, null=True, blank=True)
@@ -72,6 +79,8 @@ class Group(models.Model):
         blank=True,
         limit_choices_to={"role": "TEACHER"},
     )
+    shift = models.CharField(max_length=20, choices=SHIFT_CHOICES, default='MORNING')
+    classroom = models.CharField(max_length=50, blank=True, null=True)
 
     class Meta:
         unique_together = ("name", "grade", "academic_year")
@@ -124,15 +133,23 @@ class TeacherAssignment(models.Model):
 
 
 class EvaluationScale(models.Model):
+    SCALE_TYPES = (
+        ('NUMERIC', 'Numérica (Básica/Media)'),
+        ('QUALITATIVE', 'Cualitativa (Preescolar)'),
+    )
     academic_year = models.ForeignKey(
         AcademicYear, related_name="evaluation_scales", on_delete=models.CASCADE
     )
     name = models.CharField(max_length=50)  # e.g. "Superior", "Alto"
-    min_score = models.DecimalField(max_digits=4, decimal_places=2)
-    max_score = models.DecimalField(max_digits=4, decimal_places=2)
+    min_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    max_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    description = models.TextField(blank=True)
+    scale_type = models.CharField(max_length=20, choices=SCALE_TYPES, default='NUMERIC')
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.min_score} - {self.max_score})"
+        if self.scale_type == 'NUMERIC':
+            return f"{self.name} ({self.min_score} - {self.max_score})"
+        return self.name
 
 
 class EvaluationComponent(models.Model):

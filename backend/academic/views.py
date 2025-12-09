@@ -1,4 +1,6 @@
-from rest_framework import viewsets
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from .models import (
     AcademicLevel,
@@ -85,6 +87,44 @@ class EvaluationScaleViewSet(viewsets.ModelViewSet):
     queryset = EvaluationScale.objects.all()
     serializer_class = EvaluationScaleSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+
+    @action(detail=False, methods=['post'])
+    def copy_from_year(self, request):
+        source_year_id = request.data.get('source_year_id')
+        target_year_id = request.data.get('target_year_id')
+        
+        if not source_year_id or not target_year_id:
+            return Response(
+                {"error": "source_year_id and target_year_id are required"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        source_scales = EvaluationScale.objects.filter(academic_year_id=source_year_id)
+        
+        if not source_scales.exists():
+            return Response(
+                {"error": "No scales found in source year"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+            
+        created_count = 0
+        for scale in source_scales:
+            # Check if similar scale exists in target year to avoid duplicates
+            if not EvaluationScale.objects.filter(
+                academic_year_id=target_year_id, 
+                name=scale.name
+            ).exists():
+                EvaluationScale.objects.create(
+                    academic_year_id=target_year_id,
+                    name=scale.name,
+                    min_score=scale.min_score,
+                    max_score=scale.max_score,
+                    description=scale.description,
+                    scale_type=scale.scale_type
+                )
+                created_count += 1
+                
+        return Response({"message": f"Se copiaron {created_count} escalas correctamente"})
 
 
 class EvaluationComponentViewSet(viewsets.ModelViewSet):

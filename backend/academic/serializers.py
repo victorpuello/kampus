@@ -75,24 +75,31 @@ class AcademicLevelSerializer(serializers.ModelSerializer):
 
 
 class GradeSerializer(serializers.ModelSerializer):
-    level_name = serializers.CharField(source="level.name", read_only=True, allow_null=True)
+    level_name = serializers.SerializerMethodField()
     
     class Meta:
         model = Grade
         fields = ["id", "name", "level", "level_name"]
         read_only_fields = ["id"]
 
+    def get_level_name(self, obj):
+        return obj.level.name if obj.level else None
+
 
 class GroupSerializer(serializers.ModelSerializer):
     grade_name = serializers.CharField(source="grade.name", read_only=True)
-    director_name = serializers.CharField(
-        source="director.get_full_name", read_only=True, allow_null=True
-    )
-    campus_name = serializers.CharField(source="campus.name", read_only=True, allow_null=True)
+    director_name = serializers.SerializerMethodField()
+    campus_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
         fields = "__all__"
+
+    def get_director_name(self, obj):
+        return obj.director.get_full_name() if obj.director else None
+
+    def get_campus_name(self, obj):
+        return obj.campus.name if obj.campus else None
 
 
 class AreaSerializer(serializers.ModelSerializer):

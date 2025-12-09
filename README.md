@@ -28,3 +28,16 @@ Ver archivo `env.backend.example` para valores de ejemplo (SECRET_KEY, DB, CORS,
 ## Tareas
 
 Consultar `TODO.md` para el plan priorizado.
+
+## Actualizaciones Recientes (Diciembre 2025)
+
+### Gestión Académica (SIEE)
+- **Escalas de Valoración Híbridas**: Soporte para escalas numéricas (Básica/Media) y cualitativas (Preescolar) en la misma institución.
+- **Copia de Escalas**: Funcionalidad para copiar configuraciones de escalas de valoración entre años lectivos.
+- **Filtros por Año**: Visualización filtrada por defecto al año actual en el panel de configuración.
+
+### Correcciones y Mejoras
+- **Gestión de Sedes**: Solucionado error en la edición de sedes (Institutional Tab).
+- **Backend**: Corrección de integridad de datos (emails duplicados) y migraciones de base de datos.
+- **Frontend**: Optimización de componentes y corrección de errores de compilación.
+
