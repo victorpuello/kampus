@@ -1,5 +1,4 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { academicApi } from '../services/academic'
 import { coreApi, type Institution, type Campus } from '../services/core'
 import { usersApi, type User } from '../services/users'
@@ -11,7 +10,6 @@ import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
 export default function AcademicConfigPanel() {
-  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'study_plan' | 'organization' | 'evaluation'>('general')
   
   // Data states
@@ -50,6 +48,19 @@ export default function AcademicConfigPanel() {
   const [copyFromGradeId, setCopyFromGradeId] = useState<string>('')
   const [showCopyModal, setShowCopyModal] = useState(false)
 
+  // Groups state
+  const [groupInput, setGroupInput] = useState({ 
+    name: '', 
+    grade: '', 
+    campus: '', 
+    director: '', 
+    shift: 'MORNING', 
+    classroom: '',
+    academic_year: '' 
+  })
+  const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
+  const [isMultigrade, setIsMultigrade] = useState(false)
+
   const [instInput, setInstInput] = useState({
     name: '',
     nit: '',
@@ -63,14 +74,30 @@ export default function AcademicConfigPanel() {
   })
   const [instLogo, setInstLogo] = useState<File | null>(null)
   const [campusInput, setCampusInput] = useState({ name: '', institution: '' })
+  const [editingCampusId, setEditingCampusId] = useState<number | null>(null)
+  
+  // Scale state
+  const [scaleInput, setScaleInput] = useState({
+    name: '',
+    min_score: '',
+    max_score: '',
+    scale_type: 'NUMERIC' as 'NUMERIC' | 'QUALITATIVE',
+    description: '',
+    academic_year: ''
+  })
+  const [editingScaleId, setEditingScaleId] = useState<number | null>(null)
+  const [showCopyScalesModal, setShowCopyScalesModal] = useState(false)
+  const [copyScalesData, setCopyScalesData] = useState({ sourceYear: '', targetYear: '' })
   
   // Modal states
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<number | null>(null)
-  const [deleteType, setDeleteType] = useState<'year' | 'period' | 'campus' | 'level' | 'grade' | 'area' | 'subject' | null>(null)
+  const [deleteType, setDeleteType] = useState<'year' | 'period' | 'campus' | 'level' | 'grade' | 'area' | 'subject' | 'group' | null>(null)
 
   // Filter states
   const [selectedPeriodYear, setSelectedPeriodYear] = useState<number | null>(null)
+  const [selectedScaleYear, setSelectedScaleYear] = useState<number | null>(null)
+  const [hasInitializedFilters, setHasInitializedFilters] = useState(false)
 
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
@@ -133,6 +160,15 @@ export default function AcademicConfigPanel() {
       setInstitutions(i.data)
       setCampuses(c.data)
       setUsers(u.data)
+
+      if (!hasInitializedFilters) {
+        const currentYear = new Date().getFullYear()
+        const currentAcademicYear = y.data.find(year => year.year === currentYear)
+        if (currentAcademicYear) {
+          setSelectedScaleYear(currentAcademicYear.id)
+        }
+        setHasInitializedFilters(true)
+      }
     } catch (error) {
       console.error("Failed to load data", error)
     } finally {
@@ -207,6 +243,9 @@ export default function AcademicConfigPanel() {
             showToast(`Se recalcularon los pesos de ${updatedCount} asignaturas`, 'info')
           }
         }
+      } else if (deleteType === 'group') {
+        await academicApi.deleteGroup(itemToDelete)
+        showToast('Grupo eliminado correctamente', 'success')
       }
       await load()
       setDeleteModalOpen(false)
@@ -222,6 +261,7 @@ export default function AcademicConfigPanel() {
       else if (deleteType === 'grade') itemType = 'el grado'
       else if (deleteType === 'area') itemType = 'el área'
       else if (deleteType === 'subject') itemType = 'la asignatura'
+      else if (deleteType === 'group') itemType = 'el grupo'
       
       showToast(getErrorMessage(error, `Error al eliminar ${itemType}`), 'error')
     }
@@ -283,9 +323,7 @@ export default function AcademicConfigPanel() {
     setDeleteModalOpen(true)
   }
 
-  const onEditCampus = (id: number) => {
-    navigate(`/campuses/${id}/edit`)
-  }
+
 
   const onCancelEditPeriod = () => {
     setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '' })
@@ -631,17 +669,240 @@ export default function AcademicConfigPanel() {
     }
 
     try {
-      await coreApi.createCampus({ 
-        name: campusInput.name, 
-        institution: institutionId,
-        dane_code: '', address: '', phone: '', is_main: false 
-      })
+      if (editingCampusId) {
+        await coreApi.updateCampus(editingCampusId, {
+          name: campusInput.name,
+          institution: institutionId
+        })
+        setEditingCampusId(null)
+        showToast('Sede actualizada correctamente', 'success')
+      } else {
+        await coreApi.createCampus({ 
+          name: campusInput.name, 
+          institution: institutionId,
+          dane_code: '', address: '', phone: '', is_main: false 
+        })
+        showToast('Sede creada correctamente', 'success')
+      }
       setCampusInput({ name: '', institution: '' })
       await load()
-      showToast('Sede creada correctamente', 'success')
     } catch (error: any) {
       console.error(error)
-      showToast(getErrorMessage(error, 'Error al crear la sede'), 'error')
+      showToast(getErrorMessage(error, 'Error al guardar la sede'), 'error')
+    }
+  }
+
+  const onEditCampus = (id: number) => {
+    const campus = campuses.find(c => c.id === id)
+    if (campus) {
+      setCampusInput({ name: campus.name, institution: campus.institution.toString() })
+      setEditingCampusId(id)
+    }
+  }
+
+  const onCancelEditCampus = () => {
+    setCampusInput({ name: '', institution: '' })
+    setEditingCampusId(null)
+  }
+
+  const onAddGroup = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!groupInput.name || !groupInput.grade || !groupInput.academic_year || !groupInput.campus) {
+      showToast('Por favor complete los campos obligatorios', 'error')
+      return
+    }
+
+    // Director validation
+    if (groupInput.director && !isMultigrade) {
+      const directorId = parseInt(groupInput.director)
+      const yearId = parseInt(groupInput.academic_year)
+      const existingGroup = groups.find(g => 
+        g.director === directorId && 
+        g.academic_year === yearId && 
+        g.id !== editingGroupId
+      )
+      
+      if (existingGroup) {
+        showToast(`El docente ya es director del grupo ${existingGroup.name}. Marque "Grupo Multigrado" si desea permitirlo.`, 'error')
+        return
+      }
+    }
+
+    try {
+      const data = {
+        name: groupInput.name,
+        grade: parseInt(groupInput.grade),
+        campus: parseInt(groupInput.campus),
+        academic_year: parseInt(groupInput.academic_year),
+        director: groupInput.director ? parseInt(groupInput.director) : null,
+        shift: groupInput.shift,
+        classroom: groupInput.classroom
+      }
+
+      if (editingGroupId) {
+        await academicApi.updateGroup(editingGroupId, data)
+        setEditingGroupId(null)
+        showToast('Grupo actualizado correctamente', 'success')
+      } else {
+        await academicApi.createGroup(data)
+        showToast('Grupo creado correctamente', 'success')
+      }
+      
+      setGroupInput({ 
+        name: '', 
+        grade: '', 
+        campus: '', 
+        director: '', 
+        shift: 'MORNING', 
+        classroom: '',
+        academic_year: groupInput.academic_year // Keep year selected
+      })
+      setIsMultigrade(false)
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al guardar el grupo'), 'error')
+    }
+  }
+
+  const onEditGroup = (group: Group) => {
+    setGroupInput({
+      name: group.name,
+      grade: group.grade.toString(),
+      campus: group.campus ? group.campus.toString() : '',
+      director: group.director ? group.director.toString() : '',
+      shift: group.shift || 'MORNING',
+      classroom: group.classroom || '',
+      academic_year: group.academic_year.toString()
+    })
+    setEditingGroupId(group.id)
+    setIsMultigrade(false) // Reset, user can check if needed
+  }
+
+  const onDeleteGroup = (id: number) => {
+    setItemToDelete(id)
+    setDeleteType('group')
+    setDeleteModalOpen(true)
+  }
+
+  const onCancelEditGroup = () => {
+    setGroupInput({ 
+      name: '', 
+      grade: '', 
+      campus: '', 
+      director: '', 
+      shift: 'MORNING', 
+      classroom: '',
+      academic_year: groupInput.academic_year 
+    })
+    setEditingGroupId(null)
+    setIsMultigrade(false)
+  }
+
+  const onAddScale = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!scaleInput.name || !scaleInput.academic_year) {
+      showToast('Por favor complete los campos obligatorios', 'error')
+      return
+    }
+
+    if (scaleInput.scale_type === 'NUMERIC' && (!scaleInput.min_score || !scaleInput.max_score)) {
+      showToast('Para escala numérica, debe definir puntaje mínimo y máximo', 'error')
+      return
+    }
+
+    try {
+      const data = {
+        name: scaleInput.name,
+        min_score: scaleInput.scale_type === 'NUMERIC' ? parseFloat(scaleInput.min_score) : null,
+        max_score: scaleInput.scale_type === 'NUMERIC' ? parseFloat(scaleInput.max_score) : null,
+        academic_year: parseInt(scaleInput.academic_year),
+        scale_type: scaleInput.scale_type,
+        description: scaleInput.description
+      }
+
+      if (editingScaleId) {
+        await academicApi.updateEvaluationScale(editingScaleId, data)
+        setEditingScaleId(null)
+        showToast('Escala actualizada correctamente', 'success')
+      } else {
+        await academicApi.createEvaluationScale(data)
+        showToast('Escala creada correctamente', 'success')
+      }
+      
+      setScaleInput({
+        name: '',
+        min_score: '',
+        max_score: '',
+        scale_type: 'NUMERIC',
+        description: '',
+        academic_year: scaleInput.academic_year
+      })
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al guardar la escala'), 'error')
+    }
+  }
+
+  const onEditScale = (scale: EvaluationScale) => {
+    setScaleInput({
+      name: scale.name,
+      min_score: scale.min_score ? scale.min_score.toString() : '',
+      max_score: scale.max_score ? scale.max_score.toString() : '',
+      scale_type: scale.scale_type || 'NUMERIC',
+      description: scale.description || '',
+      academic_year: scale.academic_year.toString()
+    })
+    setEditingScaleId(scale.id)
+  }
+
+  const onDeleteScale = async (id: number) => {
+    if (!window.confirm('¿Estás seguro de eliminar esta escala?')) return
+    try {
+      await academicApi.deleteEvaluationScale(id)
+      showToast('Escala eliminada correctamente', 'success')
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al eliminar la escala'), 'error')
+    }
+  }
+
+  const onCancelEditScale = () => {
+    setScaleInput({
+      name: '',
+      min_score: '',
+      max_score: '',
+      scale_type: 'NUMERIC',
+      description: '',
+      academic_year: scaleInput.academic_year
+    })
+    setEditingScaleId(null)
+  }
+
+  const handleCopyScales = async () => {
+    if (!copyScalesData.sourceYear || !copyScalesData.targetYear) {
+      showToast('Seleccione el año origen y destino', 'error')
+      return
+    }
+    
+    if (copyScalesData.sourceYear === copyScalesData.targetYear) {
+      showToast('El año origen y destino deben ser diferentes', 'error')
+      return
+    }
+
+    try {
+      await academicApi.copyEvaluationScales(
+        parseInt(copyScalesData.sourceYear), 
+        parseInt(copyScalesData.targetYear)
+      )
+      showToast('Escalas copiadas correctamente', 'success')
+      setShowCopyScalesModal(false)
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al copiar las escalas'), 'error')
     }
   }
 
@@ -650,21 +911,31 @@ export default function AcademicConfigPanel() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-800">Configuración Académica</h2>
-        <Button onClick={load} variant="outline" size="sm">Actualizar</Button>
+    <div className="p-6 space-y-6 bg-slate-50/30 min-h-screen">
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-blue-100 rounded-lg text-blue-600">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Configuración Académica</h2>
+            <p className="text-sm text-slate-500">Gestiona años, grados, asignaturas y grupos</p>
+          </div>
+        </div>
+        <Button onClick={load} variant="outline" size="sm" className="hover:bg-blue-50 hover:text-blue-600 border-slate-200">
+          🔄 Actualizar
+        </Button>
       </div>
 
-      <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto">
+      <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto border border-slate-200">
         {(['general', 'institution', 'grades_levels', 'study_plan', 'organization', 'evaluation'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap ${
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
               activeTab === tab 
-                ? 'bg-white text-slate-900 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-900'
+                ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5' 
+                : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50'
             }`}
           >
             {tab === 'general' && 'General'}
@@ -679,30 +950,33 @@ export default function AcademicConfigPanel() {
 
       {activeTab === 'general' && (
         <div className="grid md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Años Lectivos</CardTitle>
+          <Card className="border-t-4 border-t-blue-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-blue-800 flex items-center gap-2">
+                📅 Años Lectivos
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               <form onSubmit={onAddYear} className="flex gap-2">
                 <Input
                   placeholder="Ej: 2025"
                   value={yearInput}
                   onChange={(e) => setYearInput(e.target.value)}
                   type="number"
+                  className="border-blue-100 focus:border-blue-300 focus:ring-blue-200"
                 />
-                <Button type="submit">{editingYearId ? 'Actualizar' : 'Agregar'}</Button>
+                <Button type="submit" className="bg-blue-600 hover:bg-blue-700">{editingYearId ? 'Actualizar' : 'Agregar'}</Button>
                 {editingYearId && (
                   <Button type="button" variant="outline" onClick={onCancelEditYear}>Cancelar</Button>
                 )}
               </form>
               <div className="space-y-2">
                 {years.map((y) => (
-                  <div key={y.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
-                    <span className="font-medium">{y.year}</span>
+                  <div key={y.id} className="p-3 bg-white hover:bg-blue-50 rounded-lg border border-slate-200 flex justify-between items-center transition-colors shadow-sm">
+                    <span className="font-bold text-slate-700 text-lg">{y.year}</span>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => onEditYear(y)}>Editar</Button>
-                      <Button size="sm" variant="destructive" onClick={() => onDeleteYear(y.id)}>Eliminar</Button>
+                      <Button size="sm" variant="ghost" className="text-blue-600 hover:text-blue-800 hover:bg-blue-100" onClick={() => onEditYear(y)}>✎</Button>
+                      <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteYear(y.id)}>×</Button>
                     </div>
                   </div>
                 ))}
@@ -710,15 +984,17 @@ export default function AcademicConfigPanel() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Periodos Académicos</CardTitle>
+          <Card className="border-t-4 border-t-indigo-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-indigo-800 flex items-center gap-2">
+                ⏱️ Periodos Académicos
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between bg-slate-50 p-2 rounded border mb-4">
-                <span className="text-sm font-medium text-slate-600">Filtrar por Año Lectivo:</span>
+            <CardContent className="space-y-4 pt-4">
+              <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100 mb-4">
+                <span className="text-sm font-bold text-indigo-700">Filtrar por Año:</span>
                 <select
-                  className="p-1 border rounded text-sm min-w-[120px]"
+                  className="p-1.5 border border-indigo-200 rounded text-sm min-w-[120px] bg-white text-indigo-900 focus:ring-indigo-500 focus:border-indigo-500"
                   value={selectedPeriodYear || ''}
                   onChange={(e) => setSelectedPeriodYear(e.target.value ? parseInt(e.target.value) : null)}
                 >
@@ -727,9 +1003,9 @@ export default function AcademicConfigPanel() {
                 </select>
               </div>
 
-              <form onSubmit={onAddPeriod} className="space-y-2">
+              <form onSubmit={onAddPeriod} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <select
-                  className="w-full p-2 border rounded text-sm"
+                  className="w-full p-2 border rounded text-sm bg-white"
                   value={periodInput.academic_year}
                   onChange={(e) => setPeriodInput({...periodInput, academic_year: e.target.value})}
                 >
@@ -743,7 +1019,7 @@ export default function AcademicConfigPanel() {
                 />
                 <div className="flex gap-2">
                   <div className="flex-1">
-                    <label className="text-xs text-slate-500">Inicio</label>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Inicio</label>
                     <Input
                       type="date"
                       value={periodInput.start_date}
@@ -751,7 +1027,7 @@ export default function AcademicConfigPanel() {
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="text-xs text-slate-500">Fin</label>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Fin</label>
                     <Input
                       type="date"
                       value={periodInput.end_date}
@@ -759,7 +1035,7 @@ export default function AcademicConfigPanel() {
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full">{editingPeriodId ? 'Actualizar Periodo' : 'Agregar Periodo'}</Button>
+                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700">{editingPeriodId ? 'Actualizar Periodo' : 'Agregar Periodo'}</Button>
                 {editingPeriodId && (
                   <Button type="button" variant="outline" className="w-full" onClick={onCancelEditPeriod}>Cancelar Edición</Button>
                 )}
@@ -771,22 +1047,24 @@ export default function AcademicConfigPanel() {
                   const displayYearId = selectedPeriodYear || currentYearObj?.id
                   const filteredPeriods = periods.filter(p => displayYearId ? p.academic_year === displayYearId : false)
 
-                  if (filteredPeriods.length === 0) return <p className="text-slate-500 text-sm">No hay periodos para el año seleccionado.</p>
+                  if (filteredPeriods.length === 0) return <p className="text-slate-400 text-sm italic text-center py-4">No hay periodos para el año seleccionado.</p>
 
                   return filteredPeriods.map((p) => (
-                    <div key={p.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
+                    <div key={p.id} className="p-3 bg-white hover:bg-indigo-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors group">
                       <div>
-                        <div className="font-medium">{p.name}</div>
-                        <div className="text-xs text-slate-500">
-                          {p.start_date} - {p.end_date} 
-                          <span className="ml-2 text-slate-400">
+                        <div className="font-bold text-slate-800 group-hover:text-indigo-700">{p.name}</div>
+                        <div className="text-xs text-slate-500 flex items-center gap-2 mt-1">
+                          <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 border">
+                            {p.start_date} - {p.end_date}
+                          </span>
+                          <span className="text-slate-400 font-medium">
                             ({years.find(y => y.id === p.academic_year)?.year})
                           </span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => onEditPeriod(p)}>Editar</Button>
-                        <Button size="sm" variant="destructive" onClick={() => onDeletePeriod(p.id)}>Eliminar</Button>
+                      <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100" onClick={() => onEditPeriod(p)}>✎</Button>
+                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeletePeriod(p.id)}>×</Button>
                       </div>
                     </div>
                   ))
@@ -799,57 +1077,66 @@ export default function AcademicConfigPanel() {
 
       {activeTab === 'institution' && (
         <div className="grid md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Institución</CardTitle>
+          <Card className="border-t-4 border-t-emerald-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-emerald-800 flex items-center gap-2">
+                🏫 Institución
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 pt-4">
               {institutions.length === 0 && (
-              <form onSubmit={onAddInstitution} className="space-y-2">
+              <form onSubmit={onAddInstitution} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <Input
                   placeholder="Nombre Institución"
                   value={instInput.name}
                   onChange={(e) => setInstInput({...instInput, name: e.target.value})}
+                  className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <Input
                     placeholder="NIT"
                     value={instInput.nit}
                     onChange={(e) => setInstInput({...instInput, nit: e.target.value})}
+                    className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                   <Input
                     placeholder="Código DANE"
                     value={instInput.dane_code}
                     onChange={(e) => setInstInput({...instInput, dane_code: e.target.value})}
+                    className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                 </div>
                 <Input
                   placeholder="Dirección"
                   value={instInput.address}
                   onChange={(e) => setInstInput({...instInput, address: e.target.value})}
+                  className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <Input
                     placeholder="Teléfono"
                     value={instInput.phone}
                     onChange={(e) => setInstInput({...instInput, phone: e.target.value})}
+                    className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                   <Input
                     placeholder="Email"
                     value={instInput.email}
                     onChange={(e) => setInstInput({...instInput, email: e.target.value})}
+                    className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                 </div>
                 <Input
                   placeholder="Sitio Web"
                   value={instInput.website}
                   onChange={(e) => setInstInput({...instInput, website: e.target.value})}
+                  className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-slate-500">Rector</label>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Rector</label>
                     <select
-                      className="w-full p-2 border rounded text-sm"
+                      className="w-full p-2 border rounded text-sm bg-white border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                       value={instInput.rector}
                       onChange={(e) => setInstInput({...instInput, rector: e.target.value})}
                     >
@@ -860,9 +1147,9 @@ export default function AcademicConfigPanel() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-slate-500">Secretario/a</label>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Secretario/a</label>
                     <select
-                      className="w-full p-2 border rounded text-sm"
+                      className="w-full p-2 border rounded text-sm bg-white border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                       value={instInput.secretary}
                       onChange={(e) => setInstInput({...instInput, secretary: e.target.value})}
                     >
@@ -874,7 +1161,7 @@ export default function AcademicConfigPanel() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500">Escudo / Logo</label>
+                  <label className="text-xs font-semibold text-slate-500 uppercase">Escudo / Logo</label>
                   <Input 
                     type="file" 
                     accept="image/png, image/jpeg"
@@ -883,20 +1170,23 @@ export default function AcademicConfigPanel() {
                         setInstLogo(e.target.files[0])
                       }
                     }}
+                    className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                 </div>
-                <Button type="submit" className="w-full">Guardar Institución</Button>
+                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">Guardar Institución</Button>
               </form>
               )}
               <div className="space-y-2 mt-4">
                 {institutions.map((i) => (
-                  <div key={i.id} className="p-3 bg-slate-50 rounded border flex gap-4 items-center">
+                  <div key={i.id} className="p-4 bg-white hover:bg-emerald-50 rounded-lg border border-slate-200 flex gap-4 items-center shadow-sm transition-colors">
                     {i.logo && <img src={i.logo} alt="Logo" className="w-16 h-16 object-contain bg-white rounded border p-1" />}
                     <div>
-                      <div className="font-bold">{i.name}</div>
-                      <div className="text-xs text-slate-500">NIT: {i.nit} | DANE: {i.dane_code}</div>
-                      <div className="text-xs text-slate-500">
-                        Rector: {i.rector_name || 'No asignado'} | Secretario: {i.secretary_name || 'No asignado'}
+                      <div className="font-bold text-slate-800 text-lg">{i.name}</div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        <span className="font-semibold">NIT:</span> {i.nit} <span className="mx-2">|</span> <span className="font-semibold">DANE:</span> {i.dane_code}
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        <span className="font-semibold">Rector:</span> {i.rector_name || 'No asignado'} <span className="mx-2">|</span> <span className="font-semibold">Secretario:</span> {i.secretary_name || 'No asignado'}
                       </div>
                     </div>
                   </div>
@@ -905,29 +1195,37 @@ export default function AcademicConfigPanel() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Sedes (Campus)</CardTitle>
+          <Card className="border-t-4 border-t-teal-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-teal-800 flex items-center gap-2">
+                🏢 Sedes (Campus)
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <form onSubmit={onAddCampus} className="space-y-2">
+            <CardContent className="space-y-4 pt-4">
+              <form onSubmit={onAddCampus} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
                 <Input
                   placeholder="Nombre Sede"
                   value={campusInput.name}
                   onChange={(e) => setCampusInput({...campusInput, name: e.target.value})}
+                  className="border-teal-100 focus:border-teal-300 focus:ring-teal-200"
                 />
-                <Button type="submit" className="w-full">Agregar Sede</Button>
+                <Button type="submit" className="w-full bg-teal-600 hover:bg-teal-700">
+                  {editingCampusId ? 'Actualizar Sede' : 'Agregar Sede'}
+                </Button>
+                {editingCampusId && (
+                  <Button type="button" variant="outline" className="w-full" onClick={onCancelEditCampus}>Cancelar</Button>
+                )}
               </form>
               <div className="space-y-2">
                 {campuses.map((c) => (
-                  <div key={c.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
+                  <div key={c.id} className="p-3 bg-white hover:bg-teal-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors">
                     <div>
-                      <span className="font-medium">{c.name}</span>
-                      {c.is_main && <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Principal</span>}
+                      <span className="font-bold text-slate-800">{c.name}</span>
+                      {c.is_main && <span className="ml-2 text-xs bg-teal-100 text-teal-800 px-2 py-0.5 rounded border border-teal-200">Principal</span>}
                     </div>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => onEditCampus(c.id)}>Editar</Button>
-                      <Button size="sm" variant="destructive" onClick={() => onDeleteCampus(c.id)}>Eliminar</Button>
+                      <Button size="sm" variant="ghost" className="text-teal-600 hover:text-teal-800 hover:bg-teal-100" onClick={() => onEditCampus(c.id)}>✎</Button>
+                      <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteCampus(c.id)}>×</Button>
                     </div>
                   </div>
                 ))}
@@ -940,19 +1238,22 @@ export default function AcademicConfigPanel() {
       {activeTab === 'grades_levels' && (
         <div className="grid md:grid-cols-2 gap-6">
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Niveles Académicos</CardTitle>
+            <Card className="border-t-4 border-t-amber-500 shadow-sm">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-amber-800 flex items-center gap-2">
+                  📊 Niveles Académicos
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <form onSubmit={onAddLevel} className="space-y-2">
+              <CardContent className="space-y-4 pt-4">
+                <form onSubmit={onAddLevel} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
                   <Input
                     placeholder="Nombre Nivel (Ej: Básica Primaria)"
                     value={levelInput.name}
                     onChange={(e) => setLevelInput({...levelInput, name: e.target.value})}
+                    className="border-amber-100 focus:border-amber-300 focus:ring-amber-200"
                   />
                   <select
-                    className="w-full p-2 border rounded text-sm"
+                    className="w-full p-2 border rounded text-sm bg-white border-amber-100 focus:border-amber-300 focus:ring-amber-200"
                     value={levelInput.level_type}
                     onChange={(e) => setLevelInput({...levelInput, level_type: e.target.value})}
                   >
@@ -963,39 +1264,44 @@ export default function AcademicConfigPanel() {
                   </select>
                   <div className="flex gap-2">
                     <div className="flex-1">
-                      <label className="text-xs text-slate-500">Edad Mín</label>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">Edad Mín</label>
                       <Input
                         type="number"
                         value={levelInput.min_age}
                         onChange={(e) => setLevelInput({...levelInput, min_age: parseInt(e.target.value)})}
+                        className="border-amber-100 focus:border-amber-300 focus:ring-amber-200"
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="text-xs text-slate-500">Edad Máx</label>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">Edad Máx</label>
                       <Input
                         type="number"
                         value={levelInput.max_age}
                         onChange={(e) => setLevelInput({...levelInput, max_age: parseInt(e.target.value)})}
+                        className="border-amber-100 focus:border-amber-300 focus:ring-amber-200"
                       />
                     </div>
                   </div>
-                  <Button type="submit" className="w-full">{editingLevelId ? 'Actualizar Nivel' : 'Agregar Nivel'}</Button>
+                  <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white">
+                    {editingLevelId ? 'Actualizar Nivel' : 'Agregar Nivel'}
+                  </Button>
                   {editingLevelId && (
                     <Button type="button" variant="outline" className="w-full" onClick={onCancelEditLevel}>Cancelar</Button>
                   )}
                 </form>
                 <div className="space-y-2">
                   {levels.map((l) => (
-                    <div key={l.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
+                    <div key={l.id} className="p-3 bg-white hover:bg-amber-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors">
                       <div>
-                        <div className="font-medium">{l.name}</div>
-                        <div className="text-xs text-slate-500">
-                          {l.level_type} ({l.min_age}-{l.max_age} años)
+                        <div className="font-bold text-slate-800">{l.name}</div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200">{l.level_type}</span>
+                          <span className="ml-2 text-slate-400">({l.min_age}-{l.max_age} años)</span>
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => onEditLevel(l)}>Editar</Button>
-                        <Button size="sm" variant="destructive" onClick={() => onDeleteLevel(l.id)}>Eliminar</Button>
+                        <Button size="sm" variant="ghost" className="text-amber-600 hover:text-amber-800 hover:bg-amber-100" onClick={() => onEditLevel(l)}>✎</Button>
+                        <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteLevel(l.id)}>×</Button>
                       </div>
                     </div>
                   ))}
@@ -1005,32 +1311,36 @@ export default function AcademicConfigPanel() {
           </div>
 
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Grados Escolares</CardTitle>
+            <Card className="border-t-4 border-t-orange-500 shadow-sm">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-orange-800 flex items-center gap-2">
+                  🎓 Grados Escolares
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <form onSubmit={onAddGrade} className="flex gap-2">
+              <CardContent className="space-y-4 pt-4">
+                <form onSubmit={onAddGrade} className="flex gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   <Input
                     placeholder="Nombre Grado"
                     value={gradeInput}
                     onChange={(e) => setGradeInput(e.target.value)}
-                    className="flex-1"
+                    className="flex-1 border-orange-100 focus:border-orange-300 focus:ring-orange-200"
                   />
                   <select
-                    className="w-32 p-2 border rounded text-sm"
+                    className="w-32 p-2 border rounded text-sm bg-white border-orange-100 focus:border-orange-300 focus:ring-orange-200"
                     value={gradeLevelInput}
                     onChange={(e) => setGradeLevelInput(e.target.value)}
                   >
                     <option value="">Nivel...</option>
                     {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
-                  <Button type="submit">{editingGradeId ? 'Actualizar' : 'Agregar'}</Button>
+                  <Button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white">
+                    {editingGradeId ? 'Actualizar' : 'Agregar'}
+                  </Button>
                   {editingGradeId && (
                     <Button type="button" variant="outline" onClick={onCancelEditGrade}>X</Button>
                   )}
                 </form>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
+                <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
                   {[...levels]
                     .sort((a, b) => {
                       const order: Record<string, number> = { 'PRESCHOOL': 1, 'PRIMARY': 2, 'SECONDARY': 3, 'MEDIA': 4 }
@@ -1041,14 +1351,17 @@ export default function AcademicConfigPanel() {
                       if (levelGrades.length === 0) return null
                       return (
                         <div key={level.id}>
-                          <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">{level.name}</div>
-                          <div className="space-y-2 pl-2 border-l-2 border-slate-200">
+                          <div className="text-xs font-bold text-orange-600 mb-2 uppercase tracking-wider flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-orange-400"></span>
+                            {level.name}
+                          </div>
+                          <div className="space-y-2 pl-3 border-l-2 border-orange-100">
                             {levelGrades.map((g) => (
-                              <div key={g.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
-                                <div className="font-medium">{g.name}</div>
+                              <div key={g.id} className="p-3 bg-white hover:bg-orange-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors">
+                                <div className="font-bold text-slate-700">{g.name}</div>
                                 <div className="flex gap-2">
-                                  <Button size="sm" variant="outline" onClick={() => onEditGrade(g)}>Editar</Button>
-                                  <Button size="sm" variant="destructive" onClick={() => onDeleteGrade(g.id)}>Eliminar</Button>
+                                  <Button size="sm" variant="ghost" className="text-orange-600 hover:text-orange-800 hover:bg-orange-100" onClick={() => onEditGrade(g)}>✎</Button>
+                                  <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteGrade(g.id)}>×</Button>
                                 </div>
                               </div>
                             ))}
@@ -1059,7 +1372,7 @@ export default function AcademicConfigPanel() {
 
                   {grades.filter(g => !g.level).length > 0 && (
                     <div>
-                      <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Sin Nivel Asignado</div>
+                      <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">Sin Nivel Asignado</div>
                       <div className="space-y-2 pl-2 border-l-2 border-slate-200">
                         {grades.filter(g => !g.level).map((g) => (
                           <div key={g.id} className="p-2 bg-slate-50 rounded border flex justify-between items-center">
@@ -1083,28 +1396,33 @@ export default function AcademicConfigPanel() {
       {activeTab === 'study_plan' && (
         <div className="grid md:grid-cols-3 gap-6">
           <div className="md:col-span-1 space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Seleccionar Grado</CardTitle>
+            <Card className="border-t-4 border-t-violet-500 shadow-sm h-fit sticky top-4">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-violet-800 flex items-center gap-2">
+                  🎓 Seleccionar Grado
+                </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
+              <CardContent className="pt-4">
+                <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
                   {levels.map(level => {
                     const levelGrades = grades.filter(g => g.level === level.id)
                     if (levelGrades.length === 0) return null
                     
                     return (
                       <div key={level.id} className="space-y-1">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">{level.name}</h4>
-                        <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-violet-600 uppercase tracking-wider px-1 flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+                          {level.name}
+                        </h4>
+                        <div className="space-y-1 pl-2 border-l-2 border-violet-100">
                           {levelGrades.map(g => (
                             <button
                               key={g.id}
                               onClick={() => setSelectedSubjectGrade(g.id)}
-                              className={`w-full text-left p-2 rounded border transition-colors text-sm ${
+                              className={`w-full text-left px-3 py-2 rounded-md border transition-all text-sm ${
                                 selectedSubjectGrade === g.id
-                                  ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium'
-                                  : 'bg-white hover:bg-slate-50 text-slate-700'
+                                  ? 'bg-violet-50 border-violet-500 text-violet-700 font-bold shadow-sm'
+                                  : 'bg-white border-transparent hover:bg-slate-50 text-slate-600 hover:text-slate-900'
                               }`}
                             >
                               {g.name}
@@ -1117,16 +1435,16 @@ export default function AcademicConfigPanel() {
                   
                   {grades.filter(g => !g.level).length > 0 && (
                     <div className="space-y-1">
-                      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Sin Nivel</h4>
-                      <div className="space-y-1">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Sin Nivel</h4>
+                      <div className="space-y-1 pl-2 border-l-2 border-slate-100">
                         {grades.filter(g => !g.level).map(g => (
                           <button
                             key={g.id}
                             onClick={() => setSelectedSubjectGrade(g.id)}
-                            className={`w-full text-left p-2 rounded border transition-colors text-sm ${
+                            className={`w-full text-left px-3 py-2 rounded-md border transition-all text-sm ${
                               selectedSubjectGrade === g.id
-                                ? 'bg-blue-50 border-blue-500 text-blue-700 font-medium'
-                                : 'bg-white hover:bg-slate-50 text-slate-700'
+                                ? 'bg-violet-50 border-violet-500 text-violet-700 font-bold shadow-sm'
+                                : 'bg-white border-transparent hover:bg-slate-50 text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             {g.name}
@@ -1139,16 +1457,19 @@ export default function AcademicConfigPanel() {
               </CardContent>
             </Card>
             
-            <Card>
-              <CardHeader>
-                <CardTitle>Áreas Disponibles</CardTitle>
+            <Card className="border-t-4 border-t-fuchsia-500 shadow-sm">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-fuchsia-800 flex items-center gap-2">
+                  📚 Áreas Disponibles
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <form onSubmit={onAddArea} className="space-y-2">
+              <CardContent className="space-y-4 pt-4">
+                <form onSubmit={onAddArea} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                   <Input
                     placeholder="Nueva Área (Ej: Matemáticas)"
                     value={areaInput.name}
                     onChange={(e) => setAreaInput({...areaInput, name: e.target.value})}
+                    className="border-fuchsia-100 focus:border-fuchsia-300 focus:ring-fuchsia-200"
                   />
                   
                   {!editingAreaId && selectedSubjectGrade && (
@@ -1156,7 +1477,7 @@ export default function AcademicConfigPanel() {
                       <input 
                         type="checkbox" 
                         id="auto-subject"
-                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                        className="rounded border-fuchsia-300 text-fuchsia-600 focus:ring-fuchsia-500 h-4 w-4"
                         checked={createSubjectForArea}
                         onChange={(e) => setCreateSubjectForArea(e.target.checked)}
                       />
@@ -1166,18 +1487,18 @@ export default function AcademicConfigPanel() {
                     </div>
                   )}
 
-                  <Button type="submit" className="w-full" size="sm">{editingAreaId ? 'Actualizar' : 'Crear Área'}</Button>
+                  <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white" size="sm">{editingAreaId ? 'Actualizar' : 'Crear Área'}</Button>
                   {editingAreaId && (
                     <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditArea}>Cancelar</Button>
                   )}
                 </form>
-                <div className="space-y-1 max-h-60 overflow-y-auto">
+                <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
                   {areas.map((a) => (
-                    <div key={a.id} className="p-2 text-sm bg-slate-50 rounded border flex justify-between items-center group">
-                      <span>{a.name}</span>
+                    <div key={a.id} className="p-2 text-sm bg-white hover:bg-fuchsia-50 rounded border border-slate-200 flex justify-between items-center group transition-colors">
+                      <span className="font-medium text-slate-700">{a.name}</span>
                       <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => onEditArea(a)}>✎</Button>
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500" onClick={() => onDeleteArea(a.id)}>×</Button>
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-fuchsia-600 hover:bg-fuchsia-100" onClick={() => onEditArea(a)}>✎</Button>
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteArea(a.id)}>×</Button>
                       </div>
                     </div>
                   ))}
@@ -1187,29 +1508,36 @@ export default function AcademicConfigPanel() {
           </div>
 
           <div className="md:col-span-2 space-y-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>
+            <Card className="border-t-4 border-t-indigo-500 shadow-sm">
+              <CardHeader className="bg-slate-50/50 border-b pb-3 flex flex-row items-center justify-between">
+                <CardTitle className="text-indigo-800 flex items-center gap-2">
                   {selectedSubjectGrade 
-                    ? `Plan de Estudios: ${grades.find(g => g.id === selectedSubjectGrade)?.name}`
-                    : 'Selecciona un grado para configurar su plan de estudios'}
+                    ? `📖 Plan de Estudios: ${grades.find(g => g.id === selectedSubjectGrade)?.name}`
+                    : '📖 Plan de Estudios'}
                 </CardTitle>
                 {selectedSubjectGrade && (
-                  <Button variant="outline" size="sm" onClick={() => setShowCopyModal(true)}>
-                    Importar Plan
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowCopyModal(true)}
+                    className="text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                  >
+                    📋 Importar Plan
                   </Button>
                 )}
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-6 pt-4">
                 {showCopyModal && (
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
-                    <h4 className="font-bold text-blue-800 mb-2">Importar Plan de Estudios</h4>
-                    <p className="text-sm text-blue-600 mb-3">
+                  <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200 mb-4 shadow-sm">
+                    <h4 className="font-bold text-indigo-800 mb-2 flex items-center gap-2">
+                      <span className="text-xl">📋</span> Importar Plan de Estudios
+                    </h4>
+                    <p className="text-sm text-indigo-600 mb-3">
                       Esto <strong>reemplazará</strong> todas las asignaturas actuales de este grado con las del grado seleccionado.
                     </p>
                     <div className="flex gap-2">
                       <select
-                        className="flex-1 p-2 border rounded text-sm"
+                        className="flex-1 p-2 border rounded text-sm bg-white border-indigo-200 focus:ring-indigo-500 focus:border-indigo-500"
                         value={copyFromGradeId}
                         onChange={(e) => setCopyFromGradeId(e.target.value)}
                       >
@@ -1219,15 +1547,16 @@ export default function AcademicConfigPanel() {
                           .map(g => <option key={g.id} value={g.id}>{g.name}</option>)
                         }
                       </select>
-                      <Button onClick={onCopyStudyPlan} disabled={!copyFromGradeId}>Copiar</Button>
-                      <Button variant="ghost" onClick={() => setShowCopyModal(false)}>Cancelar</Button>
+                      <Button onClick={onCopyStudyPlan} disabled={!copyFromGradeId} className="bg-indigo-600 hover:bg-indigo-700 text-white">Copiar</Button>
+                      <Button variant="ghost" onClick={() => setShowCopyModal(false)} className="text-slate-500 hover:text-slate-700">Cancelar</Button>
                     </div>
                   </div>
                 )}
 
                 {!selectedSubjectGrade ? (
-                  <div className="text-center py-12 text-slate-400">
-                    <p>Selecciona un grado de la lista izquierda para ver y editar sus asignaturas.</p>
+                  <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                    <p className="text-lg font-medium">Selecciona un grado de la lista izquierda</p>
+                    <p className="text-sm">para ver y editar sus asignaturas.</p>
                   </div>
                 ) : (
                   <>
@@ -1396,43 +1725,391 @@ export default function AcademicConfigPanel() {
       )}
 
       {activeTab === 'organization' && (
-        <div className="grid md:grid-cols-1 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Grupos y Directores</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {groups.map((g) => (
-                  <div key={g.id} className="p-4 bg-white border rounded-lg shadow-sm">
-                    <div className="text-lg font-bold text-slate-800">{g.grade_name} - {g.name}</div>
-                    <div className="text-xs text-slate-500 mb-2">{g.campus_name || 'Sin Sede'}</div>
-                    <div className="text-sm text-slate-500 mt-1">
-                      Director: {g.director_name || 'Sin asignar'}
+        <div className="grid md:grid-cols-3 gap-6">
+          <div className="md:col-span-1 space-y-6">
+            <Card className="border-t-4 border-t-sky-500 shadow-sm h-fit sticky top-4">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-sky-800 flex items-center gap-2">
+                  👥 Configurar Grupo
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <form onSubmit={onAddGroup} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Año Lectivo</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      value={groupInput.academic_year}
+                      onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
+                    >
+                      <option value="">Seleccionar Año...</option>
+                      {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Sede (Campus)</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      value={groupInput.campus}
+                      onChange={(e) => setGroupInput({...groupInput, campus: e.target.value})}
+                    >
+                      <option value="">Seleccionar Sede...</option>
+                      {campuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Grado</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      value={groupInput.grade}
+                      onChange={(e) => setGroupInput({...groupInput, grade: e.target.value})}
+                    >
+                      <option value="">Seleccionar Grado...</option>
+                      {levels.map(level => {
+                        const levelGrades = grades.filter(g => g.level === level.id)
+                        if (levelGrades.length === 0) return null
+                        return (
+                          <optgroup key={level.id} label={level.name}>
+                            {levelGrades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                          </optgroup>
+                        )
+                      })}
+                      {grades.filter(g => !g.level).length > 0 && (
+                        <optgroup label="Sin Nivel">
+                          {grades.filter(g => !g.level).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">Grupo</label>
+                      <Input
+                        placeholder="Ej: A, 01"
+                        value={groupInput.name}
+                        onChange={(e) => setGroupInput({...groupInput, name: e.target.value})}
+                        className="border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 uppercase">Salón</label>
+                      <Input
+                        placeholder="Ej: 101"
+                        value={groupInput.classroom}
+                        onChange={(e) => setGroupInput({...groupInput, classroom: e.target.value})}
+                        className="border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      />
                     </div>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Jornada</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      value={groupInput.shift}
+                      onChange={(e) => setGroupInput({...groupInput, shift: e.target.value})}
+                    >
+                      <option value="MORNING">Mañana</option>
+                      <option value="AFTERNOON">Tarde</option>
+                      <option value="NIGHT">Noche</option>
+                      <option value="FULL">Jornada Única</option>
+                      <option value="WEEKEND">Fin de Semana</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Director de Grupo</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 focus:border-sky-300 focus:ring-sky-200"
+                      value={groupInput.director}
+                      onChange={(e) => setGroupInput({...groupInput, director: e.target.value})}
+                    >
+                      <option value="">Seleccionar Docente...</option>
+                      {users.filter(u => u.role === 'TEACHER').map(u => (
+                        <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {groupInput.director && (
+                    <div className="flex items-start space-x-2 bg-amber-50 p-3 rounded border border-amber-200">
+                      <input 
+                        type="checkbox" 
+                        id="multigrade"
+                        className="mt-1 rounded border-amber-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
+                        checked={isMultigrade}
+                        onChange={(e) => setIsMultigrade(e.target.checked)}
+                      />
+                      <label htmlFor="multigrade" className="text-xs text-amber-800 cursor-pointer select-none leading-tight">
+                        <strong>Grupo Multigrado</strong><br/>
+                        Permitir que este docente dirija múltiples grupos.
+                      </label>
+                    </div>
+                  )}
+
+                  <Button type="submit" className="w-full bg-sky-600 hover:bg-sky-700 text-white">
+                    {editingGroupId ? 'Actualizar Grupo' : 'Crear Grupo'}
+                  </Button>
+                  {editingGroupId && (
+                    <Button type="button" variant="outline" className="w-full" onClick={onCancelEditGroup}>Cancelar</Button>
+                  )}
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="md:col-span-2 space-y-6">
+            <Card className="border-t-4 border-t-cyan-500 shadow-sm">
+              <CardHeader className="bg-slate-50/50 border-b pb-3">
+                <CardTitle className="text-cyan-800 flex items-center gap-2">
+                  📋 Grupos Configurados
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-4">
+                <div className="flex items-center justify-between bg-cyan-50 p-3 rounded-lg border border-cyan-100 mb-4">
+                  <span className="text-sm font-bold text-cyan-700">Filtrar por Año:</span>
+                  <select
+                    className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500"
+                    value={groupInput.academic_year}
+                    onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
+                  >
+                    <option value="">Todos</option>
+                    {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {groups
+                    .filter(g => !groupInput.academic_year || g.academic_year.toString() === groupInput.academic_year)
+                    .map((g) => (
+                    <div key={g.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md transition-all hover:border-cyan-300 relative group">
+                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-cyan-600 hover:bg-cyan-100" onClick={() => onEditGroup(g)}>✎</Button>
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteGroup(g.id)}>×</Button>
+                      </div>
+                      
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                            {g.grade_name} - {g.name}
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
+                              g.shift === 'MORNING' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 
+                              g.shift === 'AFTERNOON' ? 'bg-orange-100 text-orange-700 border-orange-200' : 
+                              g.shift === 'NIGHT' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 
+                              'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}>
+                              {g.shift === 'MORNING' ? 'Mañana' : 
+                               g.shift === 'AFTERNOON' ? 'Tarde' : 
+                               g.shift === 'NIGHT' ? 'Noche' : 
+                               g.shift === 'FULL' ? 'Única' : 'Fin de Semana'}
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                            <span className="flex items-center gap-1"><span className="text-slate-400">🏢</span> {g.campus_name || 'Sin Sede'}</span>
+                            {g.classroom && <span className="flex items-center gap-1"><span className="text-slate-400">🚪</span> Salón {g.classroom}</span>}
+                          </div>
+                        </div>
+                        <div className="text-xs font-bold bg-cyan-50 text-cyan-700 px-2 py-1 rounded border border-cyan-100">
+                          {years.find(y => y.id === g.academic_year)?.year}
+                        </div>
+                      </div>
+                      
+                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-3">
+                        <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                          g.director_name ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'
+                        }`}>
+                          {g.director_name ? g.director_name.charAt(0) : '?'}
+                        </div>
+                        <div>
+                          <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Director de Grupo</div>
+                          <div className={`text-sm font-medium ${g.director_name ? 'text-slate-700' : 'text-slate-400 italic'}`}>
+                            {g.director_name || 'Sin asignar'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {groups.filter(g => !groupInput.academic_year || g.academic_year.toString() === groupInput.academic_year).length === 0 && (
+                    <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
+                      <p className="text-lg font-medium">No hay grupos configurados</p>
+                      <p className="text-sm">Intenta cambiar el filtro de año o crea un nuevo grupo.</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
       {activeTab === 'evaluation' && (
-        <div className="grid md:grid-cols-1 gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Escala de Valoración (SIEE)</CardTitle>
+        <div className="grid md:grid-cols-3 gap-6">
+          <Card className="md:col-span-1 h-fit shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-lg text-slate-700">
+                {editingScaleId ? 'Editar Escala' : 'Nueva Escala'}
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {scales.length === 0 && <p className="text-slate-500 text-sm">No hay escala configurada.</p>}
-                {scales.map((s) => (
-                  <div key={s.id} className="p-3 bg-slate-50 rounded border flex justify-between items-center">
-                    <span className="font-bold text-lg">{s.name}</span>
-                    <span className="text-slate-600 bg-slate-200 px-3 py-1 rounded-full text-sm">
-                      {s.min_score} - {s.max_score}
-                    </span>
+            <CardContent className="pt-4">
+              <form onSubmit={onAddScale} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Año Lectivo</label>
+                  <select
+                    className="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all"
+                    value={scaleInput.academic_year}
+                    onChange={(e) => setScaleInput({ ...scaleInput, academic_year: e.target.value })}
+                    required
+                  >
+                    <option value="">Seleccione un año...</option>
+                    {years.map((y) => (
+                      <option key={y.id} value={y.id}>{y.year}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Nombre de la Escala</label>
+                  <Input
+                    placeholder="Ej. Superior, Alto, Básico..."
+                    value={scaleInput.name}
+                    onChange={(e) => setScaleInput({ ...scaleInput, name: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Escala</label>
+                  <select
+                    className="w-full p-2 border rounded-md bg-white focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all"
+                    value={scaleInput.scale_type}
+                    onChange={(e) => setScaleInput({ ...scaleInput, scale_type: e.target.value as 'NUMERIC' | 'QUALITATIVE' })}
+                  >
+                    <option value="NUMERIC">Numérica (Básica/Media)</option>
+                    <option value="QUALITATIVE">Cualitativa (Preescolar)</option>
+                  </select>
+                </div>
+
+                {scaleInput.scale_type === 'NUMERIC' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Mínimo</label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder="0.0"
+                        value={scaleInput.min_score}
+                        onChange={(e) => setScaleInput({ ...scaleInput, min_score: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Máximo</label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        placeholder="5.0"
+                        value={scaleInput.max_score}
+                        onChange={(e) => setScaleInput({ ...scaleInput, max_score: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Descripción (Opcional)</label>
+                  <textarea
+                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-rose-500 focus:border-rose-500 outline-none transition-all"
+                    rows={3}
+                    placeholder="Descripción del desempeño..."
+                    value={scaleInput.description}
+                    onChange={(e) => setScaleInput({ ...scaleInput, description: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <Button type="submit" className="flex-1 bg-rose-600 hover:bg-rose-700 text-white">
+                    {editingScaleId ? 'Actualizar' : 'Guardar'}
+                  </Button>
+                  {editingScaleId && (
+                    <Button type="button" variant="outline" onClick={onCancelEditScale}>
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card className="md:col-span-2 border-t-4 border-t-rose-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-rose-800 flex items-center gap-2">
+                  📊 Escala de Valoración (SIEE)
+                </CardTitle>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="text-rose-600 border-rose-200 hover:bg-rose-50"
+                  onClick={() => setShowCopyScalesModal(true)}
+                >
+                  📋 Copiar desde otro año
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <div className="flex items-center justify-between bg-rose-50 p-3 rounded-lg border border-rose-100 mb-4">
+                <span className="text-sm font-bold text-rose-700">Filtrar por Año:</span>
+                <select
+                  className="p-1.5 border border-rose-200 rounded text-sm min-w-[120px] bg-white text-rose-900 focus:ring-rose-500 focus:border-rose-500"
+                  value={selectedScaleYear || ''}
+                  onChange={(e) => setSelectedScaleYear(e.target.value ? parseInt(e.target.value) : null)}
+                >
+                  <option value="">Todos los años</option>
+                  {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
+                </select>
+              </div>
+
+              <div className="space-y-3">
+                {scales.filter(s => !selectedScaleYear || s.academic_year === selectedScaleYear).length === 0 && (
+                  <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                    <p className="text-lg font-medium">No hay escala de valoración configurada</p>
+                    <p className="text-sm">Utiliza el formulario para agregar los rangos de desempeño.</p>
+                  </div>
+                )}
+                {scales.filter(s => !selectedScaleYear || s.academic_year === selectedScaleYear).map((s) => (
+                  <div key={s.id} className="p-4 bg-white hover:bg-rose-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors group">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-lg text-slate-800">{s.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${s.scale_type === 'QUALITATIVE' ? 'bg-purple-100 text-purple-700 border-purple-200' : 'bg-blue-100 text-blue-700 border-blue-200'}`}>
+                          {s.scale_type === 'QUALITATIVE' ? 'Cualitativa' : 'Numérica'}
+                        </span>
+                      </div>
+                      {s.description && <p className="text-sm text-slate-600 mt-1">{s.description}</p>}
+                      <p className="text-xs text-slate-500 mt-1">
+                        Año: {years.find(y => y.id === s.academic_year)?.year}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      {s.scale_type === 'NUMERIC' && (
+                        <span className="text-rose-700 bg-rose-100 px-4 py-1.5 rounded-full text-sm font-bold border border-rose-200">
+                          {s.min_score} - {s.max_score}
+                        </span>
+                      )}
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button size="sm" variant="ghost" onClick={() => onEditScale(s)}>
+                          ✏️
+                        </Button>
+                        <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteScale(s.id)}>
+                          🗑️
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1450,6 +2127,62 @@ export default function AcademicConfigPanel() {
         confirmText="Eliminar"
         variant="destructive"
       />
+
+      {/* Copy Scales Modal */}
+      {showCopyScalesModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Copiar Escalas de Valoración</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              Selecciona el año de origen y el año de destino para copiar las escalas de valoración.
+              Las escalas con el mismo nombre no se duplicarán.
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Año Origen (Desde)</label>
+                <select
+                  className="w-full p-2 border rounded-md bg-white"
+                  value={copyScalesData.sourceYear}
+                  onChange={(e) => setCopyScalesData({ ...copyScalesData, sourceYear: e.target.value })}
+                >
+                  <option value="">Seleccione año origen...</option>
+                  {years.map((y) => (
+                    <option key={y.id} value={y.id}>{y.year}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Año Destino (Para)</label>
+                <select
+                  className="w-full p-2 border rounded-md bg-white"
+                  value={copyScalesData.targetYear}
+                  onChange={(e) => setCopyScalesData({ ...copyScalesData, targetYear: e.target.value })}
+                >
+                  <option value="">Seleccione año destino...</option>
+                  {years.map((y) => (
+                    <option key={y.id} value={y.id}>{y.year}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="outline" onClick={() => setShowCopyScalesModal(false)}>
+                Cancelar
+              </Button>
+              <Button 
+                className="bg-rose-600 hover:bg-rose-700 text-white"
+                onClick={handleCopyScales}
+                disabled={!copyScalesData.sourceYear || !copyScalesData.targetYear}
+              >
+                Copiar Escalas
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast
         message={toast.message}

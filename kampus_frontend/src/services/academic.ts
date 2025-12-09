@@ -4,12 +4,32 @@ export interface AcademicYear { id: number; year: number }
 export interface Period { id: number; name: string; start_date: string; end_date: string; is_closed: boolean; academic_year: number }
 export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
 export interface Grade { id: number; name: string; level: number | null; level_name?: string }
-export interface Group { id: number; name: string; grade: number; grade_name?: string; academic_year: number; director: number | null; director_name?: string; campus: number | null; campus_name?: string }
+export interface Group { 
+  id: number; 
+  name: string; 
+  grade: number; 
+  grade_name?: string; 
+  academic_year: number; 
+  director: number | null; 
+  director_name?: string; 
+  campus: number | null; 
+  campus_name?: string;
+  shift: string;
+  classroom?: string;
+}
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
 export interface TeacherAssignment { id: number; teacher: number; teacher_name?: string; subject: number; subject_name?: string; group: number; group_name?: string; academic_year: number }
 
-export interface EvaluationScale { id: number; name: string; min_score: number; max_score: number; academic_year: number }
+export interface EvaluationScale { 
+  id: number; 
+  name: string; 
+  min_score: number | null; 
+  max_score: number | null; 
+  academic_year: number;
+  scale_type: 'NUMERIC' | 'QUALITATIVE';
+  description: string;
+}
 export interface EvaluationComponent { id: number; name: string; subject: number; weight_percentage: number }
 export interface Assessment { id: number; name: string; component: number; component_name?: string; period: number; date: string; weight_percentage: number }
 export interface StudentGrade { id: number; assessment: number; student: number; student_name?: string; score: number; feedback: string }
@@ -43,6 +63,8 @@ export const academicApi = {
   // Groups
   listGroups: () => api.get<Group[]>('/api/groups/'),
   createGroup: (data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.post<Group>('/api/groups/', data),
+  updateGroup: (id: number, data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.put<Group>(`/api/groups/${id}/`, data),
+  deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),
 
   // Areas
   listAreas: () => api.get<Area[]>('/api/areas/'),
@@ -63,6 +85,9 @@ export const academicApi = {
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),
   createEvaluationScale: (data: Omit<EvaluationScale, 'id'>) => api.post<EvaluationScale>('/api/evaluation-scales/', data),
+  updateEvaluationScale: (id: number, data: Omit<EvaluationScale, 'id'>) => api.put<EvaluationScale>(`/api/evaluation-scales/${id}/`, data),
+  deleteEvaluationScale: (id: number) => api.delete(`/api/evaluation-scales/${id}/`),
+  copyEvaluationScales: (sourceYearId: number, targetYearId: number) => api.post('/api/evaluation-scales/copy_from_year/', { source_year_id: sourceYearId, target_year_id: targetYearId }),
 
   listEvaluationComponents: () => api.get<EvaluationComponent[]>('/api/evaluation-components/'),
   createEvaluationComponent: (data: Omit<EvaluationComponent, 'id'>) => api.post<EvaluationComponent>('/api/evaluation-components/', data),

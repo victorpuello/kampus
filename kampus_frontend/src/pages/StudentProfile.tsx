@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { studentsApi, noveltiesApi, documentsApi } from '../services/students'
-import type { Student, StudentNovelty } from '../services/students'
+import type { Student } from '../services/students'
 
 export default function StudentProfile() {
   const { id } = useParams()

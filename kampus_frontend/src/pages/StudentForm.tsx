@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
-import { ArrowLeft, Save, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X } from 'lucide-react'
+import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X } from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 

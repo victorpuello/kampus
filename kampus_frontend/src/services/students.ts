@@ -32,6 +32,7 @@ export interface StudentDocument {
 }
 
 export interface Student {
+  id: number
   user: User
   // Identification
   document_type: string
