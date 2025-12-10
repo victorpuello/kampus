@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react'
 import { academicApi } from '../services/academic'
 import { coreApi, type Institution, type Campus } from '../services/core'
 import { usersApi, type User } from '../services/users'
-import type { AcademicYear, Grade, Period, Area, Subject, Group, EvaluationScale, AcademicLevel } from '../services/academic'
+import type { AcademicYear, Grade, Period, Area, Subject, AcademicLoad, Group, EvaluationScale, AcademicLevel } from '../services/academic'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -10,7 +10,7 @@ import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
 export default function AcademicConfigPanel() {
-  const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'study_plan' | 'organization' | 'evaluation'>('general')
+  const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'areas_subjects' | 'study_plan' | 'organization' | 'evaluation'>('general')
   
   // Data states
   const [years, setYears] = useState<AcademicYear[]>([])
@@ -19,6 +19,7 @@ export default function AcademicConfigPanel() {
   const [grades, setGrades] = useState<Grade[]>([])
   const [areas, setAreas] = useState<Area[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
+  const [academicLoads, setAcademicLoads] = useState<AcademicLoad[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [scales, setScales] = useState<EvaluationScale[]>([])
   const [institutions, setInstitutions] = useState<Institution[]>([])
@@ -47,8 +48,12 @@ export default function AcademicConfigPanel() {
   const [areaInput, setAreaInput] = useState({ name: '', description: '' })
   const [editingAreaId, setEditingAreaId] = useState<number | null>(null)
   const [createSubjectForArea, setCreateSubjectForArea] = useState(false)
-  const [subjectInput, setSubjectInput] = useState({ name: '', area: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
+  const [subjectInput, setSubjectInput] = useState({ name: '', area: '' })
   const [editingSubjectId, setEditingSubjectId] = useState<number | null>(null)
+  
+  // Academic Load state
+  const [academicLoadInput, setAcademicLoadInput] = useState({ subject: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
+  const [editingAcademicLoadId, setEditingAcademicLoadId] = useState<number | null>(null)
   const [selectedSubjectGrade, setSelectedSubjectGrade] = useState<number | null>(null)
   const [copyFromGradeId, setCopyFromGradeId] = useState<string>('')
   const [showCopyModal, setShowCopyModal] = useState(false)
@@ -141,13 +146,14 @@ export default function AcademicConfigPanel() {
   const load = async () => {
     setLoading(true)
     try {
-      const [y, p, l, g, a, s, gr, sc, i, c, u] = await Promise.all([
+      const [y, p, l, g, a, s, al, gr, sc, i, c, u] = await Promise.all([
         academicApi.listYears(),
         academicApi.listPeriods(),
         academicApi.listLevels(),
         academicApi.listGrades(),
         academicApi.listAreas(),
         academicApi.listSubjects(),
+        academicApi.listAcademicLoads(),
         academicApi.listGroups(),
         academicApi.listEvaluationScales(),
         coreApi.listInstitutions(),
@@ -160,6 +166,7 @@ export default function AcademicConfigPanel() {
       setGrades(g.data)
       setAreas(a.data)
       setSubjects(s.data)
+      setAcademicLoads(al.data)
       setGroups(gr.data)
       setScales(sc.data)
       setInstitutions(i.data)
@@ -484,24 +491,42 @@ export default function AcademicConfigPanel() {
   }
 
   const recalculateWeights = async (gradeId: number, areaId: number) => {
-    const sResponse = await academicApi.listSubjects()
-    const allSubjects = sResponse.data
-    const areaSubjects = allSubjects.filter(s => s.grade === gradeId && s.area === areaId)
+    const alResponse = await academicApi.listAcademicLoads()
+    const allLoads = alResponse.data
     
-    const totalHours = areaSubjects.reduce((acc, s) => acc + s.hours_per_week, 0)
+    // Filter loads for this grade where the subject belongs to the given area
+    const areaSubjectsIds = subjects.filter(s => s.area === areaId).map(s => s.id)
+    const areaLoads = allLoads.filter(l => l.grade === gradeId && areaSubjectsIds.includes(l.subject))
+    
+    const totalHours = areaLoads.reduce((acc, l) => acc + l.hours_per_week, 0)
     
     if (totalHours > 0) {
+      // Calculate initial weights
+      let weights = areaLoads.map(l => ({
+        ...l,
+        newWeight: Math.round((l.hours_per_week / totalHours) * 100)
+      }))
+      
+      // Adjust to ensure sum is 100
+      const currentSum = weights.reduce((acc, w) => acc + w.newWeight, 0)
+      const diff = 100 - currentSum
+      
+      if (diff !== 0) {
+        // Add difference to the item with the most hours (or the first one if equal)
+        // Sort by hours descending to find the best candidate to absorb the difference
+        weights.sort((a, b) => b.hours_per_week - a.hours_per_week)
+        weights[0].newWeight += diff
+      }
+
       let updatedCount = 0
-      await Promise.all(areaSubjects.map(s => {
-        const newWeight = Math.round((s.hours_per_week / totalHours) * 100)
-        if (s.weight_percentage !== newWeight) {
+      await Promise.all(weights.map(l => {
+        if (l.weight_percentage !== l.newWeight) {
           updatedCount++
-          return academicApi.updateSubject(s.id, { 
-            name: s.name,
-            area: s.area,
-            grade: s.grade,
-            hours_per_week: s.hours_per_week,
-            weight_percentage: newWeight 
+          return academicApi.updateAcademicLoad(l.id, { 
+            subject: l.subject,
+            grade: l.grade,
+            weight_percentage: l.newWeight,
+            hours_per_week: l.hours_per_week
           })
         }
         return Promise.resolve()
@@ -523,29 +548,28 @@ export default function AcademicConfigPanel() {
     }
 
     try {
-      // 1. Get subjects from source grade
-      const sourceSubjects = subjects.filter(s => s.grade === sourceGradeId)
+      // 1. Get academic loads from source grade
+      const sourceLoads = academicLoads.filter(l => l.grade === sourceGradeId)
       
-      if (sourceSubjects.length === 0) {
+      if (sourceLoads.length === 0) {
         showToast('El grado de origen no tiene asignaturas configuradas', 'error')
         return
       }
 
-      // 2. Delete existing subjects in target grade (optional, but cleaner for "Copy Plan")
-      const targetSubjects = subjects.filter(s => s.grade === targetGradeId)
-      if (targetSubjects.length > 0) {
-        await Promise.all(targetSubjects.map(s => academicApi.deleteSubject(s.id)))
+      // 2. Delete existing loads in target grade
+      const targetLoads = academicLoads.filter(l => l.grade === targetGradeId)
+      if (targetLoads.length > 0) {
+        await Promise.all(targetLoads.map(l => academicApi.deleteAcademicLoad(l.id)))
       }
 
-      // 3. Create new subjects
+      // 3. Create new loads
       let createdCount = 0
-      await Promise.all(sourceSubjects.map(async (s) => {
-        await academicApi.createSubject({
-          name: s.name,
-          area: s.area,
+      await Promise.all(sourceLoads.map(async (l) => {
+        await academicApi.createAcademicLoad({
+          subject: l.subject,
           grade: targetGradeId,
-          weight_percentage: s.weight_percentage,
-          hours_per_week: s.hours_per_week
+          weight_percentage: l.weight_percentage,
+          hours_per_week: l.hours_per_week
         })
         createdCount++
       }))
@@ -560,11 +584,79 @@ export default function AcademicConfigPanel() {
     }
   }
 
+  const onAddAcademicLoad = async (e: FormEvent) => {
+    e.preventDefault()
+    const gradeId = selectedSubjectGrade || (academicLoadInput.grade ? parseInt(academicLoadInput.grade) : null)
+    
+    if (!academicLoadInput.subject || !gradeId) {
+      showToast('Por favor complete todos los campos requeridos', 'error')
+      return
+    }
+
+    try {
+      const subjectId = parseInt(academicLoadInput.subject)
+      const subject = subjects.find(s => s.id === subjectId)
+      if (!subject) throw new Error("Asignatura no encontrada")
+
+      const data = {
+        subject: subjectId,
+        grade: gradeId,
+        weight_percentage: 0, // Placeholder
+        hours_per_week: academicLoadInput.hours_per_week
+      }
+
+      if (editingAcademicLoadId) {
+        await academicApi.updateAcademicLoad(editingAcademicLoadId, data)
+        setEditingAcademicLoadId(null)
+        showToast('Carga académica actualizada correctamente', 'success')
+      } else {
+        await academicApi.createAcademicLoad(data)
+        showToast('Carga académica creada correctamente', 'success')
+      }
+      
+      setAcademicLoadInput({ subject: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
+      
+      // Recalculate weights
+      const updatedNew = await recalculateWeights(gradeId, subject.area)
+      
+      if (updatedNew > 0) {
+        showToast(`Se recalcularon los pesos de ${updatedNew} asignaturas`, 'info')
+      }
+
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al guardar la carga académica'), 'error')
+    }
+  }
+
+  const onEditAcademicLoad = (loadItem: AcademicLoad) => {
+    setAcademicLoadInput({
+      subject: loadItem.subject.toString(),
+      grade: loadItem.grade.toString(),
+      weight_percentage: loadItem.weight_percentage,
+      hours_per_week: loadItem.hours_per_week
+    })
+    setEditingAcademicLoadId(loadItem.id)
+  }
+
+  const onDeleteAcademicLoad = (id: number) => {
+    if (!window.confirm('¿Estás seguro de eliminar esta carga académica?')) return
+    academicApi.deleteAcademicLoad(id).then(() => {
+      showToast('Carga académica eliminada', 'success')
+      load()
+    }).catch(err => showToast('Error al eliminar', 'error'))
+  }
+
+  const onCancelEditAcademicLoad = () => {
+    setAcademicLoadInput({ subject: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
+    setEditingAcademicLoadId(null)
+  }
+
   const onAddSubject = async (e: FormEvent) => {
     e.preventDefault()
-    const gradeId = selectedSubjectGrade || (subjectInput.grade ? parseInt(subjectInput.grade) : null)
     
-    if (!subjectInput.name || !subjectInput.area || !gradeId) {
+    if (!subjectInput.name || !subjectInput.area) {
       showToast('Por favor complete todos los campos requeridos', 'error')
       return
     }
@@ -574,38 +666,29 @@ export default function AcademicConfigPanel() {
       const data = {
         name: subjectInput.name,
         area: areaId,
-        grade: gradeId,
-        weight_percentage: 0, // Placeholder, will be recalculated
-        hours_per_week: subjectInput.hours_per_week
       }
-
-      // Capture old subject state for recalculation if moving areas
-      const oldSubject = editingSubjectId ? subjects.find(s => s.id === editingSubjectId) : null
 
       if (editingSubjectId) {
         await academicApi.updateSubject(editingSubjectId, data)
         setEditingSubjectId(null)
         showToast('Asignatura actualizada correctamente', 'success')
       } else {
-        await academicApi.createSubject(data)
+        const res = await academicApi.createSubject(data)
         showToast('Asignatura creada correctamente', 'success')
+        
+        if (createSubjectForArea && selectedSubjectGrade) {
+             await academicApi.createAcademicLoad({
+                subject: res.data.id,
+                grade: selectedSubjectGrade,
+                weight_percentage: 100,
+                hours_per_week: 1
+             })
+             showToast('Asignatura asignada al grado seleccionado', 'success')
+        }
       }
       
-      setSubjectInput({ name: '', area: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
-      
-      // Recalculate weights for the NEW area/grade
-      const updatedNew = await recalculateWeights(gradeId, areaId)
-      
-      // If it was an edit and area/grade changed, recalculate for the OLD area/grade
-      let updatedOld = 0
-      if (oldSubject && (oldSubject.area !== areaId || oldSubject.grade !== gradeId)) {
-        updatedOld = await recalculateWeights(oldSubject.grade, oldSubject.area)
-      }
-
-      if (updatedNew + updatedOld > 0) {
-        showToast(`Se recalcularon los pesos de ${updatedNew + updatedOld} asignaturas`, 'info')
-      }
-
+      setSubjectInput({ name: '', area: '' })
+      setCreateSubjectForArea(false)
       await load()
     } catch (error: any) {
       console.error(error)
@@ -617,15 +700,8 @@ export default function AcademicConfigPanel() {
     setSubjectInput({
       name: subject.name,
       area: subject.area.toString(),
-      grade: subject.grade.toString(),
-      weight_percentage: subject.weight_percentage,
-      hours_per_week: subject.hours_per_week
     })
     setEditingSubjectId(subject.id)
-    // Ensure the grade is selected so the form is visible
-    if (!selectedSubjectGrade) {
-      setSelectedSubjectGrade(subject.grade)
-    }
   }
 
   const onDeleteSubject = (id: number) => {
@@ -635,7 +711,7 @@ export default function AcademicConfigPanel() {
   }
 
   const onCancelEditSubject = () => {
-    setSubjectInput({ name: '', area: '', grade: '', weight_percentage: 100, hours_per_week: 1 })
+    setSubjectInput({ name: '', area: '' })
     setEditingSubjectId(null)
   }
 
@@ -946,7 +1022,7 @@ export default function AcademicConfigPanel() {
       </div>
 
       <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto border border-slate-200">
-        {(['general', 'institution', 'grades_levels', 'study_plan', 'organization', 'evaluation'] as const).map((tab) => (
+        {(['general', 'institution', 'grades_levels', 'areas_subjects', 'study_plan', 'organization', 'evaluation'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -959,6 +1035,7 @@ export default function AcademicConfigPanel() {
             {tab === 'general' && 'General'}
             {tab === 'institution' && 'Institucional'}
             {tab === 'grades_levels' && 'Grados y Niveles'}
+            {tab === 'areas_subjects' && 'Áreas y Asignaturas'}
             {tab === 'study_plan' && 'Plan de Estudios'}
             {tab === 'organization' && 'Organización'}
             {tab === 'evaluation' && 'Evaluación (SIEE)'}
@@ -1458,6 +1535,89 @@ export default function AcademicConfigPanel() {
         </div>
       )}
 
+      {activeTab === 'areas_subjects' && (
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Areas Management */}
+          <Card className="border-t-4 border-t-fuchsia-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-fuchsia-800 flex items-center gap-2">
+                📚 Áreas del Conocimiento
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <form onSubmit={onAddArea} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <Input
+                  placeholder="Nueva Área (Ej: Matemáticas)"
+                  value={areaInput.name}
+                  onChange={(e) => setAreaInput({...areaInput, name: e.target.value})}
+                  className="border-fuchsia-100 focus:border-fuchsia-300 focus:ring-fuchsia-200"
+                />
+                <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white" size="sm">{editingAreaId ? 'Actualizar' : 'Crear Área'}</Button>
+                {editingAreaId && (
+                  <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditArea}>Cancelar</Button>
+                )}
+              </form>
+              <div className="space-y-1 max-h-[600px] overflow-y-auto pr-1">
+                {areas.map((a) => (
+                  <div key={a.id} className="p-2 text-sm bg-white hover:bg-fuchsia-50 rounded border border-slate-200 flex justify-between items-center group transition-colors">
+                    <span className="font-medium text-slate-700">{a.name}</span>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-fuchsia-600 hover:bg-fuchsia-100" onClick={() => onEditArea(a)}>✎</Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteArea(a.id)}>×</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Subjects Catalog Management */}
+          <Card className="border-t-4 border-t-cyan-500 shadow-sm">
+            <CardHeader className="bg-slate-50/50 border-b pb-3">
+              <CardTitle className="text-cyan-800 flex items-center gap-2">
+                📖 Catálogo de Asignaturas
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <form onSubmit={onAddSubject} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <select
+                  className="w-full p-2 border rounded text-sm bg-white"
+                  value={subjectInput.area}
+                  onChange={(e) => setSubjectInput({...subjectInput, area: e.target.value})}
+                >
+                  <option value="">Seleccionar Área</option>
+                  {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <Input
+                  placeholder="Nombre Asignatura (Ej: Álgebra)"
+                  value={subjectInput.name}
+                  onChange={(e) => setSubjectInput({...subjectInput, name: e.target.value})}
+                  className="border-cyan-100 focus:border-cyan-300 focus:ring-cyan-200"
+                />
+                <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white" size="sm">{editingSubjectId ? 'Actualizar' : 'Crear Asignatura'}</Button>
+                {editingSubjectId && (
+                  <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditSubject}>Cancelar</Button>
+                )}
+              </form>
+              <div className="space-y-1 max-h-[600px] overflow-y-auto pr-1">
+                {subjects.map((s) => (
+                  <div key={s.id} className="p-2 text-sm bg-white hover:bg-cyan-50 rounded border border-slate-200 flex justify-between items-center group transition-colors">
+                    <div>
+                      <span className="font-medium text-slate-700 block">{s.name}</span>
+                      <span className="text-xs text-slate-500">{areas.find(a => a.id === s.area)?.name}</span>
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-cyan-600 hover:bg-cyan-100" onClick={() => onEditSubject(s)}>✎</Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteSubject(s.id)}>×</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {activeTab === 'study_plan' && (
         <div className="grid md:grid-cols-3 gap-6">
           <div className="md:col-span-1 space-y-6">
@@ -1521,55 +1681,6 @@ export default function AcademicConfigPanel() {
                 </div>
               </CardContent>
             </Card>
-            
-            <Card className="border-t-4 border-t-fuchsia-500 shadow-sm">
-              <CardHeader className="bg-slate-50/50 border-b pb-3">
-                <CardTitle className="text-fuchsia-800 flex items-center gap-2">
-                  📚 Áreas Disponibles
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <form onSubmit={onAddArea} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  <Input
-                    placeholder="Nueva Área (Ej: Matemáticas)"
-                    value={areaInput.name}
-                    onChange={(e) => setAreaInput({...areaInput, name: e.target.value})}
-                    className="border-fuchsia-100 focus:border-fuchsia-300 focus:ring-fuchsia-200"
-                  />
-                  
-                  {!editingAreaId && selectedSubjectGrade && (
-                    <div className="flex items-center space-x-2 px-1">
-                      <input 
-                        type="checkbox" 
-                        id="auto-subject"
-                        className="rounded border-fuchsia-300 text-fuchsia-600 focus:ring-fuchsia-500 h-4 w-4"
-                        checked={createSubjectForArea}
-                        onChange={(e) => setCreateSubjectForArea(e.target.checked)}
-                      />
-                      <label htmlFor="auto-subject" className="text-xs text-slate-600 cursor-pointer select-none">
-                        Crear también como asignatura
-                      </label>
-                    </div>
-                  )}
-
-                  <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white" size="sm">{editingAreaId ? 'Actualizar' : 'Crear Área'}</Button>
-                  {editingAreaId && (
-                    <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditArea}>Cancelar</Button>
-                  )}
-                </form>
-                <div className="space-y-1 max-h-60 overflow-y-auto pr-1">
-                  {areas.map((a) => (
-                    <div key={a.id} className="p-2 text-sm bg-white hover:bg-fuchsia-50 rounded border border-slate-200 flex justify-between items-center group transition-colors">
-                      <span className="font-medium text-slate-700">{a.name}</span>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-fuchsia-600 hover:bg-fuchsia-100" onClick={() => onEditArea(a)}>✎</Button>
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteArea(a.id)}>×</Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
           </div>
 
           <div className="md:col-span-2 space-y-6">
@@ -1598,30 +1709,43 @@ export default function AcademicConfigPanel() {
                       <span className="text-xl">📋</span> Importar Plan de Estudios
                     </h4>
                     <p className="text-sm text-indigo-600 mb-3">
-                      Esto <strong>reemplazará</strong> todas las asignaturas actuales de este grado con las del grado seleccionado.
+                      Copia todas las asignaturas y configuraciones de otro grado al grado actual.
+                      <br/>
+                      <span className="font-bold text-red-500">¡Advertencia! Esto reemplazará el plan actual.</span>
                     </p>
                     <div className="flex gap-2">
                       <select
-                        className="flex-1 p-2 border rounded text-sm bg-white border-indigo-200 focus:ring-indigo-500 focus:border-indigo-500"
+                        className="flex-1 p-2 border rounded text-sm bg-white"
                         value={copyFromGradeId}
                         onChange={(e) => setCopyFromGradeId(e.target.value)}
                       >
-                        <option value="">Seleccionar Grado de Origen...</option>
-                        {grades
-                          .filter(g => g.id !== selectedSubjectGrade)
-                          .map(g => <option key={g.id} value={g.id}>{g.name}</option>)
-                        }
+                        <option value="">Seleccionar Grado Origen</option>
+                        {grades.filter(g => g.id !== selectedSubjectGrade).map(g => (
+                          <option key={g.id} value={g.id}>{g.name}</option>
+                        ))}
                       </select>
-                      <Button onClick={onCopyStudyPlan} disabled={!copyFromGradeId} className="bg-indigo-600 hover:bg-indigo-700 text-white">Copiar</Button>
-                      <Button variant="ghost" onClick={() => setShowCopyModal(false)} className="text-slate-500 hover:text-slate-700">Cancelar</Button>
+                      <Button 
+                        onClick={onCopyStudyPlan}
+                        disabled={!copyFromGradeId}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                      >
+                        Copiar Plan
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setShowCopyModal(false)}
+                      >
+                        Cancelar
+                      </Button>
                     </div>
                   </div>
                 )}
 
                 {!selectedSubjectGrade ? (
-                  <div className="text-center py-12 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                    <p className="text-lg font-medium">Selecciona un grado de la lista izquierda</p>
-                    <p className="text-sm">para ver y editar sus asignaturas.</p>
+                  <div className="text-center py-12 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                    <div className="text-4xl mb-3">👈</div>
+                    <h3 className="text-lg font-medium text-slate-700">Selecciona un grado</h3>
+                    <p className="text-slate-500">Selecciona un grado del menú lateral para configurar su plan de estudios.</p>
                   </div>
                 ) : (
                   <>
@@ -1629,14 +1753,17 @@ export default function AcademicConfigPanel() {
                     {(() => {
                       const currentGrade = grades.find(g => g.id === selectedSubjectGrade)
                       const currentLevel = currentGrade ? levels.find(l => l.id === currentGrade.level) : null
-                      const gradeSubjects = subjects.filter(s => s.grade === selectedSubjectGrade)
-                      const totalHours = gradeSubjects.reduce((acc, s) => acc + s.hours_per_week, 0)
+                      const gradeLoads = academicLoads.filter(l => l.grade === selectedSubjectGrade)
+                      const totalHours = gradeLoads.reduce((acc, l) => acc + l.hours_per_week, 0)
                       
                       let minHours = 0
                       let levelLabel = ''
                       
                       if (currentLevel) {
-                        if (currentLevel.level_type === 'PRIMARY') {
+                        if (currentLevel.level_type === 'PRESCHOOL') {
+                          minHours = 20
+                          levelLabel = 'Preescolar'
+                        } else if (currentLevel.level_type === 'PRIMARY') {
                           minHours = 25
                           levelLabel = 'Básica Primaria'
                         } else if (currentLevel.level_type === 'SECONDARY') {
@@ -1653,7 +1780,7 @@ export default function AcademicConfigPanel() {
                         const percentage = Math.min((totalHours / minHours) * 100, 100)
                         
                         return (
-                          <div className={`p-4 rounded-lg border ${isCompliant ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
+                          <div className={`p-4 rounded-lg border mb-4 ${isCompliant ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
                             <div className="flex justify-between items-end mb-2">
                               <div>
                                 <h4 className={`font-bold ${isCompliant ? 'text-green-800' : 'text-amber-800'}`}>
@@ -1685,99 +1812,110 @@ export default function AcademicConfigPanel() {
                       return null
                     })()}
 
-                    <div className="bg-slate-50 p-4 rounded-lg border space-y-4">
-                      <h3 className="font-medium text-slate-700 mb-2">Agregar Asignatura al Grado</h3>
-                      <form onSubmit={onAddSubject} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-                        <div className="md:col-span-4">
-                          <label className="text-xs text-slate-500">Área</label>
-                          <select
-                            className="w-full p-2 border rounded text-sm"
-                            value={subjectInput.area}
-                            onChange={(e) => setSubjectInput({...subjectInput, area: e.target.value})}
-                          >
-                            <option value="">Seleccionar Área...</option>
-                            {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          </select>
-                        </div>
-                        <div className="md:col-span-4">
-                          <label className="text-xs text-slate-500">Nombre Asignatura</label>
-                          <Input
-                            placeholder="Ej: Aritmética"
-                            value={subjectInput.name}
-                            onChange={(e) => setSubjectInput({...subjectInput, name: e.target.value})}
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <label className="text-xs text-slate-500">Horas/Sem</label>
-                          <Input
-                            type="number"
-                            value={subjectInput.hours_per_week}
-                            onChange={(e) => setSubjectInput({...subjectInput, hours_per_week: parseInt(e.target.value)})}
-                          />
-                        </div>
-                        <div className="md:col-span-2">
-                          <Button type="submit" className="w-full">
-                            {editingSubjectId ? 'Guardar' : 'Agregar'}
+                    <form onSubmit={onAddAcademicLoad} className="grid grid-cols-12 gap-3 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-sm">
+                      <div className="col-span-5">
+                        <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Asignatura</label>
+                        <select
+                          className="w-full p-2 border rounded text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none transition-all"
+                          value={academicLoadInput.subject}
+                          onChange={(e) => setAcademicLoadInput({...academicLoadInput, subject: e.target.value})}
+                        >
+                          <option value="">Seleccionar Asignatura</option>
+                          {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div className="col-span-3">
+                        <label className="text-xs font-semibold text-slate-500 uppercase mb-1 block">Horas/Semana</label>
+                        <Input
+                          type="number"
+                          min="1"
+                          value={academicLoadInput.hours_per_week}
+                          onChange={(e) => setAcademicLoadInput({...academicLoadInput, hours_per_week: parseInt(e.target.value) || 0})}
+                          className="bg-white"
+                        />
+                      </div>
+                      <div className="col-span-4 flex items-end">
+                        <div className="flex gap-2 w-full">
+                          <Button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white">
+                            {editingAcademicLoadId ? 'Actualizar' : 'Agregar'}
                           </Button>
+                          {editingAcademicLoadId && (
+                            <Button type="button" variant="outline" onClick={onCancelEditAcademicLoad}>
+                              Cancelar
+                            </Button>
+                          )}
                         </div>
-                      </form>
-                      {editingSubjectId && (
-                        <div className="flex justify-end">
-                          <Button variant="ghost" size="sm" onClick={onCancelEditSubject} className="text-red-500">Cancelar Edición</Button>
-                        </div>
-                      )}
-                    </div>
+                      </div>
+                    </form>
 
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                       {areas.map(area => {
-                        const areaSubjects = subjects.filter(s => s.grade === selectedSubjectGrade && s.area === area.id)
-                        if (areaSubjects.length === 0) return null
+                        const areaSubjectsIds = subjects.filter(s => s.area === area.id).map(s => s.id)
+                        const areaLoads = academicLoads.filter(l => l.grade === selectedSubjectGrade && areaSubjectsIds.includes(l.subject))
                         
-                        const totalHours = areaSubjects.reduce((acc, s) => acc + s.hours_per_week, 0)
-                        
+                        if (areaLoads.length === 0) return null
+
+                        const totalHours = areaLoads.reduce((acc, l) => acc + l.hours_per_week, 0)
+                        const totalWeight = areaLoads.reduce((acc, l) => acc + l.weight_percentage, 0)
+
                         return (
-                          <div key={area.id} className="border rounded-lg overflow-hidden">
-                            <div className="bg-slate-100 p-3 flex justify-between items-center">
-                              <div className="font-bold text-slate-700">{area.name}</div>
-                              <div className="text-xs font-medium bg-white px-2 py-1 rounded border">
-                                Total: {totalHours} horas/sem
+                          <div key={area.id} className="border rounded-lg overflow-hidden shadow-sm bg-white">
+                            <div className="bg-slate-50 px-4 py-2 border-b flex justify-between items-center">
+                              <h4 className="font-bold text-slate-700 flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                                {area.name}
+                              </h4>
+                              <div className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border shadow-sm">
+                                {totalHours} Horas Semanales
                               </div>
                             </div>
                             <div className="divide-y">
-                              {areaSubjects.map(s => {
-                                const calculatedWeight = totalHours > 0 ? Math.round((s.hours_per_week / totalHours) * 100) : 0
+                              {areaLoads.map(l => {
+                                const subjectName = subjects.find(s => s.id === l.subject)?.name || 'Desconocida'
                                 return (
-                                  <div key={s.id} className="p-3 flex justify-between items-center bg-white hover:bg-slate-50">
+                                  <div key={l.id} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors group">
                                     <div>
-                                      <div className="font-medium text-slate-800">{s.name}</div>
-                                      <div className="text-xs text-slate-500">
-                                        Intensidad: {s.hours_per_week}h • Peso Sugerido: {calculatedWeight}%
+                                      <div className="font-medium text-slate-800">{subjectName}</div>
+                                      <div className="text-xs text-slate-500 mt-0.5 flex gap-3">
+                                        <span className="flex items-center gap-1">
+                                          ⏱️ {l.hours_per_week} Horas
+                                        </span>
+                                        <span className={`flex items-center gap-1 ${totalWeight !== 100 ? 'text-amber-600 font-bold' : ''}`}>
+                                          📊 {l.weight_percentage}% Peso
+                                        </span>
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-4">
-                                      <div className="text-right">
-                                        <div className="text-xs text-slate-400">Peso Actual</div>
-                                        <div className={`font-bold ${s.weight_percentage !== calculatedWeight ? 'text-amber-600' : 'text-green-600'}`}>
-                                          {s.weight_percentage}%
-                                        </div>
-                                      </div>
-                                      <div className="flex gap-1">
-                                        <Button size="sm" variant="ghost" onClick={() => onEditSubject(s)}>✎</Button>
-                                        <Button size="sm" variant="ghost" className="text-red-500" onClick={() => onDeleteSubject(s.id)}>×</Button>
-                                      </div>
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100" onClick={() => onEditAcademicLoad(l)}>✎</Button>
+                                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteAcademicLoad(l.id)}>×</Button>
                                     </div>
                                   </div>
                                 )
                               })}
                             </div>
+                            {totalWeight !== 100 && (
+                              <div className="bg-amber-50 px-4 py-2 text-xs text-amber-700 border-t border-amber-100 flex items-center gap-2">
+                                ⚠️ La suma de porcentajes es {totalWeight}% (debería ser 100%)
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-auto py-0.5 px-2 text-amber-800 hover:bg-amber-100 ml-auto text-xs"
+                                  onClick={async () => {
+                                    await recalculateWeights(selectedSubjectGrade!, area.id)
+                                    await load()
+                                  }}
+                                >
+                                  Recalcular Automáticamente
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
                       
-                      {subjects.filter(s => s.grade === selectedSubjectGrade).length === 0 && (
-                        <div className="text-center py-8 text-slate-400 border-2 border-dashed rounded-lg">
+                      {academicLoads.filter(l => l.grade === selectedSubjectGrade).length === 0 && (
+                        <div className="text-center py-8 text-slate-400 italic">
                           No hay asignaturas configuradas para este grado.
-                          <br/>Agrega una usando el formulario de arriba.
                         </div>
                       )}
                     </div>

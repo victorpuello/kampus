@@ -7,3 +7,5 @@ Pillow==11.2.1
 psycopg2-binary==2.9.11
 PyJWT==2.10.1
 sqlparse==0.5.4
+google-generativeai==0.8.3
+python-dotenv==1.2.1

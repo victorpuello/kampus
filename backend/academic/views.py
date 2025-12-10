@@ -6,21 +6,25 @@ from .models import (
     AcademicLevel,
     AcademicYear,
     Achievement,
+    AchievementDefinition,
     Area,
     Assessment,
     EvaluationComponent,
     EvaluationScale,
     Grade,
     Group,
+    PerformanceIndicator,
     Period,
     StudentGrade,
     Subject,
     TeacherAssignment,
+    AcademicLoad,
 )
 from .permissions import IsCoordinatorOrAdminOrReadOnly
 from .serializers import (
     AcademicLevelSerializer,
     AcademicYearSerializer,
+    AchievementDefinitionSerializer,
     AchievementSerializer,
     AreaSerializer,
     AssessmentSerializer,
@@ -28,11 +32,14 @@ from .serializers import (
     EvaluationScaleSerializer,
     GradeSerializer,
     GroupSerializer,
+    PerformanceIndicatorSerializer,
     PeriodSerializer,
     StudentGradeSerializer,
     SubjectSerializer,
     TeacherAssignmentSerializer,
+    AcademicLoadSerializer,
 )
+from .ai import AIService
 
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
@@ -74,6 +81,12 @@ class AreaViewSet(viewsets.ModelViewSet):
 class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
+    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+
+
+class AcademicLoadViewSet(viewsets.ModelViewSet):
+    queryset = AcademicLoad.objects.all()
+    serializer_class = AcademicLoadSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
 
 
@@ -145,7 +158,84 @@ class StudentGradeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
 
 
+class AchievementDefinitionViewSet(viewsets.ModelViewSet):
+    queryset = AchievementDefinition.objects.all()
+    serializer_class = AchievementDefinitionSerializer
+    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    filterset_fields = ['area', 'subject', 'is_active']
+
+    @action(detail=False, methods=['post'], url_path='improve-wording')
+    def improve_wording(self, request):
+        """
+        Mejora la redacción de un texto usando IA.
+        Body: { "text": "..." }
+        """
+        text = request.data.get('text')
+        if not text:
+            return Response({"error": "Text is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            ai_service = AIService()
+            improved_text = ai_service.improve_text(text)
+            return Response({"improved_text": improved_text})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class AchievementViewSet(viewsets.ModelViewSet):
     queryset = Achievement.objects.all()
     serializer_class = AchievementSerializer
+    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    filterset_fields = ['subject', 'period']
+
+    @action(detail=False, methods=['post'], url_path='generate-indicators')
+    def generate_indicators(self, request):
+        """
+        Genera sugerencias de indicadores usando IA.
+        Body: { "description": "..." }
+        """
+        description = request.data.get('description')
+        if not description:
+            return Response({"error": "Description is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            ai_service = AIService()
+            indicators = ai_service.generate_indicators(description)
+            return Response(indicators)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'], url_path='create-indicators')
+    def create_indicators(self, request, pk=None):
+        """
+        Crea indicadores masivamente para un logro existente.
+        Body: { "indicators": [ {"level": "LOW", "description": "..."}, ... ] }
+        """
+        achievement = self.get_object()
+        indicators_data = request.data.get('indicators', [])
+        
+        created_indicators = []
+        errors = []
+        
+        for ind_data in indicators_data:
+            serializer = PerformanceIndicatorSerializer(data={
+                'achievement': achievement.id,
+                'level': ind_data.get('level'),
+                'description': ind_data.get('description')
+            })
+            if serializer.is_valid():
+                serializer.save()
+                created_indicators.append(serializer.data)
+            else:
+                errors.append(serializer.errors)
+        
+        if errors:
+             return Response({"created": created_indicators, "errors": errors}, status=status.HTTP_207_MULTI_STATUS)
+
+        return Response(created_indicators, status=status.HTTP_201_CREATED)
+
+
+class PerformanceIndicatorViewSet(viewsets.ModelViewSet):
+    queryset = PerformanceIndicator.objects.all()
+    serializer_class = PerformanceIndicatorSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]

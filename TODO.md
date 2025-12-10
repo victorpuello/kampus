@@ -2,6 +2,39 @@
 
 Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3] mejora futura.
 
+## 🐛 BUGS A CORREGIR
+
+### [P1] Autenticación en generación de reportes (9 dic 2025)
+**Estado:** Investigado, fallo de autenticación en frontend
+**Síntomas:**
+- GET `/api/enrollments/report/` retorna 404 desde el navegador
+- El mismo endpoint funciona correctamente con `curl` usando JWT válido
+- Endpoint existe y está correctamente configurado en el backend
+
+**Análisis:**
+- ✅ El endpoint `/api/enrollments/report/` está registrado en el router
+- ✅ El método `report()` en `EnrollmentViewSet` está correctamente implementado
+- ✅ Con JWT válido vía `curl`, retorna 200 OK con datos CSV/PDF
+- ❌ Frontend obtiene 404 aunque axios está configurado con interceptor de token
+
+**Causa probable:**
+- El token JWT en localStorage está expirado o no está siendo enviado
+- El interceptor de refresh token en `api.ts` puede no estar funcionando correctamente
+- El navegador puede estar obteniendo error 401 que Django no reporta claramente
+
+**Solución pendiente:**
+1. Verificar que la sesión esté activa al usar el reporte
+2. Revisar los logs de refresh token en el navegador
+3. Considerar mecanismo de refresh automático más robusto
+4. Agregar manejo de errores más detallado en el frontend
+
+**Archivos afectados:**
+- `kampus_frontend/src/services/api.ts` (interceptor de token)
+- `kampus_frontend/src/store/auth.ts` (gestión de tokens)
+- `kampus_frontend/src/pages/enrollments/EnrollmentReports.tsx` (componente de reportes)
+- `backend/students/urls.py` (configuración de rutas - ya corregida)
+- `backend/students/views.py` (endpoint implementado correctamente)
+
 ## Estado actual (completado)
 - ✅ [P0] Estructura de repos: `backend/` (Django/DRF) y `kampus_frontend/` (Vite React TS)
 - ✅ [P0] Configuración Django: `REST_FRAMEWORK` + JWT (SimpleJWT), CORS, `AUTH_USER_MODEL=users.User`
@@ -37,6 +70,7 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 
 ### Académico
 - [P0] Modelos base: `AcademicYear`, `Period`, `Area`, `Subject`, `Grade`, `Course`, `GradeSheet`
+- ✅ [P1] Módulo de Planeación: Banco de Logros y Planeación de Periodo con IA (Gemini)
 - [P1] Motor SIEE mínimo (cuantitativo): componentes y ponderaciones, validación 100%
 - [P1] Endpoints de configuración académica (`/api/academic-config/*`)
 - [P2] `GradeSheet` edición y carga CSV masiva

@@ -24,5 +24,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLES)
     email = models.EmailField(unique=True, blank=True, null=True, verbose_name="Correo electrónico")
 
+    REQUIRED_FIELDS = ["email", "role"]
+
     def __str__(self) -> str:
         return f"{self.username} ({self.get_role_display()})"

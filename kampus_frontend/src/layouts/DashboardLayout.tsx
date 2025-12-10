@@ -44,7 +44,14 @@ export default function DashboardLayout() {
     },
     { name: 'Docentes', href: '/teachers', icon: Briefcase },
     { name: 'Usuarios', href: '/users', icon: Shield },
-    { name: 'Académico', href: '/academic-config', icon: GraduationCap },
+    { 
+      name: 'Académico', 
+      icon: GraduationCap,
+      children: [
+        { name: 'Configuración', href: '/academic-config' },
+        { name: 'Planeación', href: '/planning' },
+      ]
+    },
     { name: 'Institución', href: '/institution', icon: Building2 },
     { name: 'Sedes', href: '/campuses', icon: MapPinned },
   ]

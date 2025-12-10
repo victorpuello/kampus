@@ -27,8 +27,9 @@ export interface Group {
   enrolled_count: number;
 }
 export interface Area { id: number; name: string; description: string }
-export interface Subject { id: number; name: string; area: number; area_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
-export interface TeacherAssignment { id: number; teacher: number; teacher_name?: string; subject: number; subject_name?: string; group: number; group_name?: string; academic_year: number }
+export interface Subject { id: number; name: string; area: number; area_name?: string; }
+export interface AcademicLoad { id: number; subject: number; subject_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
+export interface TeacherAssignment { id: number; teacher: number; teacher_name?: string; academic_load: number; academic_load_name?: string; group: number; group_name?: string; academic_year: number }
 
 export interface EvaluationScale { 
   id: number; 
@@ -42,7 +43,41 @@ export interface EvaluationScale {
 export interface EvaluationComponent { id: number; name: string; subject: number; weight_percentage: number }
 export interface Assessment { id: number; name: string; component: number; component_name?: string; period: number; date: string; weight_percentage: number }
 export interface StudentGrade { id: number; assessment: number; student: number; student_name?: string; score: number; feedback: string }
-export interface Achievement { id: number; description: string; subject: number; period: number }
+
+export interface AchievementDefinition {
+  // Bank definition
+  id: number;
+  code: string;
+  description: string;
+  area: number | null;
+  area_name?: string;
+  grade: number | null;
+  grade_name?: string;
+  subject: number | null;
+  subject_name?: string;
+  is_active: boolean;
+}
+
+
+
+export interface PerformanceIndicator {
+  id: number;
+  achievement: number;
+  level: 'LOW' | 'BASIC' | 'HIGH' | 'SUPERIOR';
+  level_display?: string;
+  description: string;
+}
+
+export interface Achievement {
+  id: number;
+  subject: number;
+  period: number;
+  definition: number | null;
+  definition_code?: string;
+  description: string;
+  percentage: number;
+  indicators?: PerformanceIndicator[];
+}
 
 export const academicApi = {
   // Years
@@ -83,13 +118,19 @@ export const academicApi = {
 
   // Subjects
   listSubjects: () => api.get<Subject[]>('/api/subjects/'),
-  createSubject: (data: Omit<Subject, 'id' | 'area_name' | 'grade_name'>) => api.post<Subject>('/api/subjects/', data),
-  updateSubject: (id: number, data: Omit<Subject, 'id' | 'area_name' | 'grade_name'>) => api.put<Subject>(`/api/subjects/${id}/`, data),
+  createSubject: (data: Omit<Subject, 'id' | 'area_name'>) => api.post<Subject>('/api/subjects/', data),
+  updateSubject: (id: number, data: Omit<Subject, 'id' | 'area_name'>) => api.put<Subject>(`/api/subjects/${id}/`, data),
   deleteSubject: (id: number) => api.delete(`/api/subjects/${id}/`),
+
+  // Academic Loads
+  listAcademicLoads: (params?: any) => api.get<AcademicLoad[]>('/api/academic-loads/', { params }),
+  createAcademicLoad: (data: Omit<AcademicLoad, 'id' | 'subject_name' | 'grade_name'>) => api.post<AcademicLoad>('/api/academic-loads/', data),
+  updateAcademicLoad: (id: number, data: Omit<AcademicLoad, 'id' | 'subject_name' | 'grade_name'>) => api.put<AcademicLoad>(`/api/academic-loads/${id}/`, data),
+  deleteAcademicLoad: (id: number) => api.delete(`/api/academic-loads/${id}/`),
 
   // Assignments
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
-  createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'subject_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
+  createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'academic_load_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
   deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
 
   // Evaluation
@@ -99,6 +140,23 @@ export const academicApi = {
   deleteEvaluationScale: (id: number) => api.delete(`/api/evaluation-scales/${id}/`),
   copyEvaluationScales: (sourceYearId: number, targetYearId: number) => api.post('/api/evaluation-scales/copy_from_year/', { source_year_id: sourceYearId, target_year_id: targetYearId }),
 
+  // Achievement Definitions (Bank)
+  listAchievementDefinitions: (params?: any) => api.get<AchievementDefinition[]>('/api/achievement-definitions/', { params }),
+  createAchievementDefinition: (data: Partial<AchievementDefinition>) => api.post<AchievementDefinition>('/api/achievement-definitions/', data),
+  updateAchievementDefinition: (id: number, data: Partial<AchievementDefinition>) => api.put<AchievementDefinition>(`/api/achievement-definitions/${id}/`, data),
+  deleteAchievementDefinition: (id: number) => api.delete(`/api/achievement-definitions/${id}/`),
+  improveAchievementWording: (text: string) => api.post<{ improved_text: string }>('/api/achievement-definitions/improve-wording/', { text }),
+
+  // Achievements (Planning)
+  listAchievements: (params?: any) => api.get<Achievement[]>('/api/achievements/', { params }),
+  createAchievement: (data: Partial<Achievement>) => api.post<Achievement>('/api/achievements/', data),
+  updateAchievement: (id: number, data: Partial<Achievement>) => api.put<Achievement>(`/api/achievements/${id}/`, data),
+  deleteAchievement: (id: number) => api.delete(`/api/achievements/${id}/`),
+  
+  // AI
+  generateIndicators: (description: string) => api.post<Record<string, string>>('/api/achievements/generate-indicators/', { description }),
+  createIndicators: (achievementId: number, indicators: { level: string, description: string }[]) => api.post(`/api/achievements/${achievementId}/create-indicators/`, { indicators }),
+
   listEvaluationComponents: () => api.get<EvaluationComponent[]>('/api/evaluation-components/'),
   createEvaluationComponent: (data: Omit<EvaluationComponent, 'id'>) => api.post<EvaluationComponent>('/api/evaluation-components/', data),
 
@@ -107,8 +165,5 @@ export const academicApi = {
 
   listStudentGrades: () => api.get<StudentGrade[]>('/api/student-grades/'),
   createStudentGrade: (data: Omit<StudentGrade, 'id' | 'student_name'>) => api.post<StudentGrade>('/api/student-grades/', data),
-
-  listAchievements: () => api.get<Achievement[]>('/api/achievements/'),
-  createAchievement: (data: Omit<Achievement, 'id'>) => api.post<Achievement>('/api/achievements/', data),
 }
 

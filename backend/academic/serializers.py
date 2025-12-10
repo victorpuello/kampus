@@ -4,17 +4,26 @@ from .models import (
     AcademicLevel,
     AcademicYear,
     Achievement,
+    AchievementDefinition,
     Area,
     Assessment,
     EvaluationComponent,
     EvaluationScale,
     Grade,
     Group,
+    PerformanceIndicator,
     Period,
     StudentGrade,
     Subject,
     TeacherAssignment,
+    AcademicLoad,
 )
+
+
+class AcademicLoadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AcademicLoad
+        fields = "__all__"
 
 
 class AcademicYearSerializer(serializers.ModelSerializer):
@@ -171,7 +180,29 @@ class StudentGradeSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class AchievementDefinitionSerializer(serializers.ModelSerializer):
+    area_name = serializers.CharField(source="area.name", read_only=True)
+    grade_name = serializers.CharField(source="grade.name", read_only=True)
+    subject_name = serializers.CharField(source="subject.name", read_only=True)
+
+    class Meta:
+        model = AchievementDefinition
+        fields = "__all__"
+        read_only_fields = ["code"]
+
+
+class PerformanceIndicatorSerializer(serializers.ModelSerializer):
+    level_display = serializers.CharField(source='get_level_display', read_only=True)
+
+    class Meta:
+        model = PerformanceIndicator
+        fields = "__all__"
+
+
 class AchievementSerializer(serializers.ModelSerializer):
+    indicators = PerformanceIndicatorSerializer(many=True, read_only=True)
+    definition_code = serializers.CharField(source="definition.code", read_only=True)
+
     class Meta:
         model = Achievement
         fields = "__all__"

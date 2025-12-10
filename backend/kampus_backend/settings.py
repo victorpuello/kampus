@@ -175,3 +175,7 @@ if DEBUG and not CORS_ALLOWED_ORIGINS:
 
 # Usuario personalizado
 AUTH_USER_MODEL = "users.User"
+
+# Google Gemini API Key
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from core.models import Campus
+import uuid
 
 
 class AcademicYear(models.Model):
@@ -123,16 +124,28 @@ class Area(models.Model):
 
 
 class Subject(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, unique=True)
     area = models.ForeignKey(Area, related_name="subjects", on_delete=models.CASCADE)
-    grade = models.ForeignKey(Grade, related_name="subjects", on_delete=models.CASCADE)
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class AcademicLoad(models.Model):
+    subject = models.ForeignKey(Subject, related_name="academic_loads", on_delete=models.CASCADE)
+    grade = models.ForeignKey(Grade, related_name="academic_loads", on_delete=models.CASCADE)
     weight_percentage = models.PositiveIntegerField(
         default=100, help_text="Percentage weight within the area"
     )
     hours_per_week = models.PositiveIntegerField(default=1)
 
+    class Meta:
+        unique_together = ("subject", "grade")
+        verbose_name = "Carga Académica"
+        verbose_name_plural = "Cargas Académicas"
+
     def __str__(self) -> str:
-        return f"{self.name} - {self.grade}"
+        return f"{self.subject.name} - {self.grade}"
 
 
 class TeacherAssignment(models.Model):
@@ -142,8 +155,8 @@ class TeacherAssignment(models.Model):
         on_delete=models.CASCADE,
         limit_choices_to={"role": "TEACHER"},
     )
-    subject = models.ForeignKey(
-        Subject, related_name="assignments", on_delete=models.CASCADE
+    academic_load = models.ForeignKey(
+        AcademicLoad, related_name="assignments", on_delete=models.CASCADE, null=True
     )
     group = models.ForeignKey(
         Group, related_name="assignments", on_delete=models.CASCADE
@@ -152,10 +165,10 @@ class TeacherAssignment(models.Model):
 
     class Meta:
         # A subject in a group can only be assigned to one teacher per year
-        unique_together = ("subject", "group", "academic_year")
+        unique_together = ("academic_load", "group", "academic_year")
 
     def __str__(self) -> str:
-        return f"{self.teacher} - {self.subject} - {self.group}"
+        return f"{self.teacher} - {self.academic_load} - {self.group}"
 
 
 class EvaluationScale(models.Model):
@@ -179,8 +192,8 @@ class EvaluationScale(models.Model):
 
 
 class EvaluationComponent(models.Model):
-    subject = models.ForeignKey(
-        Subject, related_name="components", on_delete=models.CASCADE
+    academic_load = models.ForeignKey(
+        AcademicLoad, related_name="components", on_delete=models.CASCADE, null=True
     )
     name = models.CharField(max_length=50)  # e.g. "Saber", "Hacer", "Ser"
     weight_percentage = models.PositiveIntegerField(
@@ -188,7 +201,7 @@ class EvaluationComponent(models.Model):
     )
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.weight_percentage}%) - {self.subject}"
+        return f"{self.name} ({self.weight_percentage}%) - {self.academic_load}"
 
 
 class Assessment(models.Model):
@@ -222,13 +235,70 @@ class StudentGrade(models.Model):
         return f"{self.student} - {self.assessment}: {self.score}"
 
 
+class AchievementDefinition(models.Model):
+    """
+    Banco de Logros: Definiciones reutilizables de logros.
+    Pueden estar asociados a un Área (general) o a una Asignatura (específico).
+    """
+    code = models.CharField(max_length=20, unique=True, blank=True, help_text="Código interno del logro (ej. CN-001)")
+    description = models.TextField(verbose_name="Descripción del Logro")
+    area = models.ForeignKey(Area, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
+    grade = models.ForeignKey(Grade, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
+    subject = models.ForeignKey(Subject, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
+    academic_load = models.ForeignKey(AcademicLoad, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            # Generar código único basado en el ID autoincremental.
+            # Primero guardamos con un código temporal para obtener el ID.
+            self.code = f"TEMP-{uuid.uuid4().hex[:8]}"
+            super().save(*args, **kwargs)
+            
+            # Una vez guardado, tenemos self.id
+            self.code = f"LOG-{self.id:04d}"
+            # Guardamos de nuevo solo el campo code
+            super().save(update_fields=['code'])
+        else:
+            super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.code} - {self.description[:50]}..."
+
+
 class Achievement(models.Model):
-    subject = models.ForeignKey(
-        Subject, related_name="achievements", on_delete=models.CASCADE
+    """
+    Logro Planificado: Instancia de un logro para un periodo y asignatura específicos.
+    """
+    academic_load = models.ForeignKey(
+        AcademicLoad, related_name="achievements", on_delete=models.CASCADE, null=True
     )
     period = models.ForeignKey(Period, on_delete=models.CASCADE)
-    description = models.TextField()
+    definition = models.ForeignKey(AchievementDefinition, related_name="instances", on_delete=models.SET_NULL, null=True, blank=True)
+    description = models.TextField(help_text="Descripción específica para este periodo (puede heredar del banco)")
+    percentage = models.PositiveIntegerField(default=0, help_text="Porcentaje de valoración si aplica")
 
     def __str__(self) -> str:
-        return f"{self.subject} - {self.period}: {self.description[:50]}..."
+        return f"{self.academic_load} - {self.period}: {self.description[:50]}..."
+
+
+class PerformanceIndicator(models.Model):
+    """
+    Indicadores de Desempeño: Descriptores para cada nivel de desempeño asociados a un logro.
+    """
+    LEVEL_CHOICES = (
+        ('LOW', 'Bajo'),
+        ('BASIC', 'Básico'),
+        ('HIGH', 'Alto'),
+        ('SUPERIOR', 'Superior'),
+    )
+    achievement = models.ForeignKey(Achievement, related_name="indicators", on_delete=models.CASCADE)
+    level = models.CharField(max_length=20, choices=LEVEL_CHOICES)
+    description = models.TextField()
+
+    class Meta:
+        unique_together = ('achievement', 'level')
+
+    def __str__(self):
+        return f"{self.get_level_display()} - {self.achievement}"
 

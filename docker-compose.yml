@@ -26,6 +26,7 @@ services:
       - POSTGRES_PASSWORD=kampus
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
     depends_on:
       - db
     command: python manage.py runserver 0.0.0.0:8000

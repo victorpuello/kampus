@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     AcademicLevelViewSet,
     AcademicYearViewSet,
+    AchievementDefinitionViewSet,
     AchievementViewSet,
     AreaViewSet,
     AssessmentViewSet,
@@ -11,10 +12,12 @@ from .views import (
     EvaluationScaleViewSet,
     GradeViewSet,
     GroupViewSet,
+    PerformanceIndicatorViewSet,
     PeriodViewSet,
     StudentGradeViewSet,
     SubjectViewSet,
     TeacherAssignmentViewSet,
+    AcademicLoadViewSet,
 )
 
 router = DefaultRouter()
@@ -25,6 +28,7 @@ router.register(r"grades", GradeViewSet, basename="grade")
 router.register(r"groups", GroupViewSet, basename="group")
 router.register(r"areas", AreaViewSet, basename="area")
 router.register(r"subjects", SubjectViewSet, basename="subject")
+router.register(r"academic-loads", AcademicLoadViewSet, basename="academicload")
 router.register(
     r"teacher-assignments", TeacherAssignmentViewSet, basename="teacherassignment"
 )
@@ -35,6 +39,8 @@ router.register(
 router.register(r"assessments", AssessmentViewSet, basename="assessment")
 router.register(r"student-grades", StudentGradeViewSet, basename="studentgrade")
 router.register(r"achievements", AchievementViewSet, basename="achievement")
+router.register(r"achievement-definitions", AchievementDefinitionViewSet, basename="achievementdefinition")
+router.register(r"performance-indicators", PerformanceIndicatorViewSet, basename="performanceindicator")
 
 urlpatterns = [
     path("", include(router.urls)),
