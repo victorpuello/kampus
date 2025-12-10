@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
-import { academicApi, type AcademicYear, type Subject, type Group, type TeacherAssignment } from '../services/academic'
+import { academicApi, type AcademicYear, type Subject, type Group, type TeacherAssignment, type AcademicLoad } from '../services/academic'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -97,12 +97,12 @@ export default function TeacherForm() {
   // Assignment states
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
-  const [subjects, setSubjects] = useState<Subject[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+  const [academicLoads, setAcademicLoads] = useState<AcademicLoad[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [newAssignment, setNewAssignment] = useState({
     group: '',
-    subject: ''
+    academic_load: ''
   })
 
   useEffect(() => {
@@ -113,16 +113,16 @@ export default function TeacherForm() {
 
   const loadAssignmentData = async () => {
     try {
-      const [yearsRes, subjectsRes, groupsRes, assignmentsRes] = await Promise.all([
+      const [yearsRes, groupsRes, assignmentsRes, loadsRes] = await Promise.all([
         academicApi.listYears(),
-        academicApi.listSubjects(),
         academicApi.listGroups(),
-        academicApi.listAssignments()
+        academicApi.listAssignments(),
+        academicApi.listAcademicLoads()
       ])
       
       setYears(yearsRes.data)
-      setSubjects(subjectsRes.data)
       setGroups(groupsRes.data)
+      setAcademicLoads(loadsRes.data)
       
       // Filter assignments for this teacher
       const teacherAssignments = assignmentsRes.data.filter(a => a.teacher === Number(id))
@@ -140,7 +140,7 @@ export default function TeacherForm() {
   }
 
   const handleAddAssignment = async () => {
-    if (!selectedYear || !newAssignment.group || !newAssignment.subject) {
+    if (!selectedYear || !newAssignment.group || !newAssignment.academic_load) {
       showToast('Por favor complete todos los campos', 'error')
       return
     }
@@ -150,11 +150,11 @@ export default function TeacherForm() {
         teacher: Number(id),
         academic_year: Number(selectedYear),
         group: Number(newAssignment.group),
-        subject: Number(newAssignment.subject)
+        academic_load: Number(newAssignment.academic_load)
       })
       
       setAssignments([...assignments, response.data])
-      setNewAssignment({ group: '', subject: '' })
+      setNewAssignment({ group: '', academic_load: '' })
       showToast('Asignación agregada correctamente', 'success')
     } catch (error: any) {
       console.error(error)
@@ -180,11 +180,11 @@ export default function TeacherForm() {
     return groups.filter(g => g.academic_year === Number(selectedYear))
   }
 
-  const getFilteredSubjects = () => {
+  const getFilteredLoads = () => {
     if (!newAssignment.group) return []
     const group = groups.find(g => g.id === Number(newAssignment.group))
     if (!group) return []
-    return subjects.filter(s => s.grade === group.grade)
+    return academicLoads.filter(l => l.grade === group.grade)
   }
 
   const getTargetHours = (level: string) => {
@@ -209,8 +209,8 @@ export default function TeacherForm() {
     if (!selectedYear) return 0
     const yearAssignments = assignments.filter(a => a.academic_year === Number(selectedYear))
     return yearAssignments.reduce((total, assignment) => {
-      const subject = subjects.find(s => s.id === assignment.subject)
-      return total + (subject?.hours_per_week || 0)
+      const load = academicLoads.find(l => l.id === assignment.academic_load)
+      return total + (load?.hours_per_week || 0)
     }, 0)
   }
 
@@ -566,7 +566,7 @@ export default function TeacherForm() {
                   <Label>Grupo</Label>
                   <select
                     value={newAssignment.group}
-                    onChange={(e) => setNewAssignment(prev => ({ ...prev, group: e.target.value, subject: '' }))}
+                    onChange={(e) => setNewAssignment(prev => ({ ...prev, group: e.target.value, academic_load: '' }))}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Seleccione un grupo</option>
@@ -578,18 +578,18 @@ export default function TeacherForm() {
                 <div className="space-y-2">
                   <Label>Asignatura</Label>
                   <select
-                    value={newAssignment.subject}
-                    onChange={(e) => setNewAssignment(prev => ({ ...prev, subject: e.target.value }))}
+                    value={newAssignment.academic_load}
+                    onChange={(e) => setNewAssignment(prev => ({ ...prev, academic_load: e.target.value }))}
                     disabled={!newAssignment.group}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
                   >
                     <option value="">Seleccione una asignatura</option>
-                    {getFilteredSubjects().map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.hours_per_week}h)</option>
+                    {getFilteredLoads().map(l => (
+                      <option key={l.id} value={l.id}>{l.subject_name}</option>
                     ))}
                   </select>
                 </div>
-                <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.subject}>
+                <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load}>
                   <Plus className="mr-2 h-4 w-4" /> Agregar
                 </Button>
               </div>
@@ -603,7 +603,7 @@ export default function TeacherForm() {
                     {assignments
                       .filter(a => a.academic_year === Number(selectedYear))
                       .map(assignment => {
-                        const subject = subjects.find(s => s.id === assignment.subject)
+                        const load = academicLoads.find(l => l.id === assignment.academic_load)
                         const group = groups.find(g => g.id === assignment.group)
                         return (
                           <div key={assignment.id} className="p-4 flex items-center justify-between">
@@ -612,9 +612,9 @@ export default function TeacherForm() {
                                 <BookOpen className="h-5 w-5" />
                               </div>
                               <div>
-                                <p className="font-medium text-slate-900">{subject?.name}</p>
+                                <p className="font-medium text-slate-900">{load?.subject_name || 'Asignatura desconocida'}</p>
                                 <p className="text-sm text-slate-500">
-                                  Grupo {group?.grade_name} - {group?.name} • {subject?.hours_per_week} horas/semana
+                                  Grupo {group?.grade_name} - {group?.name} • {load?.hours_per_week} horas/semana
                                 </p>
                               </div>
                             </div>

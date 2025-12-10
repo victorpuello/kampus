@@ -22,6 +22,9 @@ from .models import (
 
 
 class AcademicLoadSerializer(serializers.ModelSerializer):
+    subject_name = serializers.CharField(source='subject.name', read_only=True)
+    grade_name = serializers.CharField(source='grade.name', read_only=True)
+
     class Meta:
         model = AcademicLoad
         fields = "__all__"
@@ -136,7 +139,7 @@ class SubjectSerializer(serializers.ModelSerializer):
 
 class TeacherAssignmentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.get_full_name", read_only=True)
-    subject_name = serializers.CharField(source="subject.name", read_only=True)
+    subject_name = serializers.CharField(source="academic_load.subject.name", read_only=True)
     group_name = serializers.CharField(source="group.name", read_only=True)
 
     class Meta:
@@ -145,7 +148,7 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
         validators = [
             serializers.UniqueTogetherValidator(
                 queryset=TeacherAssignment.objects.all(),
-                fields=['subject', 'group', 'academic_year'],
+                fields=['academic_load', 'group', 'academic_year'],
                 message='Esta asignatura ya tiene un docente asignado en este grupo para el año seleccionado.'
             )
         ]
@@ -208,7 +211,7 @@ class DimensionSerializer(serializers.ModelSerializer):
 
 
 class AchievementSerializer(serializers.ModelSerializer):
-    indicators = PerformanceIndicatorSerializer(many=True, read_only=True)
+    indicators = PerformanceIndicatorSerializer(many=True, required=False)
     definition_code = serializers.CharField(source="definition.code", read_only=True)
     dimension_name = serializers.CharField(source="dimension.name", read_only=True)
     group_name = serializers.CharField(source="group.name", read_only=True)
@@ -216,4 +219,11 @@ class AchievementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Achievement
         fields = "__all__"
+
+    def create(self, validated_data):
+        indicators_data = validated_data.pop('indicators', [])
+        achievement = Achievement.objects.create(**validated_data)
+        for ind_data in indicators_data:
+            PerformanceIndicator.objects.create(achievement=achievement, **ind_data)
+        return achievement
 

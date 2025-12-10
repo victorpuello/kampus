@@ -1,6 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import (
     AcademicLevel,
@@ -54,6 +55,7 @@ class PeriodViewSet(viewsets.ModelViewSet):
     queryset = Period.objects.all()
     serializer_class = PeriodSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    filterset_fields = ['academic_year']
 
 
 class AcademicLevelViewSet(viewsets.ModelViewSet):
@@ -72,6 +74,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    filterset_fields = ['grade', 'academic_year']
 
 
 class AreaViewSet(viewsets.ModelViewSet):
@@ -188,7 +191,8 @@ class AchievementViewSet(viewsets.ModelViewSet):
     queryset = Achievement.objects.all()
     serializer_class = AchievementSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
-    filterset_fields = ['subject', 'period']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['subject', 'period', 'group']
 
     @action(detail=False, methods=['post'], url_path='generate-indicators')
     def generate_indicators(self, request):

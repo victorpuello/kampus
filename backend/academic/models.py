@@ -286,6 +286,10 @@ class AchievementDefinition(models.Model):
     def __str__(self):
         return f"{self.code} - {self.description[:50]}..."
 
+    class Meta:
+        verbose_name = "Banco de Logros"
+        verbose_name_plural = "Banco de Logros"
+
 
 class Achievement(models.Model):
     """
@@ -294,6 +298,7 @@ class Achievement(models.Model):
     academic_load = models.ForeignKey(
         AcademicLoad, related_name="achievements", on_delete=models.CASCADE, null=True
     )
+    subject = models.ForeignKey(Subject, related_name="achievements", on_delete=models.CASCADE, null=True, blank=True)
     group = models.ForeignKey(Group, related_name="achievements", on_delete=models.CASCADE, null=True, blank=True)
     period = models.ForeignKey(Period, on_delete=models.CASCADE)
     dimension = models.ForeignKey(Dimension, related_name="achievements", on_delete=models.PROTECT, null=True, blank=True)
@@ -303,6 +308,10 @@ class Achievement(models.Model):
 
     def __str__(self) -> str:
         return f"{self.academic_load} - {self.period}: {self.description[:50]}..."
+
+    class Meta:
+        verbose_name = "Logro Planificado"
+        verbose_name_plural = "Logros Planificados"
 
 
 class PerformanceIndicator(models.Model):
@@ -321,6 +330,8 @@ class PerformanceIndicator(models.Model):
 
     class Meta:
         unique_together = ('achievement', 'level')
+        verbose_name = "Indicador de Desempeño"
+        verbose_name_plural = "Indicadores de Desempeño"
 
     def __str__(self):
         return f"{self.get_level_display()} - {self.achievement}"

@@ -128,11 +128,12 @@ export default function PeriodPlanning() {
 
   const loadAchievements = async () => {
     setLoading(true);
+    setAchievements([]); // Clear previous achievements while loading
     try {
       const res = await academicApi.listAchievements({ 
         period: selectedPeriod, 
         subject: selectedSubject,
-        group: selectedGroup // Assuming API supports filtering by group now
+        group: selectedGroup 
       });
       setAchievements(res.data);
     } finally {
@@ -190,21 +191,17 @@ export default function PeriodPlanning() {
     }
 
     try {
-      // 1. Create Achievement
-      const achRes = await academicApi.createAchievement({
+      // 1. Create Achievement with Indicators (Atomic)
+      await academicApi.createAchievement({
         period: Number(selectedPeriod),
         subject: Number(selectedSubject),
         group: Number(selectedGroup),
         definition: formData.definitionId ? Number(formData.definitionId) : null,
         dimension: formData.dimensionId ? Number(formData.dimensionId) : undefined,
         description: formData.description,
-        percentage: formData.percentage
+        percentage: formData.percentage,
+        indicators: formData.indicators // Send indicators nested
       });
-
-      // 2. Create Indicators
-      if (achRes.data.id) {
-        await academicApi.createIndicators(achRes.data.id, formData.indicators);
-      }
 
       setShowForm(false);
       setFormData({
@@ -407,7 +404,11 @@ export default function PeriodPlanning() {
                           {!formData.dimensionId ? 'Seleccione una dimensión primero' : '-- Escribir nuevo --'}
                         </option>
                         {definitions
-                          .filter(d => d.dimension === Number(formData.dimensionId))
+                          .filter(d => 
+                            d.dimension === Number(formData.dimensionId) &&
+                            d.grade === Number(selectedGrade) &&
+                            d.subject === Number(selectedSubject)
+                          )
                           .map(d => (
                             <option key={d.id} value={d.id}>{d.code} - {d.description.substring(0, 50)}...</option>
                           ))

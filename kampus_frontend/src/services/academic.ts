@@ -89,7 +89,7 @@ export interface Achievement {
   definition_code?: string;
   description: string;
   percentage: number;
-  indicators?: PerformanceIndicator[];
+  indicators?: PerformanceIndicator[]; // Now writable on create
   dimension?: number;
   dimension_name?: string;
 }

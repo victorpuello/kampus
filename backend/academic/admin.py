@@ -106,15 +106,17 @@ class StudentGradeAdmin(admin.ModelAdmin):
     search_fields = ("student__user__first_name", "student__user__last_name", "assessment__name")
 
 
-class PerformanceIndicatorInline(admin.TabularInline):
-    model = PerformanceIndicator
-    extra = 1
+@admin.register(PerformanceIndicator)
+class PerformanceIndicatorAdmin(admin.ModelAdmin):
+    list_display = ("achievement", "level", "description")
+    list_filter = ("level", "achievement__period")
+    search_fields = ("description", "achievement__description")
 
 
 @admin.register(AchievementDefinition)
 class AchievementDefinitionAdmin(admin.ModelAdmin):
-    list_display = ("code", "description_short", "area", "grade", "subject", "academic_load", "is_active")
-    list_filter = ("is_active", "area", "grade", "subject", "academic_load")
+    list_display = ("code", "description_short", "dimension", "area", "grade", "subject", "academic_load", "is_active")
+    list_filter = ("is_active", "dimension", "area", "grade", "subject", "academic_load")
     search_fields = ("code", "description")
     readonly_fields = ("code",)
 
@@ -123,11 +125,16 @@ class AchievementDefinitionAdmin(admin.ModelAdmin):
     description_short.short_description = "Descripción"
 
 
+class PerformanceIndicatorInline(admin.TabularInline):
+    model = PerformanceIndicator
+    extra = 1
+
+
 @admin.register(Achievement)
 class AchievementAdmin(admin.ModelAdmin):
-    list_display = ("description_short", "academic_load", "period", "percentage")
-    list_filter = ("period", "academic_load__grade", "academic_load__subject__area")
-    search_fields = ("description", "academic_load__subject__name")
+    list_display = ("description_short", "dimension", "subject", "group", "period", "percentage")
+    list_filter = ("period", "dimension", "subject", "group", "academic_load__grade")
+    search_fields = ("description", "subject__name", "group__name")
     inlines = [PerformanceIndicatorInline]
 
     def description_short(self, obj):
