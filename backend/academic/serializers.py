@@ -7,6 +7,7 @@ from .models import (
     AchievementDefinition,
     Area,
     Assessment,
+    Dimension,
     EvaluationComponent,
     EvaluationScale,
     Grade,
@@ -184,6 +185,7 @@ class AchievementDefinitionSerializer(serializers.ModelSerializer):
     area_name = serializers.CharField(source="area.name", read_only=True)
     grade_name = serializers.CharField(source="grade.name", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
+    dimension_name = serializers.CharField(source="dimension.name", read_only=True)
 
     class Meta:
         model = AchievementDefinition
@@ -199,9 +201,17 @@ class PerformanceIndicatorSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class DimensionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Dimension
+        fields = "__all__"
+
+
 class AchievementSerializer(serializers.ModelSerializer):
     indicators = PerformanceIndicatorSerializer(many=True, read_only=True)
     definition_code = serializers.CharField(source="definition.code", read_only=True)
+    dimension_name = serializers.CharField(source="dimension.name", read_only=True)
+    group_name = serializers.CharField(source="group.name", read_only=True)
 
     class Meta:
         model = Achievement

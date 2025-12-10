@@ -44,6 +44,15 @@ export interface EvaluationComponent { id: number; name: string; subject: number
 export interface Assessment { id: number; name: string; component: number; component_name?: string; period: number; date: string; weight_percentage: number }
 export interface StudentGrade { id: number; assessment: number; student: number; student_name?: string; score: number; feedback: string }
 
+export interface Dimension {
+  id: number;
+  academic_year: number;
+  name: string;
+  description: string;
+  percentage: number;
+  is_active: boolean;
+}
+
 export interface AchievementDefinition {
   // Bank definition
   id: number;
@@ -55,6 +64,8 @@ export interface AchievementDefinition {
   grade_name?: string;
   subject: number | null;
   subject_name?: string;
+  dimension?: number | null;
+  dimension_name?: string;
   is_active: boolean;
 }
 
@@ -71,12 +82,16 @@ export interface PerformanceIndicator {
 export interface Achievement {
   id: number;
   subject: number;
+  group?: number;
+  group_name?: string;
   period: number;
   definition: number | null;
   definition_code?: string;
   description: string;
   percentage: number;
   indicators?: PerformanceIndicator[];
+  dimension?: number;
+  dimension_name?: string;
 }
 
 export const academicApi = {
@@ -156,6 +171,12 @@ export const academicApi = {
   // AI
   generateIndicators: (description: string) => api.post<Record<string, string>>('/api/achievements/generate-indicators/', { description }),
   createIndicators: (achievementId: number, indicators: { level: string, description: string }[]) => api.post(`/api/achievements/${achievementId}/create-indicators/`, { indicators }),
+
+  // Dimensions
+  listDimensions: (yearId?: number) => api.get<Dimension[]>('/api/dimensions/', { params: { academic_year: yearId } }),
+  createDimension: (data: Partial<Dimension>) => api.post<Dimension>('/api/dimensions/', data),
+  updateDimension: (id: number, data: Partial<Dimension>) => api.put<Dimension>(`/api/dimensions/${id}/`, data),
+  deleteDimension: (id: number) => api.delete(`/api/dimensions/${id}/`),
 
   listEvaluationComponents: () => api.get<EvaluationComponent[]>('/api/evaluation-components/'),
   createEvaluationComponent: (data: Omit<EvaluationComponent, 'id'>) => api.post<EvaluationComponent>('/api/evaluation-components/', data),

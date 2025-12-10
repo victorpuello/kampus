@@ -8,6 +8,7 @@ from .models import (
     AchievementDefinition,
     Area,
     Assessment,
+    Dimension,
     EvaluationComponent,
     EvaluationScale,
     Grade,
@@ -132,4 +133,11 @@ class AchievementAdmin(admin.ModelAdmin):
     def description_short(self, obj):
         return obj.description[:50] + "..." if len(obj.description) > 50 else obj.description
     description_short.short_description = "Descripción"
+
+
+@admin.register(Dimension)
+class DimensionAdmin(admin.ModelAdmin):
+    list_display = ("name", "percentage", "academic_year", "is_active")
+    list_filter = ("academic_year", "is_active")
+    search_fields = ("name",)
 

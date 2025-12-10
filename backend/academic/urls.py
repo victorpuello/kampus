@@ -18,6 +18,7 @@ from .views import (
     SubjectViewSet,
     TeacherAssignmentViewSet,
     AcademicLoadViewSet,
+    DimensionViewSet,
 )
 
 router = DefaultRouter()
@@ -27,6 +28,7 @@ router.register(r"periods", PeriodViewSet, basename="period")
 router.register(r"grades", GradeViewSet, basename="grade")
 router.register(r"groups", GroupViewSet, basename="group")
 router.register(r"areas", AreaViewSet, basename="area")
+router.register(r"dimensions", DimensionViewSet, basename="dimension")
 router.register(r"subjects", SubjectViewSet, basename="subject")
 router.register(r"academic-loads", AcademicLoadViewSet, basename="academicload")
 router.register(

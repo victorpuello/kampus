@@ -191,6 +191,26 @@ class EvaluationScale(models.Model):
         return self.name
 
 
+class Dimension(models.Model):
+    """
+    Dimensiones de Evaluación: Categorías institucionales para agrupar notas (ej. Cognitivo, Procedimental, Actitudinal).
+    Tienen un porcentaje definido institucionalmente por año lectivo.
+    """
+    academic_year = models.ForeignKey(AcademicYear, related_name="dimensions", on_delete=models.CASCADE)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    percentage = models.PositiveIntegerField(default=0, verbose_name="Porcentaje", help_text="Peso porcentual en la nota definitiva")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ['academic_year', 'name']
+        verbose_name = "Dimensión"
+        verbose_name_plural = "Dimensiones"
+
+    def __str__(self):
+        return f"{self.name} ({self.percentage}%)"
+
+
 class EvaluationComponent(models.Model):
     academic_load = models.ForeignKey(
         AcademicLoad, related_name="components", on_delete=models.CASCADE, null=True
@@ -246,6 +266,7 @@ class AchievementDefinition(models.Model):
     grade = models.ForeignKey(Grade, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
     subject = models.ForeignKey(Subject, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
     academic_load = models.ForeignKey(AcademicLoad, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
+    dimension = models.ForeignKey(Dimension, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
@@ -273,7 +294,9 @@ class Achievement(models.Model):
     academic_load = models.ForeignKey(
         AcademicLoad, related_name="achievements", on_delete=models.CASCADE, null=True
     )
+    group = models.ForeignKey(Group, related_name="achievements", on_delete=models.CASCADE, null=True, blank=True)
     period = models.ForeignKey(Period, on_delete=models.CASCADE)
+    dimension = models.ForeignKey(Dimension, related_name="achievements", on_delete=models.PROTECT, null=True, blank=True)
     definition = models.ForeignKey(AchievementDefinition, related_name="instances", on_delete=models.SET_NULL, null=True, blank=True)
     description = models.TextField(help_text="Descripción específica para este periodo (puede heredar del banco)")
     percentage = models.PositiveIntegerField(default=0, help_text="Porcentaje de valoración si aplica")

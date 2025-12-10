@@ -60,7 +60,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             teacher=obj.user,
             academic_year=target_year
         ).aggregate(
-            total=Sum('subject__hours_per_week')
+            total=Sum('academic_load__hours_per_week')
         )['total']
         
         return total_hours or 0

@@ -9,6 +9,7 @@ from .models import (
     AchievementDefinition,
     Area,
     Assessment,
+    Dimension,
     EvaluationComponent,
     EvaluationScale,
     Grade,
@@ -28,6 +29,7 @@ from .serializers import (
     AchievementSerializer,
     AreaSerializer,
     AssessmentSerializer,
+    DimensionSerializer,
     EvaluationComponentSerializer,
     EvaluationScaleSerializer,
     GradeSerializer,
@@ -162,7 +164,7 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
     queryset = AchievementDefinition.objects.all()
     serializer_class = AchievementDefinitionSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
-    filterset_fields = ['area', 'subject', 'is_active']
+    filterset_fields = ['area', 'subject', 'is_active', 'dimension']
 
     @action(detail=False, methods=['post'], url_path='improve-wording')
     def improve_wording(self, request):
@@ -238,4 +240,18 @@ class AchievementViewSet(viewsets.ModelViewSet):
 class PerformanceIndicatorViewSet(viewsets.ModelViewSet):
     queryset = PerformanceIndicator.objects.all()
     serializer_class = PerformanceIndicatorSerializer
+
+
+class DimensionViewSet(viewsets.ModelViewSet):
+    queryset = Dimension.objects.all()
+    serializer_class = DimensionSerializer
     permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    filterset_fields = ["academic_year", "is_active"]
+
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
