@@ -22,3 +22,7 @@ dist/
 .env.*
 backend/debug_curl.py
 backend/get_token.py
+
+# Generated SEO (build-time)
+kampus_frontend/public/robots.txt
+kampus_frontend/public/sitemap.xml

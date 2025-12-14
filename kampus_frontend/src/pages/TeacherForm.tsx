@@ -25,6 +25,24 @@ const SCALE_OPTIONS_1278 = [
   { value: '3A', label: '3A' }, { value: '3B', label: '3B' }, { value: '3C', label: '3C' }, { value: '3D', label: '3D' },
 ]
 
+type TeachingLevel = 'PRESCHOOL' | 'PRIMARY' | 'SECONDARY'
+
+type TeacherFormData = {
+  first_name: string
+  last_name: string
+  email: string
+  document_type: string
+  document_number: string
+  phone: string
+  address: string
+  title: string
+  specialty: string
+  regime: string
+  salary_scale: string
+  teaching_level: TeachingLevel
+  hiring_date: string
+}
+
 export default function TeacherForm() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -83,7 +101,7 @@ export default function TeacherForm() {
     return defaultMessage
   }
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<TeacherFormData>({
     first_name: '',
     last_name: '',
     email: '',
@@ -194,7 +212,7 @@ export default function TeacherForm() {
     return academicLoads.filter(l => l.grade === group.grade)
   }
 
-  const getTargetHours = (level: string) => {
+  const getTargetHours = (level: TeachingLevel) => {
     switch (level) {
       case 'PRESCHOOL': return 20;
       case 'PRIMARY': return 25;
@@ -203,7 +221,7 @@ export default function TeacherForm() {
     }
   }
 
-  const getLevelLabel = (level: string) => {
+  const getLevelLabel = (level: TeachingLevel) => {
     switch (level) {
       case 'PRESCHOOL': return 'Preescolar';
       case 'PRIMARY': return 'Primaria';
@@ -254,7 +272,18 @@ export default function TeacherForm() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => {
-      const newData = { ...prev, [name]: value }
+      const newData: TeacherFormData = { ...prev }
+
+      if (name === 'teaching_level') {
+        if (value === 'PRESCHOOL' || value === 'PRIMARY' || value === 'SECONDARY') {
+          newData.teaching_level = value
+        }
+        return newData
+      }
+
+      if (name in newData) {
+        ;(newData as Record<string, string>)[name] = value
+      }
       // Clear salary scale if regime changes
       if (name === 'regime') {
         newData.salary_scale = ''

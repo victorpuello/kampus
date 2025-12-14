@@ -19,10 +19,12 @@ import EnrollmentWizard from './pages/enrollments/EnrollmentWizard'
 import EnrollmentExisting from './pages/enrollments/EnrollmentExisting'
 import EnrollmentReports from './pages/enrollments/EnrollmentReports'
 import PlanningModule from './pages/planning/PlanningModule'
+import SeoManager from './components/SeoManager'
 
 export default function App() {
   return (
     <BrowserRouter>
+      <SeoManager />
       <Routes>
         <Route path="/login" element={<Login />} />
         
