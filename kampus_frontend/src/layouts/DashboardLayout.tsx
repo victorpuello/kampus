@@ -25,6 +25,8 @@ export default function DashboardLayout() {
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
 
+  const getMenuDomId = (name: string) => `submenu-${name.toLowerCase().replace(/\s+/g, '-')}`
+
   const toggleMenu = (name: string) => {
     setExpandedMenus(prev => 
       prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
@@ -58,6 +60,12 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:ring-2 focus:ring-blue-500"
+      >
+        Saltar al contenido
+      </a>
       {/* Mobile sidebar backdrop */}
       {isSidebarOpen && (
         <div 
@@ -83,6 +91,7 @@ export default function DashboardLayout() {
             <button 
               onClick={() => setIsSidebarOpen(false)}
               className="lg:hidden text-slate-500 hover:text-slate-700"
+              aria-label="Cerrar menú"
             >
               <X className="w-6 h-6" />
             </button>
@@ -94,6 +103,7 @@ export default function DashboardLayout() {
               if (item.children) {
                 const isExpanded = expandedMenus.includes(item.name)
                 const isActive = item.children.some(child => location.pathname === child.href)
+                const menuDomId = getMenuDomId(item.name)
                 
                 return (
                   <div key={item.name}>
@@ -105,6 +115,8 @@ export default function DashboardLayout() {
                           ? "bg-blue-50 text-blue-700" 
                           : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                       )}
+                      aria-expanded={isExpanded}
+                      aria-controls={menuDomId}
                     >
                       <div className="flex items-center">
                         <item.icon className={cn("w-5 h-5 mr-3", isActive ? "text-blue-600" : "text-slate-400")} />
@@ -114,7 +126,7 @@ export default function DashboardLayout() {
                     </button>
                     
                     {isExpanded && (
-                      <div className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4">
+                      <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4">
                         {item.children.map(child => {
                            const isChildActive = location.pathname === child.href
                            return (
@@ -191,6 +203,7 @@ export default function DashboardLayout() {
           <button 
             onClick={() => setIsSidebarOpen(true)}
             className="text-slate-500 hover:text-slate-700"
+            aria-label="Abrir menú"
           >
             <Menu className="w-6 h-6" />
           </button>
@@ -199,7 +212,7 @@ export default function DashboardLayout() {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 lg:p-8 overflow-auto">
           <div className="w-full mx-auto">
             <Outlet />
           </div>

@@ -42,7 +42,12 @@ export function Toast({
   }
 
   return (
-    <div className={`fixed top-4 right-4 z-50 flex items-start gap-3 rounded-lg border p-4 shadow-lg transition-all animate-in slide-in-from-top-2 ${bgColors[type]} max-w-md`}>
+    <div
+      className={`fixed top-4 right-4 z-50 flex items-start gap-3 rounded-lg border p-4 shadow-lg transition-all animate-in slide-in-from-top-2 ${bgColors[type]} max-w-md`}
+      role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
+      aria-atomic="true"
+    >
       <div className="mt-0.5 shrink-0">
         {icons[type]}
       </div>
@@ -52,6 +57,7 @@ export function Toast({
       <button
         onClick={onClose}
         className="shrink-0 rounded-md p-1 hover:bg-black/5 transition-colors"
+        aria-label="Cerrar notificación"
       >
         <X className="h-4 w-4 opacity-50" />
       </button>

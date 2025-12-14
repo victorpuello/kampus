@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
-import { academicApi, type AcademicYear, type Subject, type Group, type TeacherAssignment, type AcademicLoad } from '../services/academic'
+import { academicApi, type AcademicYear, type Group, type TeacherAssignment, type AcademicLoad } from '../services/academic'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -41,9 +41,13 @@ export default function TeacherForm() {
     setToast({ message, type, isVisible: true })
   }
 
-  const getErrorMessage = (error: any, defaultMessage: string): string => {
-    if (error.response?.data) {
-      const data = error.response.data
+  const getErrorMessage = (error: unknown, defaultMessage: string): string => {
+    const errObj = (typeof error === 'object' && error !== null)
+      ? (error as { response?: { data?: unknown } })
+      : null
+
+    if (errObj?.response?.data) {
+      const data = errObj.response.data
       // Manejar errores de validación de Django
       if (typeof data === 'object') {
         // Buscar errores de unicidad comunes
@@ -71,7 +75,10 @@ export default function TeacherForm() {
           return messages.join('. ')
         }
       }
-      if (data.detail) return data.detail
+      if (typeof data === 'object' && data !== null && 'detail' in data) {
+        const detail = (data as { detail?: unknown }).detail
+        if (typeof detail === 'string') return detail
+      }
     }
     return defaultMessage
   }
@@ -156,7 +163,7 @@ export default function TeacherForm() {
       setAssignments([...assignments, response.data])
       setNewAssignment({ group: '', academic_load: '' })
       showToast('Asignación agregada correctamente', 'success')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al agregar asignación'), 'error')
     }
@@ -275,7 +282,7 @@ export default function TeacherForm() {
         showToast('Docente creado correctamente', 'success')
       }
       setTimeout(() => navigate('/teachers'), 1500)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err)
       showToast(getErrorMessage(err, 'Error al guardar el docente'), 'error')
     } finally {
@@ -289,7 +296,7 @@ export default function TeacherForm() {
     return []
   }
 
-  if (loading && isEditing) return <div className="p-6">Cargando...</div>
+  if (loading && isEditing) return <div className="p-6" role="status" aria-live="polite">Cargando...</div>
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -310,9 +317,14 @@ export default function TeacherForm() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="flex space-x-1 rounded-xl bg-slate-100 p-1">
+      <div className="flex space-x-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Secciones del docente">
         <button
           onClick={() => setActiveTab('info')}
+          id="teacher-tab-info"
+          role="tab"
+          aria-selected={activeTab === 'info'}
+          aria-controls="teacher-panel-info"
+          tabIndex={activeTab === 'info' ? 0 : -1}
           className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'info'
               ? 'bg-white text-blue-700 shadow'
@@ -324,6 +336,11 @@ export default function TeacherForm() {
         <button
           onClick={() => setActiveTab('assignments')}
           disabled={!isEditing}
+          id="teacher-tab-assignments"
+          role="tab"
+          aria-selected={activeTab === 'assignments'}
+          aria-controls="teacher-panel-assignments"
+          tabIndex={activeTab === 'assignments' ? 0 : -1}
           className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'assignments'
               ? 'bg-white text-blue-700 shadow'
@@ -335,7 +352,7 @@ export default function TeacherForm() {
       </div>
 
       {activeTab === 'info' ? (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6" id="teacher-panel-info" role="tabpanel" aria-labelledby="teacher-tab-info">
           <Card>
             <CardHeader>
               <CardTitle>Información Personal</CardTitle>
@@ -510,7 +527,7 @@ export default function TeacherForm() {
           </div>
         </form>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-6" id="teacher-panel-assignments" role="tabpanel" aria-labelledby="teacher-tab-assignments">
           <Card>
             <CardHeader>
               <CardTitle>Asignación Académica</CardTitle>
@@ -518,8 +535,9 @@ export default function TeacherForm() {
             <CardContent className="space-y-6">
               <div className="flex items-center gap-4">
                 <div className="w-48">
-                  <Label>Año Académico</Label>
+                  <Label htmlFor="teacher-academic-year">Año Académico</Label>
                   <select
+                    id="teacher-academic-year"
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(e.target.value)}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -563,8 +581,9 @@ export default function TeacherForm() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end border-b pb-6">
                 <div className="space-y-2">
-                  <Label>Grupo</Label>
+                  <Label htmlFor="teacher-assignment-group">Grupo</Label>
                   <select
+                    id="teacher-assignment-group"
                     value={newAssignment.group}
                     onChange={(e) => setNewAssignment(prev => ({ ...prev, group: e.target.value, academic_load: '' }))}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -576,8 +595,9 @@ export default function TeacherForm() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Asignatura</Label>
+                  <Label htmlFor="teacher-assignment-academic-load">Asignatura</Label>
                   <select
+                    id="teacher-assignment-academic-load"
                     value={newAssignment.academic_load}
                     onChange={(e) => setNewAssignment(prev => ({ ...prev, academic_load: e.target.value }))}
                     disabled={!newAssignment.group}
