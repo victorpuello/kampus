@@ -78,6 +78,13 @@ export interface Campus {
   is_main: boolean
 }
 
+export interface ConfigImportResult {
+  dry_run: boolean
+  overwrite: boolean
+  created: Record<string, number>
+  skipped: Record<string, number>
+}
+
 // Opciones para los selects
 export const SEDE_TYPE_OPTIONS = [
   { value: 'PRINCIPAL', label: 'Principal' },
@@ -161,4 +168,23 @@ export const coreApi = {
   listRectors: () => api.get<User[]>('/api/users/rectors/'),
   listSecretaries: () => api.get<User[]>('/api/users/secretaries/'),
   listCoordinators: () => api.get<User[]>('/api/users/coordinators/'),
+
+  // Config export/import
+  exportConfig: (includeMedia = false) =>
+    api.get('/api/config/export/', {
+      params: { include_media: includeMedia ? 1 : 0 },
+      responseType: 'blob',
+    }),
+
+  importConfig: (
+    file: File,
+    opts?: { overwrite?: boolean; confirmOverwrite?: boolean; dryRun?: boolean }
+  ) => {
+    const data = new FormData()
+    data.append('file', file)
+    data.append('overwrite', opts?.overwrite ? 'true' : 'false')
+    data.append('confirm_overwrite', opts?.confirmOverwrite ? 'true' : 'false')
+    data.append('dry_run', opts?.dryRun ? 'true' : 'false')
+    return api.post<ConfigImportResult>('/api/config/import/', data)
+  },
 }

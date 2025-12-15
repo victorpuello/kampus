@@ -26,5 +26,51 @@ class User(AbstractUser):
 
     REQUIRED_FIELDS = ["email", "role"]
 
+    ROLE_GROUP_NAMES = [
+        ROLE_SUPERADMIN,
+        ROLE_ADMIN,
+        ROLE_COORDINATOR,
+        ROLE_SECRETARY,
+        ROLE_TEACHER,
+        ROLE_PARENT,
+        ROLE_STUDENT,
+    ]
+
+    def sync_role_group(self) -> None:
+        """Ensures the user belongs to the group matching their `role`.
+
+        `User.role` is the source of truth. Other non-role groups are preserved.
+        """
+
+        role = getattr(self, "role", None)
+        if not role:
+            return
+
+        from django.contrib.auth.models import Group
+
+        role_group, _ = Group.objects.get_or_create(name=role)
+
+        # Remove other role groups (keep any non-role groups intact)
+        other_role_groups = list(
+            Group.objects.filter(name__in=self.ROLE_GROUP_NAMES).exclude(name=role)
+        )
+        if other_role_groups:
+            self.groups.remove(*other_role_groups)
+
+        if not self.groups.filter(name=role).exists():
+            self.groups.add(role_group)
+
+    def save(self, *args, **kwargs):
+        if self.email == "":
+            self.email = None
+        super().save(*args, **kwargs)
+        # Keep group membership consistent with role.
+        # Safe to call repeatedly; uses idempotent operations.
+        try:
+            self.sync_role_group()
+        except Exception:
+            # Avoid breaking core user save flows if group tables aren't ready yet.
+            pass
+
     def __str__(self) -> str:
         return f"{self.username} ({self.get_role_display()})"

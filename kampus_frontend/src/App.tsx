@@ -19,7 +19,9 @@ import EnrollmentWizard from './pages/enrollments/EnrollmentWizard'
 import EnrollmentExisting from './pages/enrollments/EnrollmentExisting'
 import EnrollmentReports from './pages/enrollments/EnrollmentReports'
 import PlanningModule from './pages/planning/PlanningModule'
+import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
+import Grades from './pages/Grades'
 
 export default function App() {
   return (
@@ -50,6 +52,8 @@ export default function App() {
             <Route path="/campuses/new" element={<CampusForm />} />
             <Route path="/campuses/:id/edit" element={<CampusForm />} />
             <Route path="/planning" element={<PlanningModule />} />
+            <Route path="/grades" element={<Grades />} />
+            <Route path="/rbac" element={<RbacSettings />} />
           </Route>
         </Route>
       </Routes>

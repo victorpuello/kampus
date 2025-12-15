@@ -336,3 +336,69 @@ class PerformanceIndicator(models.Model):
     def __str__(self):
         return f"{self.get_level_display()} - {self.achievement}"
 
+
+class GradeSheet(models.Model):
+    STATUS_DRAFT = "DRAFT"
+    STATUS_PUBLISHED = "PUBLISHED"
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Borrador"),
+        (STATUS_PUBLISHED, "Publicado"),
+    )
+
+    teacher_assignment = models.ForeignKey(
+        TeacherAssignment, related_name="grade_sheets", on_delete=models.CASCADE
+    )
+    period = models.ForeignKey(Period, related_name="grade_sheets", on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["teacher_assignment", "period"], name="uniq_grade_sheet_assignment_period"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["teacher_assignment", "period"], name="idx_gradesheet_assign_period"),
+            models.Index(fields=["period"], name="idx_gradesheet_period"),
+        ]
+        verbose_name = "Planilla de Calificaciones"
+        verbose_name_plural = "Planillas de Calificaciones"
+
+    def __str__(self) -> str:
+        return f"{self.teacher_assignment} - {self.period} ({self.status})"
+
+
+class AchievementGrade(models.Model):
+    gradesheet = models.ForeignKey(
+        GradeSheet, related_name="achievement_grades", on_delete=models.CASCADE
+    )
+    enrollment = models.ForeignKey(
+        "students.Enrollment", related_name="achievement_grades", on_delete=models.CASCADE
+    )
+    achievement = models.ForeignKey(
+        Achievement, related_name="achievement_grades", on_delete=models.CASCADE
+    )
+    score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gradesheet", "enrollment", "achievement"],
+                name="uniq_achievement_grade_cell",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["gradesheet", "enrollment"], name="idx_achgrade_sheet_enr"),
+            models.Index(fields=["gradesheet", "achievement"], name="idx_achgrade_sheet_ach"),
+            models.Index(fields=["enrollment"], name="idx_achgrade_enrollment"),
+        ]
+        verbose_name = "Nota por Logro"
+        verbose_name_plural = "Notas por Logro"
+
+    def __str__(self) -> str:
+        return f"{self.enrollment} - {self.achievement}: {self.score}"
+

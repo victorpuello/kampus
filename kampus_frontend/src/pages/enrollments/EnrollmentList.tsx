@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi, type Enrollment } from '../../services/enrollments'
 import { academicApi, type AcademicYear } from '../../services/academic'
 import { Button } from '../../components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
+import { Card, CardContent, CardHeader } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Search, Plus, FileText, GraduationCap, Users, BookOpen } from 'lucide-react'
 
@@ -14,6 +14,11 @@ export default function EnrollmentList() {
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [count, setCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
 
   useEffect(() => {
     loadInitialData()
@@ -23,7 +28,7 @@ export default function EnrollmentList() {
     if (selectedYear) {
       loadEnrollments()
     }
-  }, [selectedYear])
+  }, [selectedYear, page, pageSize, searchTerm])
 
   const loadInitialData = async () => {
     try {
@@ -43,8 +48,16 @@ export default function EnrollmentList() {
   const loadEnrollments = async () => {
     setLoading(true)
     try {
-      const response = await enrollmentsApi.list({ academic_year: selectedYear })
-      setEnrollments(response.data)
+      const response = await enrollmentsApi.list({
+        academic_year: selectedYear,
+        page,
+        page_size: pageSize,
+        search: searchTerm.trim() ? searchTerm.trim() : undefined,
+      })
+      setEnrollments(response.data.results)
+      setCount(response.data.count)
+      setHasNext(Boolean(response.data.next))
+      setHasPrevious(Boolean(response.data.previous))
     } catch (error) {
       console.error('Error loading enrollments:', error)
     } finally {
@@ -52,14 +65,24 @@ export default function EnrollmentList() {
     }
   }
 
-  const filteredEnrollments = enrollments.filter(e => {
-    const student = e.student as any
-    const searchLower = searchTerm.toLowerCase()
-    return (
-      student.full_name.toLowerCase().includes(searchLower) ||
-      student.document_number.includes(searchLower)
-    )
-  })
+  const totalPages = Math.max(1, Math.ceil(count / pageSize))
+  const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
+  const endIndex = Math.min(count, (page - 1) * pageSize + enrollments.length)
+
+  const pageNumbers: Array<number | 'ellipsis'> = (() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+
+    const windowSize = 2
+    const start = Math.max(2, page - windowSize)
+    const end = Math.min(totalPages - 1, page + windowSize)
+
+    const pages: Array<number | 'ellipsis'> = [1]
+    if (start > 2) pages.push('ellipsis')
+    for (let p = start; p <= end; p++) pages.push(p)
+    if (end < totalPages - 1) pages.push('ellipsis')
+    pages.push(totalPages)
+    return pages
+  })()
 
   return (
     <div className="space-y-6">
@@ -97,7 +120,7 @@ export default function EnrollmentList() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500">Total Matriculados</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{filteredEnrollments.length}</p>
+                <p className="text-3xl font-bold text-slate-900 mt-2">{count}</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
                 <Users className="h-6 w-6 text-blue-600" />
@@ -111,7 +134,7 @@ export default function EnrollmentList() {
               <div>
                 <p className="text-sm font-medium text-slate-500">Activos</p>
                 <p className="text-3xl font-bold text-green-600 mt-2">
-                  {filteredEnrollments.filter(e => e.status === 'ACTIVE').length}
+                  {enrollments.filter(e => e.status === 'ACTIVE').length}
                 </p>
               </div>
               <div className="p-3 bg-green-100 rounded-lg">
@@ -126,7 +149,7 @@ export default function EnrollmentList() {
               <div>
                 <p className="text-sm font-medium text-slate-500">Graduados</p>
                 <p className="text-3xl font-bold text-blue-600 mt-2">
-                  {filteredEnrollments.filter(e => e.status === 'GRADUATED').length}
+                  {enrollments.filter(e => e.status === 'GRADUATED').length}
                 </p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
@@ -157,7 +180,10 @@ export default function EnrollmentList() {
                 placeholder="Buscar estudiante..."
                 className="pl-8"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setPage(1)
+                }}
               />
             </div>
           </div>
@@ -197,7 +223,7 @@ export default function EnrollmentList() {
                       </div>
                     </td>
                   </tr>
-                ) : filteredEnrollments.length === 0 ? (
+                ) : enrollments.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
@@ -210,10 +236,13 @@ export default function EnrollmentList() {
                     </td>
                   </tr>
                 ) : (
-                  filteredEnrollments.map((enrollment) => {
-                    const student = enrollment.student as any
-                    const grade = enrollment.grade as any
-                    const group = enrollment.group as any
+                  enrollments.map((enrollment) => {
+                    const student =
+                      typeof enrollment.student === 'number' ? null : enrollment.student
+                    const grade = typeof enrollment.grade === 'number' ? null : enrollment.grade
+                    const group = typeof enrollment.group === 'number' ? null : enrollment.group
+
+                    if (!student || !grade) return null
                     return (
                       <tr 
                         key={enrollment.id} 
@@ -224,12 +253,20 @@ export default function EnrollmentList() {
                           <div className="flex items-center">
                             <div className="flex-shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                               <span className="text-white font-semibold text-sm">
-                                {student.full_name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                                {student.full_name
+                                  .split(' ')
+                                  .filter(Boolean)
+                                  .map((n) => n[0])
+                                  .join('')
+                                  .substring(0, 2)
+                                  .toUpperCase()}
                               </span>
                             </div>
                             <div className="ml-4">
                               <div className="font-semibold text-slate-900">{student.full_name}</div>
-                              <div className="text-xs text-slate-500">{student.document_type}: {student.document_number}</div>
+                              <div className="text-xs text-slate-500">
+                                {student.document_type ? `${student.document_type}: ` : ''}{student.document_number}
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -283,6 +320,68 @@ export default function EnrollmentList() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+            <div className="text-sm text-slate-500">
+              Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">Por página</span>
+                <select
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={!hasPrevious || page <= 1}
+              >
+                Anterior
+              </Button>
+
+              <div className="hidden md:flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                      …
+                    </span>
+                  ) : (
+                    <Button
+                      key={p}
+                      variant={p === page ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setPage(p)}
+                      aria-current={p === page ? 'page' : undefined}
+                    >
+                      {p}
+                    </Button>
+                  )
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNext}
+              >
+                Siguiente
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

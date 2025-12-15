@@ -89,8 +89,12 @@ export default function EnrollmentExisting() {
     // actually, let's NOT clear it automatically on type, but let the user clear it or replace it.
     
     try {
-      const response = await studentsApi.list({ search: searchTerm })
-      setStudents(response.data)
+      const response = await studentsApi.list({
+        search: searchTerm,
+        page: 1,
+        page_size: 10,
+      })
+      setStudents(response.data.results)
     } catch (error) {
       console.error('Error searching students:', error)
     } finally {

@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
-import { coreApi, type Institution, type User } from '../services/core'
+import { coreApi, type ConfigImportResult, type Institution, type User } from '../services/core'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
-import { Save, Upload, Building2, Users } from 'lucide-react'
+import { Download, Save, Upload, Building2, Users } from 'lucide-react'
 
 export default function InstitutionSettings() {
   const [loading, setLoading] = useState(true)
@@ -23,8 +23,86 @@ export default function InstitutionSettings() {
     isVisible: false
   })
 
+  const [exportingConfig, setExportingConfig] = useState(false)
+  const [includeMedia, setIncludeMedia] = useState(false)
+
+  const [importingConfig, setImportingConfig] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [dryRunImport, setDryRunImport] = useState(true)
+  const [overwriteImport, setOverwriteImport] = useState(false)
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false)
+  const [lastImportResult, setLastImportResult] = useState<ConfigImportResult | null>(null)
+
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  const getFilenameFromContentDisposition = (value?: string) => {
+    if (!value) return null
+    const match = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;]+)/i.exec(value)
+    const raw = match?.[1] || match?.[2] || match?.[3]
+    if (!raw) return null
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+
+  const handleExportConfig = async () => {
+    setExportingConfig(true)
+    try {
+      const res = await coreApi.exportConfig(includeMedia)
+      const blob = res.data as Blob
+      const cd = (res.headers as any)?.['content-disposition'] as string | undefined
+      const filename =
+        getFilenameFromContentDisposition(cd) ||
+        `kampus_config_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
+
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+
+      showToast('Exportación descargada correctamente', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('Error al exportar la configuración', 'error')
+    } finally {
+      setExportingConfig(false)
+    }
+  }
+
+  const handleImportConfig = async () => {
+    if (!importFile) {
+      showToast('Selecciona un archivo JSON para importar', 'error')
+      return
+    }
+    if (overwriteImport && !confirmOverwrite) {
+      showToast('Debes confirmar el borrado antes de usar overwrite', 'error')
+      return
+    }
+
+    setImportingConfig(true)
+    try {
+      const res = await coreApi.importConfig(importFile, {
+        dryRun: dryRunImport,
+        overwrite: overwriteImport,
+        confirmOverwrite,
+      })
+      setLastImportResult(res.data)
+      showToast(dryRunImport ? 'Validación completada' : 'Importación completada', 'success')
+    } catch (err: any) {
+      console.error(err)
+      const detail = err?.response?.data?.detail
+      showToast(detail || 'Error al importar la configuración', 'error')
+    } finally {
+      setImportingConfig(false)
+    }
   }
 
   const [formData, setFormData] = useState({
@@ -169,6 +247,100 @@ export default function InstitutionSettings() {
           <p className="text-slate-500">Administra la información básica de tu institución educativa.</p>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Respaldo de configuración</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600">
+                Exporta la configuración institucional y académica a un archivo JSON.
+              </p>
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeMedia}
+                  onChange={(e) => setIncludeMedia(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                <span className="text-sm text-slate-700">Incluir archivos (logo) en el JSON</span>
+              </label>
+              <Button type="button" onClick={handleExportConfig} disabled={exportingConfig}>
+                <Download className="mr-2 h-4 w-4" />
+                {exportingConfig ? 'Exportando...' : 'Exportar configuración'}
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-sm text-slate-600">
+                Importa un archivo JSON previamente exportado.
+              </p>
+              <div className="space-y-2">
+                <Label htmlFor="config-file">Archivo JSON</Label>
+                <Input
+                  id="config-file"
+                  type="file"
+                  accept="application/json,.json"
+                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dryRunImport}
+                    onChange={(e) => setDryRunImport(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span className="text-sm text-slate-700">Solo validar (dry-run)</span>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overwriteImport}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                      setOverwriteImport(next)
+                      if (!next) setConfirmOverwrite(false)
+                    }}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span className="text-sm text-slate-700">Borrar configuración existente (overwrite)</span>
+                </label>
+                {overwriteImport && (
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={confirmOverwrite}
+                      onChange={(e) => setConfirmOverwrite(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300"
+                    />
+                    <span className="text-sm text-slate-700">
+                      Confirmo que se borrará la configuración actual
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              <Button type="button" variant="outline" onClick={handleImportConfig} disabled={importingConfig}>
+                <Upload className="mr-2 h-4 w-4" />
+                {importingConfig ? 'Importando...' : 'Importar configuración'}
+              </Button>
+
+              {lastImportResult && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <p className="font-medium">Resultado</p>
+                  <p className="mt-1">Dry-run: {lastImportResult.dry_run ? 'Sí' : 'No'}</p>
+                  <p>Overwrite: {lastImportResult.overwrite ? 'Sí' : 'No'}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>

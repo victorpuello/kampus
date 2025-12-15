@@ -2,6 +2,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db import transaction
+from django.db.models import Q
 
 from .models import (
     AcademicLevel,
@@ -21,8 +23,10 @@ from .models import (
     Subject,
     TeacherAssignment,
     AcademicLoad,
+    GradeSheet,
+    AchievementGrade,
 )
-from .permissions import IsCoordinatorOrAdminOrReadOnly
+from core.permissions import KampusModelPermissions
 from .serializers import (
     AcademicLevelSerializer,
     AcademicYearSerializer,
@@ -41,70 +45,78 @@ from .serializers import (
     SubjectSerializer,
     TeacherAssignmentSerializer,
     AcademicLoadSerializer,
+    GradeSheetSerializer,
+    GradebookBulkUpsertSerializer,
 )
 from .ai import AIService
+from .grading import (
+    DEFAULT_EMPTY_SCORE,
+    final_grade_from_dimensions,
+    match_scale,
+    weighted_average,
+)
 
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
     queryset = AcademicYear.objects.all()
     serializer_class = AcademicYearSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class PeriodViewSet(viewsets.ModelViewSet):
     queryset = Period.objects.all()
     serializer_class = PeriodSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
     filterset_fields = ['academic_year']
 
 
 class AcademicLevelViewSet(viewsets.ModelViewSet):
     queryset = AcademicLevel.objects.all()
     serializer_class = AcademicLevelSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class GradeViewSet(viewsets.ModelViewSet):
     queryset = Grade.objects.all()
     serializer_class = GradeSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
     filterset_fields = ['grade', 'academic_year']
 
 
 class AreaViewSet(viewsets.ModelViewSet):
     queryset = Area.objects.all()
     serializer_class = AreaSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class AcademicLoadViewSet(viewsets.ModelViewSet):
     queryset = AcademicLoad.objects.all()
     serializer_class = AcademicLoadSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class TeacherAssignmentViewSet(viewsets.ModelViewSet):
     queryset = TeacherAssignment.objects.all()
     serializer_class = TeacherAssignmentSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class EvaluationScaleViewSet(viewsets.ModelViewSet):
     queryset = EvaluationScale.objects.all()
     serializer_class = EvaluationScaleSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
     @action(detail=False, methods=['post'])
     def copy_from_year(self, request):
@@ -148,25 +160,25 @@ class EvaluationScaleViewSet(viewsets.ModelViewSet):
 class EvaluationComponentViewSet(viewsets.ModelViewSet):
     queryset = EvaluationComponent.objects.all()
     serializer_class = EvaluationComponentSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class AssessmentViewSet(viewsets.ModelViewSet):
     queryset = Assessment.objects.all()
     serializer_class = AssessmentSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class StudentGradeViewSet(viewsets.ModelViewSet):
     queryset = StudentGrade.objects.all()
     serializer_class = StudentGradeSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class AchievementDefinitionViewSet(viewsets.ModelViewSet):
     queryset = AchievementDefinition.objects.all()
     serializer_class = AchievementDefinitionSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
     filterset_fields = ['area', 'subject', 'is_active', 'dimension']
 
     @action(detail=False, methods=['post'], url_path='improve-wording')
@@ -190,7 +202,7 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
 class AchievementViewSet(viewsets.ModelViewSet):
     queryset = Achievement.objects.all()
     serializer_class = AchievementSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['subject', 'period', 'group']
 
@@ -244,12 +256,13 @@ class AchievementViewSet(viewsets.ModelViewSet):
 class PerformanceIndicatorViewSet(viewsets.ModelViewSet):
     queryset = PerformanceIndicator.objects.all()
     serializer_class = PerformanceIndicatorSerializer
+    permission_classes = [KampusModelPermissions]
 
 
 class DimensionViewSet(viewsets.ModelViewSet):
     queryset = Dimension.objects.all()
     serializer_class = DimensionSerializer
-    permission_classes = [IsCoordinatorOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
     filterset_fields = ["academic_year", "is_active"]
 
     def create(self, request, *args, **kwargs):
@@ -259,3 +272,253 @@ class DimensionViewSet(viewsets.ModelViewSet):
             import traceback
             traceback.print_exc()
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GradeSheetViewSet(viewsets.ModelViewSet):
+    queryset = GradeSheet.objects.all()
+    serializer_class = GradeSheetSerializer
+    permission_classes = [KampusModelPermissions]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return qs.none()
+        if getattr(user, "role", None) == "TEACHER":
+            return qs.filter(teacher_assignment__teacher=user)
+        return qs
+
+    def _get_teacher_assignment(self, teacher_assignment_id: int):
+        qs = TeacherAssignment.objects.all()
+        if getattr(self.request.user, "role", None) == "TEACHER":
+            qs = qs.filter(teacher=self.request.user)
+        return qs.select_related("academic_year", "group", "academic_load").get(id=teacher_assignment_id)
+
+    @action(detail=False, methods=["get"], url_path="gradebook")
+    def gradebook(self, request):
+        teacher_assignment_id = request.query_params.get("teacher_assignment")
+        period_id = request.query_params.get("period")
+        if not teacher_assignment_id or not period_id:
+            return Response(
+                {"error": "teacher_assignment y period son requeridos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        achievements = (
+            Achievement.objects.filter(
+                academic_load=teacher_assignment.academic_load,
+                period=period,
+            )
+            .filter(Q(group=teacher_assignment.group) | Q(group__isnull=True))
+            .select_related("dimension")
+            .order_by("id")
+        )
+
+        from students.models import Enrollment
+
+        enrollments = (
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+                status="ACTIVE",
+            )
+            .select_related("student__user")
+            .order_by("student__user__last_name", "student__user__first_name")
+        )
+
+        existing_grades = AchievementGrade.objects.filter(
+            gradesheet=gradesheet,
+            enrollment__in=enrollments,
+            achievement__in=achievements,
+        ).only("enrollment_id", "achievement_id", "score")
+
+        score_by_cell = {
+            (g.enrollment_id, g.achievement_id): g.score for g in existing_grades
+        }
+
+        achievement_payload = [
+            {
+                "id": a.id,
+                "description": a.description,
+                "dimension": a.dimension_id,
+                "dimension_name": a.dimension.name if a.dimension else None,
+                "percentage": a.percentage,
+            }
+            for a in achievements
+        ]
+
+        student_payload = [
+            {
+                "enrollment_id": e.id,
+                "student_id": e.student_id,
+                "student_name": e.student.user.get_full_name(),
+            }
+            for e in enrollments
+        ]
+
+        cell_payload = [
+            {
+                "enrollment": e.id,
+                "achievement": a.id,
+                "score": score_by_cell.get((e.id, a.id)),
+            }
+            for e in enrollments
+            for a in achievements
+        ]
+
+        # Compute per-student final grade using dimensions + NULL=>1.00
+        achievements_by_dimension: dict[int, list[Achievement]] = {}
+        for a in achievements:
+            if not a.dimension_id:
+                continue
+            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
+
+        dimensions = Dimension.objects.filter(
+            id__in=list(achievements_by_dimension.keys())
+        ).only("id", "percentage")
+        dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
+
+        computed = []
+        for e in enrollments:
+            dim_items = []
+            for dim_id, dim_achievements in achievements_by_dimension.items():
+                items = [
+                    (score_by_cell.get((e.id, a.id)), int(a.percentage) if a.percentage else 1)
+                    for a in dim_achievements
+                ]
+                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
+                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
+
+            final_score = final_grade_from_dimensions(dim_items)
+            scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
+            computed.append(
+                {
+                    "enrollment_id": e.id,
+                    "final_score": final_score,
+                    "scale": scale_match.name if scale_match else None,
+                }
+            )
+
+        return Response(
+            {
+                "gradesheet": GradeSheetSerializer(gradesheet).data,
+                "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+                "teacher_assignment": {
+                    "id": teacher_assignment.id,
+                    "group": teacher_assignment.group_id,
+                    "academic_load": teacher_assignment.academic_load_id,
+                },
+                "achievements": achievement_payload,
+                "students": student_payload,
+                "cells": cell_payload,
+                "computed": computed,
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-upsert")
+    def bulk_upsert(self, request):
+        serializer = GradebookBulkUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        teacher_assignment_id = serializer.validated_data["teacher_assignment"]
+        period_id = serializer.validated_data["period"]
+        grades = serializer.validated_data["grades"]
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se pueden registrar notas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        from students.models import Enrollment
+
+        valid_enrollments = set(
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+            ).values_list("id", flat=True)
+        )
+
+        valid_achievements = set(
+            Achievement.objects.filter(
+                academic_load=teacher_assignment.academic_load,
+                period=period,
+            )
+            .filter(Q(group=teacher_assignment.group) | Q(group__isnull=True))
+            .values_list("id", flat=True)
+        )
+
+        to_upsert = []
+        for g in grades:
+            enrollment_id = g["enrollment"]
+            achievement_id = g["achievement"]
+            if enrollment_id not in valid_enrollments:
+                return Response(
+                    {"error": f"Enrollment inválido: {enrollment_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if achievement_id not in valid_achievements:
+                return Response(
+                    {"error": f"Achievement inválido: {achievement_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            to_upsert.append(
+                AchievementGrade(
+                    gradesheet=gradesheet,
+                    enrollment_id=enrollment_id,
+                    achievement_id=achievement_id,
+                    score=g.get("score"),
+                )
+            )
+
+        with transaction.atomic():
+            AchievementGrade.objects.bulk_create(
+                to_upsert,
+                update_conflicts=True,
+                unique_fields=["gradesheet", "enrollment", "achievement"],
+                update_fields=["score", "updated_at"],
+            )
+
+        return Response({"updated": len(to_upsert)}, status=status.HTTP_200_OK)

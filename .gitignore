@@ -6,6 +6,9 @@ __pycache__/
 /kampus_backend/staticfiles/
 /kampus_backend/media/
 
+# Django media (local dev)
+/backend/media/
+
 # Node
 node_modules/
 dist/

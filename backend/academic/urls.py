@@ -19,6 +19,7 @@ from .views import (
     TeacherAssignmentViewSet,
     AcademicLoadViewSet,
     DimensionViewSet,
+    GradeSheetViewSet,
 )
 
 router = DefaultRouter()
@@ -43,6 +44,7 @@ router.register(r"student-grades", StudentGradeViewSet, basename="studentgrade")
 router.register(r"achievements", AchievementViewSet, basename="achievement")
 router.register(r"achievement-definitions", AchievementDefinitionViewSet, basename="achievementdefinition")
 router.register(r"performance-indicators", PerformanceIndicatorViewSet, basename="performanceindicator")
+router.register(r"grade-sheets", GradeSheetViewSet, basename="gradesheet")
 
 urlpatterns = [
     path("", include(router.urls)),

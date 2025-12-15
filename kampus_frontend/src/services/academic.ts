@@ -29,7 +29,17 @@ export interface Group {
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; }
 export interface AcademicLoad { id: number; subject: number; subject_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
-export interface TeacherAssignment { id: number; teacher: number; teacher_name?: string; academic_load: number; academic_load_name?: string; group: number; group_name?: string; academic_year: number }
+export interface TeacherAssignment {
+  id: number;
+  teacher: number;
+  teacher_name?: string;
+  academic_load: number;
+  academic_load_name?: string;
+  subject_name?: string;
+  group: number;
+  group_name?: string;
+  academic_year: number;
+}
 
 export interface EvaluationScale { 
   id: number; 
@@ -94,6 +104,56 @@ export interface Achievement {
   dimension_name?: string;
 }
 
+export interface GradebookAchievement {
+  id: number;
+  description: string;
+  dimension: number | null;
+  dimension_name: string | null;
+  percentage: number;
+}
+
+export interface GradebookStudent {
+  enrollment_id: number;
+  student_id: number;
+  student_name: string;
+}
+
+export interface GradebookCell {
+  enrollment: number;
+  achievement: number;
+  score: number | string | null;
+}
+
+export interface GradebookComputed {
+  enrollment_id: number;
+  final_score: number | string;
+  scale: string | null;
+}
+
+export interface GradebookResponse {
+  gradesheet: {
+    id: number;
+    teacher_assignment: number;
+    period: number;
+    status: string;
+    published_at: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  period: { id: number; name: string; is_closed: boolean };
+  teacher_assignment: { id: number; group: number; academic_load: number };
+  achievements: GradebookAchievement[];
+  students: GradebookStudent[];
+  cells: GradebookCell[];
+  computed: GradebookComputed[];
+}
+
+export interface GradebookCellUpsert {
+  enrollment: number;
+  achievement: number;
+  score: number | null;
+}
+
 export const academicApi = {
   // Years
   listYears: () => api.get<AcademicYear[]>('/api/academic-years/'),
@@ -147,6 +207,14 @@ export const academicApi = {
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
   createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'academic_load_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
   deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
+
+  // Gradebook
+  getGradebook: (teacherAssignmentId: number, periodId: number) =>
+    api.get<GradebookResponse>('/api/grade-sheets/gradebook/', {
+      params: { teacher_assignment: teacherAssignmentId, period: periodId },
+    }),
+  bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
+    api.post<{ updated: number }>('/api/grade-sheets/bulk-upsert/', data),
 
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),

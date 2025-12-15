@@ -10,6 +10,7 @@ import {
   GraduationCap,
   Briefcase,
   Shield,
+  KeyRound,
   Building2,
   MapPinned,
   ChevronDown,
@@ -24,6 +25,8 @@ export default function DashboardLayout() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
+
+  const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
 
   const getMenuDomId = (name: string) => `submenu-${name.toLowerCase().replace(/\s+/g, '-')}`
 
@@ -46,12 +49,14 @@ export default function DashboardLayout() {
     },
     { name: 'Docentes', href: '/teachers', icon: Briefcase },
     { name: 'Usuarios', href: '/users', icon: Shield },
+    ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac', icon: KeyRound }] : []),
     { 
       name: 'Académico', 
       icon: GraduationCap,
       children: [
         { name: 'Configuración', href: '/academic-config' },
         { name: 'Planeación', href: '/planning' },
+        { name: 'Calificaciones', href: '/grades' },
       ]
     },
     { name: 'Institución', href: '/institution', icon: Building2 },
@@ -62,7 +67,7 @@ export default function DashboardLayout() {
     <div className="min-h-screen bg-slate-50 flex">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:ring-2 focus:ring-blue-500"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-60 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:ring-2 focus:ring-blue-500"
       >
         Saltar al contenido
       </a>

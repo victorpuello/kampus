@@ -4,7 +4,7 @@ import { studentsApi } from '../services/students'
 import type { Student } from '../services/students'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { Plus, Search, FileText, Users, User, UserCheck, GraduationCap } from 'lucide-react'
+import { Plus, Search, Users, User, UserCheck, GraduationCap } from 'lucide-react'
 import { Input } from '../components/ui/Input'
 
 export default function StudentList() {
@@ -13,34 +13,60 @@ export default function StudentList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [count, setCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
 
   useEffect(() => {
     let mounted = true
+
+    setLoading(true)
+    setError(null)
+
     studentsApi
-      .list()
-      .then((res) => {
-        if (mounted) setData(res.data)
+      .list({
+        page,
+        page_size: pageSize,
+        search: searchTerm.trim() ? searchTerm.trim() : undefined,
       })
-      .catch(() => setError('No se pudo cargar la lista'))
-      .finally(() => setLoading(false))
+      .then((res) => {
+        if (!mounted) return
+        setData(res.data.results)
+        setCount(res.data.count)
+        setHasNext(Boolean(res.data.next))
+        setHasPrevious(Boolean(res.data.previous))
+      })
+      .catch(() => {
+        if (mounted) setError('No se pudo cargar la lista')
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
     return () => {
       mounted = false
     }
-  }, [])
+  }, [page, pageSize, searchTerm])
 
-  const filteredData = data.filter(s => {
-    const firstName = s.user?.first_name || ''
-    const lastName = s.user?.last_name || ''
-    const username = s.user?.username || ''
-    const docNumber = s.document_number || ''
-    
-    return (
-      firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      docNumber.includes(searchTerm)
-    )
-  })
+  const totalPages = Math.max(1, Math.ceil(count / pageSize))
+  const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
+  const endIndex = Math.min(count, (page - 1) * pageSize + data.length)
+
+  const pageNumbers: Array<number | 'ellipsis'> = (() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+
+    const windowSize = 2
+    const start = Math.max(2, page - windowSize)
+    const end = Math.min(totalPages - 1, page + windowSize)
+
+    const pages: Array<number | 'ellipsis'> = [1]
+    if (start > 2) pages.push('ellipsis')
+    for (let p = start; p <= end; p++) pages.push(p)
+    if (end < totalPages - 1) pages.push('ellipsis')
+    pages.push(totalPages)
+    return pages
+  })()
 
   if (loading) return <div className="p-6">Cargando…</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
@@ -72,7 +98,7 @@ export default function StudentList() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-500">Total Estudiantes</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{filteredData.length}</p>
+                <p className="text-3xl font-bold text-slate-900 mt-2">{count}</p>
               </div>
               <div className="p-3 bg-blue-100 rounded-lg">
                 <Users className="h-6 w-6 text-blue-600" />
@@ -86,7 +112,7 @@ export default function StudentList() {
               <div>
                 <p className="text-sm font-medium text-slate-500">Hombres</p>
                 <p className="text-3xl font-bold text-slate-900 mt-2">
-                  {filteredData.filter(s => s.sex === 'M').length}
+                  {data.filter(s => s.sex === 'M').length}
                 </p>
               </div>
               <div className="p-3 bg-indigo-100 rounded-lg">
@@ -101,7 +127,7 @@ export default function StudentList() {
               <div>
                 <p className="text-sm font-medium text-slate-500">Mujeres</p>
                 <p className="text-3xl font-bold text-slate-900 mt-2">
-                  {filteredData.filter(s => s.sex === 'F').length}
+                  {data.filter(s => s.sex === 'F').length}
                 </p>
               </div>
               <div className="p-3 bg-pink-100 rounded-lg">
@@ -122,7 +148,10 @@ export default function StudentList() {
                 placeholder="Buscar estudiante..." 
                 className="pl-8"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setPage(1)
+                }}
               />
             </div>
           </div>
@@ -147,7 +176,7 @@ export default function StudentList() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
-                {filteredData.length === 0 ? (
+                {data.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
@@ -159,7 +188,7 @@ export default function StudentList() {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((s, index) => (
+                  data.map((s, index) => (
                     <tr 
                       key={s.user?.id || s.document_number || index} 
                       className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer"
@@ -206,6 +235,67 @@ export default function StudentList() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+            <div className="text-sm text-slate-500">
+              Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">Por página</span>
+                <select
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={!hasPrevious || page <= 1}
+              >
+                Anterior
+              </Button>
+
+              <div className="hidden md:flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                      …
+                    </span>
+                  ) : (
+                    <Button
+                      key={p}
+                      variant={p === page ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setPage(p)}
+                      aria-current={p === page ? 'page' : undefined}
+                    >
+                      {p}
+                    </Button>
+                  )
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNext}
+              >
+                Siguiente
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

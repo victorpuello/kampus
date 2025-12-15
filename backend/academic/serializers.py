@@ -18,6 +18,8 @@ from .models import (
     Subject,
     TeacherAssignment,
     AcademicLoad,
+    GradeSheet,
+    AchievementGrade,
 )
 
 
@@ -226,4 +228,40 @@ class AchievementSerializer(serializers.ModelSerializer):
         for ind_data in indicators_data:
             PerformanceIndicator.objects.create(achievement=achievement, **ind_data)
         return achievement
+
+
+class GradeSheetSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GradeSheet
+        fields = "__all__"
+
+
+class AchievementGradeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AchievementGrade
+        fields = "__all__"
+
+
+class GradebookCellUpsertSerializer(serializers.Serializer):
+    enrollment = serializers.IntegerField()
+    achievement = serializers.IntegerField()
+    score = serializers.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_score(self, value):
+        if value is None:
+            return value
+        if value < 1 or value > 5:
+            raise serializers.ValidationError("La nota debe estar entre 1.00 y 5.00.")
+        return value
+
+
+class GradebookBulkUpsertSerializer(serializers.Serializer):
+    teacher_assignment = serializers.IntegerField()
+    period = serializers.IntegerField()
+    grades = GradebookCellUpsertSerializer(many=True)
 

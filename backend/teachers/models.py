@@ -10,7 +10,13 @@ class Teacher(models.Model):
         related_name="teacher_profile",
     )
     document_type = models.CharField(max_length=20, blank=True)
-    document_number = models.CharField(max_length=50, blank=True, unique=True, verbose_name="Número de documento")
+    document_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        unique=True,
+        verbose_name="Número de documento",
+    )
     phone = models.CharField(max_length=20, blank=True)
     address = models.CharField(max_length=255, blank=True)
 
@@ -73,6 +79,11 @@ class Teacher(models.Model):
     hiring_date = models.DateField(
         null=True, blank=True, verbose_name="Fecha de Contratación"
     )
+
+    def save(self, *args, **kwargs):
+        if self.document_number == "":
+            self.document_number = None
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.title}"

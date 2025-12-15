@@ -8,6 +8,7 @@ import { Input } from '../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Toast, type ToastType } from '../components/ui/Toast'
+import DimensionsConfig from './planning/DimensionsConfig'
 
 export default function AcademicConfigPanel() {
   const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'areas_subjects' | 'study_plan' | 'organization' | 'evaluation'>('general')
@@ -2150,8 +2151,9 @@ export default function AcademicConfigPanel() {
       )}
 
       {activeTab === 'evaluation' && (
-        <div className="grid md:grid-cols-3 gap-6">
-          <Card className="md:col-span-1 h-fit shadow-sm">
+        <div className="space-y-6">
+          <div className="grid md:grid-cols-3 gap-6">
+            <Card className="md:col-span-1 h-fit shadow-sm">
             <CardHeader className="bg-slate-50/50 border-b pb-3">
               <CardTitle className="text-lg text-slate-700">
                 {editingScaleId ? 'Editar Escala' : 'Nueva Escala'}
@@ -2246,9 +2248,9 @@ export default function AcademicConfigPanel() {
                 </div>
               </form>
             </CardContent>
-          </Card>
+            </Card>
 
-          <Card className="md:col-span-2 border-t-4 border-t-rose-500 shadow-sm">
+            <Card className="md:col-span-2 border-t-4 border-t-rose-500 shadow-sm">
             <CardHeader className="bg-slate-50/50 border-b pb-3">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-rose-800 flex items-center gap-2">
@@ -2317,7 +2319,10 @@ export default function AcademicConfigPanel() {
                 ))}
               </div>
             </CardContent>
-          </Card>
+            </Card>
+          </div>
+
+          <DimensionsConfig />
         </div>
       )}
 

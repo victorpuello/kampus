@@ -26,7 +26,8 @@ from .serializers import (
     StudentNoveltySerializer,
     StudentDocumentSerializer,
 )
-from .permissions import IsSecretaryOrAdminOrReadOnly
+from .pagination import StudentPagination, EnrollmentPagination
+from core.permissions import HasDjangoPermission, KampusModelPermissions
 import traceback
 
 User = get_user_model()
@@ -36,7 +37,8 @@ User = get_user_model()
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.select_related("user").all().order_by("user__id")
     serializer_class = StudentSerializer
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
+    pagination_class = StudentPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
@@ -72,7 +74,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 class FamilyMemberViewSet(viewsets.ModelViewSet):
     queryset = FamilyMember.objects.select_related("student").all().order_by("id")
     serializer_class = FamilyMemberSerializer
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
     def create(self, request, *args, **kwargs):
         print("FAMILY MEMBER CREATE DATA:", request.data)
@@ -87,7 +89,15 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
 class EnrollmentViewSet(viewsets.ModelViewSet):
     queryset = Enrollment.objects.select_related("student").all().order_by("id")
     serializer_class = EnrollmentSerializer
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
+    pagination_class = EnrollmentPagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = [
+        "student__user__first_name",
+        "student__user__last_name",
+        "student__document_number",
+    ]
+    filterset_fields = ["academic_year", "grade", "group", "status"]
 
     @action(detail=False, methods=['get'])
     def report(self, request):
@@ -181,7 +191,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
 class StudentNoveltyViewSet(viewsets.ModelViewSet):
     queryset = StudentNovelty.objects.all().order_by("-date")
     serializer_class = StudentNoveltySerializer
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
     def perform_create(self, serializer):
         novelty = serializer.save()
@@ -202,12 +212,13 @@ class StudentNoveltyViewSet(viewsets.ModelViewSet):
 class StudentDocumentViewSet(viewsets.ModelViewSet):
     queryset = StudentDocument.objects.all().order_by("-uploaded_at")
     serializer_class = StudentDocumentSerializer
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [KampusModelPermissions]
 
 
 class BulkEnrollmentView(APIView):
     parser_classes = [MultiPartParser]
-    permission_classes = [IsSecretaryOrAdminOrReadOnly]
+    permission_classes = [HasDjangoPermission]
+    required_permission = "students.add_enrollment"
 
     def post(self, request, format=None):
         if 'file' not in request.FILES:

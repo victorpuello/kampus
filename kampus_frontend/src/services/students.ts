@@ -1,5 +1,13 @@
 import { api } from './api'
 import type { User } from './users'
+import type { AxiosProgressEvent } from 'axios'
+
+export interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
 
 export interface FamilyMember {
   id: number
@@ -79,26 +87,28 @@ export interface Student {
 }
 
 export const studentsApi = {
-  list: (params?: any) => api.get<Student[]>('/api/students/', { params }),
+  list: (params?: Record<string, unknown>) =>
+    api.get<PaginatedResponse<Student>>('/api/students/', { params }),
   get: (id: number) => api.get<Student>(`/api/students/${id}/`),
-  create: (data: any) => api.post<Student>('/api/students/', data),
-  update: (id: number, data: any) => api.patch<Student>(`/api/students/${id}/`, data),
+  create: (data: Record<string, unknown>) => api.post<Student>('/api/students/', data),
+  update: (id: number, data: Record<string, unknown>) =>
+    api.patch<Student>(`/api/students/${id}/`, data),
 }
 
 export const documentsApi = {
-  create: (data: FormData, onUploadProgress?: (progressEvent: any) => void) => api.post('/api/documents/', data, {
+  create: (data: FormData, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void) => api.post('/api/documents/', data, {
     onUploadProgress
   }),
   delete: (id: number) => api.delete(`/api/documents/${id}/`),
 }
 
 export const familyMembersApi = {
-  create: (data: any) => api.post('/api/family-members/', data),
-  update: (id: number, data: any) => api.patch(`/api/family-members/${id}/`, data),
+  create: (data: Record<string, unknown>) => api.post('/api/family-members/', data),
+  update: (id: number, data: Record<string, unknown>) => api.patch(`/api/family-members/${id}/`, data),
   delete: (id: number) => api.delete(`/api/family-members/${id}/`),
 }
 
 export const noveltiesApi = {
-  create: (data: any) => api.post('/api/novelties/', data),
+  create: (data: Record<string, unknown>) => api.post('/api/novelties/', data),
   delete: (id: number) => api.delete(`/api/novelties/${id}/`),
 }
