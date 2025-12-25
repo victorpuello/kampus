@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
-from rest_framework import permissions, status, viewsets
+from rest_framework import permissions, status, viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,6 +9,7 @@ from .models import User
 from .serializers import UserSerializer, UserCreateSerializer, UserAdminSerializer, UserSetPasswordSerializer
 from .permissions import IsAdmin, IsOwnerOrAdmin
 from core.permissions import KampusModelPermissions
+from .pagination import UserPagination
 
 
 RBAC_APP_LABELS = {
@@ -57,8 +58,11 @@ def _get_assignable_permissions_for(request_user: User):
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
+    queryset = User.objects.all().order_by("id")
     permission_classes = [KampusModelPermissions]
+    pagination_class = UserPagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["username", "first_name", "last_name", "email"]
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -72,6 +76,8 @@ class UserViewSet(viewsets.ModelViewSet):
         return UserSerializer
 
     def get_permissions(self):
+        if self.action in ["list", "create", "destroy", "all", "set_password"]:
+            return [IsAdmin()]
         if self.action in ["retrieve", "update", "partial_update", "me"]:
             # Allow users to see/edit themselves
             if self.action == "me":
@@ -84,6 +90,18 @@ class UserViewSet(viewsets.ModelViewSet):
     )
     def me(self, request):
         serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"])
+    def all(self, request):
+        """Return the full user list (unpaginated).
+
+        Used by internal screens that need all users (e.g., select inputs).
+        Respects the same permissions and supports the same SearchFilter.
+        """
+
+        qs = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
     @action(

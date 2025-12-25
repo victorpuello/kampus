@@ -1,5 +1,12 @@
 import { api } from './api';
 
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 export interface User {
   id: number;
   username: string;
@@ -11,7 +18,12 @@ export interface User {
 }
 
 export const usersApi = {
-  getAll: () => api.get<User[]>('/api/users/'),
+  // Paginated list (server-side)
+  list: (params?: { page?: number; page_size?: number; search?: string }) =>
+    api.get<PaginatedResponse<User>>('/api/users/', { params }),
+
+  // Full list (unpaginated) for internal select inputs
+  getAll: () => api.get<User[]>('/api/users/all/'),
   getById: (id: number) => api.get<User>(`/api/users/${id}/`),
   create: (data: Partial<User> & { password?: string }) => api.post<User>('/api/users/', data),
   update: (id: number, data: Partial<User>) => api.patch<User>(`/api/users/${id}/`, data),

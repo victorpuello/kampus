@@ -13,6 +13,11 @@ export default function UserList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [count, setCount] = useState(0)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
   
   // Modal state
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
@@ -20,30 +25,57 @@ export default function UserList() {
   const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
-    loadUsers()
-  }, [])
+    let mounted = true
 
-  const loadUsers = () => {
     setLoading(true)
-    usersApi
-      .getAll()
-      .then((res) => {
-        setData(res.data)
-        setError(null)
-      })
-      .catch(() => setError('No se pudo cargar la lista de usuarios'))
-      .finally(() => setLoading(false))
-  }
+    setError(null)
 
-  const filteredData = data.filter(u => 
-    u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+    usersApi
+      .list({
+        page,
+        page_size: pageSize,
+        search: searchTerm.trim() ? searchTerm.trim() : undefined,
+      })
+      .then((res) => {
+        if (!mounted) return
+        setData(res.data.results)
+        setCount(res.data.count)
+        setHasNext(Boolean(res.data.next))
+        setHasPrevious(Boolean(res.data.previous))
+      })
+      .catch(() => {
+        if (mounted) setError('No se pudo cargar la lista de usuarios')
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [page, pageSize, searchTerm])
+
+  const totalPages = Math.max(1, Math.ceil(count / pageSize))
+  const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
+  const endIndex = Math.min(count, (page - 1) * pageSize + data.length)
+
+  const pageNumbers: Array<number | 'ellipsis'> = (() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
+
+    const windowSize = 2
+    const start = Math.max(2, page - windowSize)
+    const end = Math.min(totalPages - 1, page + windowSize)
+
+    const pages: Array<number | 'ellipsis'> = [1]
+    if (start > 2) pages.push('ellipsis')
+    for (let p = start; p <= end; p++) pages.push(p)
+    if (end < totalPages - 1) pages.push('ellipsis')
+    pages.push(totalPages)
+    return pages
+  })()
 
   // Stats
-  const totalUsers = data.length
+  const totalUsers = count
   const activeUsers = data.filter(u => u.is_active).length
   const adminUsers = data.filter(u => ['SUPERADMIN', 'ADMIN'].includes(u.role)).length
 
@@ -58,9 +90,24 @@ export default function UserList() {
     setIsDeleting(true)
     try {
       await usersApi.delete(userToDelete)
-      setData(prev => prev.filter(u => u.id !== userToDelete))
       setDeleteModalOpen(false)
       setUserToDelete(null)
+
+      // Reload current page (server-side)
+      const res = await usersApi.list({
+        page,
+        page_size: pageSize,
+        search: searchTerm.trim() ? searchTerm.trim() : undefined,
+      })
+      setData(res.data.results)
+      setCount(res.data.count)
+      setHasNext(Boolean(res.data.next))
+      setHasPrevious(Boolean(res.data.previous))
+
+      // If we deleted the last item of the last page, go back one page.
+      if (res.data.results.length === 0 && page > 1) {
+        setPage(page - 1)
+      }
     } catch (error) {
       console.error('Error deleting user:', error)
       alert('Error al eliminar el usuario')
@@ -137,7 +184,7 @@ export default function UserList() {
             </div>
             <div className="text-2xl font-bold text-slate-900">{activeUsers}</div>
             <p className="text-xs text-slate-500 mt-1">
-              Con acceso al sistema
+              Activos en esta página
             </p>
           </CardContent>
         </Card>
@@ -149,7 +196,7 @@ export default function UserList() {
             </div>
             <div className="text-2xl font-bold text-slate-900">{adminUsers}</div>
             <p className="text-xs text-slate-500 mt-1">
-              Con privilegios elevados
+              En esta página
             </p>
           </CardContent>
         </Card>
@@ -165,7 +212,10 @@ export default function UserList() {
                 placeholder="Buscar por nombre, email..." 
                 className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setPage(1)
+                }}
               />
             </div>
           </div>
@@ -183,7 +233,7 @@ export default function UserList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredData.length === 0 ? (
+                {data.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center py-4">
@@ -196,7 +246,7 @@ export default function UserList() {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((user) => (
+                  data.map((user) => (
                     <tr key={user.id} className="bg-white hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -247,6 +297,67 @@ export default function UserList() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-6 pb-6">
+            <div className="text-sm text-slate-500">
+              Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500">Por página</span>
+                <select
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={30}>30</option>
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={!hasPrevious || page <= 1}
+              >
+                Anterior
+              </Button>
+
+              <div className="hidden md:flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                      …
+                    </span>
+                  ) : (
+                    <Button
+                      key={p}
+                      variant={p === page ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setPage(p)}
+                      aria-current={p === page ? 'page' : undefined}
+                    >
+                      {p}
+                    </Button>
+                  )
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!hasNext}
+              >
+                Siguiente
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
