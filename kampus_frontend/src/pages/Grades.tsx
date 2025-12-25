@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GraduationCap, Save } from 'lucide-react'
 import { academicApi, type GradebookResponse, type Group, type Period, type TeacherAssignment } from '../services/academic'
 import { useAuthStore } from '../store/auth'
@@ -28,6 +28,13 @@ export default function Grades() {
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingGradebook, setLoadingGradebook] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  const saveTimersRef = useRef<Record<CellKey, number>>({})
+  const inFlightSavesRef = useRef<Set<CellKey>>(new Set())
+  const statusTimersRef = useRef<Record<CellKey, number>>({})
+  const lastInteractionRef = useRef<'keyboard' | 'pointer'>('pointer')
+  const [cellStatus, setCellStatus] = useState<Record<CellKey, 'saving' | 'saved' | 'error'>>({})
+  const [computedOverrides, setComputedOverrides] = useState<Record<number, { final_score: number | string; scale: string | null }>>({})
 
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -112,14 +119,287 @@ export default function Grades() {
     for (const c of gradebook?.computed ?? []) {
       map.set(c.enrollment_id, { final_score: c.final_score, scale: c.scale })
     }
+
+    for (const [enrollmentIdStr, computed] of Object.entries(computedOverrides)) {
+      const enrollmentId = Number(enrollmentIdStr)
+      if (!Number.isFinite(enrollmentId)) continue
+      map.set(enrollmentId, computed)
+    }
     return map
-  }, [gradebook?.computed])
+  }, [computedOverrides, gradebook?.computed])
 
   const formatScore = (value: number | string) => {
     const n = typeof value === 'number' ? value : Number(value)
     if (!Number.isFinite(n)) return String(value)
     return n.toFixed(2)
   }
+
+  const sanitizeScoreInput = (raw: string): string => {
+    // Allow teachers to type decimals using comma; normalize to dot.
+    // Also keep only digits and a single dot to reduce accidental invalid values.
+    const normalized = raw.replace(/,/g, '.')
+    let out = ''
+    let dotSeen = false
+    for (const ch of normalized) {
+      if (ch >= '0' && ch <= '9') out += ch
+      else if (ch === '.' && !dotSeen) {
+        out += ch
+        dotSeen = true
+      }
+    }
+    return out
+  }
+
+  const clampScoreToRangeInput = (sanitized: string): string => {
+    const trimmed = sanitized.trim()
+
+    // Allow intermediate typing states without forcing a number yet.
+    // Examples: "" (empty), "." or "4.".
+    if (!trimmed || trimmed === '.' || trimmed.endsWith('.')) return sanitized
+
+    const n = Number(trimmed)
+    if (!Number.isFinite(n)) return sanitized
+
+    if (n < 1) return '1'
+    if (n > 5) return '5'
+    return sanitized
+  }
+
+  const parseScoreOrNull = (raw: string): number | null => {
+    const trimmed = sanitizeScoreInput(raw).trim()
+    if (!trimmed) return null
+    const score = Number(trimmed)
+    if (!Number.isFinite(score)) return NaN
+    return score
+  }
+
+  const clampScoreNumber = (n: number): number => {
+    if (!Number.isFinite(n)) return n
+    if (n < 1) return 1
+    if (n > 5) return 5
+    return n
+  }
+
+  const normalizeText = (raw: string) =>
+    raw
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .trim()
+
+  const abbrevDimensionName = (raw: string) => {
+    const n = normalizeText(raw)
+    if (n.includes('cognit')) return 'Cog.'
+    if (n.includes('proced')) return 'Proc.'
+    if (n.includes('actitud')) return 'Act.'
+    const trimmed = raw.trim()
+    return trimmed.length <= 6 ? trimmed : `${trimmed.slice(0, 6)}…`
+  }
+
+  const categoryFromScale = (scaleName: string | null | undefined) => {
+    if (!scaleName) return null
+    const s = normalizeText(scaleName)
+    if (s.includes('bajo')) return 'low' as const
+    if (s.includes('basico')) return 'basic' as const
+    if (s.includes('alto')) return 'high' as const
+    if (s.includes('superior')) return 'superior' as const
+    return null
+  }
+
+  const categoryFromScore = (score: number | null) => {
+    if (score === null || !Number.isFinite(score)) return null
+    // Fallback ranges (can be adjusted to your institutional scale if needed)
+    if (score < 3) return 'low' as const
+    if (score < 4) return 'basic' as const
+    if (score < 4.6) return 'high' as const
+    return 'superior' as const
+  }
+
+  const definitiveStyle = (category: ReturnType<typeof categoryFromScore>) => {
+    switch (category) {
+      case 'low':
+        return { label: 'Bajo', className: 'border-rose-200 bg-rose-50 text-rose-700' }
+      case 'basic':
+        return { label: 'Básico', className: 'border-amber-200 bg-amber-50 text-amber-700' }
+      case 'high':
+        return { label: 'Alto', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+      case 'superior':
+        return { label: 'Superior', className: 'border-sky-200 bg-sky-50 text-sky-700' }
+      default:
+        return { label: null, className: 'border-slate-200 bg-white text-slate-900' }
+    }
+  }
+
+  const dimensionById = useMemo(() => {
+    const map = new Map<number, { id: number; name: string; percentage: number }>()
+    for (const d of gradebook?.dimensions ?? []) map.set(d.id, d)
+    return map
+  }, [gradebook?.dimensions])
+
+  const achievementsByDimension = useMemo(() => {
+    const groups = new Map<number, GradebookResponse['achievements']>()
+    for (const a of gradebook?.achievements ?? []) {
+      if (!a.dimension) continue
+      const list = groups.get(a.dimension) ?? []
+      list.push(a)
+      groups.set(a.dimension, list)
+    }
+    return groups
+  }, [gradebook?.achievements])
+
+  const dimensionOrder = useMemo(() => {
+    const ids = Array.from(achievementsByDimension.keys())
+
+    const normalize = (raw: string) =>
+      raw
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{Diacritic}/gu, '')
+        .trim()
+
+    const priority: Record<string, number> = {
+      cognitivo: 0,
+      procedimental: 1,
+      actitudinal: 2,
+    }
+
+    ids.sort((a, b) => {
+      const anRaw = dimensionById.get(a)?.name ?? ''
+      const bnRaw = dimensionById.get(b)?.name ?? ''
+      const an = normalize(anRaw)
+      const bn = normalize(bnRaw)
+
+      const ap = priority[an]
+      const bp = priority[bn]
+      const aHas = Number.isFinite(ap)
+      const bHas = Number.isFinite(bp)
+
+      if (aHas && bHas) return ap - bp
+      if (aHas) return -1
+      if (bHas) return 1
+
+      return anRaw.localeCompare(bnRaw)
+    })
+    return ids
+  }, [achievementsByDimension, dimensionById])
+
+  const achievementOrder = useMemo(() => {
+    // Flatten in displayed order (dimensionOrder then achievement id order)
+    return dimensionOrder.flatMap((dimId) => achievementsByDimension.get(dimId) ?? [])
+  }, [achievementsByDimension, dimensionOrder])
+
+  const rowOrder = useMemo(() => (gradebook?.students ?? []).map((s) => s.enrollment_id), [gradebook?.students])
+
+  const focusCell = (enrollmentId: number, achievementId: number) => {
+    const el = document.getElementById(`gradecell-${enrollmentId}-${achievementId}`) as HTMLInputElement | null
+    if (!el) return
+    el.focus()
+    try {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    } catch {
+      // ignore
+    }
+    // Selecting helps fast overwrite when navigating with keys
+    try {
+      el.select()
+    } catch {
+      // ignore
+    }
+  }
+
+  const computeFinalScoreForEnrollment = useCallback(
+    (enrollmentId: number) => {
+      if (!gradebook) return null
+
+      // Per-dimension weighted average of its achievements
+      const dimGrades: Array<{ dimId: number; dimGrade: number; dimPercentage: number }> = []
+
+      for (const dimId of dimensionOrder) {
+        const dimAchievements = achievementsByDimension.get(dimId) ?? []
+        if (dimAchievements.length === 0) continue
+
+        let totalWeight = 0
+        let weightedTotal = 0
+
+        for (const a of dimAchievements) {
+          const key = makeKey(enrollmentId, a.id)
+          const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
+          const score = scoreOrNull === null ? 1 : scoreOrNull
+          if (!Number.isFinite(score)) return null
+
+          const w = a.percentage ? Number(a.percentage) : 1
+          totalWeight += w
+          weightedTotal += score * w
+        }
+
+        const dimGrade = totalWeight > 0 ? weightedTotal / totalWeight : 1
+        const dimPercentage = dimensionById.get(dimId)?.percentage ?? 0
+        dimGrades.push({ dimId, dimGrade, dimPercentage })
+      }
+
+      const totalPercentage = dimGrades.reduce((acc, d) => acc + (Number(d.dimPercentage) || 0), 0)
+      if (totalPercentage <= 0) return null
+
+      const finalScore =
+        dimGrades.reduce((acc, d) => acc + d.dimGrade * (Number(d.dimPercentage) || 0), 0) / totalPercentage
+
+      return Number.isFinite(finalScore) ? finalScore : null
+    },
+    [achievementsByDimension, cellValues, dimensionById, dimensionOrder, gradebook]
+  )
+
+  const computeDimScoreForEnrollment = useCallback(
+    (enrollmentId: number, dimId: number) => {
+      if (!gradebook) return null
+
+      const dimAchievements = achievementsByDimension.get(dimId) ?? []
+      if (dimAchievements.length === 0) return null
+
+      let totalWeight = 0
+      let weightedTotal = 0
+
+      for (const a of dimAchievements) {
+        const key = makeKey(enrollmentId, a.id)
+        const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
+        const score = scoreOrNull === null ? 1 : scoreOrNull
+        if (!Number.isFinite(score)) return null
+
+        const w = a.percentage ? Number(a.percentage) : 1
+        totalWeight += w
+        weightedTotal += score * w
+      }
+
+      const dimGrade = totalWeight > 0 ? weightedTotal / totalWeight : 1
+      return Number.isFinite(dimGrade) ? dimGrade : null
+    },
+    [achievementsByDimension, cellValues, gradebook]
+  )
+
+  const completion = useMemo(() => {
+    const studentsCount = gradebook?.students?.length ?? 0
+    const achievementsCount = gradebook?.achievements?.length ?? 0
+    const total = studentsCount * achievementsCount
+    if (!gradebook || total <= 0) {
+      return { total: 0, filled: 0, percent: 0 }
+    }
+
+    let filled = 0
+    for (const s of gradebook.students) {
+      for (const a of gradebook.achievements) {
+        const key = makeKey(s.enrollment_id, a.id)
+        const raw = (cellValues[key] ?? '').trim()
+        if (!raw) continue
+        const parsed = parseScoreOrNull(raw)
+        if (parsed === null) continue
+        if (!Number.isFinite(parsed)) continue
+        if (parsed < 1 || parsed > 5) continue
+        filled += 1
+      }
+    }
+
+    const percent = Math.round((filled / total) * 100)
+    return { total, filled, percent }
+  }, [cellValues, gradebook])
 
   const loadInit = useCallback(async () => {
     setLoadingInit(true)
@@ -164,6 +444,7 @@ export default function Grades() {
     try {
       const res = await academicApi.getGradebook(teacherAssignmentId, periodId)
       setGradebook(res.data)
+      setComputedOverrides({})
 
       const nextBase: Record<CellKey, string> = {}
       for (const c of res.data.cells) {
@@ -191,21 +472,223 @@ export default function Grades() {
   }, [loadInit])
 
   useEffect(() => {
+    const onKeyDown = () => {
+      lastInteractionRef.current = 'keyboard'
+    }
+    const onPointerDown = () => {
+      lastInteractionRef.current = 'pointer'
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    window.addEventListener('pointerdown', onPointerDown, true)
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('pointerdown', onPointerDown, true)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!selectedAssignment || !selectedPeriodId) return
     loadGradebook(selectedAssignment.id, selectedPeriodId)
   }, [loadGradebook, selectedAssignment, selectedPeriodId])
 
+  const saveCellDebounced = useCallback(
+    (enrollmentId: number, achievementId: number, value: string) => {
+      if (!selectedAssignment || !selectedPeriodId) return
+      if (periodIsClosed) return
+
+      const key = makeKey(enrollmentId, achievementId)
+
+      // Clear existing timer per cell
+      const existing = saveTimersRef.current[key]
+      if (existing) window.clearTimeout(existing)
+
+      saveTimersRef.current[key] = window.setTimeout(async () => {
+        const rawScore = sanitizeScoreInput(value ?? '').trim()
+
+        // Avoid flashing errors while user is mid-typing (e.g. "4.")
+        if (rawScore === '.' || rawScore.endsWith('.')) return
+
+        const parsed = parseScoreOrNull(rawScore)
+
+        if (Number.isNaN(parsed)) {
+          showToast('Valor inválido. Usa un número entre 1.00 y 5.00', 'error')
+          return
+        }
+
+        if (parsed !== null && (parsed < 1 || parsed > 5)) {
+          showToast('Las notas deben estar entre 1.00 y 5.00', 'error')
+          return
+        }
+
+        if (inFlightSavesRef.current.has(key)) return
+        inFlightSavesRef.current.add(key)
+
+        setCellStatus((prev) => ({ ...prev, [key]: 'saving' }))
+
+        try {
+          const res = await academicApi.bulkUpsertGradebook({
+            teacher_assignment: selectedAssignment.id,
+            period: selectedPeriodId,
+            grades: [{ enrollment: enrollmentId, achievement: achievementId, score: parsed }],
+          })
+
+          // Sync base/dirty state for this cell
+          setBaseValues((prev) => ({ ...prev, [key]: rawScore }))
+          setDirtyKeys((prev) => {
+            const next = new Set(prev)
+            next.delete(key)
+            return next
+          })
+
+          if (res.data.computed && res.data.computed.length > 0) {
+            setComputedOverrides((prev) => {
+              const next = { ...prev }
+              for (const row of res.data.computed ?? []) {
+                next[row.enrollment_id] = { final_score: row.final_score, scale: row.scale }
+              }
+              return next
+            })
+          }
+
+          setCellStatus((prev) => ({ ...prev, [key]: 'saved' }))
+          const existingTimer = statusTimersRef.current[key]
+          if (existingTimer) window.clearTimeout(existingTimer)
+          statusTimersRef.current[key] = window.setTimeout(() => {
+            setCellStatus((prev) => {
+              const next = { ...prev }
+              if (next[key] === 'saved') delete next[key]
+              return next
+            })
+          }, 1200)
+        } catch (e) {
+          console.error(e)
+          showToast('No se pudo guardar la nota', 'error')
+          setCellStatus((prev) => ({ ...prev, [key]: 'error' }))
+        } finally {
+          inFlightSavesRef.current.delete(key)
+        }
+      }, 700)
+    },
+    [periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+  )
+
+  const handleCellBlur = (enrollmentId: number, achievementId: number) => {
+    const key = makeKey(enrollmentId, achievementId)
+    const current = cellValues[key] ?? ''
+    const trimmed = sanitizeScoreInput(current).trim()
+
+    // Don't force formatting mid-typing.
+    if (!trimmed || trimmed === '.' || trimmed.endsWith('.')) return
+
+    const parsed = parseScoreOrNull(trimmed)
+    if (parsed === null || Number.isNaN(parsed) || !Number.isFinite(parsed)) return
+
+    const clamped = clampScoreNumber(parsed)
+    const formatted = clamped.toFixed(2)
+
+    if (formatted !== current) {
+      handleChangeCell(enrollmentId, achievementId, formatted)
+    }
+  }
+
   const handleChangeCell = (enrollmentId: number, achievementId: number, value: string) => {
     const key = makeKey(enrollmentId, achievementId)
 
-    setCellValues((prev) => ({ ...prev, [key]: value }))
+    const sanitized = clampScoreToRangeInput(sanitizeScoreInput(value))
+
+    // If user edits again, clear transient statuses
+    setCellStatus((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+
+    setCellValues((prev) => ({ ...prev, [key]: sanitized }))
     setDirtyKeys((prev) => {
       const next = new Set(prev)
       const base = baseValues[key] ?? ''
-      if (value === base) next.delete(key)
+      if (sanitized === base) next.delete(key)
       else next.add(key)
       return next
     })
+
+    saveCellDebounced(enrollmentId, achievementId, sanitized)
+  }
+
+  const handleCellKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    enrollmentId: number,
+    achievementId: number
+  ) => {
+    // Save shortcut
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      handleSave()
+      return
+    }
+
+    if (e.key === 'Escape') {
+      ;(e.currentTarget as HTMLInputElement).blur()
+      return
+    }
+
+    const rowIdx = rowOrder.indexOf(enrollmentId)
+    const colIdx = achievementOrder.findIndex((a) => a.id === achievementId)
+    if (rowIdx < 0 || colIdx < 0) return
+
+    const inputEl = e.currentTarget
+    const len = (inputEl.value ?? '').length
+    const start = inputEl.selectionStart ?? 0
+    const end = inputEl.selectionEnd ?? 0
+
+    const moveTo = (nextRow: number, nextCol: number) => {
+      if (nextRow < 0 || nextRow >= rowOrder.length) return
+      if (nextCol < 0 || nextCol >= achievementOrder.length) return
+      e.preventDefault()
+      focusCell(rowOrder[nextRow], achievementOrder[nextCol].id)
+    }
+
+    if (e.key === 'Enter') {
+      moveTo(e.shiftKey ? rowIdx - 1 : rowIdx + 1, colIdx)
+      return
+    }
+
+    if (e.key === 'ArrowUp') {
+      moveTo(rowIdx - 1, colIdx)
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      moveTo(rowIdx + 1, colIdx)
+      return
+    }
+    if (e.key === 'ArrowLeft') {
+      // Don't steal cursor navigation unless caret is at the start
+      if (start === 0 && end === 0) moveTo(rowIdx, colIdx - 1)
+      return
+    }
+    if (e.key === 'ArrowRight') {
+      // Don't steal cursor navigation unless caret is at the end
+      if (start === len && end === len) moveTo(rowIdx, colIdx + 1)
+      return
+    }
+  }
+
+  const handleCellFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (lastInteractionRef.current !== 'keyboard') return
+    const el = e.currentTarget
+    try {
+      el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    } catch {
+      // ignore
+    }
+    try {
+      el.select()
+    } catch {
+      // ignore
+    }
   }
 
   const handleSave = async () => {
@@ -240,12 +723,23 @@ export default function Grades() {
 
     setSaving(true)
     try {
-      await academicApi.bulkUpsertGradebook({
+      const res = await academicApi.bulkUpsertGradebook({
         teacher_assignment: selectedAssignment.id,
         period: selectedPeriodId,
         grades,
       })
       showToast('Notas guardadas', 'success')
+
+      if (res.data.computed && res.data.computed.length > 0) {
+        setComputedOverrides((prev) => {
+          const next = { ...prev }
+          for (const row of res.data.computed ?? []) {
+            next[row.enrollment_id] = { final_score: row.final_score, scale: row.scale }
+          }
+          return next
+        })
+      }
+
       await loadGradebook(selectedAssignment.id, selectedPeriodId)
     } catch (e) {
       console.error(e)
@@ -254,6 +748,24 @@ export default function Grades() {
       setSaving(false)
     }
   }
+
+  const anyInFlightSaves = inFlightSavesRef.current.size > 0
+  const hasDirty = dirtyKeys.size > 0
+  const globalSaveLabel = periodIsClosed
+    ? 'Solo lectura'
+    : saving || anyInFlightSaves
+      ? 'Guardando…'
+      : hasDirty
+        ? 'Cambios sin guardar'
+        : 'Todo guardado'
+
+  const globalSaveClass = periodIsClosed
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : saving || anyInFlightSaves
+      ? 'border-blue-200 bg-blue-50 text-blue-700'
+      : hasDirty
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
 
   if (loadingInit) return <div className="p-6">Cargando…</div>
 
@@ -371,69 +883,194 @@ export default function Grades() {
           <CardHeader className="border-b border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-4">
               <CardTitle className="text-lg font-semibold text-slate-900">Planilla</CardTitle>
-              {periodIsClosed && (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700">
-                  Periodo cerrado
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${globalSaveClass}`}>
+                  {globalSaveLabel}
                 </span>
-              )}
+                {periodIsClosed && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700">
+                    Periodo cerrado
+                  </span>
+                )}
+              </div>
             </div>
+
+            {gradebook?.achievements?.length ? (
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-slate-500">
+                  <span>
+                    Diligenciamiento: {completion.filled}/{completion.total}
+                  </span>
+                  <span className="font-medium text-slate-700">{completion.percent}%</span>
+                </div>
+                <div
+                  className="mt-2 h-2 w-full rounded-full bg-slate-200"
+                  role="progressbar"
+                  aria-label="Progreso de diligenciamiento de la planilla"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={completion.percent}
+                >
+                  <div
+                    className="h-2 rounded-full bg-blue-600"
+                    style={{ width: `${completion.percent}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
           </CardHeader>
 
           <CardContent className="pt-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+            <p id="grade-input-help" className="sr-only">
+              Rango permitido: 1.00 a 5.00. Puedes escribir con coma o punto.
+            </p>
+
+            {periodIsClosed && (
+              <div className="text-sm text-slate-600 mb-3">
+                Este periodo está cerrado. La planilla está en modo solo lectura.
+              </div>
+            )}
+
+            <div className="overflow-x-auto -mx-2 sm:mx-0">
+              <table className="min-w-max w-full text-xs sm:text-sm text-left">
+                <thead className="text-[11px] sm:text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 sticky top-0 z-20">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Estudiante</th>
-                    {gradebook.achievements.map((a, idx) => (
-                      <th
-                        key={a.id}
-                        className="px-6 py-4 font-semibold"
-                        title={a.description}
-                      >
-                        <div className="flex flex-col">
-                          <span>{`L${idx + 1}`}</span>
-                          <span className="text-[10px] text-slate-400 normal-case">{a.percentage}%</span>
-                        </div>
-                      </th>
-                    ))}
-                    <th className="px-6 py-4 font-semibold">Definitiva</th>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-gradient-to-r from-slate-50 to-slate-100" rowSpan={2}>
+                      Estudiante
+                    </th>
+                    {dimensionOrder.map((dimId) => {
+                      const dim = dimensionById.get(dimId)
+                      const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                      if (dimAchievements.length === 0) return null
+                      return (
+                        <th
+                          key={dimId}
+                          className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-center"
+                          colSpan={dimAchievements.length + 1}
+                          title={dim?.name ?? ''}
+                        >
+                          <div className="flex flex-col items-center">
+                            <span className="normal-case text-slate-700">
+                              <span className="sm:hidden">{abbrevDimensionName(dim?.name ?? `Dimensión ${dimId}`)}</span>
+                              <span className="hidden sm:inline">{dim?.name ?? `Dimensión ${dimId}`}</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 normal-case">{dim?.percentage ?? 0}%</span>
+                          </div>
+                        </th>
+                      )
+                    })}
+                    <th className="px-6 py-4 font-semibold" rowSpan={2}>Definitiva</th>
+                  </tr>
+
+                  <tr>
+                    {dimensionOrder.flatMap((dimId) => {
+                      const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                      return [
+                        ...dimAchievements.map((a, idx) => (
+                          <th key={a.id} className="px-3 sm:px-6 py-3 sm:py-4 font-semibold" title={a.description}>
+                            <div className="flex flex-col">
+                              <span>{`L${idx + 1}`}</span>
+                              <span className="text-[10px] text-slate-400 normal-case">{a.percentage}%</span>
+                            </div>
+                          </th>
+                        )),
+                        <th key={`dim-${dimId}-avg`} className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-center" title="Promedio de la dimensión">
+                          <span className="normal-case">Prom.</span>
+                        </th>,
+                      ]
+                    })}
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
                   {gradebook.students.map((s) => (
                     <tr key={s.enrollment_id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="font-medium text-slate-900">{s.student_name}</div>
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white">
+                        <div className="font-medium text-slate-900 max-w-40 sm:max-w-none truncate" title={s.student_name}>
+                          {s.student_name}
+                        </div>
                       </td>
 
-                      {gradebook.achievements.map((a) => {
-                        const key = makeKey(s.enrollment_id, a.id)
-                        const value = cellValues[key] ?? ''
-                        return (
-                          <td key={a.id} className="px-6 py-4">
-                            <Input
-                              value={value}
-                              onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
-                              disabled={periodIsClosed}
-                              inputMode="decimal"
-                              className="w-24 text-center border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                              placeholder="—"
-                              aria-label={`Nota ${s.student_name} logro ${a.id}`}
-                            />
+                      {dimensionOrder.flatMap((dimId) => {
+                        const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                        const dim = dimensionById.get(dimId)
+                        const cells = dimAchievements.map((a, idx) => {
+                          const key = makeKey(s.enrollment_id, a.id)
+                          const value = cellValues[key] ?? ''
+                          const status = cellStatus[key]
+                          const isDirty = dirtyKeys.has(key)
+
+                          const statusClass =
+                            status === 'error'
+                              ? 'border-rose-300 focus-visible:ring-rose-500'
+                              : status === 'saving'
+                                ? 'border-blue-300 focus-visible:ring-blue-500'
+                                : status === 'saved'
+                                  ? 'border-emerald-300 focus-visible:ring-emerald-500'
+                                  : isDirty
+                                    ? 'border-amber-300 focus-visible:ring-amber-500'
+                                    : 'border-slate-200 focus-visible:ring-blue-500'
+
+                          return (
+                            <td key={a.id} className="px-3 sm:px-6 py-3 sm:py-4">
+                              <Input
+                                value={value}
+                                onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
+                                onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
+                                onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
+                                onFocus={handleCellFocus}
+                                disabled={periodIsClosed}
+                                inputMode="decimal"
+                                pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                id={`gradecell-${s.enrollment_id}-${a.id}`}
+                                aria-invalid={status === 'error' ? true : undefined}
+                                aria-busy={status === 'saving' ? true : undefined}
+                                aria-describedby="grade-input-help"
+                                className={`w-20 sm:w-24 h-9 sm:h-10 px-2 sm:px-3 text-center ${statusClass}`}
+                                placeholder="1.00–5.00"
+                                aria-label={`Nota ${s.student_name} ${dim?.name ? `(${dim.name})` : ''} logro L${idx + 1}. Rango 1 a 5.`}
+                              />
+                            </td>
+                          )
+                        })
+
+                        const dimAvg = computeDimScoreForEnrollment(s.enrollment_id, dimId)
+
+                        cells.push(
+                          <td key={`dim-${dimId}-avg`} className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                            {dimAvg === null ? (
+                              <span className="text-slate-400">—</span>
+                            ) : (
+                              <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900">
+                                {dimAvg.toFixed(2)}
+                              </span>
+                            )}
                           </td>
                         )
+
+                        return cells
                       })}
 
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
                         {(() => {
+                          const liveFinal = computeFinalScoreForEnrollment(s.enrollment_id)
                           const c = computedByEnrollmentId.get(s.enrollment_id)
-                          if (!c) return <span className="text-slate-400">—</span>
+
+                          if (liveFinal === null && !c) return <span className="text-slate-400">—</span>
+
+                          const finalScore = liveFinal !== null ? liveFinal : c ? Number(c.final_score) : null
+                          const category = categoryFromScale(c?.scale) ?? categoryFromScore(finalScore)
+                          const style = definitiveStyle(category)
+
                           return (
                             <div className="flex flex-col">
-                              <span className="font-semibold text-slate-900">{formatScore(c.final_score)}</span>
-                              {c.scale ? <span className="text-xs text-slate-500">{c.scale}</span> : null}
+                              <span
+                                className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${style.className} w-fit`}
+                                aria-label={`Definitiva ${liveFinal !== null ? liveFinal.toFixed(2) : c ? formatScore(c.final_score) : '—'}${style.label ? ` (${style.label})` : ''}`}
+                              >
+                                {liveFinal !== null ? liveFinal.toFixed(2) : c ? formatScore(c.final_score) : '—'}
+                              </span>
+                              {c?.scale ? <span className="text-xs text-slate-500">{c.scale}</span> : null}
                             </div>
                           )
                         })()}
@@ -450,6 +1087,12 @@ export default function Grades() {
 
             {gradebook.achievements.length === 0 && (
               <div className="text-sm text-slate-500 mt-2">No hay logros planeados para este periodo/asignación.</div>
+            )}
+
+            {gradebook.achievements.length > 0 && !periodIsClosed && (
+              <div className="text-xs text-slate-500 mt-3">
+                Atajos: Enter/Shift+Enter (abajo/arriba), ↑↓ (fila), ←→ (columna), Tab/Shift+Tab (siguiente/anterior), Cmd/Ctrl+S (guardar), Esc (salir).
+              </div>
             )}
           </CardContent>
         </Card>

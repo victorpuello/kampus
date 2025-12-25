@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { academicApi } from '../../services/academic';
-import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group } from '../../services/academic';
-import { Plus, Wand2, Save, Trash, Search } from 'lucide-react';
+import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate } from '../../services/academic';
+import { Plus, Wand2, Save, Trash } from 'lucide-react';
 
 export default function PeriodPlanning() {
   const [years, setYears] = useState<AcademicYear[]>([]);
@@ -28,7 +28,7 @@ export default function PeriodPlanning() {
     dimensionId: number | '';
     description: string;
     percentage: number;
-    indicators: { level: string; description: string }[];
+    indicators: PerformanceIndicatorCreate[];
   }>({
     definitionId: '',
     dimensionId: '',
@@ -156,7 +156,7 @@ export default function PeriodPlanning() {
     setGeneratingAI(true);
     try {
       const res = await academicApi.generateIndicators(text);
-      const newIndicators = [
+      const newIndicators: PerformanceIndicatorCreate[] = [
         { level: 'LOW', description: res.data.LOW || '' },
         { level: 'BASIC', description: res.data.BASIC || '' },
         { level: 'HIGH', description: res.data.HIGH || '' },
@@ -224,21 +224,7 @@ export default function PeriodPlanning() {
   };
 
   // Filter subjects based on selected grade
-  const filteredSubjects = selectedGrade 
-    ? subjects.filter(s => {
-        // If subject has grade info, use it. Otherwise show all (or handle differently)
-        // The Subject interface has 'area', but not 'grade' directly in the interface shown previously, 
-        // but the API response might have it. Let's assume subjects are linked to grade via AcademicLoad usually.
-        // But here we are listing raw Subjects. 
-        // Let's assume for now we show all subjects, or filter if we had the data.
-        // Actually, the previous code had `s.grade_name`. Let's check Subject interface.
-        // Interface: export interface Subject { id: number; name: string; area: number; area_name?: string; }
-        // It doesn't have grade. 
-        // However, usually subjects are assigned to grades. 
-        // Let's just show all subjects for now, or filter if the user selects a group.
-        return true; 
-      }) 
-    : subjects;
+  const filteredSubjects = subjects;
 
   // Calculate stats per dimension
   const dimensionStats = dimensions.filter(d => d.is_active).map(dim => {

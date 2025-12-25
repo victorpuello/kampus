@@ -6,7 +6,45 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from academic.models import AcademicLoad, AcademicYear, Area, Group, Period, Subject, TeacherAssignment, Achievement
+from academic.models import (
+    AcademicLoad,
+    AcademicYear,
+    Achievement,
+    Area,
+    Dimension,
+    Group,
+    Period,
+    Subject,
+    TeacherAssignment,
+)
+
+
+def _parse_dimensions(raw: str | None) -> list[tuple[str, int]]:
+    """Parse dimensions string like: "Cognitivo:50,Procedimental:30,Actitudinal:20"."""
+    if not raw:
+        return [("Cognitivo", 50), ("Procedimental", 30), ("Actitudinal", 20)]
+
+    dims: list[tuple[str, int]] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" not in part:
+            raise ValueError(
+                "Invalid --dimensions format. Expected 'Name:Percentage' comma-separated, e.g. 'Cognitivo:50,Procedimental:30,Actitudinal:20'."
+            )
+        name, pct = part.split(":", 1)
+        name = name.strip()
+        pct = int(pct.strip())
+        if not name:
+            raise ValueError("Dimension name cannot be empty")
+        if pct < 0:
+            raise ValueError("Dimension percentage must be >= 0")
+        dims.append((name, pct))
+
+    if not dims:
+        return [("Cognitivo", 50), ("Procedimental", 30), ("Actitudinal", 20)]
+    return dims
 
 
 class Command(BaseCommand):
@@ -61,6 +99,23 @@ class Command(BaseCommand):
             default=3,
             help="How many achievements to create per AcademicLoad per Period (default: 3)",
         )
+        parser.add_argument(
+            "--dimensions",
+            type=str,
+            default=None,
+            help=(
+                "Dimensions to create/use for this AcademicYear, as comma-separated 'Name:Percentage'. "
+                "Default: 'Cognitivo:50,Procedimental:30,Actitudinal:20'."
+            ),
+        )
+        parser.add_argument(
+            "--update-existing-dimensions",
+            action="store_true",
+            help=(
+                "If set, updates percentage/is_active for existing Dimension records to match --dimensions. "
+                "By default, existing Dimension configuration is preserved."
+            ),
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -72,6 +127,8 @@ class Command(BaseCommand):
         area_name: str = options["area_name"]
         periods_count: int = options["periods"]
         achievements_per_period: int = options["achievements_per_period"]
+        dims_spec: str | None = options["dimensions"]
+        update_existing_dimensions: bool = options["update_existing_dimensions"]
 
         if target_year is not None:
             year = AcademicYear.objects.get(year=target_year)
@@ -87,6 +144,27 @@ class Command(BaseCommand):
         if not groups:
             self.stdout.write(self.style.WARNING("No groups found for this AcademicYear. Create groups first."))
             return
+
+        # Dimensions
+        dims = _parse_dimensions(dims_spec)
+        dimension_objs: list[Dimension] = []
+        for name, pct in dims:
+            obj, _ = Dimension.objects.get_or_create(
+                academic_year=year,
+                name=name,
+                defaults={"description": "", "percentage": pct, "is_active": True},
+            )
+            if update_existing_dimensions:
+                updated_fields = []
+                if int(obj.percentage) != int(pct):
+                    obj.percentage = pct
+                    updated_fields.append("percentage")
+                if not obj.is_active:
+                    obj.is_active = True
+                    updated_fields.append("is_active")
+                if updated_fields:
+                    obj.save(update_fields=updated_fields)
+            dimension_objs.append(obj)
 
         # Periods
         existing_periods = list(Period.objects.filter(academic_year=year).order_by("start_date"))
@@ -157,22 +235,36 @@ class Command(BaseCommand):
                     for i in range(achievements_per_period):
                         pct = base + (1 if i < rem else 0)
                         desc = f"Logro {i + 1} ({subject.name})"
+                        assigned_dimension = None
+                        if dimension_objs:
+                            assigned_dimension = dimension_objs[i % len(dimension_objs)]
                         obj, was_created = Achievement.objects.get_or_create(
                             academic_load=load,
                             period=period,
                             description=desc,
-                            defaults={"percentage": pct, "group": None, "subject": subject},
+                            defaults={
+                                "percentage": pct,
+                                "group": None,
+                                "subject": subject,
+                                "dimension": assigned_dimension,
+                            },
                         )
                         # Keep percentage stable if record exists
-                        if not was_created and obj.percentage != pct:
+                        updated_fields = []
+                        if int(obj.percentage) != int(pct):
                             obj.percentage = pct
-                            obj.save(update_fields=["percentage"])
+                            updated_fields.append("percentage")
+                        if assigned_dimension and obj.dimension_id != assigned_dimension.id:
+                            obj.dimension = assigned_dimension
+                            updated_fields.append("dimension")
+                        if updated_fields:
+                            obj.save(update_fields=updated_fields)
                         if was_created:
                             created_achievements += 1
 
         self.stdout.write(
             self.style.SUCCESS(
                 f"Seeded gradebook prereqs for year {year.year}: periods={len(existing_periods)}, groups={len(groups)}, "
-                f"assignments+={created_assignments}, achievements+={created_achievements}."
+                f"dimensions={len(dimension_objs)}, assignments+={created_assignments}, achievements+={created_achievements}."
             )
         )

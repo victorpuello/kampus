@@ -125,6 +125,9 @@ class GradebookApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 200)
 
+        self.assertIn("dimensions", resp.data)
+        self.assertTrue(any(d["id"] == self.dimension.id for d in resp.data["dimensions"]))
+
         computed = resp.data["computed"]
         row = next(x for x in computed if x["enrollment_id"] == self.enrollment.id)
         self.assertEqual(Decimal(str(row["final_score"])), Decimal("1.00"))
@@ -155,6 +158,10 @@ class GradebookApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data["updated"], 1)
+
+        self.assertIn("computed", resp.data)
+        row = next(x for x in resp.data["computed"] if x["enrollment_id"] == self.enrollment.id)
+        self.assertEqual(Decimal(str(row["final_score"])), Decimal("4.00"))
 
         self.assertTrue(
             AchievementGrade.objects.filter(

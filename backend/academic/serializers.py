@@ -222,6 +222,67 @@ class AchievementSerializer(serializers.ModelSerializer):
         model = Achievement
         fields = "__all__"
 
+    def validate(self, attrs):
+        """Prevent 'empty' / inconsistent planned achievements.
+
+        Frontend planning currently posts {period, subject, group, ...} and historically omitted
+        academic_load. Gradebook is keyed by teacher_assignment.academic_load, so we infer it.
+        """
+
+        # Disallow whitespace-only descriptions (DRF allows "   ")
+        if "description" in attrs and not (attrs.get("description") or "").strip():
+            raise serializers.ValidationError({"description": "La descripción no puede estar vacía."})
+
+        group = attrs.get("group")
+        period = attrs.get("period")
+        subject = attrs.get("subject")
+        academic_load = attrs.get("academic_load")
+
+        # Keep existing academic_load on update if not provided
+        if not academic_load and getattr(self, "instance", None) is not None:
+            academic_load = getattr(self.instance, "academic_load", None)
+
+        # Infer academic_load on create when omitted
+        if not academic_load:
+            if subject and group:
+                from academic.models import AcademicLoad
+
+                academic_load = AcademicLoad.objects.filter(
+                    subject=subject,
+                    grade=group.grade,
+                ).first()
+                if not academic_load:
+                    raise serializers.ValidationError(
+                        {
+                            "academic_load": "No existe una carga académica para esa asignatura y grado del grupo."
+                        }
+                    )
+                attrs["academic_load"] = academic_load
+            else:
+                raise serializers.ValidationError(
+                    {
+                        "academic_load": "academic_load es requerido (o enviar subject y group para inferirlo)."
+                    }
+                )
+
+        # Consistency checks
+        if group and period and period.academic_year_id != group.academic_year_id:
+            raise serializers.ValidationError(
+                {"period": "El periodo no corresponde al año lectivo del grupo."}
+            )
+
+        if group and academic_load and academic_load.grade_id != group.grade_id:
+            raise serializers.ValidationError(
+                {"academic_load": "La carga académica no corresponde al grado del grupo."}
+            )
+
+        if subject and academic_load and academic_load.subject_id != subject.id:
+            raise serializers.ValidationError(
+                {"subject": "La asignatura no corresponde a la carga académica."}
+            )
+
+        return attrs
+
     def create(self, validated_data):
         indicators_data = validated_data.pop('indicators', [])
         achievement = Achievement.objects.create(**validated_data)

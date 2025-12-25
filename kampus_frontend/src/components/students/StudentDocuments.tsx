@@ -53,7 +53,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
     formData.append('description', description)
 
     try {
-      await documentsApi.create(formData, (progressEvent) => {
+      await documentsApi.create(formData, (_progressEvent) => {
         // Optional: Add progress tracking here if needed for single uploads
       })
       setFile(null)

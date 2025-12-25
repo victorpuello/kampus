@@ -325,15 +325,18 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             period=period,
         )
 
-        achievements = (
-            Achievement.objects.filter(
-                academic_load=teacher_assignment.academic_load,
-                period=period,
-            )
-            .filter(Q(group=teacher_assignment.group) | Q(group__isnull=True))
-            .select_related("dimension")
-            .order_by("id")
+        base_achievements = Achievement.objects.filter(
+            academic_load=teacher_assignment.academic_load,
+            period=period,
         )
+
+        group_achievements = base_achievements.filter(group=teacher_assignment.group)
+        if group_achievements.exists():
+            achievements = group_achievements
+        else:
+            achievements = base_achievements.filter(group__isnull=True)
+
+        achievements = achievements.select_related("dimension").order_by("id")
 
         from students.models import Enrollment
 
@@ -394,10 +397,19 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 continue
             achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
 
-        dimensions = Dimension.objects.filter(
-            id__in=list(achievements_by_dimension.keys())
-        ).only("id", "percentage")
+        dimensions = (
+            Dimension.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                id__in=list(achievements_by_dimension.keys()),
+            )
+            .only("id", "name", "percentage")
+            .order_by("id")
+        )
         dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
+
+        dimensions_payload = [
+            {"id": d.id, "name": d.name, "percentage": int(d.percentage)} for d in dimensions
+        ]
 
         computed = []
         for e in enrollments:
@@ -429,6 +441,7 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                     "group": teacher_assignment.group_id,
                     "academic_load": teacher_assignment.academic_load_id,
                 },
+                "dimensions": dimensions_payload,
                 "achievements": achievement_payload,
                 "students": student_payload,
                 "cells": cell_payload,
@@ -480,14 +493,17 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             ).values_list("id", flat=True)
         )
 
-        valid_achievements = set(
-            Achievement.objects.filter(
-                academic_load=teacher_assignment.academic_load,
-                period=period,
-            )
-            .filter(Q(group=teacher_assignment.group) | Q(group__isnull=True))
-            .values_list("id", flat=True)
+        base_achievements = Achievement.objects.filter(
+            academic_load=teacher_assignment.academic_load,
+            period=period,
         )
+        group_achievements = base_achievements.filter(group=teacher_assignment.group)
+        if group_achievements.exists():
+            valid_achievements = set(group_achievements.values_list("id", flat=True))
+        else:
+            valid_achievements = set(
+                base_achievements.filter(group__isnull=True).values_list("id", flat=True)
+            )
 
         to_upsert = []
         for g in grades:
@@ -521,4 +537,67 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 update_fields=["score", "updated_at"],
             )
 
-        return Response({"updated": len(to_upsert)}, status=status.HTTP_200_OK)
+        # Return recomputed final scores for impacted enrollments (for live UI updates)
+        impacted_enrollment_ids = sorted({g["enrollment"] for g in grades})
+
+        base_achievements = Achievement.objects.filter(
+            academic_load=teacher_assignment.academic_load,
+            period=period,
+        )
+
+        group_achievements = base_achievements.filter(group=teacher_assignment.group)
+        if group_achievements.exists():
+            achievements = group_achievements
+        else:
+            achievements = base_achievements.filter(group__isnull=True)
+
+        achievements = achievements.select_related("dimension").order_by("id")
+
+        achievements_by_dimension: dict[int, list[Achievement]] = {}
+        for a in achievements:
+            if not a.dimension_id:
+                continue
+            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
+
+        dimensions = Dimension.objects.filter(
+            academic_year_id=teacher_assignment.academic_year_id,
+            id__in=list(achievements_by_dimension.keys()),
+        ).only("id", "percentage")
+        dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
+
+        existing_grades = AchievementGrade.objects.filter(
+            gradesheet=gradesheet,
+            enrollment_id__in=impacted_enrollment_ids,
+            achievement__in=achievements,
+        ).only("enrollment_id", "achievement_id", "score")
+
+        score_by_cell = {(g.enrollment_id, g.achievement_id): g.score for g in existing_grades}
+
+        computed = []
+        for enrollment_id in impacted_enrollment_ids:
+            dim_items = []
+            for dim_id, dim_achievements in achievements_by_dimension.items():
+                items = [
+                    (
+                        score_by_cell.get((enrollment_id, a.id)),
+                        int(a.percentage) if a.percentage else 1,
+                    )
+                    for a in dim_achievements
+                ]
+                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
+                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
+
+            final_score = final_grade_from_dimensions(dim_items)
+            scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
+            computed.append(
+                {
+                    "enrollment_id": enrollment_id,
+                    "final_score": final_score,
+                    "scale": scale_match.name if scale_match else None,
+                }
+            )
+
+        return Response(
+            {"updated": len(to_upsert), "computed": computed},
+            status=status.HTTP_200_OK,
+        )

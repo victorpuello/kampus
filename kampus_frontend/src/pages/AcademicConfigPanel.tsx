@@ -260,13 +260,23 @@ export default function AcademicConfigPanel() {
         showToast('Área eliminada correctamente', 'success')
       } else if (deleteType === 'subject') {
         const subjectToDelete = subjects.find(s => s.id === itemToDelete)
+
+        // Determine affected grades via AcademicLoads before deleting
+        const loadsRes = await academicApi.listAcademicLoads()
+        const affectedGrades = new Set<number>(
+          loadsRes.data.filter(l => l.subject === itemToDelete).map(l => l.grade)
+        )
+
         await academicApi.deleteSubject(itemToDelete)
         showToast('Asignatura eliminada correctamente', 'success')
-        
-        if (subjectToDelete) {
-          const updatedCount = await recalculateWeights(subjectToDelete.grade, subjectToDelete.area)
-          if (updatedCount > 0) {
-            showToast(`Se recalcularon los pesos de ${updatedCount} asignaturas`, 'info')
+
+        if (subjectToDelete && affectedGrades.size > 0) {
+          let updatedTotal = 0
+          for (const gradeId of affectedGrades) {
+            updatedTotal += await recalculateWeights(gradeId, subjectToDelete.area)
+          }
+          if (updatedTotal > 0) {
+            showToast(`Se recalcularon los pesos de ${updatedTotal} asignaturas`, 'info')
           }
         }
       } else if (deleteType === 'group') {
@@ -454,12 +464,16 @@ export default function AcademicConfigPanel() {
         const res = await academicApi.createArea(areaInput)
         
         if (createSubjectForArea && selectedSubjectGrade) {
-          await academicApi.createSubject({
+          const subjectRes = await academicApi.createSubject({
             name: areaInput.name,
             area: res.data.id,
+          })
+
+          await academicApi.createAcademicLoad({
+            subject: subjectRes.data.id,
             grade: selectedSubjectGrade,
             weight_percentage: 100,
-            hours_per_week: 1
+            hours_per_week: 1,
           })
           showToast('Área y asignatura creadas correctamente', 'success')
         } else {
@@ -646,7 +660,7 @@ export default function AcademicConfigPanel() {
     academicApi.deleteAcademicLoad(id).then(() => {
       showToast('Carga académica eliminada', 'success')
       load()
-    }).catch(err => showToast('Error al eliminar', 'error'))
+    }).catch(_err => showToast('Error al eliminar', 'error'))
   }
 
   const onCancelEditAcademicLoad = () => {

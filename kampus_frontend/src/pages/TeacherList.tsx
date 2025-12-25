@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
 import { academicApi, type AcademicYear } from '../services/academic'
 import type { Teacher } from '../services/teachers'
@@ -10,7 +10,6 @@ import { Plus, Search, Trash2, GraduationCap, BookOpen, Users, School } from 'lu
 import { Input } from '../components/ui/Input'
 
 export default function TeacherList() {
-  const navigate = useNavigate()
   const [data, setData] = useState<Teacher[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')

@@ -26,6 +26,17 @@ export interface Group {
   capacity: number;
   enrolled_count: number;
 }
+
+export type GroupUpsertPayload = {
+  name: string;
+  grade: number;
+  academic_year: number;
+  director: number | null;
+  campus: number | null;
+  shift: string;
+  classroom?: string;
+  capacity?: number;
+}
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; }
 export interface AcademicLoad { id: number; subject: number; subject_name?: string; grade: number; grade_name?: string; weight_percentage: number; hours_per_week: number }
@@ -89,6 +100,11 @@ export interface PerformanceIndicator {
   description: string;
 }
 
+export interface PerformanceIndicatorCreate {
+  level: PerformanceIndicator['level'];
+  description: string;
+}
+
 export interface Achievement {
   id: number;
   subject: number;
@@ -130,6 +146,12 @@ export interface GradebookComputed {
   scale: string | null;
 }
 
+export interface GradebookDimension {
+  id: number;
+  name: string;
+  percentage: number;
+}
+
 export interface GradebookResponse {
   gradesheet: {
     id: number;
@@ -142,6 +164,7 @@ export interface GradebookResponse {
   };
   period: { id: number; name: string; is_closed: boolean };
   teacher_assignment: { id: number; group: number; academic_load: number };
+  dimensions: GradebookDimension[];
   achievements: GradebookAchievement[];
   students: GradebookStudent[];
   cells: GradebookCell[];
@@ -181,8 +204,8 @@ export const academicApi = {
 
   // Groups
   listGroups: (params?: any) => api.get<Group[]>('/api/groups/', { params }),
-  createGroup: (data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.post<Group>('/api/groups/', data),
-  updateGroup: (id: number, data: Omit<Group, 'id' | 'grade_name' | 'director_name' | 'campus_name'>) => api.put<Group>(`/api/groups/${id}/`, data),
+  createGroup: (data: GroupUpsertPayload) => api.post<Group>('/api/groups/', data),
+  updateGroup: (id: number, data: GroupUpsertPayload) => api.put<Group>(`/api/groups/${id}/`, data),
   deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),
 
   // Areas
@@ -214,7 +237,7 @@ export const academicApi = {
       params: { teacher_assignment: teacherAssignmentId, period: periodId },
     }),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
-    api.post<{ updated: number }>('/api/grade-sheets/bulk-upsert/', data),
+    api.post<{ updated: number; computed?: GradebookComputed[] }>('/api/grade-sheets/bulk-upsert/', data),
 
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),
@@ -232,7 +255,8 @@ export const academicApi = {
 
   // Achievements (Planning)
   listAchievements: (params?: any) => api.get<Achievement[]>('/api/achievements/', { params }),
-  createAchievement: (data: Partial<Achievement>) => api.post<Achievement>('/api/achievements/', data),
+  createAchievement: (data: Partial<Omit<Achievement, 'indicators'>> & { indicators?: PerformanceIndicatorCreate[] }) =>
+    api.post<Achievement>('/api/achievements/', data),
   updateAchievement: (id: number, data: Partial<Achievement>) => api.put<Achievement>(`/api/achievements/${id}/`, data),
   deleteAchievement: (id: number) => api.delete(`/api/achievements/${id}/`),
   

@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Toast, type ToastType } from '../../components/ui/Toast'
-import { ArrowLeft, Check, Upload, FileText, User, BookOpen, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Check, FileText, User, BookOpen, AlertCircle } from 'lucide-react'
 
 const STEPS = [
   { id: 1, title: 'Datos del Estudiante', icon: User },
@@ -104,7 +104,7 @@ export default function EnrollmentWizard() {
             await documentsApi.create(formData)
         } catch (photoError) {
             console.error('Error uploading photo:', photoError)
-            showToast('Estudiante creado, pero hubo un error al subir la foto.', 'warning')
+          showToast('Estudiante creado, pero hubo un error al subir la foto.', 'info')
             // We don't throw here, so we can proceed to next step
         }
       } else {
@@ -154,7 +154,8 @@ export default function EnrollmentWizard() {
           formData.append('file', doc.file)
           
           await documentsApi.create(formData, (progressEvent) => {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            const total = progressEvent.total ?? 0
+            const percentCompleted = total > 0 ? Math.round((progressEvent.loaded * 100) / total) : 0
             newDocs[i].progress = percentCompleted
             setDocuments([...newDocs])
           })

@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Toast, type ToastType } from '../../components/ui/Toast'
-import { Download, Upload, FileSpreadsheet, FileText } from 'lucide-react'
+import { Upload, FileSpreadsheet, FileText } from 'lucide-react'
 
 export default function EnrollmentReports() {
   const [loading, setLoading] = useState(false)
