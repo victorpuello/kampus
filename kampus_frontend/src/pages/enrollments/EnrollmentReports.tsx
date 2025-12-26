@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
@@ -7,8 +8,12 @@ import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Toast, type ToastType } from '../../components/ui/Toast'
 import { Upload, FileSpreadsheet, FileText } from 'lucide-react'
+import { useAuthStore } from '../../store/auth'
 
 export default function EnrollmentReports() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -34,6 +39,22 @@ export default function EnrollmentReports() {
   const [years, setYears] = useState<AcademicYear[]>([])
   const [grades, setGrades] = useState<Grade[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Gestión Masiva y Reportes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder a reportes de matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   useEffect(() => {
     Promise.all([

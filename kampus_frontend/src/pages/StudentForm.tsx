@@ -10,6 +10,8 @@ import { Label } from '../components/ui/Label'
 import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText } from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
+import { useAuthStore } from '../store/auth'
+import { academicApi } from '../services/academic'
 
 function FamilyMemberForm({ 
     studentId, 
@@ -131,6 +133,11 @@ export default function StudentForm() {
   const navigate = useNavigate()
   const { id } = useParams()
   const isEditing = !!id
+    const user = useAuthStore((s) => s.user)
+    const isTeacher = user?.role === 'TEACHER'
+    const canEdit = !isTeacher
+
+    const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -180,7 +187,40 @@ export default function StudentForm() {
     support_needs: '',
   })
 
+    useEffect(() => {
+        let mounted = true
+
+        if (!isTeacher || !user?.id) {
+            setTeacherHasDirectedGroup(null)
+            return
+        }
+
+        setTeacherHasDirectedGroup(null)
+
+        ;(async () => {
+            try {
+                const yearsRes = await academicApi.listYears()
+                const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')
+                const groupsRes = await academicApi.listGroups({
+                    director: user.id,
+                    ...(activeYear ? { academic_year: activeYear.id } : {}),
+                })
+                if (!mounted) return
+                setTeacherHasDirectedGroup(groupsRes.data.length > 0)
+            } catch {
+                if (!mounted) return
+                setTeacherHasDirectedGroup(false)
+            }
+        })()
+
+        return () => {
+            mounted = false
+        }
+    }, [isTeacher, user?.id])
+
   useEffect(() => {
+        if (isTeacher && teacherHasDirectedGroup !== true) return
+
     if (isEditing && id) {
       setLoading(true)
       studentsApi.get(Number(id))
@@ -240,11 +280,14 @@ export default function StudentForm() {
         })
         .catch((err) => {
           console.error(err)
-          setError('Error al cargar el estudiante')
+                    const status = err?.response?.status
+                    if (status === 404) setError('Estudiante no encontrado')
+                    else if (status === 403) setError('No tienes permisos para ver este estudiante')
+                    else setError('Error al cargar el estudiante')
         })
         .finally(() => setLoading(false))
     }
-  }, [id, isEditing])
+    }, [id, isEditing, isTeacher, teacherHasDirectedGroup])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -291,6 +334,11 @@ export default function StudentForm() {
   }
 
   const handleSaveStep = async (nextTab?: string) => {
+        if (isTeacher) {
+            setError('No tienes permisos para crear o editar estudiantes')
+            return
+        }
+
     setLoading(true)
     setError(null)
 
@@ -337,7 +385,64 @@ export default function StudentForm() {
     { id: 'documents', label: 'Documentos', icon: FileText },
   ]
 
+    const visibleTabs = isTeacher ? tabs.filter((t) => t.id !== 'family' && t.id !== 'documents') : tabs
+
+    if (isTeacher) {
+        if (teacherHasDirectedGroup === null) return <div className="p-6">Cargando…</div>
+
+        if (teacherHasDirectedGroup === false) {
+            return (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Estudiantes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-slate-600">
+                            No tienes asignación como director de grupo. Para ver estudiantes, primero debes estar asignado
+                            como director de un grupo.
+                        </p>
+                        <div className="mt-4">
+                            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )
+        }
+
+        if (!isEditing) {
+            return (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Estudiantes</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-slate-600">No tienes permisos para crear estudiantes.</p>
+                        <div className="mt-4">
+                            <Button variant="outline" onClick={() => navigate('/students')}>Volver</Button>
+                        </div>
+                    </CardContent>
+                </Card>
+            )
+        }
+    }
+
   if (loading && isEditing && !formData.first_name) return <div className="p-6">Cargando...</div>
+
+    if (error && isEditing && !loading) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle>Estudiantes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <p className="text-red-600">{error}</p>
+                    <div className="mt-4">
+                        <Button variant="outline" onClick={() => navigate('/students')}>Volver</Button>
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -352,7 +457,7 @@ export default function StudentForm() {
       </div>
 
       <div className="flex space-x-1 rounded-xl bg-slate-100 p-1">
-        {tabs.map((tab) => {
+                {visibleTabs.map((tab) => {
             const Icon = tab.icon
             return (
                 <button
@@ -378,6 +483,12 @@ export default function StudentForm() {
           </div>
         )}
 
+                {!canEdit && (
+                    <div className="p-3 text-sm text-slate-600 bg-slate-50 rounded-md border border-slate-200">
+                        Vista de solo lectura. Como docente no puedes editar datos del estudiante.
+                    </div>
+                )}
+
         {/* IDENTIFICATION TAB */}
         <div className={activeTab === 'identification' ? 'block' : 'hidden'}>
             <Card>
@@ -391,22 +502,22 @@ export default function StudentForm() {
                 )}
                 <div className="space-y-2">
                     <Label>Email</Label>
-                    <Input name="email" type="email" value={formData.email} onChange={handleChange} />
+                    <Input name="email" type="email" value={formData.email} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Nombres</Label>
-                    <Input name="first_name" value={formData.first_name} onChange={handleChange} required />
+                    <Input name="first_name" value={formData.first_name} onChange={handleChange} required disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Apellidos</Label>
-                    <Input name="last_name" value={formData.last_name} onChange={handleChange} required />
+                    <Input name="last_name" value={formData.last_name} onChange={handleChange} required disabled={!canEdit} />
                 </div>
                 
                 <div className="col-span-full border-t my-2"></div>
 
                 <div className="space-y-2">
                     <Label>Tipo Documento</Label>
-                    <select name="document_type" value={formData.document_type} onChange={handleChange} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                    <select name="document_type" value={formData.document_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
                         <option value="TI">Tarjeta de Identidad</option>
                         <option value="CC">Cédula de Ciudadanía</option>
                         <option value="RC">Registro Civil</option>
@@ -416,7 +527,7 @@ export default function StudentForm() {
                 </div>
                 <div className="space-y-2">
                     <Label>Número Documento</Label>
-                    <Input name="document_number" value={formData.document_number} onChange={handleChange} />
+                    <Input name="document_number" value={formData.document_number} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 
                 <div className="space-y-2">
@@ -424,7 +535,8 @@ export default function StudentForm() {
                     <select 
                         value={selectedDepartment} 
                         onChange={handleDepartmentChange}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={!canEdit}
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                     >
                         <option value="">Seleccione Departamento...</option>
                         {colombiaData.map((dept) => (
@@ -440,7 +552,7 @@ export default function StudentForm() {
                     <select 
                         value={selectedCity} 
                         onChange={handleCityChange}
-                        disabled={!selectedDepartment}
+                        disabled={!canEdit || !selectedDepartment}
                         className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                     >
                         <option value="">Seleccione Ciudad...</option>
@@ -454,15 +566,15 @@ export default function StudentForm() {
 
                 <div className="space-y-2">
                     <Label>Nacionalidad</Label>
-                    <Input name="nationality" value={formData.nationality} onChange={handleChange} />
+                    <Input name="nationality" value={formData.nationality} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Fecha de Nacimiento</Label>
-                    <Input type="date" name="birth_date" value={formData.birth_date} onChange={handleChange} />
+                    <Input type="date" name="birth_date" value={formData.birth_date} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Sexo</Label>
-                    <select name="sex" value={formData.sex} onChange={handleChange} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                    <select name="sex" value={formData.sex} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
                         <option value="">Seleccione...</option>
                         <option value="M">Masculino</option>
                         <option value="F">Femenino</option>
@@ -474,7 +586,8 @@ export default function StudentForm() {
                         name="blood_type" 
                         value={formData.blood_type} 
                         onChange={handleChange} 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={!canEdit}
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                     >
                         <option value="">Seleccione...</option>
                         <option value="O+">O+</option>
@@ -489,7 +602,7 @@ export default function StudentForm() {
                 </div>
             </CardContent>
             <div className="flex justify-end p-4 border-t bg-slate-50 rounded-b-lg">
-                <Button onClick={() => handleSaveStep('residence')} disabled={loading}>
+                <Button onClick={() => handleSaveStep('residence')} disabled={loading || !canEdit}>
                     Guardar y Continuar
                 </Button>
             </div>
@@ -503,15 +616,15 @@ export default function StudentForm() {
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label>Dirección de Residencia</Label>
-                    <Input name="address" value={formData.address} onChange={handleChange} />
+                    <Input name="address" value={formData.address} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Barrio / Vereda</Label>
-                    <Input name="neighborhood" value={formData.neighborhood} onChange={handleChange} />
+                    <Input name="neighborhood" value={formData.neighborhood} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Teléfono</Label>
-                    <Input name="phone" value={formData.phone} onChange={handleChange} />
+                    <Input name="phone" value={formData.phone} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>Con quién vive</Label>
@@ -519,7 +632,8 @@ export default function StudentForm() {
                         name="living_with" 
                         value={formData.living_with} 
                         onChange={handleChange} 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={!canEdit}
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                     >
                         <option value="">Seleccione...</option>
                         <option value="Madre">Madre</option>
@@ -534,12 +648,12 @@ export default function StudentForm() {
                 </div>
                 <div className="space-y-2">
                     <Label>Estrato</Label>
-                    <Input name="stratum" value={formData.stratum} onChange={handleChange} />
+                    <Input name="stratum" value={formData.stratum} onChange={handleChange} disabled={!canEdit} />
                 </div>
             </CardContent>
             <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
                 <Button variant="outline" onClick={() => setActiveTab('identification')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('socioeconomic')} disabled={loading}>
+                <Button onClick={() => handleSaveStep('socioeconomic')} disabled={loading || !canEdit}>
                     Guardar y Continuar
                 </Button>
             </div>
@@ -553,7 +667,7 @@ export default function StudentForm() {
             <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                     <Label>SISBÉN (Puntaje/Nivel)</Label>
-                    <Input name="sisben_score" value={formData.sisben_score} onChange={handleChange} />
+                    <Input name="sisben_score" value={formData.sisben_score} onChange={handleChange} disabled={!canEdit} />
                 </div>
                 <div className="space-y-2">
                     <Label>EPS</Label>
@@ -563,6 +677,7 @@ export default function StudentForm() {
                         onChange={handleChange} 
                         list="eps-list" 
                         placeholder="Escriba o seleccione..."
+                        disabled={!canEdit}
                     />
                     <datalist id="eps-list">
                         {epsList.map((eps) => (
@@ -576,7 +691,8 @@ export default function StudentForm() {
                         name="ethnicity" 
                         value={formData.ethnicity} 
                         onChange={handleChange} 
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={!canEdit}
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                     >
                         <option value="">Seleccione...</option>
                         {ethnicityList.map((eth) => (
@@ -586,14 +702,14 @@ export default function StudentForm() {
                 </div>
                 <div className="space-y-2 flex items-center pt-6">
                     <label className="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" name="is_victim_of_conflict" checked={formData.is_victim_of_conflict} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300" />
+                        <input type="checkbox" name="is_victim_of_conflict" checked={formData.is_victim_of_conflict} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300" />
                         <span className="text-sm text-slate-700">¿Víctima del conflicto?</span>
                     </label>
                 </div>
             </CardContent>
             <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
                 <Button variant="outline" onClick={() => setActiveTab('residence')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('support')} disabled={loading}>
+                <Button onClick={() => handleSaveStep('support')} disabled={loading || !canEdit}>
                     Guardar y Continuar
                 </Button>
             </div>
@@ -606,7 +722,7 @@ export default function StudentForm() {
             <CardHeader><CardTitle>Desarrollo Integral y Apoyos</CardTitle></CardHeader>
             <CardContent className="space-y-4">
                 <div className="flex items-center space-x-2">
-                    <input type="checkbox" name="has_disability" checked={formData.has_disability} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300" />
+                    <input type="checkbox" name="has_disability" checked={formData.has_disability} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300" />
                     <Label>¿Tiene alguna discapacidad o condición especial?</Label>
                 </div>
 
@@ -614,7 +730,7 @@ export default function StudentForm() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6 border-l-2 border-slate-200">
                         <div className="space-y-2">
                             <Label>Tipo de Discapacidad</Label>
-                            <select name="disability_type" value={formData.disability_type} onChange={handleChange} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+                            <select name="disability_type" value={formData.disability_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
                                 <option value="">Seleccione...</option>
                                 <option value="FISICA">Física</option>
                                 <option value="INTELECTUAL">Intelectual</option>
@@ -625,7 +741,7 @@ export default function StudentForm() {
                         </div>
                         <div className="space-y-2">
                             <Label>Descripción</Label>
-                            <Input name="disability_description" value={formData.disability_description} onChange={handleChange} placeholder="Detalles de la condición..." />
+                            <Input name="disability_description" value={formData.disability_description} onChange={handleChange} placeholder="Detalles de la condición..." disabled={!canEdit} />
                         </div>
                     </div>
                 )}
@@ -636,14 +752,15 @@ export default function StudentForm() {
                         name="support_needs" 
                         value={formData.support_needs} 
                         onChange={handleChange} 
-                        className="flex min-h-[80px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                        disabled={!canEdit}
+                        className="flex min-h-[80px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                         placeholder="Trabajo en aula, casa, terapias, etc."
                     />
                 </div>
             </CardContent>
             <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
                 <Button variant="outline" onClick={() => setActiveTab('socioeconomic')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('family')} disabled={loading}>
+                <Button onClick={() => handleSaveStep('family')} disabled={loading || !canEdit}>
                     Guardar y Continuar
                 </Button>
             </div>
@@ -651,12 +768,13 @@ export default function StudentForm() {
         </div>
 
         {/* FAMILY TAB */}
+        {!isTeacher && (
         <div className={activeTab === 'family' ? 'block' : 'hidden'}>
             <Card>
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle>Referencias Familiares</CardTitle>
-                    {isEditing && (
+                    {isEditing && canEdit && (
                         <Button size="sm" onClick={() => { setEditingMember(undefined); setShowFamilyModal(true); }} type="button">
                             <Plus className="h-4 w-4 mr-2" /> Agregar Familiar
                         </Button>
@@ -681,7 +799,7 @@ export default function StudentForm() {
                                     <th className="px-6 py-3 font-semibold">Parentesco</th>
                                     <th className="px-6 py-3 font-semibold">Teléfono</th>
                                     <th className="px-6 py-3 font-semibold">Acudiente</th>
-                                    <th className="px-6 py-3 font-semibold text-right">Acciones</th>
+                                    {canEdit && <th className="px-6 py-3 font-semibold text-right">Acciones</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -693,16 +811,18 @@ export default function StudentForm() {
                                         <td className="px-6 py-3">
                                             {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200">Principal</span>}
                                         </td>
-                                        <td className="px-6 py-3 text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
-                                                    <Edit2 className="h-4 w-4" />
-                                                </Button>
-                                                <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50">
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </td>
+                                        {canEdit && (
+                                          <td className="px-6 py-3 text-right">
+                                              <div className="flex items-center justify-end gap-2">
+                                                  <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                                                      <Edit2 className="h-4 w-4" />
+                                                  </Button>
+                                                  <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                                      <Trash2 className="h-4 w-4" />
+                                                  </Button>
+                                              </div>
+                                          </td>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
@@ -718,10 +838,17 @@ export default function StudentForm() {
             </div>
             </Card>
         </div>
+        )}
 
         {/* DOCUMENTS TAB */}
         <div className={activeTab === 'documents' ? 'block' : 'hidden'}>
-            {!isEditing ? (
+            {isTeacher ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500">
+                        Como docente no puedes gestionar documentos del estudiante.
+                    </CardContent>
+                </Card>
+            ) : !isEditing ? (
                 <Card>
                     <CardContent className="py-8 text-center text-slate-500">
                         Guarde el estudiante primero para gestionar sus documentos.
@@ -731,12 +858,12 @@ export default function StudentForm() {
                 <StudentDocuments studentId={Number(id)} />
             )}
             <div className="flex justify-between p-4 mt-4">
-                <Button variant="outline" onClick={() => setActiveTab('family')}>Anterior</Button>
+                <Button variant="outline" onClick={() => setActiveTab(isTeacher ? 'support' : 'family')}>Anterior</Button>
                 <Button onClick={() => navigate('/students')}>Finalizar</Button>
             </div>
         </div>
 
-        {showFamilyModal && id && (
+                {showFamilyModal && id && canEdit && (
             <FamilyMemberForm 
                 studentId={Number(id)} 
                 member={editingMember} 

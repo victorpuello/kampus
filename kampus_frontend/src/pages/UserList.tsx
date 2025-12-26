@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { usersApi } from '../services/users'
 import type { User } from '../services/users'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -7,8 +7,29 @@ import { Button } from '../components/ui/Button'
 import { Plus, Search, UserCog, Trash2, Shield, Users, CheckCircle } from 'lucide-react'
 import { Input } from '../components/ui/Input'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
+import { useAuthStore } from '../store/auth'
 
 export default function UserList() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Usuarios</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de usuarios.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const [data, setData] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

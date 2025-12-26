@@ -1,16 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { academicApi } from '../../services/academic';
-import type { AchievementDefinition, Area, Subject, Grade, Dimension } from '../../services/academic';
+import { useAuthStore } from '../../store/auth'
+import type { AchievementDefinition, Area, Subject, Grade, Dimension, TeacherAssignment, Group } from '../../services/academic';
 import { Plus, Edit, Trash, Sparkles, Search, BookOpen, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 
 export default function AchievementBank() {
+  const user = useAuthStore((s) => s.user)
   const [definitions, setDefinitions] = useState<AchievementDefinition[]>([]);
   const [areas, setAreas] = useState<Area[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
+  const [teacherAllowed, setTeacherAllowed] = useState<{
+    gradeIds: number[]
+    subjectIds: number[]
+    areaIds: number[]
+    subjectIdsByGrade: Record<number, number[]>
+  } | null>(null)
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -33,17 +41,88 @@ export default function AchievementBank() {
 
   const loadData = async () => {
     try {
-      const [defsRes, areasRes, subjectsRes, gradesRes, yearsRes] = await Promise.all([
+      const teacherMode = user?.role === 'TEACHER'
+      const [defsRes, areasRes, subjectsRes, gradesRes, yearsRes, assignmentsRes, groupsRes] = await Promise.all([
         academicApi.listAchievementDefinitions(),
         academicApi.listAreas(),
         academicApi.listSubjects(),
         academicApi.listGrades(),
-        academicApi.listYears()
+        academicApi.listYears(),
+        teacherMode ? academicApi.listMyAssignments() : Promise.resolve({ data: [] as TeacherAssignment[] }),
+        teacherMode ? academicApi.listGroups() : Promise.resolve({ data: [] as Group[] }),
       ]);
       setDefinitions(defsRes.data);
-      setAreas(areasRes.data);
-      setSubjects(subjectsRes.data);
-      setGrades(gradesRes.data);
+
+      if (teacherMode && user) {
+        const allAssignments = assignmentsRes.data ?? []
+        const groupById = new Map<number, Group>()
+        for (const g of groupsRes.data ?? []) groupById.set(g.id, g)
+
+        const subjectIdByName = new Map<string, number>()
+        const areaIdBySubjectName = new Map<string, number>()
+        for (const s of subjectsRes.data ?? []) {
+          subjectIdByName.set(s.name, s.id)
+          areaIdBySubjectName.set(s.name, s.area)
+        }
+
+        const gradeIds = new Set<number>()
+        const subjectIds = new Set<number>()
+        const areaIds = new Set<number>()
+        const subjectIdsByGrade: Record<number, number[]> = {}
+
+        for (const a of allAssignments) {
+          const group = groupById.get(a.group)
+          const gradeId = group?.grade
+          const subjectName = a.subject_name || ''
+          const subjectId = subjectIdByName.get(subjectName)
+          const areaId = areaIdBySubjectName.get(subjectName)
+
+          if (!gradeId || !subjectId) continue
+
+          gradeIds.add(gradeId)
+          subjectIds.add(subjectId)
+          if (areaId) areaIds.add(areaId)
+
+          if (!subjectIdsByGrade[gradeId]) subjectIdsByGrade[gradeId] = []
+          if (!subjectIdsByGrade[gradeId].includes(subjectId)) subjectIdsByGrade[gradeId].push(subjectId)
+        }
+
+        const allowed = {
+          gradeIds: Array.from(gradeIds),
+          subjectIds: Array.from(subjectIds),
+          areaIds: Array.from(areaIds),
+          subjectIdsByGrade,
+        }
+        setTeacherAllowed(allowed)
+
+        setGrades(gradesRes.data.filter((g) => gradeIds.has(g.id)))
+        setSubjects(subjectsRes.data.filter((s) => subjectIds.has(s.id)))
+        setAreas(areasRes.data.filter((ar) => areaIds.has(ar.id)))
+
+        // If current selections become invalid, clear them
+        setFormData((prev) => {
+          const next = { ...prev }
+          if (next.grade && !gradeIds.has(Number(next.grade))) {
+            next.grade = undefined
+            next.subject = undefined
+            next.area = undefined
+          }
+          if (next.subject && !subjectIds.has(Number(next.subject))) {
+            next.subject = undefined
+            next.area = undefined
+          }
+          if (next.area && !areaIds.has(Number(next.area))) {
+            next.area = undefined
+            next.subject = undefined
+          }
+          return next
+        })
+      } else {
+        setTeacherAllowed(null)
+        setAreas(areasRes.data);
+        setSubjects(subjectsRes.data);
+        setGrades(gradesRes.data);
+      }
 
       // Load dimensions for active year
       const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE');
@@ -57,6 +136,29 @@ export default function AchievementBank() {
       setLoading(false);
     }
   };
+
+  const visibleSubjectIds = useMemo(() => {
+    if (!teacherAllowed) return null
+    if (formData.grade && teacherAllowed.subjectIdsByGrade[Number(formData.grade)]) {
+      return new Set<number>(teacherAllowed.subjectIdsByGrade[Number(formData.grade)])
+    }
+    return new Set<number>(teacherAllowed.subjectIds)
+  }, [formData.grade, teacherAllowed])
+
+  const visibleSubjects = useMemo(() => {
+    if (!visibleSubjectIds) return subjects
+    return subjects.filter((s) => visibleSubjectIds.has(s.id))
+  }, [subjects, visibleSubjectIds])
+
+  const visibleAreas = useMemo(() => {
+    if (!teacherAllowed) return areas
+    if (formData.subject) {
+      const s = subjects.find((sub) => sub.id === Number(formData.subject))
+      return s ? areas.filter((a) => a.id === s.area) : []
+    }
+    const allowed = new Set<number>(teacherAllowed.areaIds)
+    return areas.filter((a) => allowed.has(a.id))
+  }, [areas, formData.subject, subjects, teacherAllowed])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -233,7 +335,7 @@ export default function AchievementBank() {
                     onChange={e => setFormData({...formData, area: e.target.value ? Number(e.target.value) : undefined, subject: undefined})}
                   >
                     <option value="">Seleccionar Área</option>
-                    {areas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    {visibleAreas.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select>
                 </div>
                 <div>
@@ -242,10 +344,19 @@ export default function AchievementBank() {
                     required
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.subject || ''}
-                    onChange={e => setFormData({...formData, subject: e.target.value ? Number(e.target.value) : undefined})}
+                    onChange={e => {
+                      const nextId = e.target.value ? Number(e.target.value) : undefined
+                      const nextSubj = nextId ? subjects.find((s) => s.id === nextId) : undefined
+                      setFormData({
+                        ...formData,
+                        subject: nextId,
+                        // Keep area consistent with subject selection
+                        area: nextSubj ? nextSubj.area : formData.area,
+                      })
+                    }}
                   >
                     <option value="">Seleccionar Asignatura</option>
-                    {subjects
+                    {visibleSubjects
                       .filter(s => !formData.area || s.area === formData.area)
                       .map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
@@ -256,7 +367,11 @@ export default function AchievementBank() {
                     required
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.grade || ''}
-                    onChange={e => setFormData({...formData, grade: e.target.value ? Number(e.target.value) : undefined})}
+                    onChange={e => {
+                      const nextGrade = e.target.value ? Number(e.target.value) : undefined
+                      // Changing grade can invalidate subject/area
+                      setFormData({ ...formData, grade: nextGrade, subject: undefined, area: undefined })
+                    }}
                   >
                     <option value="">Seleccionar Grado</option>
                     {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -318,7 +433,7 @@ export default function AchievementBank() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Código</th>
                   <th className="px-6 py-4 font-semibold">Descripción</th>

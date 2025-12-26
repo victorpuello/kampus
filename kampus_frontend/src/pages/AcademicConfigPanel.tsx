@@ -1,4 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { academicApi } from '../services/academic'
 import { coreApi, type Institution, type Campus } from '../services/core'
 import { usersApi, type User } from '../services/users'
@@ -9,8 +10,29 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import DimensionsConfig from './planning/DimensionsConfig'
+import { useAuthStore } from '../store/auth'
 
 export default function AcademicConfigPanel() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Configuración Académica</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder a la configuración académica.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'areas_subjects' | 'study_plan' | 'organization' | 'evaluation'>('general')
   
   // Data states

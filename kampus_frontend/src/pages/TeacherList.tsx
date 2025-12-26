@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
 import { academicApi, type AcademicYear } from '../services/academic'
 import type { Teacher } from '../services/teachers'
@@ -8,8 +8,29 @@ import { Button } from '../components/ui/Button'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { Plus, Search, Trash2, GraduationCap, BookOpen, Users, School } from 'lucide-react'
 import { Input } from '../components/ui/Input'
+import { useAuthStore } from '../store/auth'
 
 export default function TeacherList() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Docentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de docentes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const [data, setData] = useState<Teacher[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')

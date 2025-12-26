@@ -54,7 +54,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data } = await authApi.me()
       set({ user: data as User })
     } catch (e) {
-      set({ user: null })
+      const status = (e as any)?.response?.status
+      // If token is invalid/expired, clear session.
+      if (status === 401 || status === 403) {
+        localStorage.removeItem('accessToken')
+        localStorage.removeItem('refreshToken')
+        set({ accessToken: null, refreshToken: null, user: null })
+      } else {
+        set({ user: null })
+      }
       throw e
     }
   },

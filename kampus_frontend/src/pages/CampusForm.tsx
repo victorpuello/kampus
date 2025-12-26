@@ -21,6 +21,7 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { Save, ArrowLeft, Building, FileText, MapPin, GraduationCap, Phone, Users } from 'lucide-react'
+import { useAuthStore } from '../store/auth'
 
 const initialFormData: Partial<Campus> = {
   institution: 0,
@@ -60,6 +61,25 @@ export default function CampusForm() {
   const { id } = useParams()
   const navigate = useNavigate()
   const isEdit = Boolean(id)
+
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Sedes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para crear o editar sedes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
   
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)

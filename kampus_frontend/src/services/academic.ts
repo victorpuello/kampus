@@ -47,9 +47,13 @@ export interface TeacherAssignment {
   academic_load: number;
   academic_load_name?: string;
   subject_name?: string;
+  area_name?: string;
   group: number;
   group_name?: string;
+  grade_name?: string;
   academic_year: number;
+  academic_year_year?: number;
+  hours_per_week?: number | null;
 }
 
 export interface EvaluationScale { 
@@ -146,6 +150,20 @@ export interface GradebookComputed {
   scale: string | null;
 }
 
+export interface GradebookAvailableSheet {
+  teacher_assignment_id: number
+  group_id: number
+  group_name: string
+  grade_id: number
+  grade_name: string
+  academic_load_id: number
+  subject_name: string | null
+  period: { id: number; name: string; is_closed: boolean }
+  students_count: number
+  achievements_count: number
+  completion: { filled: number; total: number; percent: number; is_complete: boolean }
+}
+
 export interface GradebookDimension {
   id: number;
   name: string;
@@ -228,6 +246,7 @@ export const academicApi = {
 
   // Assignments
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
+  listMyAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/me/'),
   createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'academic_load_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
   deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
 
@@ -235,6 +254,10 @@ export const academicApi = {
   getGradebook: (teacherAssignmentId: number, periodId: number) =>
     api.get<GradebookResponse>('/api/grade-sheets/gradebook/', {
       params: { teacher_assignment: teacherAssignmentId, period: periodId },
+    }),
+  listAvailableGradeSheets: (periodId: number) =>
+    api.get<{ results: GradebookAvailableSheet[] }>('/api/grade-sheets/available/', {
+      params: { period: periodId },
     }),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
     api.post<{ updated: number; computed?: GradebookComputed[] }>('/api/grade-sheets/bulk-upsert/', data),

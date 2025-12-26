@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { rbacApi, type RbacPermission, type RbacRole } from '../services/rbac'
 import { usersApi, type User } from '../services/users'
 import { useAuthStore } from '../store/auth'
@@ -10,7 +11,25 @@ import { Toast, type ToastType } from '../components/ui/Toast'
 type Mode = 'role' | 'user'
 
 export default function RbacSettings() {
+  const navigate = useNavigate()
   const me = useAuthStore((s) => s.user)
+  const isTeacher = me?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Permisos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para gestionar roles o permisos.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const [mode, setMode] = useState<Mode>('role')
   const [loading, setLoading] = useState(true)

@@ -8,9 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Search, UserCheck, AlertCircle } from 'lucide-react'
+import { useAuthStore } from '../../store/auth'
 
 export default function EnrollmentExisting() {
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
   const [searchTerm, setSearchTerm] = useState('')
   const [students, setStudents] = useState<Student[]>([])
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -26,6 +29,22 @@ export default function EnrollmentExisting() {
   const [selectedGrade, setSelectedGrade] = useState('')
   const [selectedGroup, setSelectedGroup] = useState('')
   const [error, setError] = useState('')
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Matricular Antiguo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   useEffect(() => {
     loadInitialData()

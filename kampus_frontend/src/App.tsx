@@ -22,6 +22,7 @@ import PlanningModule from './pages/planning/PlanningModule'
 import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
 import Grades from './pages/Grades'
+import TeacherAssignments from './pages/TeacherAssignments'
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/" element={<DashboardHome />} />
+            <Route path="/my-assignment" element={<TeacherAssignments />} />
             <Route path="/students" element={<StudentList />} />
             <Route path="/students/new" element={<StudentForm />} />
             <Route path="/students/:id" element={<StudentForm />} />

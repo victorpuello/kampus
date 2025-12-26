@@ -1,12 +1,33 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { coreApi, type Campus, SEDE_TYPE_OPTIONS, SEDE_STATUS_OPTIONS } from '../services/core'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { Plus, Edit, Trash2, MapPin, Building, Phone, School, CheckCircle, Trees } from 'lucide-react'
+import { useAuthStore } from '../store/auth'
 
 export default function CampusList() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Sedes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de sedes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const [campuses, setCampuses] = useState<Campus[]>([])
   const [loading, setLoading] = useState(true)
   const [deleteId, setDeleteId] = useState<number | null>(null)

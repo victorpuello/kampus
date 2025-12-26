@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { coreApi, type ConfigImportResult, type Institution, type User } from '../services/core'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -6,8 +7,29 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { Download, Save, Upload, Building2, Users } from 'lucide-react'
+import { useAuthStore } from '../store/auth'
 
 export default function InstitutionSettings() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Institución</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder a la configuración de la institución.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [institution, setInstitution] = useState<Institution | null>(null)

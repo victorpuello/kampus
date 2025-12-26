@@ -6,9 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Plus, Search, Users, User, UserCheck, GraduationCap } from 'lucide-react'
 import { Input } from '../components/ui/Input'
+import { useAuthStore } from '../store/auth'
+import { academicApi } from '../services/academic'
 
 export default function StudentList() {
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
   const [data, setData] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -18,9 +22,63 @@ export default function StudentList() {
   const [count, setCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
+  const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
 
   useEffect(() => {
     let mounted = true
+
+    if (!isTeacher || !user?.id) {
+      setTeacherHasDirectedGroup(null)
+      return
+    }
+
+    setTeacherHasDirectedGroup(null)
+
+    ;(async () => {
+      try {
+        const yearsRes = await academicApi.listYears()
+        const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')
+        const groupsRes = await academicApi.listGroups({
+          director: user.id,
+          ...(activeYear ? { academic_year: activeYear.id } : {}),
+        })
+
+        if (!mounted) return
+        setTeacherHasDirectedGroup(groupsRes.data.length > 0)
+      } catch {
+        if (!mounted) return
+        // Fail closed for UX: hide/disable students view if we can't verify.
+        setTeacherHasDirectedGroup(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [isTeacher, user?.id])
+
+  useEffect(() => {
+    let mounted = true
+
+    if (isTeacher && teacherHasDirectedGroup === null) {
+      setLoading(true)
+      setError(null)
+      return () => {
+        mounted = false
+      }
+    }
+
+    if (isTeacher && teacherHasDirectedGroup === false) {
+      setData([])
+      setCount(0)
+      setHasNext(false)
+      setHasPrevious(false)
+      setLoading(false)
+      setError(null)
+      return () => {
+        mounted = false
+      }
+    }
 
     setLoading(true)
     setError(null)
@@ -47,7 +105,7 @@ export default function StudentList() {
     return () => {
       mounted = false
     }
-  }, [page, pageSize, searchTerm])
+  }, [page, pageSize, searchTerm, isTeacher, teacherHasDirectedGroup])
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
@@ -71,6 +129,22 @@ export default function StudentList() {
   if (loading) return <div className="p-6">Cargando…</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
 
+  if (isTeacher && teacherHasDirectedGroup === false) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Estudiantes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">
+            No tienes asignación como director de grupo. Para ver estudiantes, primero debes
+            estar asignado como director de un grupo.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Header Section */}
@@ -84,11 +158,13 @@ export default function StudentList() {
           </div>
           <p className="text-slate-500">Gestiona la información de los estudiantes matriculados.</p>
         </div>
-        <Link to="/students/new">
-          <Button className="w-full md:w-auto">
-            <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
-          </Button>
-        </Link>
+        {!isTeacher && (
+          <Link to="/students/new">
+            <Button className="w-full md:w-auto">
+              <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -159,7 +235,7 @@ export default function StudentList() {
         <CardContent>
           <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
                     Estudiante
@@ -196,7 +272,7 @@ export default function StudentList() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="flex-shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                          <div className="shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                             <span className="text-white font-semibold text-sm">
                               {(s.user?.first_name?.[0] || '')}{(s.user?.last_name?.[0] || '')}
                             </span>

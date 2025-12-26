@@ -8,6 +8,7 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ArrowLeft, Save, Plus, Trash2, BookOpen } from 'lucide-react'
+import { useAuthStore } from '../store/auth'
 
 const REGIME_OPTIONS = [
   { value: '2277', label: 'Estatuto 2277 de 1979 (Antiguo)' },
@@ -47,6 +48,25 @@ export default function TeacherForm() {
   const navigate = useNavigate()
   const { id } = useParams()
   const isEditing = !!id
+
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Docentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para crear o editar docentes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({

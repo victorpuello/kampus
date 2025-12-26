@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
@@ -86,7 +87,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
     permission_classes = [KampusModelPermissions]
-    filterset_fields = ['grade', 'academic_year']
+    filterset_fields = ['grade', 'academic_year', 'director']
 
 
 class AreaViewSet(viewsets.ModelViewSet):
@@ -111,6 +112,66 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
     queryset = TeacherAssignment.objects.all()
     serializer_class = TeacherAssignmentSerializer
     permission_classes = [KampusModelPermissions]
+
+    def _deny_write_if_teacher(self, request):
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            return Response({"detail": "No tienes permisos para modificar asignaciones."}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def create(self, request, *args, **kwargs):
+        denied = self._deny_write_if_teacher(request)
+        if denied is not None:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = self._deny_write_if_teacher(request)
+        if denied is not None:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        denied = self._deny_write_if_teacher(request)
+        if denied is not None:
+            return denied
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = self._deny_write_if_teacher(request)
+        if denied is not None:
+            return denied
+        return super().destroy(request, *args, **kwargs)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.select_related(
+            "teacher",
+            "academic_year",
+            "group__grade",
+            "academic_load__subject",
+            "academic_load__grade",
+        )
+
+    @action(detail=False, methods=["get"], url_path="me", permission_classes=[IsAuthenticated])
+    def me(self, request):
+        """Return only the authenticated teacher's assignments."""
+        user = getattr(request, "user", None)
+        if user is None or getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "No autorizado."}, status=status.HTTP_403_FORBIDDEN)
+
+        qs = (
+            self.get_queryset()
+            .filter(teacher=user)
+            .order_by("-academic_year__year", "group__grade__name", "group__name")
+        )
+
+        academic_year = request.query_params.get("academic_year")
+        if academic_year:
+            qs = qs.filter(academic_year_id=academic_year)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
 
 
 class EvaluationScaleViewSet(viewsets.ModelViewSet):
@@ -293,6 +354,99 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         if getattr(self.request.user, "role", None) == "TEACHER":
             qs = qs.filter(teacher=self.request.user)
         return qs.select_related("academic_year", "group", "academic_load").get(id=teacher_assignment_id)
+
+    @action(detail=False, methods=["get"], url_path="available")
+    def available(self, request):
+        period_id = request.query_params.get("period")
+        if not period_id:
+            return Response({"error": "period es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        tas = TeacherAssignment.objects.filter(academic_year_id=period.academic_year_id)
+        if getattr(request.user, "role", None) == "TEACHER":
+            tas = tas.filter(teacher=request.user)
+
+        tas = tas.select_related(
+            "group",
+            "group__grade",
+            "academic_load",
+            "academic_load__subject",
+        ).order_by("group__grade__name", "group__name", "academic_load__subject__name")
+
+        from students.models import Enrollment
+
+        items = []
+        for ta in tas:
+            enrollments_qs = Enrollment.objects.filter(
+                academic_year_id=ta.academic_year_id,
+                group_id=ta.group_id,
+                status="ACTIVE",
+            )
+            students_count = enrollments_qs.count()
+
+            base_achievements = Achievement.objects.filter(
+                academic_load_id=ta.academic_load_id,
+                period_id=period.id,
+            )
+            group_achievements = base_achievements.filter(group_id=ta.group_id)
+            if group_achievements.exists():
+                achievements_qs = group_achievements
+            else:
+                achievements_qs = base_achievements.filter(group__isnull=True)
+
+            achievement_ids = list(achievements_qs.values_list("id", flat=True))
+            achievements_count = len(achievement_ids)
+
+            total = students_count * achievements_count
+
+            gradesheet_id = (
+                GradeSheet.objects.filter(teacher_assignment_id=ta.id, period_id=period.id)
+                .values_list("id", flat=True)
+                .first()
+            )
+
+            filled = 0
+            if gradesheet_id and total > 0 and achievement_ids:
+                filled = (
+                    AchievementGrade.objects.filter(
+                        gradesheet_id=gradesheet_id,
+                        enrollment__in=enrollments_qs,
+                        achievement_id__in=achievement_ids,
+                        score__isnull=False,
+                    )
+                    .only("id")
+                    .count()
+                )
+
+            percent = int(round((filled / total) * 100)) if total > 0 else 0
+            is_complete = total > 0 and filled >= total
+
+            items.append(
+                {
+                    "teacher_assignment_id": ta.id,
+                    "group_id": ta.group_id,
+                    "group_name": ta.group.name,
+                    "grade_id": ta.group.grade_id,
+                    "grade_name": ta.group.grade.name,
+                    "academic_load_id": ta.academic_load_id,
+                    "subject_name": ta.academic_load.subject.name if ta.academic_load_id else None,
+                    "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+                    "students_count": students_count,
+                    "achievements_count": achievements_count,
+                    "completion": {
+                        "filled": filled,
+                        "total": total,
+                        "percent": percent,
+                        "is_complete": is_complete,
+                    },
+                }
+            )
+
+        return Response({"results": items})
 
     @action(detail=False, methods=["get"], url_path="gradebook")
     def gradebook(self, request):

@@ -83,8 +83,13 @@ api.interceptors.response.use(
       } catch (err) {
         isRefreshing = false;
         pendingRequests = [];
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+        const status = (err as AxiosError | any)?.response?.status;
+        // Only clear tokens when the refresh token is actually invalid/expired.
+        // For transient errors (network, 5xx), keep tokens so the user isn't logged out unnecessarily.
+        if (status === 401 || status === 403) {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        }
         return Promise.reject(err);
       }
     }

@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Toast, type ToastType } from '../../components/ui/Toast'
 import { ArrowLeft, Check, FileText, User, BookOpen, AlertCircle } from 'lucide-react'
+import { useAuthStore } from '../../store/auth'
 
 const STEPS = [
   { id: 1, title: 'Datos del Estudiante', icon: User },
@@ -18,6 +19,8 @@ const STEPS = [
 
 export default function EnrollmentWizard() {
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [studentId, setStudentId] = useState<number | null>(null)
@@ -62,6 +65,22 @@ export default function EnrollmentWizard() {
   const [years, setYears] = useState<AcademicYear[]>([])
   const [grades, setGrades] = useState<Grade[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Nueva Matrícula</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para crear matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   useEffect(() => {
     // Load academic data

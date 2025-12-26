@@ -42,6 +42,31 @@ class StudentViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
+    def get_queryset(self):
+        qs = Student.objects.select_related("user").all().order_by("user__id")
+        user = getattr(self.request, 'user', None)
+
+        if user is not None and getattr(user, 'role', None) == 'TEACHER':
+            # Teachers should only see students from the group(s) they direct.
+            # Default to current ACTIVE academic year when available.
+            active_year = AcademicYear.objects.filter(status='ACTIVE').first()
+            directed_groups = Group.objects.filter(director=user)
+            if active_year:
+                directed_groups = directed_groups.filter(academic_year=active_year)
+
+            if not directed_groups.exists():
+                return qs.none()
+
+            return (
+                qs.filter(
+                    enrollment__group__in=directed_groups,
+                    enrollment__status='ACTIVE',
+                )
+                .distinct()
+            )
+
+        return qs
+
     def list(self, request, *args, **kwargs):
         try:
             return super().list(request, *args, **kwargs)
@@ -52,6 +77,9 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para crear estudiantes."}, status=status.HTTP_403_FORBIDDEN)
+
         print("Recibiendo datos para crear estudiante:", request.data)
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -70,13 +98,36 @@ class StudentViewSet(viewsets.ModelViewSet):
                  return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para eliminar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
 
 class FamilyMemberViewSet(viewsets.ModelViewSet):
     queryset = FamilyMember.objects.select_related("student").all().order_by("id")
     serializer_class = FamilyMemberSerializer
     permission_classes = [KampusModelPermissions]
 
+    def get_queryset(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return FamilyMember.objects.none()
+        return super().get_queryset()
+
     def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
+
         print("FAMILY MEMBER CREATE DATA:", request.data)
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
@@ -84,6 +135,21 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         self.perform_create(serializer)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
@@ -98,6 +164,31 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         "student__document_number",
     ]
     filterset_fields = ["academic_year", "grade", "group", "status"]
+
+    def get_queryset(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return Enrollment.objects.none()
+        return super().get_queryset()
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
     def report(self, request):
@@ -193,6 +284,31 @@ class StudentNoveltyViewSet(viewsets.ModelViewSet):
     serializer_class = StudentNoveltySerializer
     permission_classes = [KampusModelPermissions]
 
+    def get_queryset(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return StudentNovelty.objects.none()
+        return super().get_queryset()
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         novelty = serializer.save()
         student = novelty.student
@@ -213,6 +329,31 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
     queryset = StudentDocument.objects.all().order_by("-uploaded_at")
     serializer_class = StudentDocumentSerializer
     permission_classes = [KampusModelPermissions]
+
+    def get_queryset(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return StudentDocument.objects.none()
+        return super().get_queryset()
+
+    def create(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        if getattr(request.user, 'role', None) == 'TEACHER':
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
 
 
 class BulkEnrollmentView(APIView):

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { 
@@ -18,15 +18,62 @@ import {
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { Button } from '../components/ui/Button'
+import { academicApi } from '../services/academic'
+
+type NavigationChild = { name: string; href: string }
+type NavigationItem =
+  | {
+      name: string
+      href: string
+      icon: any
+      children?: never
+    }
+  | {
+      name: string
+      icon: any
+      children: NavigationChild[]
+      href?: never
+    }
 
 export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
+  const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean>(false)
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+  const isTeacher = user?.role === 'TEACHER'
+
+  useEffect(() => {
+    let mounted = true
+
+    if (!isTeacher || !user?.id) {
+      setTeacherHasDirectedGroup(false)
+      return
+    }
+
+    ;(async () => {
+      try {
+        const yearsRes = await academicApi.listYears()
+        const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')
+        const groupsRes = await academicApi.listGroups({
+          director: user.id,
+          ...(activeYear ? { academic_year: activeYear.id } : {}),
+        })
+        if (!mounted) return
+        setTeacherHasDirectedGroup(groupsRes.data.length > 0)
+      } catch {
+        if (!mounted) return
+        setTeacherHasDirectedGroup(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [isTeacher, user?.id])
 
   const getMenuDomId = (name: string) => `submenu-${name.toLowerCase().replace(/\s+/g, '-')}`
 
@@ -36,32 +83,58 @@ export default function DashboardLayout() {
     )
   }
 
-  const navigation = [
-    { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-    { 
-      name: 'Estudiantes', 
-      icon: Users,
-      children: [
-        { name: 'Directorio', href: '/students' },
-        { name: 'Matrículas', href: '/enrollments' },
-        { name: 'Reportes', href: '/enrollments/reports' },
-      ]
-    },
-    { name: 'Docentes', href: '/teachers', icon: Briefcase },
-    { name: 'Usuarios', href: '/users', icon: Shield },
-    ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac', icon: KeyRound }] : []),
-    { 
-      name: 'Académico', 
-      icon: GraduationCap,
-      children: [
-        { name: 'Configuración', href: '/academic-config' },
-        { name: 'Planeación', href: '/planning' },
-        { name: 'Calificaciones', href: '/grades' },
-      ]
-    },
-    { name: 'Institución', href: '/institution', icon: Building2 },
-    { name: 'Sedes', href: '/campuses', icon: MapPinned },
-  ]
+  const navigation: NavigationItem[] = useMemo(() => {
+    if (isTeacher) {
+      const items: NavigationItem[] = [{ name: 'Dashboard', href: '/', icon: LayoutDashboard }]
+
+      if (teacherHasDirectedGroup) {
+        items.push({
+          name: 'Estudiantes',
+          icon: Users,
+          children: [{ name: 'Directorio', href: '/students' }],
+        })
+      }
+
+      items.push({
+        name: 'Académico',
+        icon: GraduationCap,
+        children: [
+          { name: 'Planeación', href: '/planning' },
+          { name: 'Calificaciones', href: '/grades' },
+          { name: 'Asignación', href: '/my-assignment' },
+        ],
+      })
+
+      return items
+    }
+
+    return [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      {
+        name: 'Estudiantes',
+        icon: Users,
+        children: [
+          { name: 'Directorio', href: '/students' },
+          { name: 'Matrículas', href: '/enrollments' },
+          { name: 'Reportes', href: '/enrollments/reports' },
+        ],
+      },
+      { name: 'Docentes', href: '/teachers', icon: Briefcase },
+      { name: 'Usuarios', href: '/users', icon: Shield },
+      ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac', icon: KeyRound }] : []),
+      {
+        name: 'Académico',
+        icon: GraduationCap,
+        children: [
+          { name: 'Configuración', href: '/academic-config' },
+          { name: 'Planeación', href: '/planning' },
+          { name: 'Calificaciones', href: '/grades' },
+        ],
+      },
+      { name: 'Institución', href: '/institution', icon: Building2 },
+      { name: 'Sedes', href: '/campuses', icon: MapPinned },
+    ]
+  }, [canManageRbac, isTeacher, teacherHasDirectedGroup])
 
   return (
     <div className="min-h-screen bg-slate-50 flex">

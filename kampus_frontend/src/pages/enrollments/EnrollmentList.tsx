@@ -6,9 +6,12 @@ import { Button } from '../../components/ui/Button'
 import { Card, CardContent, CardHeader } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
 import { Search, Plus, FileText, GraduationCap, Users, BookOpen } from 'lucide-react'
+import { useAuthStore } from '../../store/auth'
 
 export default function EnrollmentList() {
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
@@ -43,6 +46,27 @@ export default function EnrollmentList() {
     } catch (error) {
       console.error('Error loading years:', error)
     }
+  }
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <GraduationCap className="h-6 w-6 text-blue-600" />
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900">Matrículas</h2>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   const loadEnrollments = async () => {

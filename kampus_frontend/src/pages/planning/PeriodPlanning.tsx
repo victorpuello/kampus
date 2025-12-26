@@ -1,14 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { academicApi } from '../../services/academic';
-import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate } from '../../services/academic';
+import { useAuthStore } from '../../store/auth'
+import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate, TeacherAssignment } from '../../services/academic';
 import { Plus, Wand2, Save, Trash } from 'lucide-react';
 
 export default function PeriodPlanning() {
+  const user = useAuthStore((s) => s.user)
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teacherAllowed, setTeacherAllowed] = useState<{
+    gradeIds: number[]
+    groupIdsByGrade: Record<number, number[]>
+    subjectIds: number[]
+    subjectIdsByGrade: Record<number, number[]>
+  } | null>(null)
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [definitions, setDefinitions] = useState<AchievementDefinition[]>([]);
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
@@ -79,16 +87,65 @@ export default function PeriodPlanning() {
 
   const loadInitialData = async () => {
     try {
-      const [yRes, gRes, sRes, dRes] = await Promise.all([
+      const teacherMode = user?.role === 'TEACHER'
+      const [yRes, gRes, sRes, dRes, assignmentsRes, groupsRes] = await Promise.all([
         academicApi.listYears(),
         academicApi.listGrades(),
         academicApi.listSubjects(),
-        academicApi.listAchievementDefinitions()
+        academicApi.listAchievementDefinitions(),
+        teacherMode ? academicApi.listMyAssignments() : Promise.resolve({ data: [] as TeacherAssignment[] }),
+        teacherMode ? academicApi.listGroups() : Promise.resolve({ data: [] as Group[] }),
       ]);
       setYears(yRes.data);
-      setGrades(gRes.data);
       setSubjects(sRes.data);
       setDefinitions(dRes.data);
+
+      if (teacherMode && user) {
+        const subjectIdByName = new Map<string, number>()
+        for (const s of sRes.data ?? []) subjectIdByName.set(s.name, s.id)
+
+        const groupById = new Map<number, Group>()
+        for (const g of groupsRes.data ?? []) groupById.set(g.id, g)
+
+        const gradeIds = new Set<number>()
+        const subjectIds = new Set<number>()
+        const groupIdsByGrade: Record<number, number[]> = {}
+        const subjectIdsByGrade: Record<number, number[]> = {}
+
+        const myAssignments = assignmentsRes.data ?? []
+        for (const a of myAssignments) {
+          const group = groupById.get(a.group)
+          const gradeId = group?.grade
+          const subjectId = subjectIdByName.get(a.subject_name || '')
+          if (!gradeId || !subjectId) continue
+
+          gradeIds.add(gradeId)
+          subjectIds.add(subjectId)
+
+          if (!groupIdsByGrade[gradeId]) groupIdsByGrade[gradeId] = []
+          if (!groupIdsByGrade[gradeId].includes(a.group)) groupIdsByGrade[gradeId].push(a.group)
+
+          if (!subjectIdsByGrade[gradeId]) subjectIdsByGrade[gradeId] = []
+          if (!subjectIdsByGrade[gradeId].includes(subjectId)) subjectIdsByGrade[gradeId].push(subjectId)
+        }
+
+        setTeacherAllowed({
+          gradeIds: Array.from(gradeIds),
+          groupIdsByGrade,
+          subjectIds: Array.from(subjectIds),
+          subjectIdsByGrade,
+        })
+
+        setGrades(gRes.data.filter((g) => gradeIds.has(g.id)))
+
+        // Clear dependent selects (safe defaults for TEACHER)
+        setSelectedGrade('')
+        setSelectedGroup('')
+        setSelectedSubject('')
+      } else {
+        setTeacherAllowed(null)
+        setGrades(gRes.data);
+      }
 
       const activeYear = yRes.data.find(y => y.status === 'ACTIVE');
       if (activeYear) setSelectedYear(activeYear.id);
@@ -111,7 +168,12 @@ export default function PeriodPlanning() {
   const loadGroups = async (gradeId: number) => {
     try {
       const res = await academicApi.listGroups({ grade: gradeId });
-      setGroups(res.data);
+      if (teacherAllowed?.groupIdsByGrade?.[gradeId]) {
+        const allowed = new Set<number>(teacherAllowed.groupIdsByGrade[gradeId])
+        setGroups(res.data.filter((g) => allowed.has(g.id)));
+      } else {
+        setGroups(res.data);
+      }
     } catch (error) {
       console.error("Error loading groups", error);
     }
@@ -223,8 +285,16 @@ export default function PeriodPlanning() {
     }
   };
 
-  // Filter subjects based on selected grade
-  const filteredSubjects = subjects;
+  const filteredSubjects = useMemo(() => {
+    if (!teacherAllowed) return subjects
+    const gradeId = selectedGrade ? Number(selectedGrade) : null
+    if (gradeId && teacherAllowed.subjectIdsByGrade?.[gradeId]) {
+      const allowed = new Set<number>(teacherAllowed.subjectIdsByGrade[gradeId])
+      return subjects.filter((s) => allowed.has(s.id))
+    }
+    const allowed = new Set<number>(teacherAllowed.subjectIds)
+    return subjects.filter((s) => allowed.has(s.id))
+  }, [selectedGrade, subjects, teacherAllowed])
 
   // Calculate stats per dimension
   const dimensionStats = dimensions.filter(d => d.is_active).map(dim => {
@@ -249,7 +319,7 @@ export default function PeriodPlanning() {
             <select 
               className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
               value={selectedYear}
-              onChange={e => setSelectedYear(Number(e.target.value))}
+              onChange={e => setSelectedYear(e.target.value ? Number(e.target.value) : '')}
             >
               <option value="">Seleccione Año</option>
               {years.map(y => <option key={y.id} value={y.id}>{y.year} ({y.status_display})</option>)}
@@ -260,7 +330,7 @@ export default function PeriodPlanning() {
             <select 
               className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
               value={selectedPeriod}
-              onChange={e => setSelectedPeriod(Number(e.target.value))}
+              onChange={e => setSelectedPeriod(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedYear}
             >
               <option value="">Seleccione Periodo</option>
@@ -272,7 +342,12 @@ export default function PeriodPlanning() {
             <select 
               className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
               value={selectedGrade}
-              onChange={e => { setSelectedGrade(Number(e.target.value)); setSelectedGroup(''); }}
+              onChange={e => {
+                const next = e.target.value ? Number(e.target.value) : ''
+                setSelectedGrade(next)
+                setSelectedGroup('')
+                setSelectedSubject('')
+              }}
             >
               <option value="">Seleccione Grado</option>
               {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -286,7 +361,11 @@ export default function PeriodPlanning() {
             <select 
               className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
               value={selectedGroup}
-              onChange={e => setSelectedGroup(Number(e.target.value))}
+              onChange={e => {
+                const next = e.target.value ? Number(e.target.value) : ''
+                setSelectedGroup(next)
+                setSelectedSubject('')
+              }}
               disabled={!selectedGrade}
             >
               <option value="">Seleccione Grupo</option>
@@ -298,7 +377,7 @@ export default function PeriodPlanning() {
             <select 
               className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
               value={selectedSubject}
-              onChange={e => setSelectedSubject(Number(e.target.value))}
+              onChange={e => setSelectedSubject(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedGroup}
             >
               <option value="">Seleccione Asignatura</option>
@@ -433,7 +512,7 @@ export default function PeriodPlanning() {
                     <div className="space-y-3">
                       {formData.indicators.map((ind, idx) => (
                         <div key={ind.level} className="flex gap-3 items-start">
-                          <div className={`w-24 flex-shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
+                          <div className={`w-24 shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
                             ind.level === 'LOW' ? 'bg-red-50 text-red-700 border-red-100' :
                             ind.level === 'BASIC' ? 'bg-amber-50 text-amber-700 border-amber-100' :
                             ind.level === 'HIGH' ? 'bg-blue-50 text-blue-700 border-blue-100' :

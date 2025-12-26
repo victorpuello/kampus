@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GraduationCap, Save } from 'lucide-react'
-import { academicApi, type GradebookResponse, type Group, type Period, type TeacherAssignment } from '../services/academic'
+import { useLocation, useNavigate } from 'react-router-dom'
+import {
+  academicApi,
+  type GradebookAvailableSheet,
+  type GradebookResponse,
+  type Group,
+  type Period,
+  type TeacherAssignment,
+} from '../services/academic'
 import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -13,6 +21,8 @@ const makeKey = (enrollmentId: number, achievementId: number): CellKey => `${enr
 
 export default function Grades() {
   const user = useAuthStore((s) => s.user)
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
@@ -22,8 +32,12 @@ export default function Grades() {
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
   const [selectedAcademicLoadId, setSelectedAcademicLoadId] = useState<number | null>(null)
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | null>(null)
+  const [selectedTeacherAssignmentId, setSelectedTeacherAssignmentId] = useState<number | null>(null)
 
   const [gradebook, setGradebook] = useState<GradebookResponse | null>(null)
+
+  const [availableSheets, setAvailableSheets] = useState<GradebookAvailableSheet[]>([])
+  const [loadingSheets, setLoadingSheets] = useState(false)
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingGradebook, setLoadingGradebook] = useState(false)
@@ -45,6 +59,19 @@ export default function Grades() {
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }, [])
+
+  const replaceTeacherSearch = useCallback(
+    (periodId: number | null, teacherAssignmentId: number | null) => {
+      const params = new URLSearchParams()
+      if (periodId) params.set('period', String(periodId))
+      if (teacherAssignmentId) params.set('ta', String(teacherAssignmentId))
+
+      const nextSearch = params.toString() ? `?${params.toString()}` : ''
+      if (location.search === nextSearch) return
+      navigate({ pathname: location.pathname, search: nextSearch }, { replace: true })
+    },
+    [location.pathname, location.search, navigate]
+  )
 
   const [baseValues, setBaseValues] = useState<Record<CellKey, string>>({})
   const [cellValues, setCellValues] = useState<Record<CellKey, string>>({})
@@ -99,18 +126,32 @@ export default function Grades() {
   }, [selectedGroupId, visibleAssignments])
 
   const selectedAssignment = useMemo(() => {
+    if (user?.role === 'TEACHER') {
+      if (!selectedTeacherAssignmentId) return null
+      return visibleAssignments.find((a) => a.id === selectedTeacherAssignmentId) ?? null
+    }
+
     if (!selectedGroupId || !selectedAcademicLoadId) return null
     return (
       visibleAssignments.find(
         (a) => a.group === selectedGroupId && a.academic_load === selectedAcademicLoadId
       ) ?? null
     )
-  }, [selectedAcademicLoadId, selectedGroupId, visibleAssignments])
+  }, [selectedAcademicLoadId, selectedGroupId, selectedTeacherAssignmentId, user?.role, visibleAssignments])
 
   const visiblePeriods = useMemo(() => {
     if (!selectedAssignment) return []
     return periods.filter((p) => p.academic_year === selectedAssignment.academic_year)
   }, [periods, selectedAssignment])
+
+  const teacherPeriods = useMemo(() => {
+    if (user?.role !== 'TEACHER') return []
+    const yearIds = new Set<number>()
+    for (const a of visibleAssignments) yearIds.add(a.academic_year)
+    return periods
+      .filter((p) => yearIds.has(p.academic_year))
+      .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
+  }, [periods, user?.role, visibleAssignments])
 
   const periodIsClosed = !!gradebook?.period?.is_closed
 
@@ -405,7 +446,7 @@ export default function Grades() {
     setLoadingInit(true)
     try {
       const [assignmentsRes, periodsRes, groupsRes] = await Promise.all([
-        academicApi.listAssignments(),
+        user?.role === 'TEACHER' ? academicApi.listMyAssignments() : academicApi.listAssignments(),
         academicApi.listPeriods(),
         academicApi.listGroups(),
       ])
@@ -414,9 +455,7 @@ export default function Grades() {
       setPeriods(periodsRes.data)
       setGroups(groupsRes.data)
 
-      const filteredAssignments = user?.role === 'TEACHER'
-        ? assignmentsRes.data.filter((a) => a.teacher === user.id)
-        : assignmentsRes.data
+      const filteredAssignments = assignmentsRes.data
 
       if (filteredAssignments.length > 0) {
         const firstAssignment = filteredAssignments[0]
@@ -429,7 +468,9 @@ export default function Grades() {
         setSelectedAcademicLoadId(firstAssignment.academic_load)
 
         const pForYear = periodsRes.data.filter((p) => p.academic_year === firstAssignment.academic_year)
-        if (pForYear.length > 0) setSelectedPeriodId(pForYear[0].id)
+        if (pForYear.length > 0 && selectedPeriodId == null) setSelectedPeriodId(pForYear[0].id)
+
+        // Nota: no forzar selección en TEACHER; el flujo por defecto es cards.
       }
     } catch (e) {
       console.error(e)
@@ -437,7 +478,41 @@ export default function Grades() {
     } finally {
       setLoadingInit(false)
     }
-  }, [showToast, user?.id, user?.role])
+  }, [selectedPeriodId, showToast, user?.id, user?.role])
+
+  useEffect(() => {
+    if (user?.role !== 'TEACHER') return
+    const params = new URLSearchParams(location.search)
+    const periodRaw = params.get('period')
+    const taRaw = params.get('ta')
+
+    const parsedPeriod = periodRaw ? Number(periodRaw) : null
+    const parsedTa = taRaw ? Number(taRaw) : null
+
+    const periodId = parsedPeriod && Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null
+    const teacherAssignmentId = parsedTa && Number.isFinite(parsedTa) && parsedTa > 0 ? parsedTa : null
+
+    if (periodId && periodId !== selectedPeriodId) setSelectedPeriodId(periodId)
+    if (teacherAssignmentId !== selectedTeacherAssignmentId) setSelectedTeacherAssignmentId(teacherAssignmentId)
+  }, [location.search, selectedPeriodId, selectedTeacherAssignmentId, user?.role])
+
+  const loadAvailableSheets = useCallback(
+    async (periodId: number) => {
+      if (user?.role !== 'TEACHER') return
+      setLoadingSheets(true)
+      try {
+        const res = await academicApi.listAvailableGradeSheets(periodId)
+        setAvailableSheets(res.data.results)
+      } catch (e) {
+        console.error(e)
+        setAvailableSheets([])
+        showToast('No se pudieron cargar las planillas del periodo', 'error')
+      } finally {
+        setLoadingSheets(false)
+      }
+    },
+    [showToast, user?.role]
+  )
 
   const loadGradebook = useCallback(async (teacherAssignmentId: number, periodId: number) => {
     setLoadingGradebook(true)
@@ -492,6 +567,12 @@ export default function Grades() {
     if (!selectedAssignment || !selectedPeriodId) return
     loadGradebook(selectedAssignment.id, selectedPeriodId)
   }, [loadGradebook, selectedAssignment, selectedPeriodId])
+
+  useEffect(() => {
+    if (user?.role !== 'TEACHER') return
+    if (!selectedPeriodId) return
+    loadAvailableSheets(selectedPeriodId)
+  }, [loadAvailableSheets, selectedPeriodId, user?.role])
 
   const saveCellDebounced = useCallback(
     (enrollmentId: number, achievementId: number, value: string) => {
@@ -769,6 +850,9 @@ export default function Grades() {
 
   if (loadingInit) return <div className="p-6">Cargando…</div>
 
+  const teacherMode = user?.role === 'TEACHER'
+  const showingCards = teacherMode && !selectedTeacherAssignmentId
+
   return (
     <div className="space-y-6">
       <Toast
@@ -789,96 +873,214 @@ export default function Grades() {
           <p className="text-slate-500 mt-1">Planilla de notas por logros.</p>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <div className="min-w-44">
-            <select
-              value={selectedGradeId ?? ''}
-              onChange={(e) => {
-                const gradeId = e.target.value ? Number(e.target.value) : null
-                setSelectedGradeId(gradeId)
-                setSelectedGroupId(null)
-                setSelectedAcademicLoadId(null)
-                setSelectedPeriodId(null)
-                setGradebook(null)
-              }}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="" disabled>Selecciona grado</option>
-              {gradeOptions.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          </div>
+        {!teacherMode ? (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="min-w-44">
+              <select
+                value={selectedGradeId ?? ''}
+                onChange={(e) => {
+                  const gradeId = e.target.value ? Number(e.target.value) : null
+                  setSelectedGradeId(gradeId)
+                  setSelectedGroupId(null)
+                  setSelectedAcademicLoadId(null)
+                  setSelectedPeriodId(null)
+                  setGradebook(null)
+                }}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="" disabled>Selecciona grado</option>
+                {gradeOptions.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className="min-w-44">
-            <select
-              value={selectedGroupId ?? ''}
-              onChange={(e) => {
-                const groupId = e.target.value ? Number(e.target.value) : null
-                setSelectedGroupId(groupId)
-                setSelectedAcademicLoadId(null)
-                setSelectedPeriodId(null)
-                setGradebook(null)
-              }}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={!selectedGradeId}
-            >
-              <option value="" disabled>Selecciona grupo</option>
-              {groupOptions.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          </div>
+            <div className="min-w-44">
+              <select
+                value={selectedGroupId ?? ''}
+                onChange={(e) => {
+                  const groupId = e.target.value ? Number(e.target.value) : null
+                  setSelectedGroupId(groupId)
+                  setSelectedAcademicLoadId(null)
+                  setSelectedPeriodId(null)
+                  setGradebook(null)
+                }}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!selectedGradeId}
+              >
+                <option value="" disabled>Selecciona grupo</option>
+                {groupOptions.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className="min-w-56">
-            <select
-              value={selectedAcademicLoadId ?? ''}
-              onChange={(e) => {
-                const loadId = e.target.value ? Number(e.target.value) : null
-                setSelectedAcademicLoadId(loadId)
-                setSelectedPeriodId(null)
-                setGradebook(null)
-              }}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={!selectedGroupId}
-            >
-              <option value="" disabled>Selecciona asignatura</option>
-              {subjectOptions.map((s) => (
-                <option key={s.academic_load} value={s.academic_load}>{s.subject_name}</option>
-              ))}
-            </select>
-          </div>
+            <div className="min-w-56">
+              <select
+                value={selectedAcademicLoadId ?? ''}
+                onChange={(e) => {
+                  const loadId = e.target.value ? Number(e.target.value) : null
+                  setSelectedAcademicLoadId(loadId)
+                  setSelectedPeriodId(null)
+                  setGradebook(null)
+                }}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!selectedGroupId}
+              >
+                <option value="" disabled>Selecciona asignatura</option>
+                {subjectOptions.map((s) => (
+                  <option key={s.academic_load} value={s.academic_load}>{s.subject_name}</option>
+                ))}
+              </select>
+            </div>
 
-          <div className="min-w-44">
-            <select
-              value={selectedPeriodId ?? ''}
-              onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={!selectedAssignment}
-            >
-              <option value="" disabled>Selecciona periodo</option>
-              {visiblePeriods.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.is_closed ? ' (Cerrado)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+            <div className="min-w-44">
+              <select
+                value={selectedPeriodId ?? ''}
+                onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={!selectedAssignment}
+              >
+                <option value="" disabled>Selecciona periodo</option>
+                {visiblePeriods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.is_closed ? ' (Cerrado)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <Button
-            onClick={handleSave}
-            disabled={saving || dirtyKeys.size === 0 || !gradebook || periodIsClosed}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            <Save className="mr-2 h-4 w-4" />
-            Guardar
-          </Button>
-        </div>
+            <Button
+              onClick={handleSave}
+              disabled={saving || dirtyKeys.size === 0 || !gradebook || periodIsClosed}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Guardar
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="min-w-56">
+              <select
+                value={selectedPeriodId ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value ? Number(e.target.value) : null
+                  setSelectedPeriodId(next)
+                  setSelectedTeacherAssignmentId(null)
+                  setGradebook(null)
+                  replaceTeacherSearch(next, null)
+                }}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={teacherPeriods.length === 0}
+              >
+                <option value="" disabled>Selecciona periodo</option>
+                {teacherPeriods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}{p.is_closed ? ' (Cerrado)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {!showingCards && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedTeacherAssignmentId(null)
+                  setGradebook(null)
+                  replaceTeacherSearch(selectedPeriodId, null)
+                }}
+              >
+                Volver
+              </Button>
+            )}
+
+            <Button
+              onClick={handleSave}
+              disabled={saving || dirtyKeys.size === 0 || !gradebook || periodIsClosed || showingCards}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Guardar
+            </Button>
+          </div>
+        )}
       </div>
 
-      {loadingGradebook && <div className="p-4">Cargando planilla…</div>}
+      {teacherMode && showingCards && !selectedPeriodId && (
+        <div className="p-4 text-slate-600">Selecciona un periodo para ver tus planillas.</div>
+      )}
 
-      {!loadingGradebook && gradebook && (
+      {teacherMode && showingCards && selectedPeriodId && (
+        <div className="space-y-4">
+          {loadingSheets ? <div className="p-4">Cargando planillas…</div> : null}
+
+          {!loadingSheets && availableSheets.length === 0 ? (
+            <div className="p-4 text-slate-600">No hay planillas disponibles para este periodo.</div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {availableSheets.map((s) => {
+              const complete = s.completion.is_complete
+              const badgeClass = complete
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-amber-200 bg-amber-50 text-amber-700'
+
+              return (
+                <Card key={s.teacher_assignment_id} className="border-slate-200 shadow-sm">
+                  <CardHeader className="border-b border-slate-100 bg-white">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle className="text-base font-semibold text-slate-900">
+                          {s.grade_name} • {s.group_name}
+                        </CardTitle>
+                        <div className="text-sm text-slate-500 mt-0.5">{s.subject_name ?? 'Asignatura'}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">{s.period.name}{s.period.is_closed ? ' (Cerrado)' : ''}</div>
+                      </div>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                        {complete ? 'Completa' : 'Incompleta'}
+                      </span>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="pt-4">
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>
+                        Diligenciamiento: {s.completion.filled}/{s.completion.total}
+                      </span>
+                      <span className="font-medium text-slate-700">{s.completion.percent}%</span>
+                    </div>
+                    <div className="mt-2 h-2 w-full rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.completion.percent}>
+                      <div className="h-2 rounded-full bg-blue-600" style={{ width: `${s.completion.percent}%` }} />
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="text-xs text-slate-500">
+                        {s.students_count} estudiantes • {s.achievements_count} logros
+                      </div>
+                      <Button
+                        className="bg-blue-600 hover:bg-blue-700"
+                        onClick={() => {
+                          setSelectedTeacherAssignmentId(s.teacher_assignment_id)
+                          replaceTeacherSearch(selectedPeriodId, s.teacher_assignment_id)
+                        }}
+                        disabled={!selectedPeriodId}
+                      >
+                        Ingresar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {loadingGradebook && !showingCards && <div className="p-4">Cargando planilla…</div>}
+
+      {!loadingGradebook && gradebook && !showingCards && (
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="border-b border-slate-100 bg-white">
             <div className="flex items-center justify-between gap-4">
@@ -933,9 +1135,9 @@ export default function Grades() {
 
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <table className="min-w-max w-full text-xs sm:text-sm text-left">
-                <thead className="text-[11px] sm:text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200 sticky top-0 z-20">
+                <thead className="text-[11px] sm:text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 sticky top-0 z-20">
                   <tr>
-                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-gradient-to-r from-slate-50 to-slate-100" rowSpan={2}>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100" rowSpan={2}>
                       Estudiante
                     </th>
                     {dimensionOrder.map((dimId) => {

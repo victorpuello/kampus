@@ -142,7 +142,11 @@ class SubjectSerializer(serializers.ModelSerializer):
 class TeacherAssignmentSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source="teacher.get_full_name", read_only=True)
     subject_name = serializers.CharField(source="academic_load.subject.name", read_only=True)
+    area_name = serializers.CharField(source="academic_load.subject.area.name", read_only=True)
     group_name = serializers.CharField(source="group.name", read_only=True)
+    grade_name = serializers.CharField(source="group.grade.name", read_only=True)
+    academic_year_year = serializers.IntegerField(source="academic_year.year", read_only=True)
+    hours_per_week = serializers.IntegerField(source="academic_load.hours_per_week", read_only=True, allow_null=True)
 
     class Meta:
         model = TeacherAssignment
@@ -197,6 +201,42 @@ class AchievementDefinitionSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["code"]
 
+    def validate(self, attrs):
+        request = self.context.get("request")
+
+        # Keep existing values on update if not provided
+        subject = attrs.get("subject")
+        grade = attrs.get("grade")
+        area = attrs.get("area")
+
+        if getattr(self, "instance", None) is not None:
+            if subject is None:
+                subject = getattr(self.instance, "subject", None)
+            if grade is None:
+                grade = getattr(self.instance, "grade", None)
+            if area is None:
+                area = getattr(self.instance, "area", None)
+
+        # Enforce subject-area consistency when both are provided
+        if subject is not None and area is not None and getattr(subject, "area_id", None) != getattr(area, "id", None):
+            raise serializers.ValidationError({"area": "El área no coincide con la asignatura seleccionada."})
+
+        # Teacher restriction: a teacher can only create bank achievements for
+        # subjects/grades they are assigned to (via AcademicLoad).
+        if request is not None and getattr(request.user, "role", None) == "TEACHER":
+            if subject is not None and grade is not None:
+                allowed = TeacherAssignment.objects.filter(
+                    teacher=request.user,
+                    academic_load__subject=subject,
+                    academic_load__grade=grade,
+                ).exists()
+                if not allowed:
+                    raise serializers.ValidationError(
+                        {"subject": "No tienes esta asignatura asignada para el grado seleccionado."}
+                    )
+
+        return attrs
+
 
 class PerformanceIndicatorSerializer(serializers.ModelSerializer):
     level_display = serializers.CharField(source='get_level_display', read_only=True)
@@ -237,6 +277,8 @@ class AchievementSerializer(serializers.ModelSerializer):
         period = attrs.get("period")
         subject = attrs.get("subject")
         academic_load = attrs.get("academic_load")
+
+        request = self.context.get("request")
 
         # Keep existing academic_load on update if not provided
         if not academic_load and getattr(self, "instance", None) is not None:
@@ -280,6 +322,31 @@ class AchievementSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"subject": "La asignatura no corresponde a la carga académica."}
             )
+
+        if request is not None and getattr(request.user, "role", None) == "TEACHER":
+            effective_period = period
+            if effective_period is None and getattr(self, "instance", None) is not None:
+                effective_period = getattr(self.instance, "period", None)
+
+            effective_group = group
+            if effective_group is None and getattr(self, "instance", None) is not None:
+                effective_group = getattr(self.instance, "group", None)
+
+            effective_academic_load = academic_load
+            if effective_academic_load is None and getattr(self, "instance", None) is not None:
+                effective_academic_load = getattr(self.instance, "academic_load", None)
+
+            if effective_period and effective_group and effective_academic_load:
+                allowed = TeacherAssignment.objects.filter(
+                    teacher=request.user,
+                    group=effective_group,
+                    academic_year=effective_period.academic_year,
+                    academic_load=effective_academic_load,
+                ).exists()
+                if not allowed:
+                    raise serializers.ValidationError(
+                        "No tienes una asignación para crear/editar logros en este grupo/asignatura para el año lectivo del periodo."
+                    )
 
         return attrs
 
