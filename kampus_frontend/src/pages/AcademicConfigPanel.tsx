@@ -3,7 +3,17 @@ import { useNavigate } from 'react-router-dom'
 import { academicApi } from '../services/academic'
 import { coreApi, type Institution, type Campus } from '../services/core'
 import { usersApi, type User } from '../services/users'
-import type { AcademicYear, Grade, Period, Area, Subject, AcademicLoad, Group, EvaluationScale, AcademicLevel } from '../services/academic'
+import type {
+  AcademicYear,
+  Grade,
+  Period,
+  Area,
+  Subject,
+  AcademicLoad,
+  Group,
+  EvaluationScale,
+  AcademicLevel,
+} from '../services/academic'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -57,9 +67,16 @@ export default function AcademicConfigPanel() {
     end_date: ''
   })
   const [editingYearId, setEditingYearId] = useState<number | null>(null)
-  const [periodInput, setPeriodInput] = useState({ name: '', start_date: '', end_date: '', academic_year: '' })
+  const [periodInput, setPeriodInput] = useState({
+    name: '',
+    start_date: '',
+    end_date: '',
+    academic_year: '',
+    grades_edit_until: '',
+    planning_edit_until: '',
+  })
   const [editingPeriodId, setEditingPeriodId] = useState<number | null>(null)
-  
+
   // Levels & Grades state
   const [levelInput, setLevelInput] = useState({ name: '', level_type: 'PRIMARY', min_age: 5, max_age: 100 })
   const [editingLevelId, setEditingLevelId] = useState<number | null>(null)
@@ -141,6 +158,21 @@ export default function AcademicConfigPanel() {
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  const toDateTimeLocal = (iso: string | null | undefined) => {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (!Number.isFinite(d.getTime())) return ''
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const dateTimeLocalToIso = (value: string) => {
+    if (!value) return null
+    const d = new Date(value)
+    if (!Number.isFinite(d.getTime())) return null
+    return d.toISOString()
   }
 
   const getErrorMessage = (error: any, defaultMsg: string) => {
@@ -334,12 +366,26 @@ export default function AcademicConfigPanel() {
     e.preventDefault()
     if (!periodInput.name || !periodInput.start_date || !periodInput.end_date || !periodInput.academic_year) return
     try {
+      const gradesEditUntilIso = periodInput.grades_edit_until ? dateTimeLocalToIso(periodInput.grades_edit_until) : null
+      const planningEditUntilIso = periodInput.planning_edit_until ? dateTimeLocalToIso(periodInput.planning_edit_until) : null
+
+      if (periodInput.grades_edit_until && !gradesEditUntilIso) {
+        showToast('Fecha/hora inválida para edición de notas', 'error')
+        return
+      }
+      if (periodInput.planning_edit_until && !planningEditUntilIso) {
+        showToast('Fecha/hora inválida para edición de planeación', 'error')
+        return
+      }
+
       const data = {
         name: periodInput.name,
         start_date: periodInput.start_date,
         end_date: periodInput.end_date,
         academic_year: parseInt(periodInput.academic_year),
-        is_closed: false
+        is_closed: false,
+        grades_edit_until: gradesEditUntilIso,
+        planning_edit_until: planningEditUntilIso,
       }
 
       if (editingPeriodId) {
@@ -351,7 +397,7 @@ export default function AcademicConfigPanel() {
         showToast('Periodo creado correctamente', 'success')
       }
       
-      setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '' })
+      setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '', grades_edit_until: '', planning_edit_until: '' })
       await load()
     } catch (error: any) {
       console.error(error)
@@ -364,7 +410,9 @@ export default function AcademicConfigPanel() {
       name: period.name,
       start_date: period.start_date,
       end_date: period.end_date,
-      academic_year: period.academic_year.toString()
+      academic_year: period.academic_year.toString(),
+      grades_edit_until: toDateTimeLocal(period.grades_edit_until),
+      planning_edit_until: toDateTimeLocal(period.planning_edit_until),
     })
     setEditingPeriodId(period.id)
   }
@@ -384,7 +432,7 @@ export default function AcademicConfigPanel() {
 
 
   const onCancelEditPeriod = () => {
-    setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '' })
+    setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '', grades_edit_until: '', planning_edit_until: '' })
     setEditingPeriodId(null)
   }
 
@@ -1214,6 +1262,25 @@ export default function AcademicConfigPanel() {
                     />
                   </div>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Edición notas hasta</label>
+                    <Input
+                      type="datetime-local"
+                      value={periodInput.grades_edit_until}
+                      onChange={(e) => setPeriodInput({ ...periodInput, grades_edit_until: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase">Edición planeación hasta</label>
+                    <Input
+                      type="datetime-local"
+                      value={periodInput.planning_edit_until}
+                      onChange={(e) => setPeriodInput({ ...periodInput, planning_edit_until: e.target.value })}
+                    />
+                  </div>
+                </div>
                 <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700">{editingPeriodId ? 'Actualizar Periodo' : 'Agregar Periodo'}</Button>
                 {editingPeriodId && (
                   <Button type="button" variant="outline" className="w-full" onClick={onCancelEditPeriod}>Cancelar Edición</Button>
@@ -1240,6 +1307,18 @@ export default function AcademicConfigPanel() {
                             ({years.find(y => y.id === p.academic_year)?.year})
                           </span>
                         </div>
+                        {(p.grades_edit_until || p.planning_edit_until) && (
+                          <div className="mt-1 text-xs text-slate-500 space-y-0.5">
+                            <div>
+                              <span className="font-semibold text-slate-600">Notas hasta:</span>{' '}
+                              {p.grades_edit_until ? new Date(p.grades_edit_until).toLocaleString() : '—'}
+                            </div>
+                            <div>
+                              <span className="font-semibold text-slate-600">Planeación hasta:</span>{' '}
+                              {p.planning_edit_until ? new Date(p.planning_edit_until).toLocaleString() : '—'}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
                         <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100" onClick={() => onEditPeriod(p)}>✎</Button>
@@ -1251,6 +1330,7 @@ export default function AcademicConfigPanel() {
               </div>
             </CardContent>
           </Card>
+
         </div>
       )}
 

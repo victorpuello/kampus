@@ -5,6 +5,21 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
+from datetime import datetime, time
+
+
+def _period_end_of_day(period: "Period"):
+    """Fallback deadline when explicit edit_until is not configured.
+
+    Uses the period end_date at 23:59:59 in the current timezone.
+    """
+
+    if getattr(period, "end_date", None) is None:
+        return None
+    tz = timezone.get_current_timezone()
+    dt = datetime.combine(period.end_date, time(23, 59, 59))
+    return timezone.make_aware(dt, tz)
 
 from .models import (
     AcademicLevel,
@@ -26,6 +41,10 @@ from .models import (
     AcademicLoad,
     GradeSheet,
     AchievementGrade,
+    EditRequest,
+    EditRequestItem,
+    EditGrant,
+    EditGrantItem,
 )
 from core.permissions import KampusModelPermissions
 from .serializers import (
@@ -48,6 +67,9 @@ from .serializers import (
     AcademicLoadSerializer,
     GradeSheetSerializer,
     GradebookBulkUpsertSerializer,
+    EditRequestSerializer,
+    EditRequestDecisionSerializer,
+    EditGrantSerializer,
 )
 from .ai import AIService
 from .grading import (
@@ -266,6 +288,63 @@ class AchievementViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['subject', 'period', 'group']
+
+    def _teacher_can_edit_planning(self, user, period: Period) -> bool:
+        effective_deadline = period.planning_edit_until or _period_end_of_day(period)
+        if effective_deadline is None:
+            return True
+        if timezone.now() <= effective_deadline:
+            return True
+        return EditGrant.objects.filter(
+            granted_to=user,
+            scope=EditRequest.SCOPE_PLANNING,
+            period_id=period.id,
+            valid_until__gte=timezone.now(),
+        ).exists()
+
+    def _get_period_for_create(self, request):
+        period_id = request.data.get("period")
+        if not period_id:
+            return None
+        return Period.objects.filter(id=period_id).first()
+
+    def create(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            period = self._get_period_for_create(request)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            instance = self.get_object()
+            period = getattr(instance, "period", None)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            instance = self.get_object()
+            period = getattr(instance, "period", None)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['post'], url_path='generate-indicators')
     def generate_indicators(self, request):
@@ -627,6 +706,28 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        user = getattr(request, "user", None)
+        is_teacher = user is not None and getattr(user, "role", None) == "TEACHER"
+
+        # Teacher edit window enforcement (admins/coordinators are not restricted by deadline)
+        allowed_enrollment_ids: set[int] | None = None
+        effective_deadline = period.grades_edit_until or _period_end_of_day(period)
+        if is_teacher and effective_deadline is not None and timezone.now() > effective_deadline:
+            active_grants = EditGrant.objects.filter(
+                granted_to=user,
+                scope=EditRequest.SCOPE_GRADES,
+                period_id=period.id,
+                teacher_assignment_id=teacher_assignment.id,
+                valid_until__gte=timezone.now(),
+            )
+
+            has_full = active_grants.filter(grant_type=EditRequest.TYPE_FULL).exists()
+            if not has_full:
+                allowed_enrollment_ids = set(
+                    EditGrantItem.objects.filter(grant__in=active_grants)
+                    .values_list("enrollment_id", flat=True)
+                )
+
         if period.academic_year_id != teacher_assignment.academic_year_id:
             return Response(
                 {"error": "El periodo no corresponde al año lectivo de la asignación"},
@@ -659,7 +760,8 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 base_achievements.filter(group__isnull=True).values_list("id", flat=True)
             )
 
-        to_upsert = []
+        blocked = []
+        allowed_by_cell: dict[tuple[int, int], AchievementGrade] = {}
         for g in grades:
             enrollment_id = g["enrollment"]
             achievement_id = g["achievement"]
@@ -674,25 +776,37 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            to_upsert.append(
-                AchievementGrade(
-                    gradesheet=gradesheet,
-                    enrollment_id=enrollment_id,
-                    achievement_id=achievement_id,
-                    score=g.get("score"),
+            if allowed_enrollment_ids is not None and enrollment_id not in allowed_enrollment_ids:
+                blocked.append(
+                    {
+                        "enrollment": enrollment_id,
+                        "achievement": achievement_id,
+                        "reason": "EDIT_WINDOW_CLOSED",
+                    }
                 )
+                continue
+
+            # Deduplicate per cell (last write wins)
+            allowed_by_cell[(enrollment_id, achievement_id)] = AchievementGrade(
+                gradesheet=gradesheet,
+                enrollment_id=enrollment_id,
+                achievement_id=achievement_id,
+                score=g.get("score"),
             )
 
-        with transaction.atomic():
-            AchievementGrade.objects.bulk_create(
-                to_upsert,
-                update_conflicts=True,
-                unique_fields=["gradesheet", "enrollment", "achievement"],
-                update_fields=["score", "updated_at"],
-            )
+        to_upsert = list(allowed_by_cell.values())
+
+        if to_upsert:
+            with transaction.atomic():
+                AchievementGrade.objects.bulk_create(
+                    to_upsert,
+                    update_conflicts=True,
+                    unique_fields=["gradesheet", "enrollment", "achievement"],
+                    update_fields=["score", "updated_at"],
+                )
 
         # Return recomputed final scores for impacted enrollments (for live UI updates)
-        impacted_enrollment_ids = sorted({g["enrollment"] for g in grades})
+        impacted_enrollment_ids = sorted({g.enrollment_id for g in to_upsert})
 
         base_achievements = Achievement.objects.filter(
             academic_load=teacher_assignment.academic_load,
@@ -752,6 +866,244 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             )
 
         return Response(
-            {"updated": len(to_upsert), "computed": computed},
+            {
+                "requested": len(grades),
+                "updated": len(to_upsert),
+                "computed": computed,
+                "blocked": blocked,
+            },
             status=status.HTTP_200_OK,
         )
+
+
+def _is_admin_like(user) -> bool:
+    role = getattr(user, "role", None)
+    return role in {"SUPERADMIN", "ADMIN", "COORDINATOR"}
+
+
+class EditRequestViewSet(viewsets.ModelViewSet):
+    queryset = EditRequest.objects.all().select_related(
+        "requested_by",
+        "period",
+        "teacher_assignment",
+        "decided_by",
+    )
+    serializer_class = EditRequestSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["status", "scope", "period"]
+
+    def get_queryset(self):
+        qs = super().get_queryset().prefetch_related("items")
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return qs.none()
+        if getattr(user, "role", None) == "TEACHER":
+            return qs.filter(requested_by=user)
+        if _is_admin_like(user):
+            return qs
+        return qs.none()
+
+    def create(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if not user or getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Solo docentes pueden crear solicitudes."}, status=status.HTTP_403_FORBIDDEN)
+        return super().create(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        obj: EditRequest = serializer.save()
+
+        # Notify admin-like users that there is a pending request
+        try:
+            from notifications.services import admin_like_users_qs, notify_users
+
+            scope_label = "Calificaciones" if obj.scope == EditRequest.SCOPE_GRADES else "Planeación"
+            teacher_name = getattr(obj.requested_by, "get_full_name", lambda: "")() or getattr(
+                obj.requested_by, "username", "Docente"
+            )
+            title = f"Solicitud de edición pendiente ({scope_label})"
+            body = f"{teacher_name} envió una solicitud para el periodo {obj.period_id}."
+            url = (
+                "/edit-requests/grades"
+                if obj.scope == EditRequest.SCOPE_GRADES
+                else "/edit-requests/planning"
+            )
+            notify_users(
+                recipients=admin_like_users_qs(),
+                type="EDIT_REQUEST_PENDING",
+                title=title,
+                body=body,
+                url=url,
+                dedupe_key=f"EDIT_REQUEST_PENDING:teacher={obj.requested_by_id}:scope={obj.scope}:period={obj.period_id}",
+                dedupe_within_seconds=300,
+            )
+        except Exception:
+            # Notifications must not break core flows
+            pass
+
+        return obj
+
+    def update(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user and getattr(user, "role", None) == "TEACHER":
+            return Response({"detail": "No puedes modificar una solicitud."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user and getattr(user, "role", None) == "TEACHER":
+            return Response({"detail": "No puedes eliminar una solicitud."}, status=status.HTTP_403_FORBIDDEN)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="my")
+    def my(self, request):
+        user = getattr(request, "user", None)
+        if not user or getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Solo docentes."}, status=status.HTTP_403_FORBIDDEN)
+        qs = self.get_queryset().order_by("-created_at")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        user = getattr(request, "user", None)
+        if not user or not _is_admin_like(user):
+            return Response({"detail": "No autorizado."}, status=status.HTTP_403_FORBIDDEN)
+
+        edit_request: EditRequest = self.get_object()
+        if edit_request.status != EditRequest.STATUS_PENDING:
+            return Response({"detail": "La solicitud ya fue decidida."}, status=status.HTTP_400_BAD_REQUEST)
+
+        decision = EditRequestDecisionSerializer(data=request.data)
+        decision.is_valid(raise_exception=True)
+        valid_until = decision.validated_data.get("valid_until") or edit_request.requested_until
+        if valid_until is None:
+            return Response({"valid_until": "Es requerido para aprobar."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            edit_request.status = EditRequest.STATUS_APPROVED
+            edit_request.decided_by = user
+            edit_request.decided_at = timezone.now()
+            edit_request.decision_note = decision.validated_data.get("decision_note", "")
+            edit_request.save(update_fields=["status", "decided_by", "decided_at", "decision_note", "updated_at"])
+
+            grant = EditGrant.objects.create(
+                scope=edit_request.scope,
+                grant_type=edit_request.request_type,
+                granted_to=edit_request.requested_by,
+                period=edit_request.period,
+                teacher_assignment=edit_request.teacher_assignment,
+                valid_until=valid_until,
+                created_by=user,
+                source_request=edit_request,
+            )
+
+            if edit_request.request_type == EditRequest.TYPE_PARTIAL:
+                items = list(edit_request.items.values_list("enrollment_id", flat=True))
+                EditGrantItem.objects.bulk_create(
+                    [EditGrantItem(grant=grant, enrollment_id=eid) for eid in items]
+                )
+
+            # Notify teacher
+            try:
+                from notifications.services import create_notification
+
+                scope_label = "Calificaciones" if edit_request.scope == EditRequest.SCOPE_GRADES else "Planeación"
+                title = f"Solicitud aprobada ({scope_label})"
+                url = "/grades" if edit_request.scope == EditRequest.SCOPE_GRADES else "/planning"
+                note = (edit_request.decision_note or "").strip()
+                body = f"Aprobada hasta: {valid_until}." + (f"\nNota: {note}" if note else "")
+                create_notification(
+                    recipient=edit_request.requested_by,
+                    type="EDIT_REQUEST_APPROVED",
+                    title=title,
+                    body=body,
+                    url=url,
+                )
+            except Exception:
+                pass
+
+        return Response({"detail": "Solicitud aprobada.", "grant_id": grant.id}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        user = getattr(request, "user", None)
+        if not user or not _is_admin_like(user):
+            return Response({"detail": "No autorizado."}, status=status.HTTP_403_FORBIDDEN)
+
+        edit_request: EditRequest = self.get_object()
+        if edit_request.status != EditRequest.STATUS_PENDING:
+            return Response({"detail": "La solicitud ya fue decidida."}, status=status.HTTP_400_BAD_REQUEST)
+
+        decision = EditRequestDecisionSerializer(data=request.data)
+        decision.is_valid(raise_exception=True)
+
+        edit_request.status = EditRequest.STATUS_REJECTED
+        edit_request.decided_by = user
+        edit_request.decided_at = timezone.now()
+        edit_request.decision_note = decision.validated_data.get("decision_note", "")
+        edit_request.save(update_fields=["status", "decided_by", "decided_at", "decision_note", "updated_at"])
+
+        # Notify teacher
+        try:
+            from notifications.services import create_notification
+
+            scope_label = "Calificaciones" if edit_request.scope == EditRequest.SCOPE_GRADES else "Planeación"
+            title = f"Solicitud rechazada ({scope_label})"
+            url = "/grades" if edit_request.scope == EditRequest.SCOPE_GRADES else "/planning"
+            note = (edit_request.decision_note or "").strip()
+            body = (f"Nota: {note}" if note else "")
+            create_notification(
+                recipient=edit_request.requested_by,
+                type="EDIT_REQUEST_REJECTED",
+                title=title,
+                body=body,
+                url=url,
+            )
+        except Exception:
+            pass
+
+        return Response({"detail": "Solicitud rechazada."}, status=status.HTTP_200_OK)
+
+
+class EditGrantViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = EditGrant.objects.all().select_related(
+        "granted_to",
+        "period",
+        "teacher_assignment",
+        "created_by",
+        "source_request",
+    )
+    serializer_class = EditGrantSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ["scope", "period", "teacher_assignment", "granted_to"]
+
+    def get_queryset(self):
+        qs = super().get_queryset().prefetch_related("items")
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return qs.none()
+        if getattr(user, "role", None) == "TEACHER":
+            return qs.filter(granted_to=user)
+        if _is_admin_like(user):
+            return qs
+        return qs.none()
+
+    @action(detail=False, methods=["get"], url_path="my")
+    def my(self, request):
+        user = getattr(request, "user", None)
+        if not user or getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Solo docentes."}, status=status.HTTP_403_FORBIDDEN)
+        qs = self.get_queryset().order_by("-created_at")
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)

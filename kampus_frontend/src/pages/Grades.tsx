@@ -5,6 +5,7 @@ import {
   academicApi,
   type GradebookAvailableSheet,
   type GradebookResponse,
+  type GradebookBlockedItem,
   type Group,
   type Period,
   type TeacherAssignment,
@@ -59,6 +60,34 @@ export default function Grades() {
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }, [])
+
+  const selectedPeriod = useMemo(() => {
+    if (!selectedPeriodId) return null
+    return periods.find((p) => p.id === selectedPeriodId) ?? null
+  }, [periods, selectedPeriodId])
+
+  const [activeGradeGrant, setActiveGradeGrant] = useState<
+    | null
+    | {
+        hasFull: boolean
+        allowedEnrollments: Set<number>
+        validUntil: string | null
+      }
+  >(null)
+  const [loadingGradeGrant, setLoadingGradeGrant] = useState(false)
+  const [lastBlocked, setLastBlocked] = useState<GradebookBlockedItem[]>([])
+
+  const gradeWindowClosed = useMemo(() => {
+    if (user?.role !== 'TEACHER') return false
+    const until = selectedPeriod?.grades_edit_until
+    if (until) return Date.now() > new Date(until).getTime()
+
+    // Fallback: if no explicit deadline configured, use end of period end_date.
+    const endDate = selectedPeriod?.end_date
+    if (!endDate) return false
+    const fallback = new Date(`${endDate}T23:59:59`).getTime()
+    return Date.now() > fallback
+  }, [selectedPeriod?.end_date, selectedPeriod?.grades_edit_until, user?.role])
 
   const replaceTeacherSearch = useCallback(
     (periodId: number | null, teacherAssignmentId: number | null) => {
@@ -139,6 +168,58 @@ export default function Grades() {
     )
   }, [selectedAcademicLoadId, selectedGroupId, selectedTeacherAssignmentId, user?.role, visibleAssignments])
 
+  const refreshGradeGrants = useCallback(async () => {
+    if (user?.role !== 'TEACHER') {
+      setActiveGradeGrant(null)
+      return
+    }
+    if (!selectedAssignment || !selectedPeriodId) {
+      setActiveGradeGrant(null)
+      return
+    }
+    if (!gradeWindowClosed) {
+      setActiveGradeGrant(null)
+      return
+    }
+
+    setLoadingGradeGrant(true)
+    try {
+      const res = await academicApi.listMyEditGrants({
+        scope: 'GRADES',
+        period: selectedPeriodId,
+        teacher_assignment: selectedAssignment.id,
+      })
+
+      const now = Date.now()
+      const active = (res.data ?? []).filter((g) => new Date(g.valid_until).getTime() > now)
+      const hasFull = active.some((g) => g.grant_type === 'FULL')
+
+      const allowedEnrollments = new Set<number>()
+      let maxValidUntil: string | null = null
+
+      for (const g of active) {
+        if (!maxValidUntil || new Date(g.valid_until).getTime() > new Date(maxValidUntil).getTime()) {
+          maxValidUntil = g.valid_until
+        }
+        if (g.grant_type !== 'PARTIAL') continue
+        for (const item of g.items ?? []) {
+          allowedEnrollments.add(item.enrollment_id)
+        }
+      }
+
+      setActiveGradeGrant({ hasFull, allowedEnrollments, validUntil: maxValidUntil })
+    } catch (e) {
+      console.error(e)
+      setActiveGradeGrant(null)
+    } finally {
+      setLoadingGradeGrant(false)
+    }
+  }, [gradeWindowClosed, selectedAssignment, selectedPeriodId, user?.role])
+
+  useEffect(() => {
+    refreshGradeGrants()
+  }, [refreshGradeGrants])
+
   const visiblePeriods = useMemo(() => {
     if (!selectedAssignment) return []
     return periods.filter((p) => p.academic_year === selectedAssignment.academic_year)
@@ -154,6 +235,17 @@ export default function Grades() {
   }, [periods, user?.role, visibleAssignments])
 
   const periodIsClosed = !!gradebook?.period?.is_closed
+
+  const canEditEnrollment = useCallback(
+    (enrollmentId: number) => {
+      if (periodIsClosed) return false
+      if (user?.role !== 'TEACHER') return true
+      if (!gradeWindowClosed) return true
+      if (activeGradeGrant?.hasFull) return true
+      return !!activeGradeGrant?.allowedEnrollments?.has(enrollmentId)
+    },
+    [activeGradeGrant?.allowedEnrollments, activeGradeGrant?.hasFull, gradeWindowClosed, periodIsClosed, user?.role]
+  )
 
   const computedByEnrollmentId = useMemo(() => {
     const map = new Map<number, { final_score: number | string; scale: string | null }>()
@@ -578,6 +670,7 @@ export default function Grades() {
     (enrollmentId: number, achievementId: number, value: string) => {
       if (!selectedAssignment || !selectedPeriodId) return
       if (periodIsClosed) return
+      if (!canEditEnrollment(enrollmentId)) return
 
       const key = makeKey(enrollmentId, achievementId)
 
@@ -614,6 +707,14 @@ export default function Grades() {
             period: selectedPeriodId,
             grades: [{ enrollment: enrollmentId, achievement: achievementId, score: parsed }],
           })
+
+          const blocked = res.data.blocked ?? []
+          if (blocked.some((b) => b.enrollment === enrollmentId && b.achievement === achievementId)) {
+            setLastBlocked(blocked)
+            showToast('Edición cerrada. Debes solicitar permiso.', 'error')
+            setCellStatus((prev) => ({ ...prev, [key]: 'error' }))
+            return
+          }
 
           // Sync base/dirty state for this cell
           setBaseValues((prev) => ({ ...prev, [key]: rawScore }))
@@ -652,7 +753,7 @@ export default function Grades() {
         }
       }, 700)
     },
-    [periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+    [canEditEnrollment, periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
   )
 
   const handleCellBlur = (enrollmentId: number, achievementId: number) => {
@@ -776,9 +877,11 @@ export default function Grades() {
     if (!selectedAssignment || !selectedPeriodId) return
     if (dirtyKeys.size === 0) return
 
+    const dirtySnapshot = Array.from(dirtyKeys)
+
     const grades: { enrollment: number; achievement: number; score: number | null }[] = []
 
-    for (const key of dirtyKeys) {
+    for (const key of dirtySnapshot) {
       const [enrollmentStr, achievementStr] = key.split(':')
       const enrollment = Number(enrollmentStr)
       const achievement = Number(achievementStr)
@@ -809,7 +912,16 @@ export default function Grades() {
         period: selectedPeriodId,
         grades,
       })
-      showToast('Notas guardadas', 'success')
+
+      const blocked = res.data.blocked ?? []
+      setLastBlocked(blocked)
+      const blockedKeys = new Set(blocked.map((b) => makeKey(b.enrollment, b.achievement)))
+
+      if (blocked.length > 0) {
+        showToast(`Guardadas: ${res.data.updated}. Bloqueadas: ${blocked.length}.`, 'info')
+      } else {
+        showToast('Notas guardadas', 'success')
+      }
 
       if (res.data.computed && res.data.computed.length > 0) {
         setComputedOverrides((prev) => {
@@ -821,7 +933,36 @@ export default function Grades() {
         })
       }
 
-      await loadGradebook(selectedAssignment.id, selectedPeriodId)
+      // Apply partial success: mark non-blocked cells as saved; keep blocked cells dirty.
+      setDirtyKeys((prev) => {
+        const next = new Set(prev)
+        for (const key of Array.from(prev)) {
+          if (!blockedKeys.has(key)) next.delete(key)
+        }
+        return next
+      })
+
+      setBaseValues((prev) => {
+        const next = { ...prev }
+        for (const key of dirtySnapshot) {
+          if (blockedKeys.has(key)) continue
+          next[key] = (cellValues[key] ?? '').trim()
+        }
+        return next
+      })
+
+      // Mark blocked cells as error for quick visual feedback
+      if (blocked.length > 0) {
+        setCellStatus((prev) => {
+          const next = { ...prev }
+          for (const b of blocked) {
+            next[makeKey(b.enrollment, b.achievement)] = 'error'
+          }
+          return next
+        })
+      } else {
+        await loadGradebook(selectedAssignment.id, selectedPeriodId)
+      }
     } catch (e) {
       console.error(e)
       showToast('No se pudieron guardar las notas', 'error')
@@ -834,6 +975,8 @@ export default function Grades() {
   const hasDirty = dirtyKeys.size > 0
   const globalSaveLabel = periodIsClosed
     ? 'Solo lectura'
+    : user?.role === 'TEACHER' && gradeWindowClosed && !activeGradeGrant?.hasFull && (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0
+      ? 'Edición cerrada'
     : saving || anyInFlightSaves
       ? 'Guardando…'
       : hasDirty
@@ -842,6 +985,8 @@ export default function Grades() {
 
   const globalSaveClass = periodIsClosed
     ? 'border-amber-200 bg-amber-50 text-amber-700'
+    : user?.role === 'TEACHER' && gradeWindowClosed && !activeGradeGrant?.hasFull && (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0
+      ? 'border-rose-200 bg-rose-50 text-rose-700'
     : saving || anyInFlightSaves
       ? 'border-blue-200 bg-blue-50 text-blue-700'
       : hasDirty
@@ -998,7 +1143,17 @@ export default function Grades() {
 
             <Button
               onClick={handleSave}
-              disabled={saving || dirtyKeys.size === 0 || !gradebook || periodIsClosed || showingCards}
+              disabled={
+                saving ||
+                dirtyKeys.size === 0 ||
+                !gradebook ||
+                periodIsClosed ||
+                showingCards ||
+                (user?.role === 'TEACHER' &&
+                  gradeWindowClosed &&
+                  !activeGradeGrant?.hasFull &&
+                  (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0)
+              }
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Save className="mr-2 h-4 w-4" />
@@ -1007,6 +1162,65 @@ export default function Grades() {
           </div>
         )}
       </div>
+
+      {user?.role === 'TEACHER' && gradeWindowClosed && (
+        <Card className="border border-rose-200 bg-rose-50">
+          <CardHeader>
+            <CardTitle className="text-rose-800">Edición cerrada (Planilla)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-rose-700">
+              El plazo para editar las notas de este periodo ya venció.
+              {loadingGradeGrant ? ' Verificando permisos…' : ''}
+              {activeGradeGrant?.validUntil ? ` Permiso vigente hasta: ${new Date(activeGradeGrant.validUntil).toLocaleString()}` : ''}
+            </p>
+            <p className="text-xs text-rose-700">
+              Si necesitas modificar, envía una solicitud con justificación.
+            </p>
+
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                onClick={refreshGradeGrants}
+                disabled={loadingGradeGrant || !selectedPeriodId || !selectedAssignment}
+              >
+                {loadingGradeGrant ? 'Revisando…' : 'Revisar permisos'}
+              </Button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Button
+                onClick={() =>
+                  navigate(
+                    `/edit-requests/grades?period=${selectedPeriodId ?? ''}&teacher_assignment=${selectedAssignment?.id ?? ''}`
+                  )
+                }
+                disabled={!selectedPeriodId || !selectedAssignment}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Ir a Solicitudes de edición
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate('/edit-requests/grades')}
+              >
+                Ver mis solicitudes
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {lastBlocked.length > 0 && gradebook && (
+        <div className="border border-amber-200 bg-amber-50 text-amber-800 rounded-lg p-3 text-sm">
+          <div className="font-semibold">Algunas notas no se guardaron</div>
+          <div className="mt-1 text-xs">
+            Bloqueadas: {Array.from(new Set(lastBlocked.map((b) => b.enrollment)))
+              .map((enr) => gradebook.students.find((s) => s.enrollment_id === enr)?.student_name || `Enrollment ${enr}`)
+              .join(', ')}
+          </div>
+        </div>
+      )}
 
       {teacherMode && showingCards && !selectedPeriodId && (
         <div className="p-4 text-slate-600">Selecciona un periodo para ver tus planillas.</div>
@@ -1221,7 +1435,7 @@ export default function Grades() {
                                 onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
                                 onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
                                 onFocus={handleCellFocus}
-                                disabled={periodIsClosed}
+                                disabled={!canEditEnrollment(s.enrollment_id)}
                                 inputMode="decimal"
                                 pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
                                 id={`gradecell-${s.enrollment_id}-${a.id}`}

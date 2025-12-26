@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom'
 import { academicApi } from '../../services/academic';
 import { useAuthStore } from '../../store/auth'
-import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate, TeacherAssignment } from '../../services/academic';
+import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate, TeacherAssignment, EditGrant } from '../../services/academic';
 import { Plus, Wand2, Save, Trash } from 'lucide-react';
 
 export default function PeriodPlanning() {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -29,6 +31,59 @@ export default function PeriodPlanning() {
   
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+
+  const selectedPeriodObj = useMemo(() => {
+    if (!selectedPeriod) return null
+    return periods.find((p) => p.id === Number(selectedPeriod)) ?? null
+  }, [periods, selectedPeriod])
+
+  const planningWindowClosed = useMemo(() => {
+    if (user?.role !== 'TEACHER') return false
+    const until = selectedPeriodObj?.planning_edit_until
+    if (until) return Date.now() > new Date(until).getTime()
+
+    const endDate = selectedPeriodObj?.end_date
+    if (!endDate) return false
+    const fallback = new Date(`${endDate}T23:59:59`).getTime()
+    return Date.now() > fallback
+  }, [selectedPeriodObj?.end_date, selectedPeriodObj?.planning_edit_until, user?.role])
+
+  const [activePlanningGrant, setActivePlanningGrant] = useState<EditGrant | null>(null)
+  const [loadingPlanningGrant, setLoadingPlanningGrant] = useState(false)
+
+  const planningCanEdit = useMemo(() => {
+    if (user?.role !== 'TEACHER') return true
+    if (!planningWindowClosed) return true
+    return !!activePlanningGrant
+  }, [activePlanningGrant, planningWindowClosed, user?.role])
+
+  const refreshPlanningGrants = useCallback(async () => {
+    if (user?.role !== 'TEACHER') {
+      setActivePlanningGrant(null)
+      return
+    }
+    if (!selectedPeriod) {
+      setActivePlanningGrant(null)
+      return
+    }
+    if (!planningWindowClosed) {
+      setActivePlanningGrant(null)
+      return
+    }
+
+    setLoadingPlanningGrant(true)
+    try {
+      const res = await academicApi.listMyEditGrants({ scope: 'PLANNING', period: Number(selectedPeriod) })
+      const now = Date.now()
+      const active = (res.data ?? []).filter((g) => new Date(g.valid_until).getTime() > now)
+      setActivePlanningGrant(active[0] ?? null)
+    } catch (e) {
+      console.error(e)
+      setActivePlanningGrant(null)
+    } finally {
+      setLoadingPlanningGrant(false)
+    }
+  }, [planningWindowClosed, selectedPeriod, user?.role])
   
   // Form State
   const [formData, setFormData] = useState<{
@@ -84,6 +139,10 @@ export default function PeriodPlanning() {
       loadAchievements();
     }
   }, [selectedPeriod, selectedSubject, selectedGroup]);
+
+  useEffect(() => {
+    refreshPlanningGrants()
+  }, [refreshPlanningGrants])
 
   const loadInitialData = async () => {
     try {
@@ -242,6 +301,10 @@ export default function PeriodPlanning() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPeriod || !selectedSubject || !selectedGroup) return;
+    if (user?.role === 'TEACHER' && !planningCanEdit) {
+      alert('La edición de planeación está cerrada. Debes solicitar permiso.')
+      return
+    }
 
     // Validate max achievements per dimension
     if (formData.dimensionId) {
@@ -387,6 +450,48 @@ export default function PeriodPlanning() {
         </div>
       </div>
 
+      {user?.role === 'TEACHER' && planningWindowClosed && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-6">
+          <div className="text-sm font-bold text-rose-800">Edición cerrada (Planeación)</div>
+          <div className="mt-1 text-sm text-rose-700">
+            El plazo para modificar la planeación de este periodo ya venció.
+            {loadingPlanningGrant ? ' Verificando permisos…' : ''}
+            {activePlanningGrant ? ` Permiso vigente hasta: ${new Date(activePlanningGrant.valid_until).toLocaleString()}` : ''}
+          </div>
+
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={refreshPlanningGrants}
+              disabled={loadingPlanningGrant || !selectedPeriod}
+              className="px-3 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium disabled:opacity-50"
+            >
+              {loadingPlanningGrant ? 'Revisando…' : 'Revisar permisos'}
+            </button>
+          </div>
+
+          {!activePlanningGrant ? (
+            <div className="mt-3 flex flex-col sm:flex-row gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => navigate(selectedPeriod ? `/edit-requests/planning?period=${Number(selectedPeriod)}` : '/edit-requests/planning')}
+                disabled={!selectedPeriod}
+                className="px-4 py-2 bg-rose-700 text-white rounded-lg hover:bg-rose-800 shadow-sm transition-all disabled:opacity-50"
+              >
+                Ir a Solicitudes de edición
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/edit-requests/planning')}
+                className="px-4 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium"
+              >
+                Ver mis solicitudes
+              </button>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {selectedPeriod && selectedSubject && selectedGroup && (
         <>
           {/* Dimension Stats Panel */}
@@ -421,6 +526,7 @@ export default function PeriodPlanning() {
             <h2 className="text-xl font-semibold text-slate-800">Logros Planificados</h2>
             <button 
               onClick={() => setShowForm(true)}
+              disabled={user?.role === 'TEACHER' && !planningCanEdit}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
             >
               <Plus size={20} /> Agregar Logro
@@ -546,6 +652,7 @@ export default function PeriodPlanning() {
                     </button>
                     <button 
                       type="submit"
+                      disabled={user?.role === 'TEACHER' && !planningCanEdit}
                       className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium shadow-sm"
                     >
                       <Save size={18} /> Guardar Planeación

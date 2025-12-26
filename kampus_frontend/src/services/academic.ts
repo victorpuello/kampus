@@ -8,7 +8,16 @@ export interface AcademicYear {
   start_date: string | null;
   end_date: string | null;
 }
-export interface Period { id: number; name: string; start_date: string; end_date: string; is_closed: boolean; academic_year: number }
+export interface Period {
+  id: number
+  name: string
+  start_date: string
+  end_date: string
+  is_closed: boolean
+  academic_year: number
+  grades_edit_until?: string | null
+  planning_edit_until?: string | null
+}
 export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
 export interface Grade { id: number; name: string; level: number | null; level_name?: string }
 export interface Group { 
@@ -150,6 +159,70 @@ export interface GradebookComputed {
   scale: string | null;
 }
 
+export interface GradebookBlockedItem {
+  enrollment: number
+  achievement: number
+  reason: string
+}
+
+export interface GradebookBulkUpsertResponse {
+  requested: number
+  updated: number
+  computed?: GradebookComputed[]
+  blocked?: GradebookBlockedItem[]
+}
+
+export type EditScope = 'GRADES' | 'PLANNING'
+export type EditRequestType = 'FULL' | 'PARTIAL'
+export type EditRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface EditRequestItem {
+  id: number
+  enrollment_id: number
+}
+
+export interface EditRequest {
+  id: number
+  scope: EditScope
+  request_type: EditRequestType
+  status: EditRequestStatus
+  requested_by: number
+  requested_by_name?: string
+  period: number
+  teacher_assignment: number | null
+  requested_until: string | null
+  reason: string
+  decided_by: number | null
+  decided_by_name?: string
+  decided_at: string | null
+  decision_note: string | null
+  created_at: string
+  updated_at: string
+  items?: EditRequestItem[]
+}
+
+export interface EditGrantItem {
+  id: number
+  enrollment_id: number
+  created_at: string
+}
+
+export interface EditGrant {
+  id: number
+  scope: EditScope
+  grant_type: EditRequestType
+  granted_to: number
+  granted_to_name?: string
+  period: number
+  teacher_assignment: number | null
+  valid_until: string
+  created_by: number | null
+  created_by_name?: string
+  source_request: number | null
+  created_at: string
+  items?: EditGrantItem[]
+}
+
 export interface GradebookAvailableSheet {
   teacher_assignment_id: number
   group_id: number
@@ -204,8 +277,8 @@ export const academicApi = {
   
   // Periods
   listPeriods: () => api.get<Period[]>('/api/periods/'),
-  createPeriod: (data: Omit<Period, 'id'>) => api.post<Period>('/api/periods/', data),
-  updatePeriod: (id: number, data: Omit<Period, 'id'>) => api.put<Period>(`/api/periods/${id}/`, data),
+  createPeriod: (data: Partial<Period>) => api.post<Period>('/api/periods/', data),
+  updatePeriod: (id: number, data: Partial<Period>) => api.put<Period>(`/api/periods/${id}/`, data),
   deletePeriod: (id: number) => api.delete(`/api/periods/${id}/`),
   
   // Academic Levels
@@ -260,7 +333,26 @@ export const academicApi = {
       params: { period: periodId },
     }),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
-    api.post<{ updated: number; computed?: GradebookComputed[] }>('/api/grade-sheets/bulk-upsert/', data),
+    api.post<GradebookBulkUpsertResponse>('/api/grade-sheets/bulk-upsert/', data),
+
+  // Edit windows: requests/grants
+  createEditRequest: (data: {
+    scope: EditScope
+    request_type: EditRequestType
+    period: number
+    teacher_assignment?: number | null
+    requested_until?: string | null
+    reason: string
+    enrollment_ids?: number[]
+  }) => api.post<EditRequest>('/api/edit-requests/', data),
+  listEditRequests: (params?: any) => api.get<EditRequest[]>('/api/edit-requests/', { params }),
+  listMyEditRequests: () => api.get<EditRequest[]>('/api/edit-requests/my/'),
+  approveEditRequest: (id: number, data: { valid_until?: string; decision_note?: string }) =>
+    api.post<{ detail: string; grant_id: number }>(`/api/edit-requests/${id}/approve/`, data),
+  rejectEditRequest: (id: number, data: { decision_note?: string }) =>
+    api.post<{ detail: string }>(`/api/edit-requests/${id}/reject/`, data),
+  listEditGrants: (params?: any) => api.get<EditGrant[]>('/api/edit-grants/', { params }),
+  listMyEditGrants: (params?: any) => api.get<EditGrant[]>('/api/edit-grants/my/', { params }),
 
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),

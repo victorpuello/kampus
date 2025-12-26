@@ -23,6 +23,10 @@ import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
 import Grades from './pages/Grades'
 import TeacherAssignments from './pages/TeacherAssignments'
+import NotificationsPage from './pages/Notifications'
+import GradeEditRequests from './pages/GradeEditRequests'
+import PlanningEditRequests from './pages/PlanningEditRequests'
+import AccountSettings from './pages/AccountSettings'
 
 export default function App() {
   return (
@@ -55,6 +59,10 @@ export default function App() {
             <Route path="/campuses/:id/edit" element={<CampusForm />} />
             <Route path="/planning" element={<PlanningModule />} />
             <Route path="/grades" element={<Grades />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/account" element={<AccountSettings />} />
+            <Route path="/edit-requests/grades" element={<GradeEditRequests />} />
+            <Route path="/edit-requests/planning" element={<PlanningEditRequests />} />
             <Route path="/rbac" element={<RbacSettings />} />
           </Route>
         </Route>

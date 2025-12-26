@@ -53,3 +53,31 @@ class UserPermissionTests(TestCase):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer " + token)
         response = self.client.get(f"/api/users/{self.teacher.id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_user_can_change_own_password(self):
+        token = self.get_token(self.teacher)
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + token)
+
+        res = self.client.post(
+            "/api/users/change_password/",
+            {"current_password": "password", "new_password": "new-password-123"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Can login with new password
+        login_res = self.client.post(
+            "/api/token/", {"username": self.teacher.username, "password": "new-password-123"}
+        )
+        self.assertEqual(login_res.status_code, status.HTTP_200_OK)
+
+    def test_user_cannot_change_password_with_wrong_current(self):
+        token = self.get_token(self.teacher)
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + token)
+
+        res = self.client.post(
+            "/api/users/change_password/",
+            {"current_password": "wrong", "new_password": "new-password-123"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)

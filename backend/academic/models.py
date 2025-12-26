@@ -46,6 +46,18 @@ class Period(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     is_closed = models.BooleanField(default=False)
+    grades_edit_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Edición de notas hasta",
+        help_text="Fecha/hora límite para que docentes editen planillas/notas en este periodo (si está vacío, queda abierto).",
+    )
+    planning_edit_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Edición de planeación hasta",
+        help_text="Fecha/hora límite para que docentes editen planeación en este periodo (si está vacío, queda abierto).",
+    )
 
     class Meta:
         ordering = ["start_date"]
@@ -355,20 +367,163 @@ class GradeSheet(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = "Planilla de Calificaciones"
+        verbose_name_plural = "Planillas de Calificaciones"
         constraints = [
             models.UniqueConstraint(
-                fields=["teacher_assignment", "period"], name="uniq_grade_sheet_assignment_period"
+                fields=["teacher_assignment", "period"],
+                name="uniq_grade_sheet_assignment_period",
             )
         ]
         indexes = [
             models.Index(fields=["teacher_assignment", "period"], name="idx_gradesheet_assign_period"),
             models.Index(fields=["period"], name="idx_gradesheet_period"),
         ]
-        verbose_name = "Planilla de Calificaciones"
-        verbose_name_plural = "Planillas de Calificaciones"
+
+
+class EditRequest(models.Model):
+    SCOPE_GRADES = "GRADES"
+    SCOPE_PLANNING = "PLANNING"
+    SCOPE_CHOICES = (
+        (SCOPE_GRADES, "Planillas/Notas"),
+        (SCOPE_PLANNING, "Planeación"),
+    )
+
+    TYPE_FULL = "FULL"
+    TYPE_PARTIAL = "PARTIAL"
+    TYPE_CHOICES = (
+        (TYPE_FULL, "Toda la planilla"),
+        (TYPE_PARTIAL, "Parcial (por estudiante)"),
+    )
+
+    STATUS_PENDING = "PENDING"
+    STATUS_APPROVED = "APPROVED"
+    STATUS_REJECTED = "REJECTED"
+    STATUS_CHOICES = (
+        (STATUS_PENDING, "Pendiente"),
+        (STATUS_APPROVED, "Aprobada"),
+        (STATUS_REJECTED, "Rechazada"),
+    )
+
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES)
+    request_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="edit_requests",
+        on_delete=models.CASCADE,
+        limit_choices_to={"role": "TEACHER"},
+    )
+    period = models.ForeignKey(Period, related_name="edit_requests", on_delete=models.CASCADE)
+    teacher_assignment = models.ForeignKey(
+        "academic.TeacherAssignment",
+        related_name="edit_requests",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        help_text="Requerido para solicitudes de notas; opcional para planeación.",
+    )
+
+    requested_until = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Hasta cuándo solicita permiso. Si está vacío, el aprobador definirá el plazo.",
+    )
+    reason = models.TextField()
+
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="decided_edit_requests",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    decision_note = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.teacher_assignment} - {self.period} ({self.status})"
+        return f"{self.scope} {self.request_type} {self.status} - {self.requested_by} ({self.period})"
+
+
+class EditRequestItem(models.Model):
+    request = models.ForeignKey(EditRequest, related_name="items", on_delete=models.CASCADE)
+    enrollment = models.ForeignKey(
+        "students.Enrollment",
+        related_name="edit_request_items",
+        on_delete=models.CASCADE,
+        help_text="Estudiante (matrícula) afectado por una solicitud parcial.",
+    )
+
+    class Meta:
+        unique_together = ("request", "enrollment")
+
+
+class EditGrant(models.Model):
+    SCOPE_CHOICES = EditRequest.SCOPE_CHOICES
+    TYPE_CHOICES = EditRequest.TYPE_CHOICES
+
+    scope = models.CharField(max_length=20, choices=SCOPE_CHOICES)
+    grant_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+
+    granted_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="edit_grants",
+        on_delete=models.CASCADE,
+        limit_choices_to={"role": "TEACHER"},
+    )
+    period = models.ForeignKey(Period, related_name="edit_grants", on_delete=models.CASCADE)
+    teacher_assignment = models.ForeignKey(
+        "academic.TeacherAssignment",
+        related_name="edit_grants",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    valid_until = models.DateTimeField()
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_edit_grants",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    source_request = models.ForeignKey(
+        EditRequest,
+        related_name="grants",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.scope} {self.grant_type} - {self.granted_to} ({self.period})"
+
+
+class EditGrantItem(models.Model):
+    grant = models.ForeignKey(EditGrant, related_name="items", on_delete=models.CASCADE)
+    enrollment = models.ForeignKey(
+        "students.Enrollment",
+        related_name="edit_grant_items",
+        on_delete=models.CASCADE,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("grant", "enrollment")
 
 
 class AchievementGrade(models.Model):

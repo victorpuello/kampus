@@ -29,5 +29,7 @@ export const usersApi = {
   update: (id: number, data: Partial<User>) => api.patch<User>(`/api/users/${id}/`, data),
   setPassword: (id: number, password: string) =>
     api.post<{ detail: string }>(`/api/users/${id}/set_password/`, { password }),
+  changePassword: (current_password: string, new_password: string) =>
+    api.post<{ detail: string }>(`/api/users/change_password/`, { current_password, new_password }),
   delete: (id: number) => api.delete(`/api/users/${id}/`),
 };

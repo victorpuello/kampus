@@ -20,6 +20,8 @@ from .views import (
     AcademicLoadViewSet,
     DimensionViewSet,
     GradeSheetViewSet,
+    EditRequestViewSet,
+    EditGrantViewSet,
 )
 
 router = DefaultRouter()
@@ -45,6 +47,8 @@ router.register(r"achievements", AchievementViewSet, basename="achievement")
 router.register(r"achievement-definitions", AchievementDefinitionViewSet, basename="achievementdefinition")
 router.register(r"performance-indicators", PerformanceIndicatorViewSet, basename="performanceindicator")
 router.register(r"grade-sheets", GradeSheetViewSet, basename="gradesheet")
+router.register(r"edit-requests", EditRequestViewSet, basename="editrequest")
+router.register(r"edit-grants", EditGrantViewSet, basename="editgrant")
 
 urlpatterns = [
     path("", include(router.urls)),

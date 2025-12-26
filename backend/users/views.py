@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from .models import User
-from .serializers import UserSerializer, UserCreateSerializer, UserAdminSerializer, UserSetPasswordSerializer
+from .serializers import UserSerializer, UserCreateSerializer, UserAdminSerializer, UserSetPasswordSerializer, UserChangePasswordSerializer
 from .permissions import IsAdmin, IsOwnerOrAdmin
 from core.permissions import KampusModelPermissions
 from .pagination import UserPagination
@@ -78,9 +78,11 @@ class UserViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "create", "destroy", "all", "set_password"]:
             return [IsAdmin()]
-        if self.action in ["retrieve", "update", "partial_update", "me"]:
+        if self.action in ["retrieve", "update", "partial_update", "me", "change_password"]:
             # Allow users to see/edit themselves
             if self.action == "me":
+                return [permissions.IsAuthenticated()]
+            if self.action == "change_password":
                 return [permissions.IsAuthenticated()]
             return [permissions.IsAuthenticated(), IsOwnerOrAdmin()]
         return super().get_permissions()
@@ -91,6 +93,28 @@ class UserViewSet(viewsets.ModelViewSet):
     def me(self, request):
         serializer = self.get_serializer(request.user)
         return Response(serializer.data)
+
+    @action(
+        detail=False, methods=["post"], permission_classes=[permissions.IsAuthenticated]
+    )
+    def change_password(self, request):
+        serializer = UserChangePasswordSerializer(
+            data=request.data, context={"user": request.user}
+        )
+        serializer.is_valid(raise_exception=True)
+
+        current_password = serializer.validated_data["current_password"]
+        new_password = serializer.validated_data["new_password"]
+
+        if not request.user.check_password(current_password):
+            return Response(
+                {"detail": "La contraseña actual no es correcta."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request.user.set_password(new_password)
+        request.user.save(update_fields=["password"])
+        return Response({"detail": "Contraseña actualizada."}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"])
     def all(self, request):

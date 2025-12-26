@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "discipline",
     "reports",
     "config",
+    "notifications",
 ]
 
 MIDDLEWARE = [

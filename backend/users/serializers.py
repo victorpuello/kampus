@@ -63,3 +63,13 @@ class UserSetPasswordSerializer(serializers.Serializer):
         user = self.context.get("user")
         validate_password(value, user=user)
         return value
+
+
+class UserChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate_new_password(self, value: str):
+        user = self.context.get("user")
+        validate_password(value, user=user)
+        return value

@@ -20,7 +20,13 @@ from .models import (
     AcademicLoad,
     GradeSheet,
     AchievementGrade,
+    EditRequest,
+    EditRequestItem,
+    EditGrant,
+    EditGrantItem,
 )
+
+from django.utils import timezone
 
 
 class AcademicLoadSerializer(serializers.ModelSerializer):
@@ -187,6 +193,145 @@ class StudentGradeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentGrade
+        fields = "__all__"
+
+
+class EditRequestItemSerializer(serializers.ModelSerializer):
+    enrollment_id = serializers.IntegerField(source="enrollment.id", read_only=True)
+
+    class Meta:
+        model = EditRequestItem
+        fields = ["id", "enrollment_id"]
+
+
+class EditRequestSerializer(serializers.ModelSerializer):
+    requested_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    requested_by_name = serializers.CharField(source="requested_by.get_full_name", read_only=True)
+    decided_by_name = serializers.CharField(source="decided_by.get_full_name", read_only=True)
+
+    items = EditRequestItemSerializer(many=True, read_only=True)
+    enrollment_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        write_only=True,
+        required=False,
+        help_text="Solo para solicitudes parciales: lista de enrollment_id.",
+    )
+
+    class Meta:
+        model = EditRequest
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "requested_by",
+            "status",
+            "decided_by",
+            "decided_at",
+            "decision_note",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request is not None else None
+
+        scope = attrs.get("scope")
+        request_type = attrs.get("request_type")
+        period = attrs.get("period")
+        teacher_assignment = attrs.get("teacher_assignment")
+        enrollment_ids = attrs.get("enrollment_ids")
+
+        if scope == EditRequest.SCOPE_GRADES and teacher_assignment is None:
+            raise serializers.ValidationError({"teacher_assignment": "Es requerido para solicitudes de notas."})
+
+        if scope == EditRequest.SCOPE_GRADES and period is not None and teacher_assignment is not None:
+            if getattr(period, "academic_year_id", None) != getattr(teacher_assignment, "academic_year_id", None):
+                raise serializers.ValidationError(
+                    {"period": "El periodo no corresponde al año lectivo de la asignación."}
+                )
+
+        if request_type == EditRequest.TYPE_PARTIAL:
+            if not enrollment_ids:
+                raise serializers.ValidationError({"enrollment_ids": "Debes seleccionar al menos un estudiante."})
+        else:
+            # FULL: ignore any provided list
+            if enrollment_ids:
+                attrs["enrollment_ids"] = []
+
+        # Teacher-only creation expected
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            if attrs.get("requested_by") is not None and attrs.get("requested_by") != user:
+                raise serializers.ValidationError({"requested_by": "No puedes crear solicitudes para otro usuario."})
+
+            if teacher_assignment is not None and getattr(teacher_assignment, "teacher_id", None) != getattr(user, "id", None):
+                raise serializers.ValidationError({"teacher_assignment": "No tienes esta asignación."})
+
+        return attrs
+
+    def create(self, validated_data):
+        enrollment_ids = validated_data.pop("enrollment_ids", [])
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request is not None else None
+
+        if user is None:
+            raise serializers.ValidationError({"detail": "No se pudo determinar el usuario solicitante."})
+
+        # Always bind request to authenticated user (teachers create their own requests)
+        validated_data["requested_by"] = user
+        validated_data["status"] = EditRequest.STATUS_PENDING
+
+        obj = super().create(validated_data)
+
+        if obj.request_type == EditRequest.TYPE_PARTIAL and enrollment_ids:
+            # Validate enrollments are in the right group/year for grade requests
+            from students.models import Enrollment
+
+            qs = Enrollment.objects.filter(id__in=set(enrollment_ids))
+            if obj.scope == EditRequest.SCOPE_GRADES and obj.teacher_assignment_id:
+                qs = qs.filter(
+                    academic_year_id=obj.teacher_assignment.academic_year_id,
+                    group_id=obj.teacher_assignment.group_id,
+                )
+            valid_ids = set(qs.values_list("id", flat=True))
+            missing = sorted(set(enrollment_ids) - valid_ids)
+            if missing:
+                raise serializers.ValidationError(
+                    {"enrollment_ids": f"Enrollments inválidos para esta solicitud: {missing}"}
+                )
+
+            EditRequestItem.objects.bulk_create(
+                [EditRequestItem(request=obj, enrollment_id=eid) for eid in valid_ids]
+            )
+
+        return obj
+
+
+class EditRequestDecisionSerializer(serializers.Serializer):
+    valid_until = serializers.DateTimeField(required=False)
+    decision_note = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_valid_until(self, value):
+        if value <= timezone.now():
+            raise serializers.ValidationError("La fecha debe ser futura.")
+        return value
+
+
+class EditGrantItemSerializer(serializers.ModelSerializer):
+    enrollment_id = serializers.IntegerField(source="enrollment.id", read_only=True)
+
+    class Meta:
+        model = EditGrantItem
+        fields = ["id", "enrollment_id", "created_at"]
+
+
+class EditGrantSerializer(serializers.ModelSerializer):
+    granted_to_name = serializers.CharField(source="granted_to.get_full_name", read_only=True)
+    created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True)
+    items = EditGrantItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = EditGrant
         fields = "__all__"
 
 
