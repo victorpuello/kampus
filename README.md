@@ -28,6 +28,12 @@
 - **Hoja de Vida del Estudiante**: Información personal, familiar, médica y académica.
 - **Gestión de Matrículas**: Proceso de inscripción y seguimiento.
 
+### 🧾 Convivencia (Observador del Estudiante)
+- Registro de casos disciplinarios (Ley 1620) con participantes, adjuntos y bitácora.
+- Descargos, decisión y cierre con acta imprimible.
+- Notificación trazable a acudiente + enterado/acuse autenticado.
+- Blindaje probatorio: auditoría de accesos y **sellado/inmutabilidad** post-cierre (con hash SHA-256).
+
 ### 💻 Experiencia de Usuario
 - Interfaz moderna y responsiva (Mobile-first).
 - Panel de configuración centralizado.
@@ -59,7 +65,19 @@
 - Node.js 18 o superior.
 - Git.
 
-### 1. Configuración del Backend
+### Opción recomendada: correr todo con Docker (Full Stack)
+
+```bash
+docker-compose up --build
+```
+
+- Backend: `http://localhost:8000`
+- Frontend: `http://localhost:5173`
+- Postgres: `localhost:5432`
+
+> El stack incluye un servicio `backend_scheduler` para tareas automáticas (p. ej. alertas por vencimiento de descargos).
+
+### Opción manual: Backend
 
 ```bash
 # Clonar el repositorio
@@ -71,7 +89,7 @@ python3 -m venv .venv
 source .venv/bin/activate  # En Windows: .venv\Scripts\activate
 
 # Instalar dependencias
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
 # Configurar variables de entorno
 cp env.backend.example .env
@@ -96,6 +114,10 @@ cd kampus_frontend
 # Instalar dependencias
 npm install
 
+# Variables de entorno (opcional)
+cp ../env.frontend.example .env
+# Ajusta VITE_API_BASE_URL si tu backend no está en localhost:8000
+
 # Iniciar servidor de desarrollo
 npm run dev
 ```
@@ -110,8 +132,10 @@ El frontend estará disponible en `http://localhost:5173` y el backend en `http:
 kampus/
 ├── backend/                 # Código fuente del Backend (Django)
 │   ├── academic/            # App: Gestión académica y SIEE
+│   ├── audit/               # App: Auditoría de accesos/acciones sensibles
 │   ├── communications/      # App: Mensajería y notificaciones
 │   ├── core/                # App: Modelos base e institución
+│   ├── discipline/          # App: Convivencia / Observador disciplinario
 │   ├── students/            # App: Gestión de estudiantes
 │   ├── users/               # App: Autenticación y usuarios
 │   └── manage.py            # CLI de Django
@@ -133,6 +157,7 @@ kampus/
 - **Gestión de Datos**: Corrección de duplicidad en correos electrónicos de usuarios.
 - **UX**: Nuevos filtros por año en paneles de configuración.
 - **DevOps**: Scripts de limpieza y corrección de migraciones.
+- **Convivencia / Observador**: auditoría, sellado/inmutabilidad, y portal de acudientes (rol PARENT) con enterado autenticado.
 
 ---
 
