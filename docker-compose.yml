@@ -31,6 +31,34 @@ services:
       - db
     command: python manage.py runserver 0.0.0.0:8000
 
+  backend_scheduler:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+    environment:
+      - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
+      - DJANGO_DEBUG=true
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173
+      - POSTGRES_DB=kampus
+      - POSTGRES_USER=kampus
+      - POSTGRES_PASSWORD=kampus
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE=24
+      - DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS=900
+    depends_on:
+      - db
+    command: >
+      sh -c "
+        echo 'Starting backend scheduler (descargos deadlines)';
+        while true; do
+          python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
+          sleep ${DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS:-900};
+        done
+      "
+
   frontend:
     build: ./kampus_frontend
     volumes:

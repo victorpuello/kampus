@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { 
@@ -22,13 +22,13 @@ type NavigationItem =
   | {
       name: string
       href: string
-      icon: any
+      icon: ComponentType<{ className?: string }>
       badgeCount?: number
       children?: never
     }
   | {
       name: string
-      icon: any
+      icon: ComponentType<{ className?: string }>
       children: NavigationChild[]
       href?: never
     }
@@ -47,6 +47,7 @@ export default function DashboardLayout() {
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
   const isTeacher = user?.role === 'TEACHER'
+  const isParent = user?.role === 'PARENT'
 
   const EXPANDED_MENU_STORAGE_KEY = 'kampus.sidebar.expandedMenu'
 
@@ -87,7 +88,7 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     let mounted = true
-    let interval: any = null
+    let interval: ReturnType<typeof setInterval> | null = null
 
     const load = async () => {
       try {
@@ -211,6 +212,14 @@ export default function DashboardLayout() {
   }
 
   const navigation: NavigationItem[] = useMemo(() => {
+    if (isParent) {
+      return [
+        { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+        { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
+        { name: 'Convivencia', href: '/discipline/cases', icon: Users },
+      ]
+    }
+
     if (isTeacher) {
       const items: NavigationItem[] = [
         { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -226,6 +235,7 @@ export default function DashboardLayout() {
           { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
           { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
           { name: 'Asignación', href: '/my-assignment' },
+          { name: 'Convivencia', href: '/discipline/cases' },
         ],
       })
 
@@ -240,6 +250,7 @@ export default function DashboardLayout() {
       { name: 'Estudiantes', href: '/students' },
       { name: 'Matrículas', href: '/enrollments' },
       { name: 'Reportes', href: '/enrollments/reports' },
+      { name: 'Convivencia', href: '/discipline/cases' },
       { name: 'Docentes', href: '/teachers' },
       { name: 'Usuarios', href: '/users' },
       ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac' }] : []),
@@ -273,7 +284,7 @@ export default function DashboardLayout() {
         ],
       },
     ]
-  }, [canManageRbac, isTeacher, teacherHasDirectedGroup, unreadNotifications])
+  }, [canManageRbac, isParent, isTeacher, teacherHasDirectedGroup, unreadNotifications])
 
   useEffect(() => {
     // Ensure the active submenu is expanded so the user can see where they are.

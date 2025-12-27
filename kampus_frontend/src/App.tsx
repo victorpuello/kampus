@@ -27,6 +27,8 @@ import NotificationsPage from './pages/Notifications'
 import GradeEditRequests from './pages/GradeEditRequests'
 import PlanningEditRequests from './pages/PlanningEditRequests'
 import AccountSettings from './pages/AccountSettings'
+import DisciplineCases from './pages/DisciplineCases'
+import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
 
 export default function App() {
   return (
@@ -61,6 +63,8 @@ export default function App() {
             <Route path="/grades" element={<Grades />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/account" element={<AccountSettings />} />
+            <Route path="/discipline/cases" element={<DisciplineCases />} />
+            <Route path="/discipline/cases/:id" element={<DisciplineCaseDetail />} />
             <Route path="/edit-requests/grades" element={<GradeEditRequests />} />
             <Route path="/edit-requests/planning" element={<PlanningEditRequests />} />
             <Route path="/rbac" element={<RbacSettings />} />

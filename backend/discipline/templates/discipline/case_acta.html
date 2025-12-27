@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acta - Caso #{{ case.id }}</title>
+    <style>
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; }
+      h1, h2 { margin: 0 0 8px 0; }
+      h1 { font-size: 18px; }
+      h2 { font-size: 14px; margin-top: 16px; }
+      .muted { color: #444; }
+      .row { display: flex; gap: 24px; flex-wrap: wrap; }
+      .box { border: 1px solid #ddd; padding: 10px; border-radius: 6px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
+      th { background: #fafafa; }
+      .badge { display: inline-block; padding: 2px 6px; border: 1px solid #ddd; border-radius: 999px; font-size: 11px; }
+      .nowrap { white-space: nowrap; }
+      pre { white-space: pre-wrap; font-family: inherit; }
+    </style>
+  </head>
+  <body>
+    <h1>Acta / Registro de Convivencia - Caso #{{ case.id }}</h1>
+    <div class="muted">Generado: {{ generated_at|date:"Y-m-d H:i" }}{% if generated_by %} por {{ generated_by.get_full_name|default:generated_by.username }}{% endif %}</div>
+
+    <div class="row" style="margin-top: 12px;">
+      <div class="box" style="flex: 1; min-width: 320px;">
+        <h2>Estudiante</h2>
+        <div><strong>Nombre:</strong> {{ student.user.get_full_name }}</div>
+        <div><strong>Usuario:</strong> {{ student.user.username }}</div>
+        <div><strong>Documento:</strong> {{ student.document_number }}</div>
+      </div>
+      <div class="box" style="flex: 1; min-width: 320px;">
+        <h2>Contexto académico</h2>
+        <div><strong>Año:</strong> {{ enrollment.academic_year.year }}</div>
+        <div><strong>Grado:</strong> {{ enrollment.grade.name }}</div>
+        <div><strong>Grupo:</strong> {% if enrollment.group %}{{ enrollment.group.name }}{% else %}-{% endif %}</div>
+      </div>
+    </div>
+
+    <div class="box" style="margin-top: 12px;">
+      <h2>Hechos</h2>
+      <div class="row">
+        <div><strong>Fecha y hora:</strong> <span class="nowrap">{{ case.occurred_at|date:"Y-m-d H:i" }}</span></div>
+        <div><strong>Lugar:</strong> {{ case.location|default:"-" }}</div>
+        <div><strong>Manual:</strong> <span class="badge">{{ case.get_manual_severity_display }}</span></div>
+        <div><strong>Ley 1620:</strong> <span class="badge">{{ case.get_law_1620_type_display }}</span></div>
+        <div><strong>Estado:</strong> <span class="badge">{{ case.get_status_display }}</span></div>
+      </div>
+      <pre style="margin-top: 8px;">{{ case.narrative }}</pre>
+    </div>
+
+    <div class="box" style="margin-top: 12px;">
+      <h2>Participantes</h2>
+      {% if participants %}
+        <table>
+          <thead>
+            <tr>
+              <th>Estudiante</th>
+              <th>Rol</th>
+              <th>Notas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in participants %}
+              <tr>
+                <td>{{ p.student.user.get_full_name }}</td>
+                <td>{{ p.get_role_display }}</td>
+                <td>{{ p.notes|default:"" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">Sin participantes registrados.</div>
+      {% endif %}
+    </div>
+
+    <div class="box" style="margin-top: 12px;">
+      <h2>Evidencias y adjuntos</h2>
+      {% if attachments %}
+        <table>
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Descripción</th>
+              <th>Archivo</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for a in attachments %}
+              <tr>
+                <td>{{ a.get_kind_display }}</td>
+                <td>{{ a.description|default:"" }}</td>
+                <td>{% if a.file %}{{ a.file.name }}{% else %}-{% endif %}</td>
+                <td class="nowrap">{{ a.uploaded_at|date:"Y-m-d H:i" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">Sin adjuntos.</div>
+      {% endif %}
+    </div>
+
+    <div class="box" style="margin-top: 12px;">
+      <h2>Bitácora (eventos)</h2>
+      {% if events %}
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in events %}
+              <tr>
+                <td class="nowrap">{{ e.created_at|date:"Y-m-d H:i" }}</td>
+                <td>{{ e.get_event_type_display }}</td>
+                <td><pre style="margin: 0;">{{ e.text|default:"" }}</pre></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="muted">Sin eventos.</div>
+      {% endif %}
+    </div>
+
+    {% if case.decision_text %}
+      <div class="box" style="margin-top: 12px;">
+        <h2>Decisión</h2>
+        <pre>{{ case.decision_text }}</pre>
+      </div>
+    {% endif %}
+
+    {% if case.sealed_at %}
+      <div class="box" style="margin-top: 12px;">
+        <h2>Sello / Cadena de custodia</h2>
+        <div><strong>Sellado:</strong> {{ case.sealed_at|date:"Y-m-d H:i" }}{% if case.sealed_by %} por {{ case.sealed_by.get_full_name|default:case.sealed_by.username }}{% endif %}</div>
+        <div style="margin-top: 6px;"><strong>Hash (SHA-256):</strong> <span class="nowrap">{{ case.sealed_hash }}</span></div>
+        <div class="muted" style="margin-top: 6px;">
+          Este hash corresponde al contenido del caso hasta el momento del sellado.
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="muted" style="margin-top: 16px;">
+      Nota: Este documento es un registro generado por el sistema para soporte del debido proceso.
+    </div>
+  </body>
+</html>

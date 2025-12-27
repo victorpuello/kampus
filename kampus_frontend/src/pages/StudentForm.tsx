@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { studentsApi, familyMembersApi } from '../services/students'
 import type { FamilyMember } from '../services/students'
 import StudentDocuments from '../components/students/StudentDocuments'
@@ -12,6 +12,28 @@ import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 import { useAuthStore } from '../store/auth'
 import { academicApi } from '../services/academic'
+import { enrollmentsApi, type Enrollment } from '../services/enrollments'
+import { disciplineApi, type DisciplineCaseListItem } from '../services/discipline'
+
+const getErrorDetail = (err: unknown): string | undefined => {
+    if (typeof err !== 'object' || err === null) return undefined
+    const maybe = err as { response?: { data?: { detail?: unknown } } }
+    const detail = maybe.response?.data?.detail
+    return typeof detail === 'string' ? detail : undefined
+}
+
+const disciplineStatusLabel = (s: string) => {
+    switch (s) {
+        case 'OPEN':
+            return 'Abierto'
+        case 'DECIDED':
+            return 'Decidido'
+        case 'CLOSED':
+            return 'Cerrado'
+        default:
+            return s
+    }
+}
 
 function FamilyMemberForm({ 
     studentId, 
@@ -57,10 +79,9 @@ function FamilyMemberForm({
                 await familyMembersApi.create(payload)
             }
             onSave()
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error(error)
-            const msg = error.response?.data ? JSON.stringify(error.response.data) : 'Error al guardar familiar'
-            alert(msg)
+            alert(getErrorDetail(error) || 'Error al guardar familiar')
         } finally {
             setLoading(false)
         }
@@ -142,6 +163,70 @@ export default function StudentForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('identification')
+
+    const studentId = useMemo(() => {
+        if (!isEditing) return null
+        const n = Number(id)
+        return Number.isFinite(n) ? n : null
+    }, [id, isEditing])
+
+    const [disciplineLoading, setDisciplineLoading] = useState(false)
+    const [disciplineError, setDisciplineError] = useState<string | null>(null)
+    const [disciplineCases, setDisciplineCases] = useState<DisciplineCaseListItem[]>([])
+    const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+    const [selectedEnrollmentId, setSelectedEnrollmentId] = useState<number | null>(null)
+    const [newCaseOccurredAt, setNewCaseOccurredAt] = useState<string>('')
+    const [newCaseLocation, setNewCaseLocation] = useState<string>('')
+    const [newCaseNarrative, setNewCaseNarrative] = useState<string>('')
+    const [newCaseManualSeverity, setNewCaseManualSeverity] = useState<'MINOR' | 'MAJOR' | 'VERY_MAJOR'>('MINOR')
+    const [newCaseLawType, setNewCaseLawType] = useState<'I' | 'II' | 'III' | 'UNKNOWN'>('UNKNOWN')
+
+    useEffect(() => {
+        if (activeTab !== 'discipline') return
+        if (!studentId) return
+
+        let mounted = true
+
+        const localNow = (() => {
+            const d = new Date()
+            const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+            return local.toISOString().slice(0, 16)
+        })()
+
+        if (!newCaseOccurredAt) setNewCaseOccurredAt(localNow)
+
+        setDisciplineLoading(true)
+        setDisciplineError(null)
+
+        Promise.all([
+            enrollmentsApi.list({ student: studentId, status: 'ACTIVE' }),
+            disciplineApi.list({ student: studentId }),
+        ])
+            .then(([enRes, casesRes]) => {
+                if (!mounted) return
+
+                const results = enRes.data?.results || []
+                setEnrollments(results)
+                setDisciplineCases(casesRes.data || [])
+
+                if (!selectedEnrollmentId && results.length > 0) {
+                    setSelectedEnrollmentId(results[0].id)
+                }
+            })
+            .catch((e: unknown) => {
+                if (!mounted) return
+                console.error(e)
+                setDisciplineError(getErrorDetail(e) || 'No se pudo cargar convivencia')
+            })
+            .finally(() => {
+                if (!mounted) return
+                setDisciplineLoading(false)
+            })
+
+        return () => {
+            mounted = false
+        }
+    }, [activeTab, newCaseOccurredAt, selectedEnrollmentId, studentId])
 
   const [selectedDepartment, setSelectedDepartment] = useState('')
   const [selectedCity, setSelectedCity] = useState('')
@@ -368,9 +453,11 @@ export default function StudentForm() {
         navigate(`/students/${newId}`, { replace: true })
         if (nextTab) setActiveTab(nextTab)
       }
-    } catch (err: any) {
-      console.error(err)
-      setError(err.response?.data?.detail || JSON.stringify(err.response?.data) || 'Error al guardar el estudiante')
+        } catch (err: unknown) {
+            console.error(err)
+            const maybe = err as { response?: { data?: unknown } }
+            const data = maybe.response?.data
+            setError(getErrorDetail(err) || (data ? JSON.stringify(data) : 'Error al guardar el estudiante'))
     } finally {
       setLoading(false)
     }
@@ -381,6 +468,7 @@ export default function StudentForm() {
     { id: 'residence', label: 'Residencia', icon: Home },
     { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
     { id: 'support', label: 'Apoyos', icon: Heart },
+        { id: 'discipline', label: 'Convivencia', icon: FileText },
     { id: 'family', label: 'Familia', icon: Users },
     { id: 'documents', label: 'Documentos', icon: FileText },
   ]
@@ -466,7 +554,7 @@ export default function StudentForm() {
                     className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center gap-2
                     ${activeTab === tab.id 
                         ? 'bg-white text-blue-700 shadow'
-                        : 'text-slate-600 hover:bg-white/[0.12] hover:text-blue-600'
+                        : 'text-slate-600 hover:bg-white/12 hover:text-blue-600'
                     }`}
                 >
                     <Icon className="h-4 w-4" />
@@ -753,7 +841,7 @@ export default function StudentForm() {
                         value={formData.support_needs} 
                         onChange={handleChange} 
                         disabled={!canEdit}
-                        className="flex min-h-[80px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex min-h-20 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
                         placeholder="Trabajo en aula, casa, terapias, etc."
                     />
                 </div>
@@ -766,6 +854,223 @@ export default function StudentForm() {
             </div>
             </Card>
         </div>
+
+                {/* DISCIPLINE TAB */}
+                <div className={activeTab === 'discipline' ? 'block' : 'hidden'}>
+                    {!studentId ? (
+                        <Card>
+                            <CardContent className="py-8 text-center text-slate-500">
+                                Guarde el estudiante primero para gestionar convivencia.
+                            </CardContent>
+                        </Card>
+                    ) : (
+                        <div className="space-y-6">
+                            <Card>
+                                <CardHeader>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <CardTitle>Convivencia (Observador)</CardTitle>
+                                        <Link to="/discipline/cases" className="text-sm text-blue-600 hover:underline">
+                                            Ver todos
+                                        </Link>
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <p className="text-sm text-slate-600">
+                                        Registro mínimo (MVP): hechos, descargos, decisión y cierre.
+                                    </p>
+                                </CardContent>
+                            </Card>
+
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Registrar caso</CardTitle>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    {disciplineError && (
+                                        <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                            {disciplineError}
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>Matrícula (Año activo)</Label>
+                                            <select
+                                                value={selectedEnrollmentId ?? ''}
+                                                onChange={(e) => setSelectedEnrollmentId(e.target.value ? Number(e.target.value) : null)}
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                            >
+                                                <option value="">Seleccione...</option>
+                                                {enrollments.map((en) => (
+                                                    <option key={en.id} value={en.id}>
+                                                        #{en.id} • {typeof en.grade === 'object' ? en.grade.name : en.grade} / {typeof en.group === 'object' ? en.group?.name : en.group}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Fecha y hora</Label>
+                                            <Input
+                                                type="datetime-local"
+                                                value={newCaseOccurredAt}
+                                                onChange={(e) => setNewCaseOccurredAt(e.target.value)}
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Manual (Severidad)</Label>
+                                            <select
+                                                value={newCaseManualSeverity}
+                                                onChange={(e) => {
+                                                    const v = e.target.value
+                                                    if (v === 'MINOR' || v === 'MAJOR' || v === 'VERY_MAJOR') setNewCaseManualSeverity(v)
+                                                }}
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                            >
+                                                <option value="MINOR">Leve</option>
+                                                <option value="MAJOR">Grave</option>
+                                                <option value="VERY_MAJOR">Muy Grave</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Ley 1620 (Tipo)</Label>
+                                            <select
+                                                value={newCaseLawType}
+                                                onChange={(e) => {
+                                                    const v = e.target.value
+                                                    if (v === 'I' || v === 'II' || v === 'III' || v === 'UNKNOWN') setNewCaseLawType(v)
+                                                }}
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                            >
+                                                <option value="UNKNOWN">Sin clasificar</option>
+                                                <option value="I">Tipo I</option>
+                                                <option value="II">Tipo II</option>
+                                                <option value="III">Tipo III</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-2 md:col-span-2">
+                                            <Label>Lugar</Label>
+                                            <Input value={newCaseLocation} onChange={(e) => setNewCaseLocation(e.target.value)} placeholder="Salón, patio, ruta, etc." />
+                                        </div>
+
+                                        <div className="space-y-2 md:col-span-2">
+                                            <Label>Relato / Hechos</Label>
+                                            <textarea
+                                                value={newCaseNarrative}
+                                                onChange={(e) => setNewCaseNarrative(e.target.value)}
+                                                className="flex min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                placeholder="Descripción objetiva de los hechos"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end">
+                                        <Button
+                                            type="button"
+                                            disabled={disciplineLoading}
+                                            onClick={async () => {
+                                                if (!studentId) return
+                                                if (!selectedEnrollmentId) return alert('Seleccione una matrícula')
+                                                if (!newCaseNarrative.trim()) return alert('Escriba el relato de los hechos')
+
+                                                setDisciplineLoading(true)
+                                                setDisciplineError(null)
+                                                try {
+                                                    const occurred_at = newCaseOccurredAt
+                                                        ? new Date(newCaseOccurredAt).toISOString()
+                                                        : new Date().toISOString()
+
+                                                    await disciplineApi.create({
+                                                        enrollment_id: selectedEnrollmentId,
+                                                        occurred_at,
+                                                        location: newCaseLocation || undefined,
+                                                        narrative: newCaseNarrative,
+                                                        manual_severity: newCaseManualSeverity,
+                                                        law_1620_type: newCaseLawType,
+                                                    })
+
+                                                    setNewCaseNarrative('')
+                                                    setNewCaseLocation('')
+                                                    setNewCaseLawType('UNKNOWN')
+                                                    setNewCaseManualSeverity('MINOR')
+                                                    setNewCaseOccurredAt('')
+
+                                                    const listRes = await disciplineApi.list({ student: studentId })
+                                                    setDisciplineCases(listRes.data || [])
+                                                } catch (e: unknown) {
+                                                    console.error(e)
+                                                    setDisciplineError(getErrorDetail(e) || 'No se pudo crear el caso')
+                                                } finally {
+                                                    setDisciplineLoading(false)
+                                                }
+                                            }}
+                                        >
+                                            {disciplineLoading ? 'Guardando…' : 'Crear caso'}
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle>Casos del estudiante</CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm text-left">
+                                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                                                <tr>
+                                                    <th className="px-6 py-4 font-semibold">Fecha</th>
+                                                    <th className="px-6 py-4 font-semibold">Grado/Grupo</th>
+                                                    <th className="px-6 py-4 font-semibold">Ley 1620</th>
+                                                    <th className="px-6 py-4 font-semibold">Estado</th>
+                                                    <th className="px-6 py-4 font-semibold">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100">
+                                                {disciplineCases.map((c) => (
+                                                    <tr key={c.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                                                        <td className="px-6 py-4">{new Date(c.occurred_at).toLocaleString()}</td>
+                                                        <td className="px-6 py-4">{(c.grade_name || '-') + ' / ' + (c.group_name || '-')}</td>
+                                                        <td className="px-6 py-4">{c.law_1620_type}</td>
+
+                                                        <td className="px-6 py-4">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                                                                    {disciplineStatusLabel(c.status)}
+                                                                </span>
+                                                                {c.sealed_at && (
+                                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                                                                        Sellado
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td className="px-6 py-4">
+                                                            <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 hover:underline">
+                                                                Ver
+                                                            </Link>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                                {disciplineCases.length === 0 && (
+                                                    <tr>
+                                                        <td className="px-6 py-6 text-slate-500" colSpan={5}>
+                                                            No hay casos.
+                                                        </td>
+                                                    </tr>
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </div>
+                    )}
+                </div>
 
         {/* FAMILY TAB */}
         {!isTeacher && (
@@ -793,7 +1098,7 @@ export default function StudentForm() {
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                                 <tr>
                                     <th className="px-6 py-3 font-semibold">Nombre</th>
                                     <th className="px-6 py-3 font-semibold">Parentesco</th>

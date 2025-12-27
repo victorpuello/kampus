@@ -15,6 +15,10 @@ import os
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# Discipline / Observador settings
+DISCIPLINE_DESCARGOS_DUE_DAYS = int(os.getenv("DISCIPLINE_DESCARGOS_DUE_DAYS", "3"))
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -61,6 +65,7 @@ INSTALLED_APPS = [
     "reports",
     "config",
     "notifications",
+    "audit",
 ]
 
 MIDDLEWARE = [

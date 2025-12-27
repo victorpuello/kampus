@@ -46,6 +46,9 @@ class StudentViewSet(viewsets.ModelViewSet):
         qs = Student.objects.select_related("user").all().order_by("user__id")
         user = getattr(self.request, 'user', None)
 
+        if user is not None and getattr(user, 'role', None) in {'PARENT', 'STUDENT'}:
+            return qs.none()
+
         if user is not None and getattr(user, 'role', None) == 'TEACHER':
             # Teachers should only see students from the group(s) they direct.
             # Default to current ACTIVE academic year when available.
@@ -77,7 +80,7 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para crear estudiantes."}, status=status.HTTP_403_FORBIDDEN)
 
         print("Recibiendo datos para crear estudiante:", request.data)
@@ -99,17 +102,17 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para eliminar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
@@ -120,12 +123,12 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
 
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) == 'TEACHER':
+        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return FamilyMember.objects.none()
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
 
         print("FAMILY MEMBER CREATE DATA:", request.data)
@@ -137,17 +140,17 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
@@ -163,30 +166,30 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         "student__user__last_name",
         "student__document_number",
     ]
-    filterset_fields = ["academic_year", "grade", "group", "status"]
+    filterset_fields = ["student", "academic_year", "grade", "group", "status"]
 
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) == 'TEACHER':
+        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Enrollment.objects.none()
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
@@ -285,27 +288,27 @@ class StudentNoveltyViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
 
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) == 'TEACHER':
+        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return StudentNovelty.objects.none()
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para registrar novedades."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
@@ -331,27 +334,27 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
 
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) == 'TEACHER':
+        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return StudentDocument.objects.none()
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) == 'TEACHER':
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
