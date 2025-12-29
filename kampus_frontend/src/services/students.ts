@@ -86,13 +86,38 @@ export interface Student {
   documents: StudentDocument[]
 }
 
+const hasFile = (data: Record<string, unknown>): boolean =>
+  Object.values(data).some((v) => v instanceof File)
+
+const toFormData = (data: Record<string, unknown>): FormData => {
+  const fd = new FormData()
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined || value === null) continue
+    if (typeof value === 'string' && value.trim() === '' && key.endsWith('_date')) continue
+
+    if (value instanceof File) {
+      fd.append(key, value)
+      continue
+    }
+
+    if (typeof value === 'boolean') {
+      fd.append(key, value ? 'true' : 'false')
+      continue
+    }
+
+    fd.append(key, String(value))
+  }
+  return fd
+}
+
 export const studentsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<PaginatedResponse<Student>>('/api/students/', { params }),
   get: (id: number) => api.get<Student>(`/api/students/${id}/`),
-  create: (data: Record<string, unknown>) => api.post<Student>('/api/students/', data),
+  create: (data: Record<string, unknown>) =>
+    hasFile(data) ? api.post<Student>('/api/students/', toFormData(data)) : api.post<Student>('/api/students/', data),
   update: (id: number, data: Record<string, unknown>) =>
-    api.patch<Student>(`/api/students/${id}/`, data),
+    hasFile(data) ? api.patch<Student>(`/api/students/${id}/`, toFormData(data)) : api.patch<Student>(`/api/students/${id}/`, data),
 }
 
 export const documentsApi = {

@@ -80,6 +80,13 @@ class Teacher(models.Model):
         null=True, blank=True, verbose_name="Fecha de Contratación"
     )
 
+    photo = models.ImageField(
+        upload_to="teacher_photos/",
+        blank=True,
+        null=True,
+        verbose_name="Foto",
+    )
+
     def save(self, *args, **kwargs):
         if self.document_number == "":
             self.document_number = None

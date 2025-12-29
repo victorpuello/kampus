@@ -26,7 +26,7 @@ RUN chmod +x /app/entrypoint.sh
 EXPOSE 8000
 
 # Configurar entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "-c", "sed -i 's/\\r$//' /app/entrypoint.sh && exec /bin/sh /app/entrypoint.sh \"$@\"", "--"]
 
 # Comando por defecto
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

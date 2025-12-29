@@ -27,23 +27,28 @@ export default function AcademicConfigPanel() {
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Configuración Académica</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a la configuración académica.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  const tabs = ['general', 'institution', 'grades_levels', 'areas_subjects', 'study_plan', 'organization', 'evaluation'] as const
+  type Tab = typeof tabs[number]
+  const ACTIVE_TAB_STORAGE_KEY = 'kampus.academic_config.active_tab'
 
-  const [activeTab, setActiveTab] = useState<'general' | 'institution' | 'grades_levels' | 'areas_subjects' | 'study_plan' | 'organization' | 'evaluation'>('general')
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    try {
+      const saved = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY)
+      if (saved && (tabs as readonly string[]).includes(saved)) return saved as Tab
+    } catch {
+      // ignore
+    }
+    return 'general'
+  })
+
+  const setActiveTabPersisted = (tab: Tab) => {
+    setActiveTab(tab)
+    try {
+      localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab)
+    } catch {
+      // ignore
+    }
+  }
   
   // Data states
   const [years, setYears] = useState<AcademicYear[]>([])
@@ -97,6 +102,8 @@ export default function AcademicConfigPanel() {
   const [selectedSubjectGrade, setSelectedSubjectGrade] = useState<number | null>(null)
   const [copyFromGradeId, setCopyFromGradeId] = useState<string>('')
   const [showCopyModal, setShowCopyModal] = useState(false)
+  const [academicLoadToDelete, setAcademicLoadToDelete] = useState<number | null>(null)
+  const [deletingAcademicLoad, setDeletingAcademicLoad] = useState(false)
 
   // Groups state
   const [groupInput, setGroupInput] = useState({ 
@@ -110,6 +117,14 @@ export default function AcademicConfigPanel() {
   })
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
   const [isMultigrade, setIsMultigrade] = useState(false)
+
+  const GROUPS_PER_PAGE = 4
+  const [groupsPage, setGroupsPage] = useState(1)
+
+  const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false)
+  const [importingGroups, setImportingGroups] = useState(false)
+  const [importGroupsSourceYearId, setImportGroupsSourceYearId] = useState<number | null>(null)
+  const [importGroupsTargetYearId, setImportGroupsTargetYearId] = useState<number | null>(null)
 
   const [instInput, setInstInput] = useState({
     name: '',
@@ -159,6 +174,20 @@ export default function AcademicConfigPanel() {
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }
+
+  useEffect(() => {
+    // Reset pagination when the filtered year changes
+    setGroupsPage(1)
+  }, [groupInput.academic_year])
+
+  useEffect(() => {
+    // Clamp current page when underlying data changes
+    const yearId = groupInput.academic_year
+    if (!yearId) return
+    const filteredCount = groups.filter(g => g.academic_year.toString() === yearId).length
+    const totalPages = Math.max(1, Math.ceil(filteredCount / GROUPS_PER_PAGE))
+    if (groupsPage > totalPages) setGroupsPage(totalPages)
+  }, [groups, groupInput.academic_year, groupsPage])
 
   const toDateTimeLocal = (iso: string | null | undefined) => {
     if (!iso) return ''
@@ -228,11 +257,24 @@ export default function AcademicConfigPanel() {
       setCampuses(c.data)
       setUsers(u.data)
 
+      // Default Groups filter to ACTIVE year (if not selected)
+      const activeYear = y.data.find(year => year.status === 'ACTIVE')
+      setGroupInput(prev => {
+        if (prev.academic_year) return prev
+        return { ...prev, academic_year: activeYear ? String(activeYear.id) : '' }
+      })
+
+      // Default Period form year to ACTIVE year (if not selected and not editing)
+      setPeriodInput(prev => {
+        if (editingPeriodId) return prev
+        if (prev.academic_year) return prev
+        return { ...prev, academic_year: activeYear ? String(activeYear.id) : '' }
+      })
+
       if (!hasInitializedFilters) {
-        const currentYear = new Date().getFullYear()
-        const currentAcademicYear = y.data.find(year => year.year === currentYear)
-        if (currentAcademicYear) {
-          setSelectedScaleYear(currentAcademicYear.id)
+        if (activeYear) {
+          setSelectedScaleYear(activeYear.id)
+          setSelectedPeriodYear(activeYear.id)
         }
         setHasInitializedFilters(true)
       }
@@ -244,8 +286,25 @@ export default function AcademicConfigPanel() {
   }
 
   useEffect(() => {
+    if (isTeacher) return
     load()
-  }, [])
+  }, [isTeacher])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Configuración Académica</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder a la configuración académica.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const onAddYear = async (e: FormEvent) => {
     e.preventDefault()
@@ -365,6 +424,12 @@ export default function AcademicConfigPanel() {
   const onAddPeriod = async (e: FormEvent) => {
     e.preventDefault()
     if (!periodInput.name || !periodInput.start_date || !periodInput.end_date || !periodInput.academic_year) return
+
+    const selectedYearObj = years.find(y => y.id === parseInt(periodInput.academic_year))
+    if (selectedYearObj?.status === 'CLOSED') {
+      showToast('No se pueden crear o modificar periodos en un año lectivo finalizado.', 'error')
+      return
+    }
     try {
       const gradesEditUntilIso = periodInput.grades_edit_until ? dateTimeLocalToIso(periodInput.grades_edit_until) : null
       const planningEditUntilIso = periodInput.planning_edit_until ? dateTimeLocalToIso(periodInput.planning_edit_until) : null
@@ -406,6 +471,11 @@ export default function AcademicConfigPanel() {
   }
 
   const onEditPeriod = (period: Period) => {
+    const yearObj = years.find(y => y.id === period.academic_year)
+    if (yearObj?.status === 'CLOSED') {
+      showToast('No se pueden editar periodos de un año lectivo finalizado.', 'error')
+      return
+    }
     setPeriodInput({
       name: period.name,
       start_date: period.start_date,
@@ -418,6 +488,12 @@ export default function AcademicConfigPanel() {
   }
 
   const onDeletePeriod = (id: number) => {
+    const periodObj = periods.find(p => p.id === id)
+    const yearObj = years.find(y => y.id === periodObj?.academic_year)
+    if (yearObj?.status === 'CLOSED') {
+      showToast('No se pueden eliminar periodos de un año lectivo finalizado.', 'error')
+      return
+    }
     setItemToDelete(id)
     setDeleteType('period')
     setDeleteModalOpen(true)
@@ -726,11 +802,23 @@ export default function AcademicConfigPanel() {
   }
 
   const onDeleteAcademicLoad = (id: number) => {
-    if (!window.confirm('¿Estás seguro de eliminar esta carga académica?')) return
-    academicApi.deleteAcademicLoad(id).then(() => {
+    setAcademicLoadToDelete(id)
+  }
+
+  const confirmDeleteAcademicLoad = async () => {
+    if (academicLoadToDelete === null || deletingAcademicLoad) return
+    setDeletingAcademicLoad(true)
+    try {
+      await academicApi.deleteAcademicLoad(academicLoadToDelete)
       showToast('Carga académica eliminada', 'success')
-      load()
-    }).catch(_err => showToast('Error al eliminar', 'error'))
+      setAcademicLoadToDelete(null)
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al eliminar la carga académica'), 'error')
+    } finally {
+      setDeletingAcademicLoad(false)
+    }
   }
 
   const onCancelEditAcademicLoad = () => {
@@ -978,6 +1066,53 @@ export default function AcademicConfigPanel() {
     setIsMultigrade(false)
   }
 
+  const findPreviousAcademicYearId = (targetYearId: number) => {
+    const targetYear = years.find((y) => y.id === targetYearId)
+    if (!targetYear) return null
+
+    const exactPrev = years.find((y) => y.year === targetYear.year - 1)
+    if (exactPrev) return exactPrev.id
+
+    const prevBySort = years
+      .filter((y) => y.year < targetYear.year)
+      .sort((a, b) => b.year - a.year)[0]
+
+    return prevBySort ? prevBySort.id : null
+  }
+
+  const openImportGroupsModal = () => {
+    if (!groupInput.academic_year) {
+      showToast('Selecciona un año destino para importar grupos', 'error')
+      return
+    }
+    const targetYearId = parseInt(groupInput.academic_year)
+    const sourceYearId = findPreviousAcademicYearId(targetYearId)
+    if (!sourceYearId) {
+      showToast('No se encontró un año anterior para importar grupos', 'error')
+      return
+    }
+
+    setImportGroupsTargetYearId(targetYearId)
+    setImportGroupsSourceYearId(sourceYearId)
+    setImportGroupsModalOpen(true)
+  }
+
+  const confirmImportGroups = async () => {
+    if (!importGroupsSourceYearId || !importGroupsTargetYearId) return
+    setImportingGroups(true)
+    try {
+      const res = await academicApi.copyGroupsFromYear(importGroupsSourceYearId, importGroupsTargetYearId)
+      showToast(res.data?.message || 'Grupos importados correctamente', 'success')
+      setImportGroupsModalOpen(false)
+      await load()
+    } catch (error: any) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al importar grupos'), 'error')
+    } finally {
+      setImportingGroups(false)
+    }
+  }
+
   const onAddScale = async (e: FormEvent) => {
     e.preventDefault()
     if (!scaleInput.name || !scaleInput.academic_year) {
@@ -1107,10 +1242,10 @@ export default function AcademicConfigPanel() {
       </div>
 
       <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto border border-slate-200">
-        {(['general', 'institution', 'grades_levels', 'areas_subjects', 'study_plan', 'organization', 'evaluation'] as const).map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setActiveTabPersisted(tab)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
               activeTab === tab 
                 ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5' 
@@ -1122,7 +1257,7 @@ export default function AcademicConfigPanel() {
             {tab === 'grades_levels' && 'Grados y Niveles'}
             {tab === 'areas_subjects' && 'Áreas y Asignaturas'}
             {tab === 'study_plan' && 'Plan de Estudios'}
-            {tab === 'organization' && 'Organización'}
+            {tab === 'organization' && 'Grupos'}
             {tab === 'evaluation' && 'Evaluación (SIEE)'}
           </button>
         ))}
@@ -1225,10 +1360,20 @@ export default function AcademicConfigPanel() {
                   value={selectedPeriodYear || ''}
                   onChange={(e) => setSelectedPeriodYear(e.target.value ? parseInt(e.target.value) : null)}
                 >
-                  <option value="">Año Actual</option>
+                  <option value="">Año Activo</option>
                   {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
                 </select>
               </div>
+
+              {(() => {
+                const displayYearObj = years.find(y => y.id === selectedPeriodYear) || years.find(y => y.status === 'ACTIVE')
+                if (displayYearObj?.status !== 'CLOSED') return null
+                return (
+                  <div className="bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg p-3">
+                    Este año lectivo está finalizado. No se pueden editar ni eliminar periodos.
+                  </div>
+                )
+              })()}
 
               <form onSubmit={onAddPeriod} className="space-y-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <select
@@ -1288,9 +1433,8 @@ export default function AcademicConfigPanel() {
               </form>
               <div className="space-y-2">
                 {(() => {
-                  const currentYear = new Date().getFullYear()
-                  const currentYearObj = years.find(y => y.year === currentYear)
-                  const displayYearId = selectedPeriodYear || currentYearObj?.id
+                  const activeYearObj = years.find(y => y.status === 'ACTIVE')
+                  const displayYearId = selectedPeriodYear || activeYearObj?.id
                   const filteredPeriods = periods.filter(p => displayYearId ? p.academic_year === displayYearId : false)
 
                   if (filteredPeriods.length === 0) return <p className="text-slate-400 text-sm italic text-center py-4">No hay periodos para el año seleccionado.</p>
@@ -1320,10 +1464,16 @@ export default function AcademicConfigPanel() {
                           </div>
                         )}
                       </div>
-                      <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100" onClick={() => onEditPeriod(p)}>✎</Button>
-                        <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeletePeriod(p.id)}>×</Button>
-                      </div>
+                      {(() => {
+                        const yearObj = years.find(y => y.id === p.academic_year)
+                        if (yearObj?.status === 'CLOSED') return null
+                        return (
+                          <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100" onClick={() => onEditPeriod(p)}>✎</Button>
+                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeletePeriod(p.id)}>×</Button>
+                          </div>
+                        )
+                      })()}
                     </div>
                   ))
                 })()}
@@ -2184,82 +2334,180 @@ export default function AcademicConfigPanel() {
           <div className="md:col-span-2 space-y-6">
             <Card className="border-t-4 border-t-cyan-500 shadow-sm">
               <CardHeader className="bg-slate-50/50 border-b pb-3">
-                <CardTitle className="text-cyan-800 flex items-center gap-2">
-                  📋 Grupos Configurados
-                </CardTitle>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="text-cyan-800 flex items-center gap-2">
+                    📋 Grupos Configurados
+                  </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-cyan-600 border-cyan-200 hover:bg-cyan-50"
+                    onClick={openImportGroupsModal}
+                    disabled={!groupInput.academic_year || editingGroupId !== null}
+                  >
+                    📥 Importar del año anterior
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
-                <div className="flex items-center justify-between bg-cyan-50 p-3 rounded-lg border border-cyan-100 mb-4">
-                  <span className="text-sm font-bold text-cyan-700">Filtrar por Año:</span>
-                  <select
-                    className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500"
-                    value={groupInput.academic_year}
-                    onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
-                  >
-                    <option value="">Todos</option>
-                    {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
-                  </select>
-                </div>
+                {years.filter(y => y.status === 'ACTIVE').length === 0 ? (
+                  <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
+                    <p className="text-lg font-medium">No hay un año lectivo activo</p>
+                    <p className="text-sm">Activa un año para visualizar los grupos.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between bg-cyan-50 p-3 rounded-lg border border-cyan-100 mb-4">
+                      <span className="text-sm font-bold text-cyan-700">Filtrar por Año:</span>
+                      <select
+                        className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500"
+                        value={groupInput.academic_year}
+                        onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
+                      >
+                        {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
+                      </select>
+                    </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {groups
-                    .filter(g => !groupInput.academic_year || g.academic_year.toString() === groupInput.academic_year)
-                    .map((g) => (
-                    <div key={g.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md transition-all hover:border-cyan-300 relative group">
-                      <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-cyan-600 hover:bg-cyan-100" onClick={() => onEditGroup(g)}>✎</Button>
-                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100" onClick={() => onDeleteGroup(g.id)}>×</Button>
-                      </div>
-                      
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <div className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                            {g.grade_name} - {g.name}
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-                              g.shift === 'MORNING' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 
-                              g.shift === 'AFTERNOON' ? 'bg-orange-100 text-orange-700 border-orange-200' : 
-                              g.shift === 'NIGHT' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 
-                              'bg-slate-100 text-slate-600 border-slate-200'
+                    {(() => {
+                      const yearId = groupInput.academic_year
+                      const gradeById = new Map(grades.map(gr => [gr.id, gr]))
+                      const levelById = new Map(levels.map(l => [l.id, l]))
+                      const order: Record<string, number> = { PRESCHOOL: 1, PRIMARY: 2, SECONDARY: 3, MEDIA: 4 }
+                      const orderedLevels = [...levels].sort((a, b) => {
+                        const ta = order[a.level_type] || 99
+                        const tb = order[b.level_type] || 99
+                        if (ta !== tb) return ta - tb
+                        return (a.name || '').localeCompare(b.name || '')
+                      })
+                      const levelIndexById = new Map(orderedLevels.map((l, idx) => [l.id, idx]))
+
+                      const getLevelMetaForGroup = (g: Group) => {
+                        const grade = gradeById.get(g.grade)
+                        const levelId = grade?.level ?? null
+                        const levelName = levelId ? levelById.get(levelId)?.name ?? null : null
+                        const levelIndex = levelId != null && levelIndexById.has(levelId) ? (levelIndexById.get(levelId) as number) : 999
+                        return { levelId, levelName: levelName || 'Sin Nivel', levelIndex }
+                      }
+
+                      const filteredGroups = groups
+                        .filter(g => yearId && g.academic_year.toString() === yearId)
+                        .slice()
+                        .sort((a, b) => {
+                          const am = getLevelMetaForGroup(a)
+                          const bm = getLevelMetaForGroup(b)
+                          if (am.levelIndex !== bm.levelIndex) return am.levelIndex - bm.levelIndex
+
+                          const gradeCmp = (a.grade_name || '').localeCompare(b.grade_name || '')
+                          if (gradeCmp !== 0) return gradeCmp
+
+                          return (a.name || '').localeCompare(b.name || '')
+                        })
+
+                      const totalPages = Math.max(1, Math.ceil(filteredGroups.length / GROUPS_PER_PAGE))
+                      const currentPage = Math.min(groupsPage, totalPages)
+                      const pageItems = filteredGroups.slice(
+                        (currentPage - 1) * GROUPS_PER_PAGE,
+                        currentPage * GROUPS_PER_PAGE
+                      )
+
+                      if (filteredGroups.length === 0) {
+                        return (
+                          <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
+                            <p className="text-lg font-medium">No hay grupos configurados</p>
+                            <p className="text-sm">Intenta cambiar el filtro de año o crea un nuevo grupo.</p>
+                          </div>
+                        )
+                      }
+
+                      const groupCard = (g: Group) => (
+                        (() => {
+                          const meta = getLevelMetaForGroup(g)
+                          return (
+                        <div key={g.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md transition-all hover:border-cyan-300 group">
+                          <div className="flex justify-between items-start mb-2 gap-3">
+                            <div>
+                              <div className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                {g.grade_name} - {g.name}
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
+                                  g.shift === 'MORNING' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                                  g.shift === 'AFTERNOON' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                                  g.shift === 'NIGHT' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' :
+                                  'bg-slate-100 text-slate-600 border-slate-200'
+                                }`}>
+                                  {g.shift === 'MORNING' ? 'Mañana' :
+                                   g.shift === 'AFTERNOON' ? 'Tarde' :
+                                   g.shift === 'NIGHT' ? 'Noche' :
+                                   g.shift === 'FULL' ? 'Única' : 'Fin de Semana'}
+                                </span>
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
+                                  Nivel: {meta.levelName}
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                                <span className="flex items-center gap-1"><span className="text-slate-400">🏢</span> {g.campus_name || 'Sin Sede'}</span>
+                                {g.classroom && <span className="flex items-center gap-1"><span className="text-slate-400">🚪</span> Salón {g.classroom}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-start gap-1">
+                              <div className="text-xs font-bold bg-cyan-50 text-cyan-700 px-2 py-1 rounded border border-cyan-100">
+                                {years.find(y => y.id === g.academic_year)?.year}
+                              </div>
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-cyan-600 hover:bg-cyan-100 cursor-pointer" onClick={() => onEditGroup(g)}>✎</Button>
+                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100 cursor-pointer" onClick={() => onDeleteGroup(g.id)}>×</Button>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-3">
+                            <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                              g.director_name ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'
                             }`}>
-                              {g.shift === 'MORNING' ? 'Mañana' : 
-                               g.shift === 'AFTERNOON' ? 'Tarde' : 
-                               g.shift === 'NIGHT' ? 'Noche' : 
-                               g.shift === 'FULL' ? 'Única' : 'Fin de Semana'}
-                            </span>
-                          </div>
-                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                            <span className="flex items-center gap-1"><span className="text-slate-400">🏢</span> {g.campus_name || 'Sin Sede'}</span>
-                            {g.classroom && <span className="flex items-center gap-1"><span className="text-slate-400">🚪</span> Salón {g.classroom}</span>}
-                          </div>
-                        </div>
-                        <div className="text-xs font-bold bg-cyan-50 text-cyan-700 px-2 py-1 rounded border border-cyan-100">
-                          {years.find(y => y.id === g.academic_year)?.year}
-                        </div>
-                      </div>
-                      
-                      <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-3">
-                        <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                          g.director_name ? 'bg-cyan-100 text-cyan-700' : 'bg-slate-100 text-slate-400'
-                        }`}>
-                          {g.director_name ? g.director_name.charAt(0) : '?'}
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Director de Grupo</div>
-                          <div className={`text-sm font-medium ${g.director_name ? 'text-slate-700' : 'text-slate-400 italic'}`}>
-                            {g.director_name || 'Sin asignar'}
+                              {g.director_name ? g.director_name.charAt(0) : '?'}
+                            </div>
+                            <div>
+                              <div className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Director de Grupo</div>
+                              <div className={`text-sm font-medium ${g.director_name ? 'text-slate-700' : 'text-slate-400 italic'}`}>
+                                {g.director_name || 'Sin asignar'}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {groups.filter(g => !groupInput.academic_year || g.academic_year.toString() === groupInput.academic_year).length === 0 && (
-                    <div className="col-span-full text-center py-12 text-slate-400 border-2 border-dashed border-slate-300 rounded-lg bg-slate-50">
-                      <p className="text-lg font-medium">No hay grupos configurados</p>
-                      <p className="text-sm">Intenta cambiar el filtro de año o crea un nuevo grupo.</p>
-                    </div>
-                  )}
-                </div>
+                          )
+                        })()
+                      )
+
+                      return (
+                        <div className="space-y-5">
+                          {totalPages > 1 && (
+                            <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200">
+                              <div className="text-xs text-slate-500">
+                                Página {currentPage} de {totalPages} • {filteredGroups.length} grupos
+                              </div>
+                              <div className="flex flex-wrap gap-1 justify-end">
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                                  <Button
+                                    key={p}
+                                    variant={p === currentPage ? 'secondary' : 'outline'}
+                                    size="sm"
+                                    className="h-8 px-2"
+                                    onClick={() => setGroupsPage(p)}
+                                    aria-current={p === currentPage ? 'page' : undefined}
+                                  >
+                                    {p}
+                                  </Button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {pageItems.map(groupCard)}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -2450,6 +2698,31 @@ export default function AcademicConfigPanel() {
         description={`¿Estás seguro de que deseas eliminar ${deleteType === 'year' ? 'este año lectivo' : deleteType === 'period' ? 'este periodo' : 'esta sede'}? Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         variant="destructive"
+      />
+
+      <ConfirmationModal
+        isOpen={academicLoadToDelete !== null}
+        onClose={() => {
+          if (!deletingAcademicLoad) setAcademicLoadToDelete(null)
+        }}
+        onConfirm={confirmDeleteAcademicLoad}
+        title="Eliminar Carga Académica"
+        description="¿Estás seguro de eliminar esta carga académica? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        variant="destructive"
+        loading={deletingAcademicLoad}
+      />
+
+      <ConfirmationModal
+        isOpen={importGroupsModalOpen}
+        onClose={() => {
+          if (!importingGroups) setImportGroupsModalOpen(false)
+        }}
+        onConfirm={confirmImportGroups}
+        title="Importar grupos del año anterior"
+        description={`Se importarán los grupos del año ${years.find((y) => y.id === importGroupsSourceYearId)?.year ?? ''} al año ${years.find((y) => y.id === importGroupsTargetYearId)?.year ?? ''}. Si el año destino ya tiene grupos, se bloqueará la importación.`}
+        confirmText="Importar"
+        loading={importingGroups}
       />
 
       {/* Copy Scales Modal */}

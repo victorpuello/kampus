@@ -27,6 +27,8 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - KAMPUS_RUN_MIGRATIONS=true
+      - KAMPUS_CREATE_SUPERUSER=true
     depends_on:
       - db
     command: python manage.py runserver 0.0.0.0:8000
@@ -46,6 +48,8 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - KAMPUS_RUN_MIGRATIONS=false
+      - KAMPUS_CREATE_SUPERUSER=false
       - DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE=24
       - DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS=900
     depends_on:

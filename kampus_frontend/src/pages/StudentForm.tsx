@@ -269,8 +269,18 @@ export default function StudentForm() {
     has_disability: false,
     disability_description: '',
     disability_type: '',
-    support_needs: '',
-  })
+        support_needs: '',
+    })
+
+    const [studentPhotoUrl, setStudentPhotoUrl] = useState<string | null>(null)
+    const [studentPhotoFile, setStudentPhotoFile] = useState<File | null>(null)
+    const [studentPhotoPreviewUrl, setStudentPhotoPreviewUrl] = useState<string | null>(null)
+
+    useEffect(() => {
+        return () => {
+            if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
+        }
+    }, [studentPhotoPreviewUrl])
 
     useEffect(() => {
         let mounted = true
@@ -311,6 +321,7 @@ export default function StudentForm() {
       studentsApi.get(Number(id))
         .then(res => {
           const student = res.data
+                  setStudentPhotoUrl(student.photo || null)
           
           // Parse place_of_issue if possible
           let dept = ''
@@ -373,6 +384,13 @@ export default function StudentForm() {
         .finally(() => setLoading(false))
     }
     }, [id, isEditing, isTeacher, teacherHasDirectedGroup])
+    const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0] || null
+        setStudentPhotoFile(file)
+
+        if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
+        setStudentPhotoPreviewUrl(file ? URL.createObjectURL(file) : null)
+    }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
@@ -440,14 +458,23 @@ export default function StudentForm() {
         ...formData,
         place_of_issue: finalPlaceOfIssue,
         birth_date: formData.birth_date || null,
+                ...(studentPhotoFile ? { photo: studentPhotoFile } : {}),
       }
 
       if (isEditing) {
-        await studentsApi.update(Number(id), payload)
+                const res = await studentsApi.update(Number(id), payload)
+                setStudentPhotoUrl(res.data.photo || studentPhotoUrl)
+                setStudentPhotoFile(null)
+                if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
+                setStudentPhotoPreviewUrl(null)
         if (nextTab) setActiveTab(nextTab)
         else navigate('/students')
       } else {
-        const res = await studentsApi.create(payload)
+                const res = await studentsApi.create(payload)
+                setStudentPhotoUrl(res.data.photo || null)
+                setStudentPhotoFile(null)
+                if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
+                setStudentPhotoPreviewUrl(null)
         const newId = res.data.user.id
         // Navigate to edit mode but keep state
         navigate(`/students/${newId}`, { replace: true })
@@ -599,6 +626,31 @@ export default function StudentForm() {
                 <div className="space-y-2">
                     <Label>Apellidos</Label>
                     <Input name="last_name" value={formData.last_name} onChange={handleChange} required disabled={!canEdit} />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="student_photo">Foto</Label>
+                    <div className="flex items-center gap-4">
+                        {(studentPhotoPreviewUrl || studentPhotoUrl) ? (
+                            <img
+                                src={studentPhotoPreviewUrl || studentPhotoUrl || ''}
+                                alt="Foto del estudiante"
+                                className="h-16 w-16 rounded-full object-cover border border-slate-200"
+                            />
+                        ) : (
+                            <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50" />
+                        )}
+
+                        <input
+                            id="student_photo"
+                            name="photo"
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                            disabled={!canEdit}
+                            className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+                        />
+                    </div>
                 </div>
                 
                 <div className="col-span-full border-t my-2"></div>

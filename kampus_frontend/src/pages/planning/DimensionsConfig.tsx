@@ -12,6 +12,10 @@ export default function DimensionsConfig() {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copySourceYearId, setCopySourceYearId] = useState<number | null>(null);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState<Partial<Dimension>>({
     name: '',
@@ -38,6 +42,34 @@ export default function DimensionsConfig() {
       if (active) setSelectedYear(active.id);
     } catch (error) {
       console.error("Error loading years", error);
+    }
+  };
+
+  const openCopyModal = () => {
+    if (!selectedYear) return;
+    setCopyError(null);
+    const firstOther = years.find(y => y.id !== selectedYear);
+    setCopySourceYearId(firstOther ? firstOther.id : null);
+    setShowCopyModal(true);
+  };
+
+  const handleCopyFromYear = async () => {
+    if (!selectedYear || !copySourceYearId) return;
+    setCopying(true);
+    setCopyError(null);
+    try {
+      await academicApi.copyDimensionsFromYear(copySourceYearId, selectedYear);
+      setShowCopyModal(false);
+      await loadDimensions(selectedYear);
+    } catch (error: any) {
+      const msg =
+        error?.response?.data?.error ||
+        error?.response?.data?.detail ||
+        'Error al copiar dimensiones';
+      setCopyError(msg);
+      console.error('Error copying dimensions', error);
+    } finally {
+      setCopying(false);
     }
   };
 
@@ -109,6 +141,14 @@ export default function DimensionsConfig() {
               <option key={y.id} value={y.id}>Año {y.year} ({y.status_display})</option>
             ))}
           </select>
+          <button
+            onClick={openCopyModal}
+            disabled={!selectedYear || years.length < 2}
+            className="bg-slate-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            title={years.length < 2 ? 'Debes tener al menos 2 años lectivos' : 'Copiar dimensiones desde otro año'}
+          >
+            <Save size={20} /> Copiar de otro año
+          </button>
           <button 
             onClick={() => { setShowForm(true); setEditingId(null); setFormData({ name: '', description: '', percentage: 0, is_active: true }); }}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
@@ -117,6 +157,65 @@ export default function DimensionsConfig() {
           </button>
         </div>
       </div>
+
+      {showCopyModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all p-4">
+          <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-slate-900">Copiar Dimensiones</h2>
+              <button onClick={() => setShowCopyModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-600 mb-4">
+              Copia las dimensiones del año origen al año seleccionado.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Año origen</label>
+                <select
+                  value={copySourceYearId || ''}
+                  onChange={(e) => setCopySourceYearId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  {years
+                    .filter(y => y.id !== selectedYear)
+                    .map(y => (
+                      <option key={y.id} value={y.id}>Año {y.year} ({y.status_display})</option>
+                    ))}
+                </select>
+              </div>
+
+              {copyError && (
+                <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded p-2">
+                  {copyError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowCopyModal(false)}
+                  className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium text-sm"
+                  disabled={copying}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyFromYear}
+                  disabled={!copySourceYearId || copying}
+                  className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {copying ? 'Copiando...' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Stats / Validation */}
       <div className="grid gap-4 md:grid-cols-1">

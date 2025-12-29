@@ -42,6 +42,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "teaching_level",
             "assigned_hours",
             "hiring_date",
+            "photo",
         ]
 
     def get_assigned_hours(self, obj):

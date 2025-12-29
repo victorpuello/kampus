@@ -298,6 +298,8 @@ export const academicApi = {
   createGroup: (data: GroupUpsertPayload) => api.post<Group>('/api/groups/', data),
   updateGroup: (id: number, data: GroupUpsertPayload) => api.put<Group>(`/api/groups/${id}/`, data),
   deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),
+  copyGroupsFromYear: (sourceYearId: number, targetYearId: number) =>
+    api.post('/api/groups/copy_from_year/', { source_year_id: sourceYearId, target_year_id: targetYearId }),
 
   // Areas
   listAreas: () => api.get<Area[]>('/api/areas/'),
@@ -384,6 +386,8 @@ export const academicApi = {
   createDimension: (data: Partial<Dimension>) => api.post<Dimension>('/api/dimensions/', data),
   updateDimension: (id: number, data: Partial<Dimension>) => api.put<Dimension>(`/api/dimensions/${id}/`, data),
   deleteDimension: (id: number) => api.delete(`/api/dimensions/${id}/`),
+  copyDimensionsFromYear: (sourceYearId: number, targetYearId: number) =>
+    api.post('/api/dimensions/copy_from_year/', { source_year_id: sourceYearId, target_year_id: targetYearId }),
 
   listEvaluationComponents: () => api.get<EvaluationComponent[]>('/api/evaluation-components/'),
   createEvaluationComponent: (data: Omit<EvaluationComponent, 'id'>) => api.post<EvaluationComponent>('/api/evaluation-components/', data),

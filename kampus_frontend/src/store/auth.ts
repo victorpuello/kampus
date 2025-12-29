@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { authApi } from '../services/api'
 
+const AUTH_LOGOUT_EVENT = 'kampus:auth:logout'
+
 export type User = {
   id: number
   username: string
@@ -67,4 +69,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 }))
+
+// Keep UI state in sync when the API layer detects invalid/expired tokens.
+if (typeof window !== 'undefined') {
+  window.addEventListener(AUTH_LOGOUT_EVENT, () => {
+    useAuthStore.getState().logout()
+  })
+}
 

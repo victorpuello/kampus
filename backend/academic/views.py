@@ -92,6 +92,16 @@ class PeriodViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['academic_year']
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        academic_year = getattr(instance, "academic_year", None)
+        if academic_year is not None and getattr(academic_year, "status", None) == AcademicYear.STATUS_CLOSED:
+            return Response(
+                {"detail": "No se pueden eliminar periodos de un año lectivo finalizado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class AcademicLevelViewSet(viewsets.ModelViewSet):
     queryset = AcademicLevel.objects.all()
@@ -110,6 +120,64 @@ class GroupViewSet(viewsets.ModelViewSet):
     serializer_class = GroupSerializer
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['grade', 'academic_year', 'director']
+
+    @action(detail=False, methods=['post'], url_path='copy_from_year')
+    def copy_from_year(self, request):
+        source_year_id = request.data.get('source_year_id')
+        target_year_id = request.data.get('target_year_id')
+
+        if not source_year_id or not target_year_id:
+            return Response(
+                {"error": "source_year_id and target_year_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            source_year_id = int(source_year_id)
+            target_year_id = int(target_year_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "source_year_id and target_year_id must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if source_year_id == target_year_id:
+            return Response(
+                {"error": "source_year_id and target_year_id must be different"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        source_groups = Group.objects.filter(academic_year_id=source_year_id)
+        if not source_groups.exists():
+            return Response(
+                {"error": "No groups found in source year"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if Group.objects.filter(academic_year_id=target_year_id).exists():
+            return Response(
+                {
+                    "error": "El año destino ya tiene grupos configurados. Elimina o ajusta antes de importar."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_count = 0
+        with transaction.atomic():
+            for group in source_groups:
+                Group.objects.create(
+                    academic_year_id=target_year_id,
+                    name=group.name,
+                    grade_id=group.grade_id,
+                    campus_id=group.campus_id,
+                    director_id=group.director_id,
+                    shift=group.shift,
+                    classroom=group.classroom,
+                    capacity=group.capacity,
+                )
+                created_count += 1
+
+        return Response({"message": f"Se copiaron {created_count} grupos correctamente"})
 
 
 class AreaViewSet(viewsets.ModelViewSet):
@@ -404,6 +472,61 @@ class DimensionViewSet(viewsets.ModelViewSet):
     serializer_class = DimensionSerializer
     permission_classes = [KampusModelPermissions]
     filterset_fields = ["academic_year", "is_active"]
+
+    @action(detail=False, methods=['post'], url_path='copy_from_year')
+    def copy_from_year(self, request):
+        source_year_id = request.data.get('source_year_id')
+        target_year_id = request.data.get('target_year_id')
+
+        if not source_year_id or not target_year_id:
+            return Response(
+                {"error": "source_year_id and target_year_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            source_year_id = int(source_year_id)
+            target_year_id = int(target_year_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"error": "source_year_id and target_year_id must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if source_year_id == target_year_id:
+            return Response(
+                {"error": "source_year_id and target_year_id must be different"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        source_dims = Dimension.objects.filter(academic_year_id=source_year_id)
+        if not source_dims.exists():
+            return Response(
+                {"error": "No dimensions found in source year"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if Dimension.objects.filter(academic_year_id=target_year_id).exists():
+            return Response(
+                {
+                    "error": "El año destino ya tiene dimensiones configuradas. Elimina o ajusta antes de copiar."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_count = 0
+        with transaction.atomic():
+            for dim in source_dims:
+                Dimension.objects.create(
+                    academic_year_id=target_year_id,
+                    name=dim.name,
+                    description=dim.description,
+                    percentage=dim.percentage,
+                    is_active=dim.is_active,
+                )
+                created_count += 1
+
+        return Response({"message": f"Se copiaron {created_count} dimensiones correctamente"})
 
     def create(self, request, *args, **kwargs):
         try:

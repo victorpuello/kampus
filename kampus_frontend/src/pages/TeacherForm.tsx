@@ -52,22 +52,6 @@ export default function TeacherForm() {
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Docentes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para crear o editar docentes.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const [loading, setLoading] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -136,6 +120,16 @@ export default function TeacherForm() {
     teaching_level: 'SECONDARY',
     hiring_date: '',
   })
+
+  const [teacherPhotoUrl, setTeacherPhotoUrl] = useState<string | null>(null)
+  const [teacherPhotoFile, setTeacherPhotoFile] = useState<File | null>(null)
+  const [teacherPhotoPreviewUrl, setTeacherPhotoPreviewUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (teacherPhotoPreviewUrl) URL.revokeObjectURL(teacherPhotoPreviewUrl)
+    }
+  }, [teacherPhotoPreviewUrl])
 
   const [activeTab, setActiveTab] = useState<'info' | 'assignments'>('info')
   
@@ -225,6 +219,9 @@ export default function TeacherForm() {
     return groups.filter(g => g.academic_year === Number(selectedYear))
   }
 
+  const selectedYearObj = years.find((y) => y.id === Number(selectedYear))
+  const isSelectedYearClosed = selectedYearObj?.status === 'CLOSED'
+
   const getFilteredLoads = () => {
     if (!newAssignment.group) return []
     const group = groups.find(g => g.id === Number(newAssignment.group))
@@ -265,6 +262,7 @@ export default function TeacherForm() {
       teachersApi.getById(Number(id))
         .then(res => {
           const teacher = res.data
+          setTeacherPhotoUrl(teacher.photo || null)
           setFormData({
             first_name: teacher.user.first_name,
             last_name: teacher.user.last_name,
@@ -288,6 +286,14 @@ export default function TeacherForm() {
         .finally(() => setLoading(false))
     }
   }, [id, isEditing])
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null
+    setTeacherPhotoFile(file)
+
+    if (teacherPhotoPreviewUrl) URL.revokeObjectURL(teacherPhotoPreviewUrl)
+    setTeacherPhotoPreviewUrl(file ? URL.createObjectURL(file) : null)
+  }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
@@ -321,13 +327,22 @@ export default function TeacherForm() {
       const payload = {
         ...formData,
         hiring_date: formData.hiring_date || null,
+        ...(teacherPhotoFile ? { photo: teacherPhotoFile } : {}),
       }
 
       if (isEditing) {
-        await teachersApi.update(Number(id), payload)
+        const res = await teachersApi.update(Number(id), payload)
+        setTeacherPhotoUrl(res.data.photo || teacherPhotoUrl)
+        setTeacherPhotoFile(null)
+        if (teacherPhotoPreviewUrl) URL.revokeObjectURL(teacherPhotoPreviewUrl)
+        setTeacherPhotoPreviewUrl(null)
         showToast('Docente actualizado correctamente', 'success')
       } else {
-        await teachersApi.create(payload)
+        const res = await teachersApi.create(payload)
+        setTeacherPhotoUrl(res.data.photo || null)
+        setTeacherPhotoFile(null)
+        if (teacherPhotoPreviewUrl) URL.revokeObjectURL(teacherPhotoPreviewUrl)
+        setTeacherPhotoPreviewUrl(null)
         showToast('Docente creado correctamente', 'success')
       }
       setTimeout(() => navigate('/teachers'), 1500)
@@ -343,6 +358,22 @@ export default function TeacherForm() {
     if (formData.regime === '2277') return SCALE_OPTIONS_2277
     if (formData.regime === '1278') return SCALE_OPTIONS_1278
     return []
+  }
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Docentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para crear o editar docentes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   if (loading && isEditing) return <div className="p-6" role="status" aria-live="polite">Cargando...</div>
@@ -437,6 +468,29 @@ export default function TeacherForm() {
                   onChange={handleChange}
                   required
                 />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="photo">Foto</Label>
+                <div className="flex items-center gap-4">
+                  {(teacherPhotoPreviewUrl || teacherPhotoUrl) ? (
+                    <img
+                      src={teacherPhotoPreviewUrl || teacherPhotoUrl || ''}
+                      alt="Foto del docente"
+                      className="h-16 w-16 rounded-full object-cover border border-slate-200"
+                    />
+                  ) : (
+                    <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50" />
+                  )}
+                  <input
+                    id="photo"
+                    name="photo"
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoChange}
+                    className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -595,6 +649,11 @@ export default function TeacherForm() {
                       <option key={y.id} value={y.id}>{y.year} {y.status_display ? `(${y.status_display})` : ''}</option>
                     ))}
                   </select>
+                  {isSelectedYearClosed && (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Año finalizado: no se permiten nuevas asignaciones.
+                    </p>
+                  )}
                 </div>
                 
                 <div className="flex-1 bg-slate-50 p-3 rounded-lg border border-slate-200">
@@ -635,6 +694,7 @@ export default function TeacherForm() {
                     id="teacher-assignment-group"
                     value={newAssignment.group}
                     onChange={(e) => setNewAssignment(prev => ({ ...prev, group: e.target.value, academic_load: '' }))}
+                    disabled={isSelectedYearClosed}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Seleccione un grupo</option>
@@ -649,7 +709,7 @@ export default function TeacherForm() {
                     id="teacher-assignment-academic-load"
                     value={newAssignment.academic_load}
                     onChange={(e) => setNewAssignment(prev => ({ ...prev, academic_load: e.target.value }))}
-                    disabled={!newAssignment.group}
+                    disabled={!newAssignment.group || isSelectedYearClosed}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
                   >
                     <option value="">Seleccione una asignatura</option>
@@ -658,7 +718,7 @@ export default function TeacherForm() {
                     ))}
                   </select>
                 </div>
-                <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load}>
+                <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load || isSelectedYearClosed}>
                   <Plus className="mr-2 h-4 w-4" /> Agregar
                 </Button>
               </div>

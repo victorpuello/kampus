@@ -1,7 +1,7 @@
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import HttpResponse
@@ -38,6 +38,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.select_related("user").all().order_by("user__id")
     serializer_class = StudentSerializer
     permission_classes = [KampusModelPermissions]
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
     pagination_class = StudentPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ['user__first_name', 'user__last_name', 'document_number']

@@ -53,9 +53,18 @@ class PeriodSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
     def validate(self, data):
+        # Prevent creating/updating periods in finalized academic years
+        academic_year = data.get("academic_year")
+        if academic_year is None and self.instance is not None:
+            academic_year = getattr(self.instance, "academic_year", None)
+
+        if academic_year is not None and getattr(academic_year, "status", None) == AcademicYear.STATUS_CLOSED:
+            raise serializers.ValidationError(
+                {"academic_year": "No se pueden crear o modificar periodos en un año lectivo finalizado."}
+            )
+
         start_date = data.get("start_date")
         end_date = data.get("end_date")
-        academic_year = data.get("academic_year")
 
         if start_date and end_date and start_date > end_date:
             raise serializers.ValidationError(
@@ -164,6 +173,29 @@ class TeacherAssignmentSerializer(serializers.ModelSerializer):
                 message='Esta asignatura ya tiene un docente asignado en este grupo para el año seleccionado.'
             )
         ]
+
+    def validate(self, attrs):
+        academic_year = attrs.get("academic_year")
+        group = attrs.get("group")
+
+        if academic_year is None and self.instance is not None:
+            academic_year = getattr(self.instance, "academic_year", None)
+
+        if group is None and self.instance is not None:
+            group = getattr(self.instance, "group", None)
+
+        if academic_year is not None and getattr(academic_year, "status", None) == AcademicYear.STATUS_CLOSED:
+            raise serializers.ValidationError(
+                {"academic_year": "No se pueden agregar o modificar asignaciones en un año lectivo finalizado."}
+            )
+
+        if academic_year is not None and group is not None:
+            if getattr(group, "academic_year_id", None) != getattr(academic_year, "id", None):
+                raise serializers.ValidationError(
+                    {"group": "El grupo seleccionado no corresponde al año lectivo seleccionado."}
+                )
+
+        return attrs
 
 
 class EvaluationScaleSerializer(serializers.ModelSerializer):

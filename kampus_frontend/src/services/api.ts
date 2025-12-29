@@ -23,6 +23,23 @@ function setAccessToken(token: string) {
   localStorage.setItem('accessToken', token);
 }
 
+const AUTH_LOGOUT_EVENT = 'kampus:auth:logout'
+
+function emitAuthLogout() {
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(AUTH_LOGOUT_EVENT))
+    }
+  } catch {
+    // noop
+  }
+}
+
+function clearStoredTokens() {
+  localStorage.removeItem('accessToken')
+  localStorage.removeItem('refreshToken')
+}
+
 api.interceptors.request.use((config: AxiosConfig) => {
   const token = getAccessToken();
   if (token) {
@@ -45,6 +62,9 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !original._retry) {
       const refresh = getRefreshToken();
       if (!refresh) {
+        // No refresh token => session is invalid; ensure app state clears too.
+        clearStoredTokens()
+        emitAuthLogout()
         return Promise.reject(error);
       }
       
@@ -87,8 +107,8 @@ api.interceptors.response.use(
         // Only clear tokens when the refresh token is actually invalid/expired.
         // For transient errors (network, 5xx), keep tokens so the user isn't logged out unnecessarily.
         if (status === 401 || status === 403) {
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
+          clearStoredTokens()
+          emitAuthLogout()
         }
         return Promise.reject(err);
       }

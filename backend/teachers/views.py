@@ -1,5 +1,6 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from .models import Teacher
 from .serializers import TeacherSerializer
 from core.permissions import KampusModelPermissions
@@ -10,6 +11,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
     queryset = Teacher.objects.all()
     serializer_class = TeacherSerializer
     permission_classes = [KampusModelPermissions]
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
 
     def get_permissions(self):
         if self.action in ["retrieve", "update", "partial_update"]:
