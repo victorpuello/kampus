@@ -4,6 +4,7 @@ import { academicApi } from '../../services/academic';
 import { useAuthStore } from '../../store/auth'
 import type { Achievement, Period, Subject, AchievementDefinition, Dimension, AcademicYear, Grade, Group, PerformanceIndicatorCreate, TeacherAssignment, EditGrant } from '../../services/academic';
 import { Plus, Wand2, Save, Trash } from 'lucide-react';
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 
 export default function PeriodPlanning() {
   const navigate = useNavigate()
@@ -31,6 +32,9 @@ export default function PeriodPlanning() {
   
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [deletingAchievement, setDeletingAchievement] = useState(false)
 
   const selectedPeriodObj = useMemo(() => {
     if (!selectedPeriod) return null
@@ -115,6 +119,14 @@ export default function PeriodPlanning() {
     if (selectedYear) {
       loadPeriods(Number(selectedYear));
       loadDimensions(Number(selectedYear));
+
+      // Reset dependent selections to avoid mixing entities across academic years
+      setSelectedPeriod('')
+      setSelectedGrade('')
+      setSelectedGroup('')
+      setSelectedSubject('')
+      setGroups([])
+      setAchievements([])
     }
   }, [selectedYear]);
 
@@ -226,7 +238,9 @@ export default function PeriodPlanning() {
 
   const loadGroups = async (gradeId: number) => {
     try {
-      const res = await academicApi.listGroups({ grade: gradeId });
+      const params: Record<string, unknown> = { grade: gradeId }
+      if (selectedYear) params.academic_year = Number(selectedYear)
+      const res = await academicApi.listGroups(params);
       if (teacherAllowed?.groupIdsByGrade?.[gradeId]) {
         const allowed = new Set<number>(teacherAllowed.groupIdsByGrade[gradeId])
         setGroups(res.data.filter((g) => allowed.has(g.id)));
@@ -344,9 +358,63 @@ export default function PeriodPlanning() {
       loadAchievements();
     } catch (error) {
       console.error(error);
-      alert('Error guardando la planeación');
+      const data = (error as any)?.response?.data
+      if (data?.detail) {
+        alert(String(data.detail))
+      } else if (data && typeof data === 'object') {
+        const firstKey = Object.keys(data)[0]
+        const firstVal = firstKey ? (data as any)[firstKey] : null
+        if (firstKey && Array.isArray(firstVal) && firstVal[0]) {
+          alert(String(firstVal[0]))
+        } else if (firstKey && firstVal) {
+          alert(`${firstKey}: ${String(firstVal)}`)
+        } else {
+          alert('Error guardando la planeación')
+        }
+      } else {
+        alert('Error guardando la planeación');
+      }
     }
   };
+
+  const handleDeleteAchievement = (achievementId: number) => {
+    if (user?.role === 'TEACHER' && !planningCanEdit) {
+      alert('La edición de planeación está cerrada. Debes solicitar permiso.')
+      return
+    }
+    setDeleteConfirmId(achievementId)
+  }
+
+  const confirmDeleteAchievement = async () => {
+    if (!deleteConfirmId) return
+
+    setDeletingAchievement(true)
+    try {
+      await academicApi.deleteAchievement(deleteConfirmId)
+      setAchievements((prev) => prev.filter((a) => a.id !== deleteConfirmId))
+      setDeleteConfirmId(null)
+    } catch (error) {
+      console.error(error)
+      const data = (error as any)?.response?.data
+      if (data?.detail) {
+        alert(String(data.detail))
+      } else if (data && typeof data === 'object') {
+        const firstKey = Object.keys(data)[0]
+        const firstVal = firstKey ? (data as any)[firstKey] : null
+        if (firstKey && Array.isArray(firstVal) && firstVal[0]) {
+          alert(String(firstVal[0]))
+        } else if (firstKey && firstVal) {
+          alert(`${firstKey}: ${String(firstVal)}`)
+        } else {
+          alert('Error eliminando el logro')
+        }
+      } else {
+        alert('Error eliminando el logro')
+      }
+    } finally {
+      setDeletingAchievement(false)
+    }
+  }
 
   const filteredSubjects = useMemo(() => {
     if (!teacherAllowed) return subjects
@@ -373,6 +441,18 @@ export default function PeriodPlanning() {
 
   return (
     <div className="p-6">
+      <ConfirmationModal
+        isOpen={deleteConfirmId !== null}
+        onClose={() => (!deletingAchievement ? setDeleteConfirmId(null) : null)}
+        onConfirm={confirmDeleteAchievement}
+        title="¿Eliminar logro?"
+        description="Esta acción no se puede deshacer. Se eliminará el logro y sus indicadores de desempeño."
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={deletingAchievement}
+      />
+
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Planeación de Periodo</h1>
       
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 space-y-4">
@@ -682,7 +762,15 @@ export default function PeriodPlanning() {
                     </div>
                     <p className="text-gray-900 font-medium">{ach.description}</p>
                   </div>
-                  <button className="text-red-500 hover:text-red-700"><Trash size={18} /></button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteAchievement(ach.id)}
+                    disabled={user?.role === 'TEACHER' && !planningCanEdit}
+                    className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                    title={user?.role === 'TEACHER' && !planningCanEdit ? 'Edición cerrada' : 'Eliminar'}
+                  >
+                    <Trash size={18} />
+                  </button>
                 </div>
                 
                 {ach.indicators && ach.indicators.length > 0 && (

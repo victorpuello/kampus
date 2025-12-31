@@ -5,6 +5,7 @@ from .models import (
     AcademicYear,
     AcademicLoad,
     Achievement,
+    AchievementGrade,
     AchievementDefinition,
     Area,
     Assessment,
@@ -12,6 +13,7 @@ from .models import (
     EvaluationComponent,
     EvaluationScale,
     Grade,
+    GradeSheet,
     Group,
     PerformanceIndicator,
     Period,
@@ -37,6 +39,7 @@ class AcademicYearAdmin(admin.ModelAdmin):
 class PeriodAdmin(admin.ModelAdmin):
     list_display = ("name", "academic_year", "start_date", "end_date", "is_closed")
     list_filter = ("academic_year", "is_closed")
+    search_fields = ("name", "academic_year__year")
 
 
 @admin.register(Grade)
@@ -101,9 +104,34 @@ class AssessmentAdmin(admin.ModelAdmin):
 
 @admin.register(StudentGrade)
 class StudentGradeAdmin(admin.ModelAdmin):
-    list_display = ("student", "assessment", "score")
-    list_filter = ("assessment__period", "assessment__component__academic_load__subject")
-    search_fields = ("student__user__first_name", "student__user__last_name", "assessment__name")
+    list_display = ("student", "period", "subject", "group", "assessment", "score")
+    list_filter = (
+        "assessment__period",
+        "assessment__period__academic_year",
+        "assessment__component__academic_load__subject",
+        "assessment__component__academic_load__grade",
+    )
+    search_fields = (
+        "student__user__first_name",
+        "student__user__last_name",
+        "assessment__name",
+        "assessment__component__academic_load__subject__name",
+    )
+    autocomplete_fields = ("student", "assessment")
+
+    @admin.display(description="Periodo")
+    def period(self, obj):
+        return getattr(getattr(obj.assessment, "period", None), "name", None)
+
+    @admin.display(description="Asignatura")
+    def subject(self, obj):
+        return getattr(getattr(getattr(obj.assessment, "component", None), "academic_load", None), "subject", None)
+
+    @admin.display(description="Grupo")
+    def group(self, obj):
+        # Notas se relacionan a Assessment->component->academic_load (grado) y al estudiante.
+        # El grupo exacto se refleja en GradeSheet/TeacherAssignment, por eso lo mostramos allí.
+        return "—"
 
 
 @admin.register(PerformanceIndicator)
@@ -140,6 +168,38 @@ class AchievementAdmin(admin.ModelAdmin):
     def description_short(self, obj):
         return obj.description[:50] + "..." if len(obj.description) > 50 else obj.description
     description_short.short_description = "Descripción"
+
+
+@admin.register(GradeSheet)
+class GradeSheetAdmin(admin.ModelAdmin):
+    list_display = ("teacher_assignment", "period", "status", "published_at", "created_at", "updated_at")
+    list_filter = ("status", "period", "period__academic_year", "teacher_assignment__group")
+    search_fields = (
+        "teacher_assignment__teacher__first_name",
+        "teacher_assignment__teacher__last_name",
+        "teacher_assignment__group__name",
+        "teacher_assignment__academic_load__subject__name",
+    )
+    autocomplete_fields = ("teacher_assignment", "period")
+
+
+@admin.register(AchievementGrade)
+class AchievementGradeAdmin(admin.ModelAdmin):
+    list_display = ("gradesheet", "enrollment", "achievement", "score", "updated_at")
+    list_filter = (
+        "gradesheet__period",
+        "gradesheet__period__academic_year",
+        "gradesheet__teacher_assignment__group",
+        "achievement__subject",
+    )
+    search_fields = (
+        "enrollment__student__user__first_name",
+        "enrollment__student__user__last_name",
+        "enrollment__group__name",
+        "achievement__description",
+        "achievement__subject__name",
+    )
+    autocomplete_fields = ("gradesheet", "enrollment", "achievement")
 
 
 @admin.register(Dimension)

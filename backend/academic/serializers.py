@@ -423,6 +423,17 @@ class PerformanceIndicatorSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PerformanceIndicatorNestedSerializer(serializers.ModelSerializer):
+    """Used for nested writes inside AchievementSerializer.
+
+    We intentionally omit 'achievement' because it is implied by the parent Achievement.
+    """
+
+    class Meta:
+        model = PerformanceIndicator
+        fields = ["level", "description"]
+
+
 class DimensionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dimension
@@ -430,7 +441,7 @@ class DimensionSerializer(serializers.ModelSerializer):
 
 
 class AchievementSerializer(serializers.ModelSerializer):
-    indicators = PerformanceIndicatorSerializer(many=True, required=False)
+    indicators = PerformanceIndicatorNestedSerializer(many=True, required=False)
     definition_code = serializers.CharField(source="definition.code", read_only=True)
     dimension_name = serializers.CharField(source="dimension.name", read_only=True)
     group_name = serializers.CharField(source="group.name", read_only=True)
@@ -438,6 +449,31 @@ class AchievementSerializer(serializers.ModelSerializer):
     class Meta:
         model = Achievement
         fields = "__all__"
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Keep backwards-compatible payload for the frontend (full indicator objects)
+        data["indicators"] = PerformanceIndicatorSerializer(instance.indicators.all(), many=True).data
+        return data
+
+    def create(self, validated_data):
+        indicators_data = validated_data.pop("indicators", [])
+        achievement = super().create(validated_data)
+        for ind in indicators_data:
+            PerformanceIndicator.objects.create(achievement=achievement, **ind)
+        return achievement
+
+    def update(self, instance, validated_data):
+        indicators_data = validated_data.pop("indicators", None)
+        instance = super().update(instance, validated_data)
+        if indicators_data is not None:
+            for ind in indicators_data:
+                PerformanceIndicator.objects.update_or_create(
+                    achievement=instance,
+                    level=ind.get("level"),
+                    defaults={"description": ind.get("description", "")},
+                )
+        return instance
 
     def validate(self, attrs):
         """Prevent 'empty' / inconsistent planned achievements.

@@ -1,5 +1,10 @@
 from django.conf import settings
+import logging
 import json
+from json import JSONDecodeError
+
+
+logger = logging.getLogger(__name__)
 
 try:
     import google.generativeai as genai
@@ -28,13 +33,45 @@ class AIService:
 
     def _ensure_available(self):
         if genai is None:
-            raise ValueError(
+            raise AIConfigError(
                 "Gemini AI support is not installed. Add 'google-generativeai' to requirements to use this feature."
             )
         if not settings.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY is not configured.")
+            raise AIConfigError("GOOGLE_API_KEY is not configured.")
         if not self.model:
-            raise ValueError("Gemini model not initialized. Check API Key.")
+            raise AIConfigError("Gemini model not initialized. Check API Key.")
+
+    def _extract_json_object(self, text: str) -> dict:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            raise AIParseError("Empty response from AI provider.")
+
+        # Strip common fenced-code wrappers.
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        # Try direct JSON first.
+        try:
+            return json.loads(cleaned)
+        except JSONDecodeError:
+            pass
+
+        # Fallback: extract the first JSON object from a mixed response.
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise AIParseError("AI response did not contain a JSON object.")
+
+        candidate = cleaned[start : end + 1]
+        try:
+            return json.loads(candidate)
+        except JSONDecodeError as e:
+            raise AIParseError(f"AI response JSON was invalid: {e}") from e
 
     def generate_indicators(self, achievement_description):
         """
@@ -62,21 +99,18 @@ class AIService:
 
         try:
             response = self.model.generate_content(prompt)
-            # Limpiar la respuesta para asegurar que sea JSON válido
-            text = response.text.strip()
-            if text.startswith("```json"):
-                text = text[7:]
-            elif text.startswith("```"):
-                text = text[3:]
-            
-            if text.endswith("```"):
-                text = text[:-3]
-            
-            return json.loads(text)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+
+            # Minimal sanity check: required keys.
+            required = {"LOW", "BASIC", "HIGH", "SUPERIOR"}
+            if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
+                raise AIParseError("AI response JSON missing required keys: LOW, BASIC, HIGH, SUPERIOR.")
+            return payload
         except Exception as e:
-            print(f"Error generating indicators: {e}")
-            # Retornar un error estructurado o None
-            raise e
+            logger.exception("Error generating indicators")
+            if isinstance(e, AIServiceError):
+                raise
+            raise AIProviderError(str(e)) from e
 
     def improve_text(self, text):
         """
@@ -98,5 +132,21 @@ class AIService:
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
-            print(f"Error calling Gemini API: {str(e)}")
-            raise Exception(f"Error calling Gemini API: {str(e)}")
+            logger.exception("Error calling Gemini API")
+            raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
+
+
+class AIServiceError(Exception):
+    pass
+
+
+class AIConfigError(AIServiceError):
+    pass
+
+
+class AIParseError(AIServiceError):
+    pass
+
+
+class AIProviderError(AIServiceError):
+    pass

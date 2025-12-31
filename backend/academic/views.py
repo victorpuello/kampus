@@ -47,6 +47,9 @@ from .models import (
     EditGrant,
     EditGrantItem,
 )
+
+from students.academic_period_report import generate_academic_period_group_report_pdf
+from students.models import Enrollment
 from core.permissions import KampusModelPermissions
 from .serializers import (
     AcademicLevelSerializer,
@@ -72,7 +75,7 @@ from .serializers import (
     EditRequestDecisionSerializer,
     EditGrantSerializer,
 )
-from .ai import AIService
+from .ai import AIService, AIConfigError, AIParseError, AIProviderError
 from .grading import (
     DEFAULT_EMPTY_SCORE,
     final_grade_from_dimensions,
@@ -436,6 +439,86 @@ class GroupViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['grade', 'academic_year', 'director']
 
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="academic-report",
+        permission_classes=[IsAuthenticated],
+    )
+    def academic_report(self, request, pk=None):
+        """Genera informe académico por periodos para un grupo.
+
+        GET /api/groups/{id}/academic-report/?period=<period_id>
+        """
+
+        def _to_int_or_none(value):
+            if value is None:
+                return None
+            raw = str(value).strip()
+            if raw == "":
+                return None
+            try:
+                return int(raw)
+            except Exception:
+                return None
+
+        period_id = _to_int_or_none(request.query_params.get("period"))
+        if period_id is None:
+            return Response({"detail": "period is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        group: Group = self.get_object()
+
+        user = getattr(request, "user", None)
+        role = getattr(user, "role", None)
+        if role not in {"SUPERADMIN", "ADMIN", "COORDINATOR"}:
+            if not (role == "TEACHER" and group.director_id == getattr(user, "id", None)):
+                return Response({"detail": "No tienes permisos para ver este informe."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=period_id)
+        except Period.DoesNotExist:
+            return Response({"detail": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != group.academic_year_id:
+            return Response(
+                {"detail": "El periodo no corresponde al año lectivo del grupo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        enrollments = (
+            Enrollment.objects.select_related(
+                "student",
+                "student__user",
+                "grade",
+                "group",
+                "group__director",
+                "academic_year",
+            )
+            .filter(group_id=group.id, academic_year_id=period.academic_year_id, status="ACTIVE")
+            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
+        )
+
+        if not enrollments.exists():
+            return Response(
+                {"detail": "No hay matrículas activas en este grupo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            pdf_bytes = generate_academic_period_group_report_pdf(enrollments=enrollments, period=period)
+            filename = f"informe-academico-grupo-{group.id}-period-{period.id}.pdf"
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+        except Exception as e:
+            payload = {"detail": "Error generating PDF", "error": str(e)}
+            from django.conf import settings as _settings
+            import traceback as _traceback
+
+            if getattr(_settings, "DEBUG", False):
+                payload["traceback"] = _traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'], url_path='copy_from_year')
     def copy_from_year(self, request):
         source_year_id = request.data.get('source_year_id')
@@ -710,6 +793,19 @@ class AchievementViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['subject', 'period', 'group']
 
+    def get_permissions(self):
+        # Creating/editing achievements is a teacher workflow in the UI, but teachers may not
+        # have Django model add/change permissions assigned. We gate it by role instead.
+        if getattr(self, "action", None) in {"create", "update", "partial_update", "destroy"}:
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def _ensure_can_manage_achievements(self, request):
+        role = getattr(getattr(request, 'user', None), 'role', None)
+        if role in {'TEACHER', 'COORDINATOR', 'ADMIN', 'SUPERADMIN'}:
+            return None
+        return Response({"detail": "No tienes permisos para gestionar logros."}, status=status.HTTP_403_FORBIDDEN)
+
     def _teacher_can_edit_planning(self, user, period: Period) -> bool:
         effective_deadline = period.planning_edit_until or _period_end_of_day(period)
         if effective_deadline is None:
@@ -729,7 +825,17 @@ class AchievementViewSet(viewsets.ModelViewSet):
             return None
         return Period.objects.filter(id=period_id).first()
 
+    def _ensure_can_use_ai(self, request):
+        role = getattr(getattr(request, 'user', None), 'role', None)
+        if role in {'TEACHER', 'COORDINATOR', 'ADMIN', 'SUPERADMIN'}:
+            return None
+        return Response({"detail": "No tienes permisos para usar esta función."}, status=status.HTTP_403_FORBIDDEN)
+
     def create(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_achievements(request)
+        if denied is not None:
+            return denied
+
         user = getattr(request, "user", None)
         if user is not None and getattr(user, "role", None) == "TEACHER":
             period = self._get_period_for_create(request)
@@ -741,6 +847,10 @@ class AchievementViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_achievements(request)
+        if denied is not None:
+            return denied
+
         user = getattr(request, "user", None)
         if user is not None and getattr(user, "role", None) == "TEACHER":
             instance = self.get_object()
@@ -756,6 +866,10 @@ class AchievementViewSet(viewsets.ModelViewSet):
         return self.update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_achievements(request)
+        if denied is not None:
+            return denied
+
         user = getattr(request, "user", None)
         if user is not None and getattr(user, "role", None) == "TEACHER":
             instance = self.get_object()
@@ -767,30 +881,68 @@ class AchievementViewSet(viewsets.ModelViewSet):
                 )
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=False, methods=['post'], url_path='generate-indicators')
+    @action(detail=False, methods=['post'], url_path='generate-indicators', permission_classes=[IsAuthenticated])
     def generate_indicators(self, request):
         """
         Genera sugerencias de indicadores usando IA.
         Body: { "description": "..." }
         """
+        denied = self._ensure_can_use_ai(request)
+        if denied is not None:
+            return denied
+
         description = request.data.get('description')
         if not description:
-            return Response({"error": "Description is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Description is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             ai_service = AIService()
             indicators = ai_service.generate_indicators(description)
             return Response(indicators)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except AIConfigError as e:
+            return Response(
+                {"detail": str(e), "code": "AI_NOT_CONFIGURED"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except AIParseError:
+            # The provider responded, but it wasn't usable JSON. Encourage retry.
+            return Response(
+                {
+                    "detail": "La IA devolvió una respuesta inválida. Intenta nuevamente.",
+                    "code": "AI_INVALID_RESPONSE",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except AIProviderError:
+            return Response(
+                {
+                    "detail": "No se pudo generar con IA en este momento. Intenta nuevamente.",
+                    "code": "AI_PROVIDER_ERROR",
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-    @action(detail=True, methods=['post'], url_path='create-indicators')
+    @action(detail=True, methods=['post'], url_path='create-indicators', permission_classes=[IsAuthenticated])
     def create_indicators(self, request, pk=None):
         """
         Crea indicadores masivamente para un logro existente.
         Body: { "indicators": [ {"level": "LOW", "description": "..."}, ... ] }
         """
         achievement = self.get_object()
+
+        denied = self._ensure_can_use_ai(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "role", None) == "TEACHER":
+            period = getattr(achievement, "period", None)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         indicators_data = request.data.get('indicators', [])
         
         created_indicators = []

@@ -18,12 +18,28 @@ import unicodedata
 from datetime import date, datetime
 from decimal import Decimal
 from academic.models import AcademicYear, Grade, Group
+from academic.models import (
+    Achievement,
+    AchievementGrade,
+    Dimension,
+    EvaluationScale,
+    GradeSheet,
+    Period,
+    TeacherAssignment,
+)
+from academic.grading import (
+    DEFAULT_EMPTY_SCORE,
+    final_grade_from_dimensions,
+    match_scale,
+    weighted_average,
+)
 from core.models import Institution
 from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ConditionalPromotionPlan
 try:
     from xhtml2pdf import pisa
 except ImportError:
     pisa = None
+from rest_framework.permissions import IsAuthenticated
 
 from .serializers import (
     StudentSerializer,
@@ -35,6 +51,8 @@ from .serializers import (
 from .pagination import StudentPagination, EnrollmentPagination
 from core.permissions import HasDjangoPermission, KampusModelPermissions
 import traceback
+
+from .academic_period_report import generate_academic_period_report_pdf
 
 User = get_user_model()
 
@@ -817,6 +835,82 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         
         writer = csv.writer(response)
         writer.writerow(['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo'])
+
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='academic-report',
+        permission_classes=[IsAuthenticated],
+    )
+    def academic_report(self, request, pk=None):
+        """Genera informe académico por periodos para una matrícula.
+
+        GET /api/enrollments/{id}/academic-report/?period=<period_id>
+        """
+
+        if not pisa:
+            return Response({"detail": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        def _to_int_or_none(value):
+            if value is None:
+                return None
+            raw = str(value).strip()
+            if raw == "":
+                return None
+            try:
+                return int(raw)
+            except Exception:
+                return None
+
+        period_id = _to_int_or_none(request.query_params.get('period'))
+        if period_id is None:
+            return Response({"detail": "period is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Fetch enrollment without inheriting the restrictive queryset (teachers/parents are blocked there).
+        enrollment = (
+            Enrollment.objects.select_related(
+                'student',
+                'student__user',
+                'grade',
+                'group',
+                'group__director',
+                'academic_year',
+            )
+            .filter(id=pk)
+            .first()
+        )
+        if not enrollment:
+            return Response({"detail": "Enrollment not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        user = getattr(request, 'user', None)
+        role = getattr(user, 'role', None)
+        # Allow admin-like roles, and also the teacher who directs the group.
+        if role not in {'SUPERADMIN', 'ADMIN', 'COORDINATOR'}:
+            if not (role == 'TEACHER' and enrollment.group and enrollment.group.director_id == getattr(user, 'id', None)):
+                return Response({"detail": "No tienes permisos para ver este informe."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            period = Period.objects.select_related('academic_year').get(id=period_id)
+        except Period.DoesNotExist:
+            return Response({"detail": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != enrollment.academic_year_id:
+            return Response(
+                {"detail": "El periodo no corresponde al año lectivo de la matrícula."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            pdf_bytes = generate_academic_period_report_pdf(enrollment=enrollment, period=period)
+            filename = f"informe-academico-enrollment-{enrollment.id}-period-{period.id}.pdf"
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+        except Exception as e:
+            payload = {"detail": "Error generating PDF", "error": str(e)}
+            if getattr(settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         for enrollment in enrollments:
             student = enrollment.student

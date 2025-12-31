@@ -439,5 +439,17 @@ export const academicApi = {
 
   listStudentGrades: () => api.get<StudentGrade[]>('/api/student-grades/'),
   createStudentGrade: (data: Omit<StudentGrade, 'id' | 'student_name'>) => api.post<StudentGrade>('/api/student-grades/', data),
+
+  // Reports: Academic period report PDF
+  downloadAcademicPeriodReportByEnrollment: (enrollmentId: number, periodId: number) =>
+    api.get(`/api/enrollments/${enrollmentId}/academic-report/`, {
+      params: { period: periodId },
+      responseType: 'blob',
+    }),
+  downloadAcademicPeriodReportByGroup: (groupId: number, periodId: number) =>
+    api.get(`/api/groups/${groupId}/academic-report/`, {
+      params: { period: periodId },
+      responseType: 'blob',
+    }),
 }
 

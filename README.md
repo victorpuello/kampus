@@ -158,6 +158,18 @@ kampus/
 - **UX**: Nuevos filtros por año en paneles de configuración.
 - **DevOps**: Scripts de limpieza y corrección de migraciones.
 - **Convivencia / Observador**: auditoría, sellado/inmutabilidad, y portal de acudientes (rol PARENT) con enterado autenticado.
+- **Reportes**: nuevo PDF de **boletines/informe académico por periodo**, descargable por **grupo completo** (multipágina) o por **estudiante**.
+
+### 🧾 Reportes: Boletines por periodo (PDF)
+
+- **UI**: Menú **Reportes** → **Boletines por periodo** (`/enrollments/reports`).
+- **Qué genera**:
+	- **Grupo**: 1 PDF con 1 página por estudiante.
+	- **Estudiante**: 1 PDF para una matrícula específica.
+- **Requisitos**: seleccionar **Año**, **Grupo** y **Periodo**.
+- **Permisos**:
+	- En **Reportes** (módulo `/enrollments/reports`) está orientado a perfiles administrativos.
+	- En **Calificaciones** (planilla), docentes pueden descargar el informe por grupo/estudiante según sus permisos asignados.
 
 ---
 

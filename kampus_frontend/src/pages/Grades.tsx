@@ -61,6 +61,78 @@ export default function Grades() {
     setToast({ message, type, isVisible: true })
   }, [])
 
+  const getFilenameFromContentDisposition = (value?: string) => {
+    if (!value) return null
+    const match = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;]+)/i.exec(value)
+    const raw = match?.[1] || match?.[2] || match?.[3]
+    if (!raw) return null
+    try {
+      return decodeURIComponent(raw)
+    } catch {
+      return raw
+    }
+  }
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadGroupReport = useCallback(async () => {
+    const groupId = gradebook?.teacher_assignment?.group ?? selectedGroupId
+    const periodId = gradebook?.period?.id ?? selectedPeriodId
+
+    if (!groupId || !periodId) {
+      showToast('Selecciona grupo y periodo.', 'error')
+      return
+    }
+
+    try {
+      const res = await academicApi.downloadAcademicPeriodReportByGroup(groupId, periodId)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+      const headers = res.headers as Record<string, string | undefined>
+      const filename =
+        getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+        `informe-academico-grupo-${groupId}-period-${periodId}.pdf`
+
+      downloadBlob(blob, filename)
+    } catch (e) {
+      console.error(e)
+      showToast('Error al descargar el informe del grupo', 'error')
+    }
+  }, [gradebook?.period?.id, gradebook?.teacher_assignment?.group, selectedGroupId, selectedPeriodId, showToast])
+
+  const handleDownloadEnrollmentReport = useCallback(
+    async (enrollmentId: number) => {
+      const periodId = gradebook?.period?.id ?? selectedPeriodId
+      if (!periodId) {
+        showToast('Selecciona el periodo.', 'error')
+        return
+      }
+
+      try {
+        const res = await academicApi.downloadAcademicPeriodReportByEnrollment(enrollmentId, periodId)
+        const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+        const headers = res.headers as Record<string, string | undefined>
+        const filename =
+          getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+          `informe-academico-enrollment-${enrollmentId}-period-${periodId}.pdf`
+
+        downloadBlob(blob, filename)
+      } catch (e) {
+        console.error(e)
+        showToast('Error al descargar el informe del estudiante', 'error')
+      }
+    },
+    [gradebook?.period?.id, selectedPeriodId, showToast]
+  )
+
   const selectedPeriod = useMemo(() => {
     if (!selectedPeriodId) return null
     return periods.find((p) => p.id === selectedPeriodId) ?? null
@@ -1300,6 +1372,15 @@ export default function Grades() {
             <div className="flex items-center justify-between gap-4">
               <CardTitle className="text-lg font-semibold text-slate-900">Planilla</CardTitle>
               <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadGroupReport}
+                  disabled={!gradebook}
+                  title="Descargar informe académico del grupo"
+                >
+                  Descargar informe (grupo)
+                </Button>
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${globalSaveClass}`}>
                   {globalSaveLabel}
                 </span>
@@ -1404,6 +1485,18 @@ export default function Grades() {
                       <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white">
                         <div className="font-medium text-slate-900 max-w-40 sm:max-w-none truncate" title={s.student_name}>
                           {s.student_name}
+                        </div>
+                        <div className="mt-1">
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-6 px-0 text-xs"
+                            onClick={() => handleDownloadEnrollmentReport(s.enrollment_id)}
+                            disabled={!gradebook}
+                            title="Descargar informe académico del estudiante"
+                          >
+                            Descargar informe
+                          </Button>
                         </div>
                       </td>
 

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; }
+        .SaltoDePagina { page-break-after: always; }
+        .Estilo1 {font-family: Arial, Helvetica, sans-serif}
+        .Estilo2 {font-size: 10px}
+    </style>
+</head>
+
+<body>
+  {% for page in pages %}
+    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences %}
+  {% endfor %}
+</body>
+</html>

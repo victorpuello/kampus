@@ -1,0 +1,157 @@
+<div align="left" class="SaltoDePagina">
+  <table border="0" width="753" cellpadding="0" cellspacing="0" align="center">
+    <tr>
+      <td colspan="4">
+        <div align="center">
+          <table border="0" cellpadding="0" cellspacing="0">
+            <tr>
+              <td rowspan="6" align="center" valign="middle">
+                {% if institution.pdf_logo %}
+                  <img src="{{ institution.pdf_logo.url }}" border="0" width="80" height="86" />
+                {% endif %}
+              </td>
+              <td align="center">
+                <b><font face="Tahoma" size="3" color="#000000">{{ institution.pdf_name|default:institution.name|default:"INSTITUCIÓN EDUCATIVA" }}</font></b>
+              </td>
+            </tr>
+            <tr>
+              <td align="center"><b><font face="Arial" size="2">{{ institution.pdf_headquarter|default:"" }}</font></b></td>
+            </tr>
+            <tr>
+              <td align="center"><font size="1" face="Arial"><b>{{ institution.pdf_dane|default:"" }}</b></font></td>
+            </tr>
+            <tr>
+              <td align="center"><font face="Arial" size="1"><b>{{ institution.pdf_resolution|default:"" }}</b></font></td>
+            </tr>
+            <tr>
+              <td align="center"><font size="1" face="Arial"><b>{{ institution.pdf_nit|default:"" }}</b></font></td>
+            </tr>
+            <tr>
+              <td align="center"><font face="Arial" size="1"><b>{{ institution.pdf_city|default:"" }}</b></font></td>
+            </tr>
+          </table>
+        </div>
+      </td>
+    </tr>
+
+    <tr><td height="12" colspan="4"></td></tr>
+
+    <tr>
+      <td colspan="4">
+        <div align="center">
+          <b><font face="Arial" size="2">INFORME DESCRIPTIVO - EXPLICATIVO - CUANTITATIVO</font></b>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <td height="80" colspan="4">
+        <div align="center">
+          <table border="1" cellpadding="0" cellspacing="0" width="96%" bordercolor="#111111">
+            <tr>
+              <td colspan="2">
+                <font face="Arial" size="2">Estudiante: <b>{{ student_name }}</b>&nbsp;&nbsp; Código: <b>{{ student_code }}</b></font>
+              </td>
+            </tr>
+            <tr>
+              <td colspan="2">
+                <font face="Arial" size="2">
+                  Grupo: <b>{{ group_name }}</b>&nbsp;&nbsp;
+                  Jornada: <b>{{ shift_name }}</b>&nbsp;&nbsp;
+                  Período: <b>{{ period_name }}</b>&nbsp;&nbsp;
+                  Año: <b>{{ year_name }}</b>
+                </font>
+              </td>
+            </tr>
+            <tr>
+              <td width="82%"><font face="Arial" size="2">Director de Grupo: <b>{{ director_name }}</b></font></td>
+              <td width="18%"><div align="right"><font face="Arial" size="2">Fecha: <b>{{ report_date }}</b></font></div></td>
+            </tr>
+          </table>
+        </div>
+      </td>
+    </tr>
+
+    <tr><td height="8" colspan="4"></td></tr>
+
+    <tr>
+      <td colspan="4">
+        <div align="center">
+          <table border="1" cellpadding="0" cellspacing="0" width="98%" bordercolor="#111111">
+            <tr>
+              <td width="50%" rowspan="2" align="center"><font size="2" face="Arial, Helvetica, sans-serif"><strong>AREAS - ASIGNATURAS / LOGROS - DIFICULTADES</strong></font></td>
+              <td width="5%" rowspan="2" align="center"><font size="1" face="Arial, Helvetica, sans-serif"><strong>FALTAS</strong></font></td>
+              <td colspan="5" align="center"><font size="2" face="Arial, Helvetica, sans-serif"><strong>DESARROLLO ANUAL (PERÍODOS)</strong></font></td>
+            </tr>
+            <tr>
+              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">1º</font></strong></td>
+              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">2º</font></strong></td>
+              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">3º</font></strong></td>
+              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">4º</font></strong></td>
+              <td width="9%" align="center"><font size="1" face="Arial, Helvetica, sans-serif"><strong>FINAL</strong></font></td>
+            </tr>
+          </table>
+        </div>
+      </td>
+    </tr>
+
+    <tr><td height="5" colspan="4"></td></tr>
+
+    <tr>
+      <td colspan="4">
+        <div align="center">
+          {% for row in rows %}
+            <table border="1" cellpadding="0" cellspacing="0" width="98%" bordercolor="#111111">
+              <tr>
+                <td width="50%" rowspan="2"><div align="left"><font size="2" face="Arial, Helvetica, sans-serif"><strong>&nbsp;{{ row.title }}</strong></font></div></td>
+                <td width="5%" rowspan="2" align="center"><font size="2" face="Arial, Helvetica, sans-serif">{{ row.absences }}</font></td>
+                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p1_score }}</font></strong></td>
+                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p2_score }}</font></strong></td>
+                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p3_score }}</font></strong></td>
+                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p4_score }}</font></strong></td>
+                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.final_score }}</font></strong></td>
+              </tr>
+              <tr>
+                <td height="18" align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p1_scale }}</font></strong></td>
+                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p2_scale }}</font></strong></td>
+                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p3_scale }}</font></strong></td>
+                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p4_scale }}</font></strong></td>
+                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.final_scale }}</font></strong></td>
+              </tr>
+            </table>
+
+            <table border="0" cellpadding="0" cellspacing="0" width="98%">
+              {% for line in row.lines %}
+                <tr>
+                  <td height="10" align="center">
+                    <div align="justify"><font size="2" face="Arial, Helvetica, sans-serif">* {{ line }}</font></div>
+                  </td>
+                </tr>
+              {% endfor %}
+              <tr><td height="4"></td></tr>
+            </table>
+          {% endfor %}
+        </div>
+      </td>
+    </tr>
+
+    <tr><td height="10" colspan="4"></td></tr>
+
+    <tr>
+      <td colspan="4">
+        <div align="center">
+          <span class="Estilo1"><font face="Arial, Helvetica, sans-serif"><span class="Estilo2">Equivalencias escala institucional: {{ scale_equivalences }}</span></font></span>
+        </div>
+      </td>
+    </tr>
+
+    <tr>
+      <td colspan="4">
+        <p align="center"><font size="1" face="Arial, Helvetica, sans-serif">_____________________________________________</font></p>
+      </td>
+    </tr>
+    <tr>
+      <td colspan="4"><div align="center"><font size="2" face="Arial, Helvetica, sans-serif">Director(a) de Grupo</font></div></td>
+    </tr>
+  </table>
+</div>
