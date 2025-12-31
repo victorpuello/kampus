@@ -10,6 +10,47 @@ class Institution(models.Model):
     email = models.EmailField(blank=True, verbose_name="Correo Electrónico")
     website = models.URLField(blank=True, verbose_name="Sitio Web")
     logo = models.ImageField(upload_to='institutions/logos/', blank=True, null=True, verbose_name="Escudo/Logo")
+
+    # PDF report letterhead (membrete)
+    pdf_letterhead_image = models.ImageField(
+        upload_to='institutions/letterheads/',
+        blank=True,
+        null=True,
+        verbose_name="Imagen de membrete (PDF)",
+        help_text="Si se define, se usa como encabezado del PDF (ancho completo).",
+    )
+    pdf_show_logo = models.BooleanField(
+        default=True,
+        verbose_name="Mostrar escudo/logo en PDFs",
+    )
+    pdf_logo_height_px = models.PositiveSmallIntegerField(
+        default=60,
+        verbose_name="Alto del logo en PDFs (px)",
+    )
+    pdf_header_line1 = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Encabezado PDF - Línea 1",
+        help_text="Si está vacío, se usa el nombre de la institución.",
+    )
+    pdf_header_line2 = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Encabezado PDF - Línea 2",
+        help_text="Opcional (ej: lema, sede, etc.).",
+    )
+    pdf_header_line3 = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Encabezado PDF - Línea 3",
+        help_text="Opcional (ej: municipio/departamento).",
+    )
+    pdf_footer_text = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name="Pie de página PDF",
+        help_text="Texto opcional que aparece en el pie del PDF.",
+    )
     
     rector = models.ForeignKey(
         settings.AUTH_USER_MODEL, 

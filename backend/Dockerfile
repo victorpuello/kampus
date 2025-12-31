@@ -4,10 +4,12 @@ FROM python:3.11-slim
 # Establecer directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para psycopg2 y netcat
+# Instalar dependencias del sistema necesarias para psycopg2, netcat y xhtml2pdf (pycairo)
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
+    pkg-config \
+    libcairo2-dev \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 

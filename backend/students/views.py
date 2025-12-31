@@ -53,6 +53,14 @@ class StudentViewSet(viewsets.ModelViewSet):
         qs = Student.objects.select_related("user").all().order_by("user__id")
         user = getattr(self.request, 'user', None)
 
+        exclude_year_raw = self.request.query_params.get('exclude_active_enrollment_year')
+        exclude_year_id = None
+        if exclude_year_raw is not None and str(exclude_year_raw).strip() != '':
+            try:
+                exclude_year_id = int(exclude_year_raw)
+            except (TypeError, ValueError):
+                exclude_year_id = None
+
         if user is not None and getattr(user, 'role', None) in {'PARENT', 'STUDENT'}:
             return qs.none()
 
@@ -67,13 +75,16 @@ class StudentViewSet(viewsets.ModelViewSet):
             if not directed_groups.exists():
                 return qs.none()
 
-            return (
+            qs = (
                 qs.filter(
                     enrollment__group__in=directed_groups,
                     enrollment__status='ACTIVE',
                 )
                 .distinct()
             )
+
+        if exclude_year_id is not None:
+            qs = qs.exclude(enrollment__academic_year_id=exclude_year_id, enrollment__status='ACTIVE').distinct()
 
         return qs
 
@@ -614,12 +625,33 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'])
-    def report(self, request):
+    def report(self, request, *args, **kwargs):
         # Filters
-        year_id = request.query_params.get('year')
-        grade_id = request.query_params.get('grade')
-        group_id = request.query_params.get('group')
-        report_format = request.query_params.get('format', 'csv')
+        def _to_int_or_none(value):
+            if value is None:
+                return None
+            raw = str(value).strip()
+            if raw == "":
+                return None
+            try:
+                return int(raw)
+            except Exception:
+                return None
+
+        year_id = _to_int_or_none(request.query_params.get('year'))
+        grade_id = _to_int_or_none(request.query_params.get('grade'))
+        group_id = _to_int_or_none(request.query_params.get('group'))
+
+        # IMPORTANT: Do not use query param named `format` here.
+        # DRF treats ?format=... as a renderer override and can return 404
+        # before reaching this action if the renderer isn't registered.
+        report_format = (
+            request.query_params.get('export')
+            or request.query_params.get('report_format')
+            or kwargs.get('format')
+            or 'csv'
+        )
+        report_format = str(report_format).strip().lower()
         
         enrollments = Enrollment.objects.select_related('student', 'student__user', 'grade', 'group', 'academic_year').all().order_by('student__user__last_name', 'student__user__first_name')
         
@@ -628,7 +660,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         grade_name = ""
         group_name = ""
 
-        if year_id:
+        if year_id is not None:
             enrollments = enrollments.filter(academic_year_id=year_id)
             try:
                 year_name = AcademicYear.objects.get(pk=year_id).year
@@ -640,13 +672,13 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
                 enrollments = enrollments.filter(academic_year=active_year)
                 year_name = active_year.year
         
-        if grade_id:
+        if grade_id is not None:
             enrollments = enrollments.filter(grade_id=grade_id)
             try:
                 grade_name = Grade.objects.get(pk=grade_id).name
             except: pass
 
-        if group_id:
+        if group_id is not None:
             enrollments = enrollments.filter(group_id=group_id)
             try:
                 group_name = Group.objects.get(pk=group_id).name
@@ -656,31 +688,132 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         if report_format == 'pdf':
             if not pisa:
                 return Response({"error": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-            institution = Institution.objects.first()
-            
-            html_string = render_to_string('students/reports/enrollment_list_pdf.html', {
-                'enrollments': enrollments,
-                'institution': institution,
-                'year_name': year_name,
-                'grade_name': grade_name,
-                'group_name': group_name,
-                'MEDIA_ROOT': settings.MEDIA_ROOT,
-            })
-            
-            result = io.BytesIO()
-            pdf = pisa.pisaDocument(io.BytesIO(html_string.encode("UTF-8")), result)
-            
-            if not pdf.err:
-                response = HttpResponse(result.getvalue(), content_type='application/pdf')
-                response['Content-Disposition'] = 'inline; filename="reporte_matriculados.pdf"'
-                return response
-            else:
-                return Response({"error": "Error generating PDF"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            def _pisa_link_callback(uri: str, rel: str):
+                # Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
+                if uri is None:
+                    return uri
+                uri = str(uri)
+
+                # Allow absolute URLs
+                if uri.startswith('http://') or uri.startswith('https://'):
+                    return uri
+
+                media_url = getattr(settings, 'MEDIA_URL', '') or ''
+                static_url = getattr(settings, 'STATIC_URL', '') or ''
+
+                if media_url and uri.startswith(media_url):
+                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url):].lstrip('/\\'))
+                    return os.path.normpath(path)
+
+                if static_url and uri.startswith(static_url):
+                    static_root = getattr(settings, 'STATIC_ROOT', None)
+                    if static_root:
+                        path = os.path.join(static_root, uri[len(static_url):].lstrip('/\\'))
+                        return os.path.normpath(path)
+
+                # If template provided an absolute filesystem path already
+                if os.path.isabs(uri) and os.path.exists(uri):
+                    return os.path.normpath(uri)
+
+                # Best effort relative resolution
+                if rel:
+                    candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
+                    if os.path.exists(candidate):
+                        return candidate
+
+                return uri
+
+            try:
+                institution = Institution.objects.first() or Institution()
+
+                html_string = render_to_string('students/reports/enrollment_list_pdf.html', {
+                    'enrollments': enrollments,
+                    'institution': institution,
+                    'year_name': year_name,
+                    'grade_name': grade_name,
+                    'group_name': group_name,
+                })
+
+                result = io.BytesIO()
+                pdf = pisa.pisaDocument(
+                    io.BytesIO(html_string.encode('UTF-8')),
+                    result,
+                    link_callback=_pisa_link_callback,
+                    encoding='UTF-8',
+                )
+
+                if not pdf.err:
+                    response = HttpResponse(result.getvalue(), content_type='application/pdf')
+                    response['Content-Disposition'] = 'inline; filename="reporte_matriculados.pdf"'
+                    return response
+
+                return Response(
+                    {
+                        "error": "Error generating PDF",
+                        "pisa_errors": getattr(pdf, "err", None),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+            except Exception as e:
+                payload = {"error": "Error generating PDF", "detail": str(e)}
+                if getattr(settings, 'DEBUG', False):
+                    payload["traceback"] = traceback.format_exc()
+                return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # XLSX Generation
+        if report_format == 'xlsx':
+            from openpyxl import Workbook
+            from openpyxl.utils import get_column_letter
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Matriculados"
+
+            headers = ['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo']
+            ws.append(headers)
+
+            for enrollment in enrollments:
+                student = enrollment.student
+                user = student.user
+                ws.append(
+                    [
+                        student.document_number,
+                        (user.first_name or '').upper(),
+                        (user.last_name or '').upper(),
+                        enrollment.grade.name if enrollment.grade else '',
+                        enrollment.group.name if enrollment.group else '',
+                        enrollment.academic_year.year,
+                        enrollment.get_status_display(),
+                        student.get_financial_status_display(),
+                    ]
+                )
+
+            # Simple column sizing
+            for col_idx, header in enumerate(headers, start=1):
+                max_len = len(str(header))
+                for cell in ws[get_column_letter(col_idx)]:
+                    if cell.value is not None:
+                        max_len = max(max_len, len(str(cell.value)))
+                ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+            out = io.BytesIO()
+            wb.save(out)
+            out.seek(0)
+
+            response = HttpResponse(
+                out.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            )
+            response['Content-Disposition'] = 'attachment; filename="matriculados.xlsx"'
+            return response
 
         # CSV Generation (Default)
-        response = HttpResponse(content_type='text/csv')
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = 'attachment; filename="matriculados.csv"'
+
+        # UTF-8 BOM helps Excel interpret accents correctly.
+        response.write('\ufeff')
         
         writer = csv.writer(response)
         writer.writerow(['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo'])
