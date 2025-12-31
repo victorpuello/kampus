@@ -8,6 +8,40 @@ export interface AcademicYear {
   start_date: string | null;
   end_date: string | null;
 }
+
+export type PromotionDecision = 'PROMOTED' | 'CONDITIONAL' | 'REPEATED' | 'GRADUATED'
+
+export interface PromotionPreviewItem {
+  enrollment_id: number
+  decision: PromotionDecision
+  failed_subjects_count: number
+  failed_areas_count: number
+  failed_subjects_distinct_areas_count: number
+  failed_subject_ids: number[]
+  failed_area_ids: number[]
+}
+
+export interface PromotionPreviewResponse {
+  academic_year: { id: number; year: number; status: AcademicYear['status'] }
+  passing_score: string
+  count: number
+  results: PromotionPreviewItem[]
+}
+
+export interface CloseWithPromotionResponse {
+  academic_year: { id: number; year: number; status: AcademicYear['status'] }
+  passing_score: string
+  snapshots: { created: number; updated: number }
+}
+
+export interface ApplyPromotionsResponse {
+  source_academic_year: { id: number; year: number }
+  target_academic_year: { id: number; year: number }
+  created: number
+  skipped_existing: number
+  skipped_graduated: number
+  skipped_missing_grade_ordinal: number
+}
 export interface Period {
   id: number
   name: string
@@ -274,6 +308,14 @@ export const academicApi = {
   createYear: (data: Partial<AcademicYear>) => api.post<AcademicYear>('/api/academic-years/', data),
   updateYear: (id: number, data: Partial<AcademicYear>) => api.put<AcademicYear>(`/api/academic-years/${id}/`, data),
   deleteYear: (id: number) => api.delete(`/api/academic-years/${id}/`),
+
+  // Promotions (SIEE)
+  promotionPreview: (yearId: number, params?: { passing_score?: string | number | null }) =>
+    api.get<PromotionPreviewResponse>(`/api/academic-years/${yearId}/promotion-preview/`, { params }),
+  closeWithPromotion: (yearId: number, data?: { passing_score?: string | number | null }) =>
+    api.post<CloseWithPromotionResponse>(`/api/academic-years/${yearId}/close-with-promotion/`, data ?? {}),
+  applyPromotions: (sourceYearId: number, data: { target_academic_year: number }) =>
+    api.post<ApplyPromotionsResponse>(`/api/academic-years/${sourceYearId}/apply-promotions/`, data),
   
   // Periods
   listPeriods: () => api.get<Period[]>('/api/periods/'),
@@ -294,7 +336,7 @@ export const academicApi = {
   deleteGrade: (id: number) => api.delete(`/api/grades/${id}/`),
 
   // Groups
-  listGroups: (params?: any) => api.get<Group[]>('/api/groups/', { params }),
+  listGroups: (params?: Record<string, unknown>) => api.get<Group[]>('/api/groups/', { params }),
   createGroup: (data: GroupUpsertPayload) => api.post<Group>('/api/groups/', data),
   updateGroup: (id: number, data: GroupUpsertPayload) => api.put<Group>(`/api/groups/${id}/`, data),
   deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),
@@ -314,7 +356,7 @@ export const academicApi = {
   deleteSubject: (id: number) => api.delete(`/api/subjects/${id}/`),
 
   // Academic Loads
-  listAcademicLoads: (params?: any) => api.get<AcademicLoad[]>('/api/academic-loads/', { params }),
+  listAcademicLoads: (params?: Record<string, unknown>) => api.get<AcademicLoad[]>('/api/academic-loads/', { params }),
   createAcademicLoad: (data: Omit<AcademicLoad, 'id' | 'subject_name' | 'grade_name'>) => api.post<AcademicLoad>('/api/academic-loads/', data),
   updateAcademicLoad: (id: number, data: Omit<AcademicLoad, 'id' | 'subject_name' | 'grade_name'>) => api.put<AcademicLoad>(`/api/academic-loads/${id}/`, data),
   deleteAcademicLoad: (id: number) => api.delete(`/api/academic-loads/${id}/`),
@@ -347,14 +389,14 @@ export const academicApi = {
     reason: string
     enrollment_ids?: number[]
   }) => api.post<EditRequest>('/api/edit-requests/', data),
-  listEditRequests: (params?: any) => api.get<EditRequest[]>('/api/edit-requests/', { params }),
+  listEditRequests: (params?: Record<string, unknown>) => api.get<EditRequest[]>('/api/edit-requests/', { params }),
   listMyEditRequests: () => api.get<EditRequest[]>('/api/edit-requests/my/'),
   approveEditRequest: (id: number, data: { valid_until?: string; decision_note?: string }) =>
     api.post<{ detail: string; grant_id: number }>(`/api/edit-requests/${id}/approve/`, data),
   rejectEditRequest: (id: number, data: { decision_note?: string }) =>
     api.post<{ detail: string }>(`/api/edit-requests/${id}/reject/`, data),
-  listEditGrants: (params?: any) => api.get<EditGrant[]>('/api/edit-grants/', { params }),
-  listMyEditGrants: (params?: any) => api.get<EditGrant[]>('/api/edit-grants/my/', { params }),
+  listEditGrants: (params?: Record<string, unknown>) => api.get<EditGrant[]>('/api/edit-grants/', { params }),
+  listMyEditGrants: (params?: Record<string, unknown>) => api.get<EditGrant[]>('/api/edit-grants/my/', { params }),
 
   // Evaluation
   listEvaluationScales: () => api.get<EvaluationScale[]>('/api/evaluation-scales/'),
@@ -364,14 +406,14 @@ export const academicApi = {
   copyEvaluationScales: (sourceYearId: number, targetYearId: number) => api.post('/api/evaluation-scales/copy_from_year/', { source_year_id: sourceYearId, target_year_id: targetYearId }),
 
   // Achievement Definitions (Bank)
-  listAchievementDefinitions: (params?: any) => api.get<AchievementDefinition[]>('/api/achievement-definitions/', { params }),
+  listAchievementDefinitions: (params?: Record<string, unknown>) => api.get<AchievementDefinition[]>('/api/achievement-definitions/', { params }),
   createAchievementDefinition: (data: Partial<AchievementDefinition>) => api.post<AchievementDefinition>('/api/achievement-definitions/', data),
   updateAchievementDefinition: (id: number, data: Partial<AchievementDefinition>) => api.put<AchievementDefinition>(`/api/achievement-definitions/${id}/`, data),
   deleteAchievementDefinition: (id: number) => api.delete(`/api/achievement-definitions/${id}/`),
   improveAchievementWording: (text: string) => api.post<{ improved_text: string }>('/api/achievement-definitions/improve-wording/', { text }),
 
   // Achievements (Planning)
-  listAchievements: (params?: any) => api.get<Achievement[]>('/api/achievements/', { params }),
+  listAchievements: (params?: Record<string, unknown>) => api.get<Achievement[]>('/api/achievements/', { params }),
   createAchievement: (data: Partial<Omit<Achievement, 'indicators'>> & { indicators?: PerformanceIndicatorCreate[] }) =>
     api.post<Achievement>('/api/achievements/', data),
   updateAchievement: (id: number, data: Partial<Achievement>) => api.put<Achievement>(`/api/achievements/${id}/`, data),

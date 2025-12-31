@@ -4,7 +4,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from .models import Teacher
 from .serializers import TeacherSerializer
 from core.permissions import KampusModelPermissions
-from users.permissions import IsOwnerOrAdmin
+from users.permissions import IsOwnerOrAdmin, IsAdmin
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
@@ -14,6 +14,8 @@ class TeacherViewSet(viewsets.ModelViewSet):
     parser_classes = (JSONParser, FormParser, MultiPartParser)
 
     def get_permissions(self):
+        if self.action in ["list", "create", "destroy"]:
+            return [IsAuthenticated(), IsAdmin()]
         if self.action in ["retrieve", "update", "partial_update"]:
             return [IsAuthenticated(), IsOwnerOrAdmin()]
         return super().get_permissions()

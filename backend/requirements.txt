@@ -10,3 +10,5 @@ sqlparse==0.5.4
 google-generativeai==0.8.3
 python-dotenv==1.2.1
 django-filter
+openpyxl==3.1.5
+xlrd==1.2.0

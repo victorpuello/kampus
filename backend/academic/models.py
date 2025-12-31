@@ -85,9 +85,14 @@ class AcademicLevel(models.Model):
 class Grade(models.Model):
     name = models.CharField(max_length=50)
     level = models.ForeignKey(AcademicLevel, related_name="grades", on_delete=models.SET_NULL, null=True, blank=True)
+    ordinal = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Orden de progresión institucional (ej: Jardín=1 ... Undécimo=13).",
+    )
 
     class Meta:
-        ordering = ["name"]
+        ordering = ["ordinal", "name"]
         unique_together = ("name",)
 
     def __str__(self) -> str:
@@ -379,6 +384,48 @@ class GradeSheet(models.Model):
             models.Index(fields=["teacher_assignment", "period"], name="idx_gradesheet_assign_period"),
             models.Index(fields=["period"], name="idx_gradesheet_period"),
         ]
+
+
+class EnrollmentPromotionSnapshot(models.Model):
+    """Resultado anual consolidado para una matrícula (Enrollment).
+
+    Se guarda año a año para evitar recalcular el pasado y soportar auditoría.
+    """
+
+    DECISION_PROMOTED = "PROMOTED"
+    DECISION_CONDITIONAL = "CONDITIONAL"
+    DECISION_REPEATED = "REPEATED"
+    DECISION_GRADUATED = "GRADUATED"
+
+    DECISION_CHOICES = (
+        (DECISION_PROMOTED, "Promoción plena"),
+        (DECISION_CONDITIONAL, "Promoción condicional"),
+        (DECISION_REPEATED, "Repitencia"),
+        (DECISION_GRADUATED, "Graduado"),
+    )
+
+    enrollment = models.OneToOneField(
+        "students.Enrollment",
+        related_name="promotion_snapshot",
+        on_delete=models.CASCADE,
+    )
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES)
+    failed_subjects_count = models.PositiveIntegerField(default=0)
+    failed_areas_count = models.PositiveIntegerField(default=0)
+    failed_subjects_distinct_areas_count = models.PositiveIntegerField(default=0)
+    details = models.JSONField(default=dict, blank=True)
+
+    computed_at = models.DateTimeField(auto_now=True)
+
+    sealed_at = models.DateTimeField(null=True, blank=True)
+    sealed_hash = models.CharField(max_length=128, blank=True)
+
+    class Meta:
+        verbose_name = "Resultado anual de promoción"
+        verbose_name_plural = "Resultados anuales de promoción"
+
+    def __str__(self) -> str:
+        return f"{self.enrollment} => {self.get_decision_display()}"
 
 
 class EditRequest(models.Model):

@@ -19,6 +19,28 @@ export interface Enrollment {
   final_status: string
 }
 
+export interface PapPlanListItem {
+  id: number
+  status: 'OPEN' | 'CLEARED' | 'FAILED'
+  due_period: { id: number | null; name: string | null }
+  enrollment: {
+    id: number
+    academic_year: { id: number | null; year: number | string | null }
+    grade: { id: number | null; name: string | null }
+    student: { id: number | null; name: string | null; document_number: string }
+  }
+  source_enrollment: { id: number | null; grade: { id: number | null; name: string | null } } | null
+  pending_subject_ids: number[]
+  pending_area_ids: number[]
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PapPlanListResponse {
+  results: PapPlanListItem[]
+}
+
 export const enrollmentsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<PaginatedResponse<Enrollment>>('/api/enrollments/', { params }),
@@ -38,4 +60,10 @@ export const enrollmentsApi = {
     params,
     responseType: 'blob' 
   }),
+
+  papPlans: (params?: { status?: 'OPEN' | 'CLEARED' | 'FAILED'; academic_year?: number; due_period?: number }) =>
+    api.get<PapPlanListResponse>('/api/enrollments/pap-plans/', { params }),
+
+  papResolve: (enrollmentId: number, data: { status: 'CLEARED' | 'FAILED'; notes?: string }) =>
+    api.post(`/api/enrollments/${enrollmentId}/pap/resolve/`, data),
 }

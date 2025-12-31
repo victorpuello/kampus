@@ -29,6 +29,8 @@ import PlanningEditRequests from './pages/PlanningEditRequests'
 import AccountSettings from './pages/AccountSettings'
 import DisciplineCases from './pages/DisciplineCases'
 import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
+import PapPlans from './pages/PapPlans'
+import PromotionWorkflow from './pages/PromotionWorkflow'
 
 export default function App() {
   return (
@@ -68,6 +70,8 @@ export default function App() {
             <Route path="/edit-requests/grades" element={<GradeEditRequests />} />
             <Route path="/edit-requests/planning" element={<PlanningEditRequests />} />
             <Route path="/rbac" element={<RbacSettings />} />
+            <Route path="/pap" element={<PapPlans />} />
+            <Route path="/promotion" element={<PromotionWorkflow />} />
           </Route>
         </Route>
       </Routes>

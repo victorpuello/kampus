@@ -1,9 +1,19 @@
-import google.generativeai as genai
 from django.conf import settings
 import json
 
+try:
+    import google.generativeai as genai
+except ImportError:  # optional dependency
+    genai = None
+
 class AIService:
     def __init__(self):
+        self.model = None
+
+        if genai is None:
+            # Allow the app to boot/tests to run without the optional Gemini SDK.
+            return
+
         if not settings.GOOGLE_API_KEY:
             # En desarrollo permitimos instanciar sin key, pero fallará al llamar
             print("WARNING: GOOGLE_API_KEY not found in settings.")
@@ -16,13 +26,22 @@ class AIService:
                 print(f"Error configuring Gemini: {e}")
                 self.model = None
 
+    def _ensure_available(self):
+        if genai is None:
+            raise ValueError(
+                "Gemini AI support is not installed. Add 'google-generativeai' to requirements to use this feature."
+            )
+        if not settings.GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY is not configured.")
+        if not self.model:
+            raise ValueError("Gemini model not initialized. Check API Key.")
+
     def generate_indicators(self, achievement_description):
         """
         Genera indicadores de desempeño (Bajo, Básico, Alto, Superior)
         basados en la descripción de un logro.
         """
-        if not settings.GOOGLE_API_KEY:
-             raise ValueError("GOOGLE_API_KEY is not configured.")
+        self._ensure_available()
 
         prompt = f"""
         Actúa como un experto pedagogo. Dado el siguiente logro académico:
@@ -63,8 +82,7 @@ class AIService:
         """
         Mejora la redacción y ortografía de un texto académico.
         """
-        if not settings.GOOGLE_API_KEY:
-             raise ValueError("GOOGLE_API_KEY is not configured.")
+        self._ensure_available()
 
         prompt = f"""
         Actúa como un experto corrector de estilo y pedagogo.
@@ -77,9 +95,6 @@ class AIService:
         """
 
         try:
-            if not hasattr(self, 'model') or not self.model:
-                 raise ValueError("Gemini model not initialized. Check API Key.")
-
             response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:

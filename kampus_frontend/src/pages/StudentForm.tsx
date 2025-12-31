@@ -7,7 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
-import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText } from 'lucide-react'
+import { Toast, type ToastType } from '../components/ui/Toast'
+import { ConfirmationModal } from '../components/ui/ConfirmationModal'
+import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText, GraduationCap } from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 import { useAuthStore } from '../store/auth'
@@ -156,6 +158,7 @@ export default function StudentForm() {
   const isEditing = !!id
     const user = useAuthStore((s) => s.user)
     const isTeacher = user?.role === 'TEACHER'
+        const blockedHistoryImport = user?.role === 'TEACHER' || user?.role === 'PARENT' || user?.role === 'STUDENT'
     const canEdit = !isTeacher
 
     const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
@@ -163,6 +166,16 @@ export default function StudentForm() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState('identification')
+
+    const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+        message: '',
+        type: 'info',
+        isVisible: false,
+    })
+
+    const showToast = (message: string, type: ToastType = 'info') => {
+        setToast({ message, type, isVisible: true })
+    }
 
     const studentId = useMemo(() => {
         if (!isEditing) return null
@@ -175,11 +188,33 @@ export default function StudentForm() {
     const [disciplineCases, setDisciplineCases] = useState<DisciplineCaseListItem[]>([])
     const [enrollments, setEnrollments] = useState<Enrollment[]>([])
     const [selectedEnrollmentId, setSelectedEnrollmentId] = useState<number | null>(null)
+
+    const [currentEnrollment, setCurrentEnrollment] = useState<Enrollment | null>(null)
+    const [currentEnrollmentLoading, setCurrentEnrollmentLoading] = useState(false)
+
+    const [academicHistory, setAcademicHistory] = useState<Enrollment[]>([])
+    const [academicHistoryLoading, setAcademicHistoryLoading] = useState(false)
+    const [academicHistoryError, setAcademicHistoryError] = useState<string | null>(null)
     const [newCaseOccurredAt, setNewCaseOccurredAt] = useState<string>('')
     const [newCaseLocation, setNewCaseLocation] = useState<string>('')
     const [newCaseNarrative, setNewCaseNarrative] = useState<string>('')
     const [newCaseManualSeverity, setNewCaseManualSeverity] = useState<'MINOR' | 'MAJOR' | 'VERY_MAJOR'>('MINOR')
     const [newCaseLawType, setNewCaseLawType] = useState<'I' | 'II' | 'III' | 'UNKNOWN'>('UNKNOWN')
+
+    // External academic history import (SIEE)
+    const [historyGrades, setHistoryGrades] = useState<Array<{ id: number; name: string }>>([])
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [historyYear, setHistoryYear] = useState<string>('')
+    const [historyGradeId, setHistoryGradeId] = useState<number | ''>('')
+    const [historyOriginSchool, setHistoryOriginSchool] = useState<string>('')
+    const [historySubjectsText, setHistorySubjectsText] = useState<string>('')
+    const [historyResult, setHistoryResult] = useState<null | {
+        enrollment_id: number
+        decision: string
+        failed_subjects_count: number
+        failed_areas_count: number
+    }>(null)
+    const [historyConfirmOpen, setHistoryConfirmOpen] = useState(false)
 
     useEffect(() => {
         if (activeTab !== 'discipline') return
@@ -227,6 +262,189 @@ export default function StudentForm() {
             mounted = false
         }
     }, [activeTab, newCaseOccurredAt, selectedEnrollmentId, studentId])
+
+    const enrollmentYearLabel = (en: Enrollment): string => {
+        if (typeof en.academic_year === 'object' && en.academic_year) return String(en.academic_year.year)
+        return typeof en.academic_year === 'number' ? String(en.academic_year) : '-'
+    }
+
+    const enrollmentGradeLabel = (en: Enrollment): string => {
+        if (typeof en.grade === 'object' && en.grade) return String(en.grade.name)
+        return typeof en.grade === 'number' ? String(en.grade) : '-'
+    }
+
+    const enrollmentGroupLabel = (en: Enrollment): string => {
+        if (!en.group) return '-'
+        if (typeof en.group === 'object') return String(en.group.name)
+        return String(en.group)
+    }
+
+    useEffect(() => {
+        if (!studentId) return
+
+        let mounted = true
+        setCurrentEnrollmentLoading(true)
+
+        enrollmentsApi
+            .list({ student: studentId, status: 'ACTIVE', page_size: 50 })
+            .then((res) => {
+                if (!mounted) return
+                const results = res.data?.results || []
+                const sorted = results.slice().sort((a, b) => {
+                    const ay = Number(enrollmentYearLabel(a))
+                    const by = Number(enrollmentYearLabel(b))
+                    if (Number.isFinite(ay) && Number.isFinite(by)) return by - ay
+                    return enrollmentYearLabel(b).localeCompare(enrollmentYearLabel(a))
+                })
+                setCurrentEnrollment(sorted[0] || null)
+            })
+            .catch(() => {
+                if (!mounted) return
+                setCurrentEnrollment(null)
+            })
+            .finally(() => {
+                if (!mounted) return
+                setCurrentEnrollmentLoading(false)
+            })
+
+        return () => {
+            mounted = false
+        }
+    }, [studentId])
+
+    useEffect(() => {
+        if (activeTab !== 'academic_history') return
+        if (!studentId) return
+
+        let mounted = true
+        setAcademicHistoryLoading(true)
+        setAcademicHistoryError(null)
+
+        enrollmentsApi
+            .list({ student: studentId, page_size: 200 })
+            .then((res) => {
+                if (!mounted) return
+                const results = res.data?.results || []
+                const sorted = results.slice().sort((a, b) => {
+                    const ay = Number(enrollmentYearLabel(a))
+                    const by = Number(enrollmentYearLabel(b))
+                    if (Number.isFinite(ay) && Number.isFinite(by)) return by - ay
+                    return enrollmentYearLabel(b).localeCompare(enrollmentYearLabel(a))
+                })
+                setAcademicHistory(sorted)
+            })
+            .catch((e: unknown) => {
+                if (!mounted) return
+                console.error(e)
+                setAcademicHistory([])
+                setAcademicHistoryError(getErrorDetail(e) || 'No se pudo cargar el historial académico')
+            })
+            .finally(() => {
+                if (!mounted) return
+                setAcademicHistoryLoading(false)
+            })
+
+        return () => {
+            mounted = false
+        }
+    }, [activeTab, studentId])
+
+    useEffect(() => {
+        if (activeTab !== 'documents') return
+        if (!studentId) return
+        if (blockedHistoryImport) return
+
+        let mounted = true
+        academicApi
+            .listGrades()
+            .then((res) => {
+                if (!mounted) return
+                const list = (res.data || []).map((g) => ({ id: g.id, name: g.name }))
+                setHistoryGrades(list)
+            })
+            .catch(() => {
+                if (!mounted) return
+                setHistoryGrades([])
+            })
+
+        return () => {
+            mounted = false
+        }
+    }, [activeTab, blockedHistoryImport, studentId])
+
+    const parseHistorySubjects = () => {
+        const lines = historySubjectsText
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+
+        const subjects: Array<{ area: string; subject: string; final_score: string }> = []
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i]
+            const parts = (line.includes(';') ? line.split(';') : line.split(','))
+                .map((p) => p.trim())
+                .filter((p) => p !== '')
+            if (parts.length !== 3) {
+                throw new Error(`Línea ${i + 1}: usa formato "Área, Materia, Nota"`)
+            }
+            const [area, subject, final_score] = parts
+            if (!area || !subject || !final_score) {
+                throw new Error(`Línea ${i + 1}: faltan campos (area, subject, final_score)`)
+            }
+            subjects.push({ area, subject, final_score })
+        }
+
+        if (subjects.length === 0) {
+            throw new Error('Agrega al menos una materia')
+        }
+
+        return subjects
+    }
+
+    const openHistoryImportConfirm = () => {
+        try {
+            if (!studentId) throw new Error('Estudiante inválido')
+            const year = Number(historyYear)
+            if (!Number.isFinite(year) || year <= 0) throw new Error('academic_year inválido')
+            if (historyGradeId === '') throw new Error('Selecciona un grado')
+            parseHistorySubjects()
+            setHistoryConfirmOpen(true)
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'Datos inválidos'
+            showToast(msg, 'error')
+        }
+    }
+
+    const confirmHistoryImport = async () => {
+        if (!studentId) return
+        setHistoryLoading(true)
+        setHistoryResult(null)
+        try {
+            const year = Number(historyYear)
+            const subjects = parseHistorySubjects()
+
+            const res = await studentsApi.importAcademicHistory(studentId, {
+                academic_year: year,
+                grade: historyGradeId as number,
+                origin_school: historyOriginSchool.trim() || undefined,
+                subjects,
+            })
+
+            setHistoryResult({
+                enrollment_id: res.data.enrollment_id,
+                decision: res.data.decision,
+                failed_subjects_count: res.data.failed_subjects_count,
+                failed_areas_count: res.data.failed_areas_count,
+            })
+            showToast('Historial importado correctamente', 'success')
+            setHistoryConfirmOpen(false)
+        } catch (e: unknown) {
+            console.error(e)
+            showToast(getErrorDetail(e) || 'No se pudo importar el historial', 'error')
+        } finally {
+            setHistoryLoading(false)
+        }
+    }
 
   const [selectedDepartment, setSelectedDepartment] = useState('')
   const [selectedCity, setSelectedCity] = useState('')
@@ -496,6 +714,7 @@ export default function StudentForm() {
     { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
     { id: 'support', label: 'Apoyos', icon: Heart },
         { id: 'discipline', label: 'Convivencia', icon: FileText },
+        { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
     { id: 'family', label: 'Familia', icon: Users },
     { id: 'documents', label: 'Documentos', icon: FileText },
   ]
@@ -566,9 +785,23 @@ export default function StudentForm() {
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-          {isEditing ? 'Editar Estudiante' : 'Nuevo Estudiante'}
-        </h2>
+                <div className="flex flex-col">
+                        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+                            {isEditing ? 'Editar Estudiante' : 'Nuevo Estudiante'}
+                        </h2>
+                        {isEditing && studentId && (
+                                <div className="text-sm text-slate-600 mt-1">
+                                        <span className="font-medium">Grado / Matrícula actual:</span>{' '}
+                                        {currentEnrollmentLoading ? (
+                                                'Cargando…'
+                                        ) : currentEnrollment ? (
+                                                `${enrollmentGradeLabel(currentEnrollment)} / ${enrollmentGroupLabel(currentEnrollment)} (${enrollmentYearLabel(currentEnrollment)})`
+                                        ) : (
+                                                'Sin matrícula activa'
+                                        )}
+                                </div>
+                        )}
+                </div>
       </div>
 
       <div className="flex space-x-1 rounded-xl bg-slate-100 p-1">
@@ -1124,6 +1357,63 @@ export default function StudentForm() {
                     )}
                 </div>
 
+        {/* ACADEMIC HISTORY TAB */}
+        <div className={activeTab === 'academic_history' ? 'block' : 'hidden'}>
+            {!studentId ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500">
+                        Guarde el estudiante primero para ver el historial académico.
+                    </CardContent>
+                </Card>
+            ) : (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Historial académico</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {academicHistoryError && (
+                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                                {academicHistoryError}
+                            </div>
+                        )}
+
+                        {academicHistoryLoading ? (
+                            <div className="text-slate-600">Cargando…</div>
+                        ) : academicHistory.length === 0 ? (
+                            <div className="text-slate-600">No hay matrículas registradas para este estudiante.</div>
+                        ) : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                                        <tr>
+                                            <th className="px-6 py-4 font-semibold">Año</th>
+                                            <th className="px-6 py-4 font-semibold">Grado</th>
+                                            <th className="px-6 py-4 font-semibold">Grupo</th>
+                                            <th className="px-6 py-4 font-semibold">Estado</th>
+                                            <th className="px-6 py-4 font-semibold">Promoción</th>
+                                            <th className="px-6 py-4 font-semibold">Procedencia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {academicHistory.map((en) => (
+                                            <tr key={en.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                                                <td className="px-6 py-4">{enrollmentYearLabel(en)}</td>
+                                                <td className="px-6 py-4">{enrollmentGradeLabel(en)}</td>
+                                                <td className="px-6 py-4">{enrollmentGroupLabel(en)}</td>
+                                                <td className="px-6 py-4">{en.status}</td>
+                                                <td className="px-6 py-4">{en.final_status || '-'}</td>
+                                                <td className="px-6 py-4">{en.origin_school || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            )}
+        </div>
+
         {/* FAMILY TAB */}
         {!isTeacher && (
         <div className={activeTab === 'family' ? 'block' : 'hidden'}>
@@ -1212,13 +1502,109 @@ export default function StudentForm() {
                     </CardContent>
                 </Card>
             ) : (
-                <StudentDocuments studentId={Number(id)} />
+                <div className="space-y-6">
+                    {!blockedHistoryImport && studentId && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Importar historial académico externo</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <Label>Año (academic_year)</Label>
+                                        <Input
+                                            type="number"
+                                            placeholder="Ej: 2023"
+                                            value={historyYear}
+                                            onChange={(e) => setHistoryYear(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Grado</Label>
+                                        <select
+                                            value={historyGradeId}
+                                            onChange={(e) => setHistoryGradeId(e.target.value ? Number(e.target.value) : '')}
+                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                                        >
+                                            <option value="">Seleccione…</option>
+                                            {historyGrades.map((g) => (
+                                                <option key={g.id} value={g.id}>
+                                                    {g.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>Institución de origen (opcional)</Label>
+                                        <Input
+                                            placeholder="Ej: Colegio Externo"
+                                            value={historyOriginSchool}
+                                            onChange={(e) => setHistoryOriginSchool(e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Materias (una por línea)</Label>
+                                    <textarea
+                                        value={historySubjectsText}
+                                        onChange={(e) => setHistorySubjectsText(e.target.value)}
+                                        placeholder={
+                                            'Formato: Área, Materia, Nota\n' +
+                                            'Ej:\n' +
+                                            'Matemáticas, Álgebra, 4.20\n' +
+                                            'Ciencias, Biología, 2.50'
+                                        }
+                                        className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                    />
+                                    <div className="text-xs text-slate-500">Separador: coma (,) o punto y coma (;).</div>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <Button onClick={openHistoryImportConfirm} disabled={historyLoading}>
+                                        {historyLoading ? 'Importando…' : 'Importar historial'}
+                                    </Button>
+                                </div>
+
+                                {historyResult ? (
+                                    <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-sm text-slate-700">
+                                        <div><span className="font-medium">Matrícula:</span> {historyResult.enrollment_id}</div>
+                                        <div><span className="font-medium">Decisión:</span> {historyResult.decision}</div>
+                                        <div><span className="font-medium">Reprobadas:</span> {historyResult.failed_subjects_count} materia(s), {historyResult.failed_areas_count} área(s)</div>
+                                    </div>
+                                ) : null}
+                            </CardContent>
+                        </Card>
+                    )}
+
+                    <StudentDocuments studentId={Number(id)} />
+                </div>
             )}
             <div className="flex justify-between p-4 mt-4">
                 <Button variant="outline" onClick={() => setActiveTab(isTeacher ? 'support' : 'family')}>Anterior</Button>
                 <Button onClick={() => navigate('/students')}>Finalizar</Button>
             </div>
         </div>
+
+        <ConfirmationModal
+            isOpen={historyConfirmOpen}
+            onClose={() => {
+                if (!historyLoading) setHistoryConfirmOpen(false)
+            }}
+            onConfirm={confirmHistoryImport}
+            title="Importar historial académico"
+            description="Esto creará (o reutilizará) una matrícula del año indicado y guardará un snapshot de promoción con los datos importados."
+            confirmText="Confirmar"
+            cancelText="Cancelar"
+            loading={historyLoading}
+        />
+
+        <Toast
+            message={toast.message}
+            type={toast.type}
+            isVisible={toast.isVisible}
+            onClose={() => setToast((t) => ({ ...t, isVisible: false }))}
+        />
 
                 {showFamilyModal && id && canEdit && (
             <FamilyMemberForm 

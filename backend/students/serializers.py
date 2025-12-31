@@ -197,6 +197,7 @@ class EnrollmentSerializer(serializers.ModelSerializer):
             "status",
             "origin_school",
             "final_status",
+            "enrolled_at",
         ]
         read_only_fields = ["id"]
 

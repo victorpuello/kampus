@@ -86,6 +86,28 @@ export interface Student {
   documents: StudentDocument[]
 }
 
+export interface ImportAcademicHistorySubject {
+  area: string
+  subject: string
+  final_score: string | number
+}
+
+export interface ImportAcademicHistoryPayload {
+  academic_year: number
+  grade?: number
+  grade_name?: string
+  origin_school?: string
+  subjects: ImportAcademicHistorySubject[]
+}
+
+export interface ImportAcademicHistoryResponse {
+  enrollment_id: number
+  academic_year: { id: number; year: number }
+  decision: string
+  failed_subjects_count: number
+  failed_areas_count: number
+}
+
 const hasFile = (data: Record<string, unknown>): boolean =>
   Object.values(data).some((v) => v instanceof File)
 
@@ -118,6 +140,18 @@ export const studentsApi = {
     hasFile(data) ? api.post<Student>('/api/students/', toFormData(data)) : api.post<Student>('/api/students/', data),
   update: (id: number, data: Record<string, unknown>) =>
     hasFile(data) ? api.patch<Student>(`/api/students/${id}/`, toFormData(data)) : api.patch<Student>(`/api/students/${id}/`, data),
+
+  importAcademicHistory: (studentId: number, data: ImportAcademicHistoryPayload) =>
+    api.post<ImportAcademicHistoryResponse>(`/api/students/${studentId}/import-academic-history/`, data),
+
+  bulkImport: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post<{ created: number; failed: number; errors: Array<{ row: number; error: unknown }> }>(
+      '/api/students/bulk-import/',
+      fd
+    )
+  },
 }
 
 export const documentsApi = {

@@ -76,6 +76,31 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - [P2] `GradeSheet` edición y carga CSV masiva
 - [P2] Soporte cualitativo para Preescolar (dimensiones, descriptores)
 
+### SIEE / Promoción anual (registro año a año)
+- ✅ [P0] Motor de decisión SIEE (PROMOTED/CONDITIONAL/REPEATED) + snapshots persistentes por matrícula
+- ✅ [P0] Endpoints de cierre/análisis:
+	- `GET /api/academic-years/{id}/promotion-preview/`
+	- `POST /api/academic-years/{id}/close-with-promotion/`
+	- `POST /api/academic-years/{id}/apply-promotions/`
+- ✅ [P1] Importación manual de historial externo por estudiante:
+	- `POST /api/students/{id}/import-academic-history/` (persiste en snapshot.details)
+
+Pendientes para “cerrar circuito”:
+- ✅ [P0] Seed/validación de `Grade.ordinal` (Jardín → 11) para que `apply-promotions` pueda calcular el “siguiente grado” sin saltar estudiantes
+- ✅ [P0] Flujo PAP (condicional) completo:
+	- ✅ endpoints UI/API para marcar cumplimiento/incumplimiento del PAP
+	- ✅ regla de verificación en 1er periodo del año siguiente (confirmar promoción vs. retener)
+- [P1] UI/Frontend para operación:
+	- ✅ vista previa de promoción
+	- ✅ cierre de año con promoción
+	- ✅ aplicar promociones
+	- ✅ importar historial externo
+	- ✅ seguimiento PAP
+- [P1] Política para estudiantes que ingresan tarde (`Enrollment.enrolled_at`): cómo promediar periodos faltantes y/o cómo tratar “sin nota”
+- [P2] Nivelación semestral con tope (reemplazo máximo 3.0) y reglas de cuándo aplica
+- [P2] PIAR/NEE: excepciones por estudiante (ajustes de regla SIEE)
+- [P3] Sellado/firma de snapshots (si se requiere): calcular y validar hash/cadena de custodia
+
 ### Comunicaciones
 - [P2] Modelos: `Message`, `Announcement`, `FCMDevice`
 - [P2] Endpoints: registro de token FCM, envío de notificación de prueba
@@ -103,6 +128,8 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 - ✅ [P0] Página `Login` con flujo JWT completo
 - ✅ [P0] Módulo de Usuarios: Listado (`UserList`), Formulario (`UserForm`), Eliminación con Modal
 - ✅ [P1] Componente `ConfirmationModal` reutilizable
+- ✅ [P1] Página `PapPlans` (PAP): listado y resolución
+- ✅ [P1] Página `PromotionWorkflow` (Promoción anual): previsualizar / cerrar / aplicar
 - ✅ [P1] Página `StudentList` (tabla básica) y `StudentProfile` básico
 - ✅ [P1] Página `TeacherList` (tabla básica)
 - [P1] `AcademicConfigPanel` (CRUD simple) con formularios

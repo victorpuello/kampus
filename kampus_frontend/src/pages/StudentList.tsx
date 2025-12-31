@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { studentsApi } from '../services/students'
 import type { Student } from '../services/students'
@@ -8,11 +8,13 @@ import { Plus, Search, Users, User, UserCheck, GraduationCap } from 'lucide-reac
 import { Input } from '../components/ui/Input'
 import { useAuthStore } from '../store/auth'
 import { academicApi } from '../services/academic'
+import { Toast, type ToastType } from '../components/ui/Toast'
 
 export default function StudentList() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
+  const canImport = !isTeacher && user?.role !== 'PARENT' && user?.role !== 'STUDENT'
   const [data, setData] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -23,6 +25,24 @@ export default function StudentList() {
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
   const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<null | { created: number; failed: number; errors: Array<{ row: number; error: unknown }> }>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false,
+  })
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }
+
+  const topErrors = useMemo(() => {
+    if (!importResult?.errors?.length) return []
+    return importResult.errors.slice(0, 5)
+  }, [importResult])
 
   useEffect(() => {
     let mounted = true
@@ -159,13 +179,85 @@ export default function StudentList() {
           <p className="text-slate-500">Gestiona la información de los estudiantes matriculados.</p>
         </div>
         {!isTeacher && (
-          <Link to="/students/new">
-            <Button className="w-full md:w-auto">
-              <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
-            </Button>
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+            {canImport && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xls,.xlsx"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    setImporting(true)
+                    setImportResult(null)
+                    try {
+                      const res = await studentsApi.bulkImport(file)
+                      setImportResult(res.data)
+                      showToast(
+                        `Importación finalizada: ${res.data.created} creados, ${res.data.failed} con error`,
+                        res.data.failed > 0 ? 'info' : 'success'
+                      )
+                      setPage(1)
+                    } catch (err: any) {
+                      showToast(err?.response?.data?.detail || 'No se pudo importar el archivo', 'error')
+                    } finally {
+                      setImporting(false)
+                      // allow re-selecting the same file
+                      if (fileInputRef.current) fileInputRef.current.value = ''
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  className="w-full md:w-auto"
+                  disabled={importing}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {importing ? 'Importando…' : 'Importar (CSV/XLS/XLSX)'}
+                </Button>
+              </>
+            )}
+            <Link to="/students/new">
+              <Button className="w-full md:w-auto">
+                <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
+              </Button>
+            </Link>
+          </div>
         )}
       </div>
+
+      {importResult && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-800">Resultado de importación</p>
+                <p className="text-sm text-slate-600">
+                  {importResult.created} creados • {importResult.failed} con error
+                </p>
+              </div>
+              {importResult.failed > 0 && (
+                <div className="text-xs text-slate-500">
+                  Mostrando primeros {topErrors.length} errores
+                </div>
+              )}
+            </div>
+
+            {importResult.failed > 0 && (
+              <div className="mt-3 space-y-2">
+                {topErrors.map((e, i) => (
+                  <div key={i} className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm">
+                    <span className="font-semibold">Fila {e.row}:</span>{' '}
+                    <span className="wrap-break-word">{typeof e.error === 'string' ? e.error : JSON.stringify(e.error)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -272,7 +364,7 @@ export default function StudentList() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                          <div className="shrink-0 h-10 w-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                             <span className="text-white font-semibold text-sm">
                               {(s.user?.first_name?.[0] || '')}{(s.user?.last_name?.[0] || '')}
                             </span>
@@ -375,6 +467,12 @@ export default function StudentList() {
           </div>
         </CardContent>
       </Card>
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={() => setToast((t) => ({ ...t, isVisible: false }))}
+      />
     </div>
   )
 }

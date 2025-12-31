@@ -111,7 +111,7 @@ class GradeSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Grade
-        fields = ["id", "name", "level", "level_name"]
+        fields = ["id", "name", "ordinal", "level", "level_name"]
         read_only_fields = ["id"]
 
     def get_level_name(self, obj):

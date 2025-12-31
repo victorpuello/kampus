@@ -1,4 +1,5 @@
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, serializers
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -11,9 +12,14 @@ from django.template.loader import render_to_string
 from django.conf import settings
 import csv
 import io
+import os
+import re
+import unicodedata
+from datetime import date, datetime
+from decimal import Decimal
 from academic.models import AcademicYear, Grade, Group
 from core.models import Institution
-from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument
+from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ConditionalPromotionPlan
 try:
     from xhtml2pdf import pisa
 except ImportError:
@@ -117,6 +123,419 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({"detail": "No tienes permisos para eliminar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
+    def _normalize_header(self, value: str) -> str:
+        if value is None:
+            return ''
+        text = str(value).strip()
+        text = unicodedata.normalize('NFKD', text).encode('ASCII', 'ignore').decode('utf-8')
+        text = text.lower()
+        text = re.sub(r'[^a-z0-9]+', '_', text)
+        return text.strip('_')
+
+    def _parse_bool(self, value):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        s = str(value).strip().lower()
+        if s in {'1', 'true', 't', 'yes', 'y', 'si', 'sí'}:
+            return True
+        if s in {'0', 'false', 'f', 'no', 'n'}:
+            return False
+        return None
+
+    def _parse_date(self, value):
+        if value is None or value == '':
+            return None
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if isinstance(value, datetime):
+            return value.date()
+        s = str(value).strip()
+        for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except Exception:
+                pass
+        return None
+
+    def _extract_value(self, row: dict, *keys, default=None):
+        for k in keys:
+            if k in row and row[k] not in (None, ''):
+                return row[k]
+        return default
+
+    def _coerce_str(self, value):
+        if value is None:
+            return ''
+        if isinstance(value, bool):
+            return 'true' if value else 'false'
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, float):
+            try:
+                if value.is_integer():
+                    return str(int(value))
+            except Exception:
+                pass
+        return str(value).strip()
+
+    def _map_row_to_student_payload(self, row: dict):
+        # Accept common Spanish/English headers.
+        first_name = self._extract_value(row, 'first_name', 'nombres', 'nombre', 'name')
+        last_name = self._extract_value(row, 'last_name', 'apellidos', 'apellido', 'surname')
+        email = self._extract_value(row, 'email', 'correo', 'correo_electronico', 'e_mail')
+
+        document_number = self._extract_value(
+            row,
+            'document_number',
+            'numero_documento',
+            'no_documento',
+            'documento',
+            'identificacion',
+            'dni',
+        )
+        document_type = self._extract_value(row, 'document_type', 'tipo_documento', 'tipo_de_documento')
+
+        sex_raw = self._extract_value(row, 'sex', 'sexo', 'genero')
+        sex = None
+        if sex_raw is not None and str(sex_raw).strip() != '':
+            sx = str(sex_raw).strip().upper()
+            if sx in {'M', 'MAS', 'MASCULINO', 'MALE'}:
+                sex = 'M'
+            elif sx in {'F', 'FEM', 'FEMENINO', 'FEMALE'}:
+                sex = 'F'
+
+        payload = {
+            'first_name': self._coerce_str(first_name),
+            'last_name': self._coerce_str(last_name),
+            'email': self._coerce_str(email),
+            'document_number': self._coerce_str(document_number),
+            'document_type': self._coerce_str(document_type),
+        }
+
+        # Optional student fields
+        optional_str_fields = {
+            'place_of_issue': ('place_of_issue', 'lugar_expedicion', 'lugar_de_expedicion'),
+            'nationality': ('nationality', 'nacionalidad'),
+            'blood_type': ('blood_type', 'tipo_sangre', 'rh'),
+            'address': ('address', 'direccion'),
+            'neighborhood': ('neighborhood', 'barrio', 'barrio_vereda'),
+            'phone': ('phone', 'telefono', 'celular'),
+            'living_with': ('living_with', 'con_quien_vive'),
+            'stratum': ('stratum', 'estrato'),
+            'ethnicity': ('ethnicity', 'etnia'),
+            'sisben_score': ('sisben_score', 'sisben', 'puntaje_sisben'),
+            'eps': ('eps',),
+            'disability_description': ('disability_description', 'descripcion_discapacidad'),
+            'disability_type': ('disability_type', 'tipo_discapacidad'),
+            'support_needs': ('support_needs', 'apoyos', 'apoyos_requeridos'),
+            'allergies': ('allergies', 'alergias'),
+            'emergency_contact_name': ('emergency_contact_name', 'contacto_emergencia_nombre'),
+            'emergency_contact_phone': ('emergency_contact_phone', 'contacto_emergencia_telefono'),
+            'emergency_contact_relationship': ('emergency_contact_relationship', 'contacto_emergencia_parentesco'),
+            'financial_status': ('financial_status', 'estado_financiero'),
+        }
+        for target, aliases in optional_str_fields.items():
+            v = self._extract_value(row, *aliases)
+            if v is not None:
+                payload[target] = self._coerce_str(v)
+
+        birth_date_raw = self._extract_value(row, 'birth_date', 'fecha_nacimiento', 'nacimiento')
+        birth_date = self._parse_date(birth_date_raw)
+        if birth_date is not None:
+            payload['birth_date'] = birth_date
+
+        if sex is not None:
+            payload['sex'] = sex
+
+        is_victim_raw = self._extract_value(row, 'is_victim_of_conflict', 'victima_conflicto', 'victima_del_conflicto')
+        is_victim = self._parse_bool(is_victim_raw)
+        if is_victim is not None:
+            payload['is_victim_of_conflict'] = is_victim
+
+        has_disability_raw = self._extract_value(row, 'has_disability', 'tiene_discapacidad', 'discapacidad')
+        has_disability = self._parse_bool(has_disability_raw)
+        if has_disability is not None:
+            payload['has_disability'] = has_disability
+
+        return payload
+
+    @action(detail=True, methods=["post"], url_path="import-academic-history")
+    @transaction.atomic
+    def import_academic_history(self, request, pk=None):
+        """Import external academic history for a student.
+
+        Creates (or reuses) an Enrollment for the given academic year with group=None,
+        and stores imported subject/area finals in EnrollmentPromotionSnapshot.details.
+
+        Body example:
+        {
+          "academic_year": 2024,
+          "grade_name": "Octavo",
+          "origin_school": "Colegio X",
+          "subjects": [
+            {"area": "Matemáticas", "subject": "Álgebra", "final_score": "3.80"},
+            {"area": "Ciencias", "subject": "Biología", "final_score": "2.50"}
+          ]
+        }
+        """
+
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para importar historial."}, status=status.HTTP_403_FORBIDDEN)
+
+        student = self.get_object()
+
+        year_value = request.data.get("academic_year")
+        grade_id = request.data.get("grade")
+        grade_name = request.data.get("grade_name")
+        origin_school = request.data.get("origin_school", "")
+        subjects = request.data.get("subjects") or []
+
+        if not year_value:
+            return Response({"detail": "academic_year es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            year_int = int(year_value)
+        except Exception:
+            return Response({"detail": "academic_year inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not grade_id and not grade_name:
+            return Response({"detail": "grade o grade_name es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if grade_id:
+            grade = Grade.objects.filter(id=grade_id).first()
+        else:
+            grade = Grade.objects.filter(name=grade_name).first()
+
+        if not grade:
+            return Response({"detail": "Grado no encontrado"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create or reuse AcademicYear by numeric year
+        academic_year = AcademicYear.objects.filter(year=year_int).first()
+        if not academic_year:
+            academic_year = AcademicYear.objects.create(year=year_int, status=AcademicYear.STATUS_PLANNING)
+
+        enrollment, _ = Enrollment.objects.get_or_create(
+            student=student,
+            academic_year=academic_year,
+            defaults={
+                "grade": grade,
+                "group": None,
+                "status": "RETIRED",
+                "origin_school": origin_school,
+                "final_status": "IMPORTADO",
+            },
+        )
+
+        # If enrollment already existed, keep grade consistent unless explicitly overridden
+        if enrollment.grade_id != grade.id:
+            enrollment.grade = grade
+        if origin_school:
+            enrollment.origin_school = origin_school
+        if enrollment.status == "ACTIVE" and academic_year.status != "ACTIVE":
+            # Avoid leaving past-year enrollments ACTIVE
+            enrollment.status = "RETIRED"
+        enrollment.save(update_fields=["grade", "origin_school", "status"])
+
+        # Validate and compute decision from imported subject finals.
+        passing_score = Decimal("3.00")
+        failed_subjects = []
+        failed_areas = set()
+        failed_distinct_areas = set()
+
+        normalized_subjects = []
+        for idx, row in enumerate(subjects):
+            area = (row.get("area") or "").strip()
+            subject_name = (row.get("subject") or "").strip()
+            score_raw = row.get("final_score")
+            if not area or not subject_name or score_raw in (None, ""):
+                return Response(
+                    {"detail": f"subjects[{idx}] debe incluir area, subject, final_score"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                score = Decimal(str(score_raw)).quantize(Decimal("0.01"))
+            except Exception:
+                return Response(
+                    {"detail": f"subjects[{idx}].final_score inválido"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            normalized_subjects.append({"area": area, "subject": subject_name, "final_score": str(score)})
+            if score < passing_score:
+                failed_subjects.append({"area": area, "subject": subject_name, "final_score": str(score)})
+                failed_areas.add(area)
+                failed_distinct_areas.add(area)
+
+        failed_subjects_count = len(failed_subjects)
+        failed_areas_count = len(failed_areas)
+        failed_subjects_distinct_areas_count = len(failed_distinct_areas)
+
+        # Apply your SIEE decision rules (by names, for imported records)
+        if failed_areas_count >= 2:
+            decision = "REPEATED"
+        elif failed_subjects_count >= 3 and failed_subjects_distinct_areas_count >= 3:
+            decision = "REPEATED"
+        elif failed_areas_count == 0 and failed_subjects_count == 0:
+            decision = "PROMOTED"
+        elif failed_areas_count == 1 or failed_subjects_count <= 2:
+            decision = "CONDITIONAL"
+        else:
+            decision = "REPEATED"
+
+        # Persist as snapshot details (no need to create curriculum subjects/areas)
+        from academic.models import EnrollmentPromotionSnapshot
+
+        details = {
+            "source": "IMPORTED",
+            "academic_year": year_int,
+            "origin_school": origin_school,
+            "grade": {"id": grade.id, "name": grade.name, "ordinal": grade.ordinal},
+            "passing_score": str(passing_score),
+            "subjects": normalized_subjects,
+            "failed_subjects": failed_subjects,
+            "failed_areas": sorted(list(failed_areas)),
+        }
+
+        EnrollmentPromotionSnapshot.objects.update_or_create(
+            enrollment=enrollment,
+            defaults={
+                "decision": decision,
+                "failed_subjects_count": failed_subjects_count,
+                "failed_areas_count": failed_areas_count,
+                "failed_subjects_distinct_areas_count": failed_subjects_distinct_areas_count,
+                "details": details,
+            },
+        )
+
+        # Keep legacy field simple but informative
+        enrollment.final_status = f"IMPORTADO ({decision})"
+        enrollment.save(update_fields=["final_status"])
+
+        return Response(
+            {
+                "enrollment_id": enrollment.id,
+                "academic_year": {"id": academic_year.id, "year": academic_year.year},
+                "decision": decision,
+                "failed_subjects_count": failed_subjects_count,
+                "failed_areas_count": failed_areas_count,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _read_rows_from_upload(self, upload):
+        name = getattr(upload, 'name', '') or ''
+        ext = os.path.splitext(name.lower())[1]
+
+        if ext == '.csv':
+            raw = upload.read()
+            # Try utf-8 with BOM first, then fallback.
+            try:
+                text = raw.decode('utf-8-sig')
+            except Exception:
+                text = raw.decode('latin-1')
+            f = io.StringIO(text)
+            reader = csv.DictReader(f)
+            return [
+                {self._normalize_header(k): v for k, v in (row or {}).items() if k is not None}
+                for row in reader
+            ]
+
+        if ext in {'.xlsx', '.xls'}:
+            if ext == '.xlsx':
+                from openpyxl import load_workbook
+                wb = load_workbook(upload, read_only=True, data_only=True)
+                ws = wb.active
+                rows = list(ws.iter_rows(values_only=True))
+            else:
+                import xlrd
+                book = xlrd.open_workbook(file_contents=upload.read())
+                sheet = book.sheet_by_index(0)
+                rows = [sheet.row_values(r) for r in range(sheet.nrows)]
+
+            if not rows:
+                return []
+
+            headers = [self._normalize_header(h) for h in (rows[0] or [])]
+            out = []
+            for r in rows[1:]:
+                if r is None:
+                    continue
+                row_dict = {}
+                empty = True
+                for i, h in enumerate(headers):
+                    if not h:
+                        continue
+                    v = r[i] if i < len(r) else None
+                    if v not in (None, ''):
+                        empty = False
+                    row_dict[h] = v
+                if not empty:
+                    out.append(row_dict)
+            return out
+
+        raise ValueError('Formato no soportado. Usa CSV, XLSX o XLS.')
+
+    @action(detail=False, methods=['post'], url_path='bulk-import', parser_classes=(MultiPartParser, FormParser))
+    def bulk_import(self, request):
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para importar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
+
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({"detail": "Archivo requerido (campo 'file')."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            rows = self._read_rows_from_upload(upload)
+        except ValueError as ve:
+            return Response({"detail": str(ve)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"detail": f"No se pudo leer el archivo: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        created = 0
+        failed = 0
+        errors = []
+
+        # Row numbers are 2-based (1 header + first data row = 2)
+        for idx, raw_row in enumerate(rows, start=2):
+            try:
+                payload = self._map_row_to_student_payload(raw_row)
+
+                # Enforce required fields for bulk import to avoid unique-blank collisions
+                if not payload.get('first_name'):
+                    raise serializers.ValidationError({"first_name": "Este campo es requerido."})
+                if not payload.get('last_name'):
+                    raise serializers.ValidationError({"last_name": "Este campo es requerido."})
+                if not payload.get('document_number'):
+                    raise serializers.ValidationError({"document_number": "Este campo es requerido."})
+
+                serializer = self.get_serializer(data=payload)
+                serializer.is_valid(raise_exception=True)
+                with transaction.atomic():
+                    serializer.save()
+                created += 1
+            except Exception as e:
+                failed += 1
+                detail = None
+                if hasattr(e, 'detail'):
+                    detail = e.detail
+                else:
+                    detail = str(e)
+                errors.append({
+                    'row': idx,
+                    'error': detail,
+                })
+
+        return Response(
+            {
+                'created': created,
+                'failed': failed,
+                'errors': errors,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class FamilyMemberViewSet(viewsets.ModelViewSet):
     queryset = FamilyMember.objects.select_related("student").all().order_by("id")
@@ -161,7 +580,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
     serializer_class = EnrollmentSerializer
     permission_classes = [KampusModelPermissions]
     pagination_class = EnrollmentPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = [
         "student__user__first_name",
         "student__user__last_name",
@@ -281,6 +700,184 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             ])
             
         return response
+
+    @action(detail=False, methods=["get"], url_path="pap-plans")
+    def pap_plans(self, request):
+        """List PAP plans (conditional promotion plans).
+
+        Query params:
+        - status: OPEN|CLEARED|FAILED (optional)
+        - academic_year: AcademicYear id (optional)
+        - due_period: Period id (optional)
+        """
+
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para ver PAP."}, status=status.HTTP_403_FORBIDDEN)
+
+        status_raw = (request.query_params.get("status") or "").strip().upper()
+        year_id_raw = request.query_params.get("academic_year")
+        due_period_raw = request.query_params.get("due_period")
+
+        qs = ConditionalPromotionPlan.objects.select_related(
+            "enrollment",
+            "enrollment__student",
+            "enrollment__student__user",
+            "enrollment__academic_year",
+            "enrollment__grade",
+            "due_period",
+            "source_enrollment",
+            "source_enrollment__grade",
+        ).order_by("-updated_at", "-created_at")
+
+        if status_raw:
+            if status_raw not in {
+                ConditionalPromotionPlan.STATUS_OPEN,
+                ConditionalPromotionPlan.STATUS_CLEARED,
+                ConditionalPromotionPlan.STATUS_FAILED,
+            }:
+                return Response({"detail": "status inválido"}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(status=status_raw)
+
+        if year_id_raw:
+            try:
+                year_id = int(year_id_raw)
+            except Exception:
+                return Response({"detail": "academic_year inválido"}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(enrollment__academic_year_id=year_id)
+
+        if due_period_raw:
+            try:
+                due_period_id = int(due_period_raw)
+            except Exception:
+                return Response({"detail": "due_period inválido"}, status=status.HTTP_400_BAD_REQUEST)
+            qs = qs.filter(due_period_id=due_period_id)
+
+        results = []
+        for plan in qs[:500]:
+            enr = plan.enrollment
+            student_user = enr.student.user if enr and enr.student_id else None
+            results.append(
+                {
+                    "id": plan.id,
+                    "status": plan.status,
+                    "due_period": {
+                        "id": plan.due_period_id,
+                        "name": plan.due_period.name if plan.due_period_id else None,
+                    },
+                    "enrollment": {
+                        "id": enr.id,
+                        "academic_year": {
+                            "id": enr.academic_year_id,
+                            "year": enr.academic_year.year if enr.academic_year_id else None,
+                        },
+                        "grade": {"id": enr.grade_id, "name": enr.grade.name if enr.grade_id else None},
+                        "student": {
+                            "id": enr.student_id,
+                            "name": student_user.get_full_name() if student_user else None,
+                            "document_number": getattr(enr.student, "document_number", "") if enr.student_id else "",
+                        },
+                    },
+                    "source_enrollment": {
+                        "id": plan.source_enrollment_id,
+                        "grade": {
+                            "id": plan.source_enrollment.grade_id if plan.source_enrollment_id else None,
+                            "name": plan.source_enrollment.grade.name if plan.source_enrollment_id else None,
+                        }
+                        if plan.source_enrollment_id
+                        else None,
+                    },
+                    "pending_subject_ids": plan.pending_subject_ids,
+                    "pending_area_ids": plan.pending_area_ids,
+                    "notes": plan.notes,
+                    "created_at": plan.created_at,
+                    "updated_at": plan.updated_at,
+                }
+            )
+
+        return Response({"results": results})
+
+    @action(detail=True, methods=["get"], url_path="pap")
+    def pap(self, request, pk=None):
+        """Return conditional promotion plan (PAP) for an enrollment."""
+
+        enrollment = self.get_object()
+        plan = getattr(enrollment, "conditional_plan", None)
+        if not plan:
+            return Response({"detail": "Este enrollment no tiene PAP."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response(
+            {
+                "id": plan.id,
+                "enrollment_id": enrollment.id,
+                "source_enrollment_id": plan.source_enrollment_id,
+                "due_period_id": plan.due_period_id,
+                "pending_subject_ids": plan.pending_subject_ids,
+                "pending_area_ids": plan.pending_area_ids,
+                "status": plan.status,
+                "notes": plan.notes,
+                "created_at": plan.created_at,
+                "updated_at": plan.updated_at,
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="pap/resolve")
+    @transaction.atomic
+    def pap_resolve(self, request, pk=None):
+        """Resolve a PAP plan.
+
+        Body: {"status": "CLEARED"|"FAILED", "notes": "..."}
+        - CLEARED: keeps current grade, sets Enrollment.final_status.
+        - FAILED: reverts Enrollment.grade to source_enrollment.grade (group cleared) and sets Enrollment.final_status.
+        """
+
+        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para resolver PAP."}, status=status.HTTP_403_FORBIDDEN)
+
+        enrollment = self.get_object()
+        plan = getattr(enrollment, "conditional_plan", None)
+        if not plan:
+            return Response({"detail": "Este enrollment no tiene PAP."}, status=status.HTTP_404_NOT_FOUND)
+
+        if plan.status != ConditionalPromotionPlan.STATUS_OPEN:
+            return Response({"detail": "Este PAP ya fue resuelto."}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_status = (request.data.get("status") or "").strip().upper()
+        notes = (request.data.get("notes") or "").strip()
+
+        if new_status not in {ConditionalPromotionPlan.STATUS_CLEARED, ConditionalPromotionPlan.STATUS_FAILED}:
+            return Response(
+                {"detail": "status debe ser CLEARED o FAILED"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        plan.status = new_status
+        if notes:
+            plan.notes = notes
+        plan.save(update_fields=["status", "notes", "updated_at"])
+
+        if new_status == ConditionalPromotionPlan.STATUS_CLEARED:
+            enrollment.final_status = "PAP APROBADO"
+            enrollment.save(update_fields=["final_status"])
+        else:
+            # FAILED => revert grade to source enrollment grade when available.
+            source = plan.source_enrollment
+            if source and source.grade_id:
+                enrollment.grade_id = source.grade_id
+                enrollment.group = None
+                enrollment.final_status = "PAP NO APROBADO (RETENIDO)"
+                enrollment.save(update_fields=["grade", "group", "final_status"])
+            else:
+                enrollment.final_status = "PAP NO APROBADO"
+                enrollment.save(update_fields=["final_status"])
+
+        return Response(
+            {
+                "enrollment_id": enrollment.id,
+                "pap": {"id": plan.id, "status": plan.status, "due_period_id": plan.due_period_id},
+                "enrollment": {"grade_id": enrollment.grade_id, "group_id": enrollment.group_id, "final_status": enrollment.final_status},
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class StudentNoveltyViewSet(viewsets.ModelViewSet):

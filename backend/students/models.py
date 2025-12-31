@@ -94,11 +94,66 @@ class Enrollment(models.Model):
     origin_school = models.CharField(max_length=200, blank=True, verbose_name="Procedencia")
     final_status = models.CharField(max_length=50, blank=True, verbose_name="Promoción")
 
+    enrolled_at = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Fecha de ingreso",
+        help_text="Fecha de ingreso al año lectivo (útil para estudiantes que entran a mitad de año).",
+    )
+
     class Meta:
         unique_together = ("student", "academic_year")
 
     def __str__(self) -> str:
         return f"{self.student} - {self.academic_year} - {self.grade}"
+
+
+class ConditionalPromotionPlan(models.Model):
+    STATUS_OPEN = "OPEN"
+    STATUS_CLEARED = "CLEARED"
+    STATUS_FAILED = "FAILED"
+
+    STATUS_CHOICES = (
+        (STATUS_OPEN, "Pendiente"),
+        (STATUS_CLEARED, "Aprobado / superado"),
+        (STATUS_FAILED, "No superado"),
+    )
+
+    enrollment = models.OneToOneField(
+        Enrollment,
+        related_name="conditional_plan",
+        on_delete=models.CASCADE,
+    )
+    source_enrollment = models.ForeignKey(
+        Enrollment,
+        related_name="conditional_plans_created_from",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Matrícula de origen (año anterior) desde la cual se definió la promoción condicional.",
+    )
+    due_period = models.ForeignKey(
+        "academic.Period",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Periodo límite (normalmente el primer periodo del año siguiente).",
+    )
+
+    pending_subject_ids = models.JSONField(default=list, blank=True)
+    pending_area_ids = models.JSONField(default=list, blank=True)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_OPEN)
+
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Plan de promoción condicional (PAP)"
+        verbose_name_plural = "Planes de promoción condicional (PAP)"
+
+    def __str__(self) -> str:
+        return f"PAP {self.enrollment} ({self.get_status_display()})"
 
 
 class StudentNovelty(models.Model):

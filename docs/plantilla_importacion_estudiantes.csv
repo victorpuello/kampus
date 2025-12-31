@@ -1,0 +1,3 @@
+nombres,apellidos,numero_documento,tipo_documento,correo,sexo,fecha_nacimiento,telefono,direccion,barrio,eps,estrato,estado_financiero,victima_conflicto,tiene_discapacidad
+Juan,Perez,1000123456,CC,juan.perez@correo.com,M,2012-05-20,3001234567,Calle 1 #2-3,Barrio Centro,Nueva EPS,2,SOLVENT,no,no
+Maria,Gomez,1000654321,TI,maria.gomez@correo.com,F,2011-10-02,3007654321,Carrera 10 #20-30,Barrio Norte,Sura,3,SOLVENT,no,no

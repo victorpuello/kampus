@@ -273,6 +273,8 @@ export default function DashboardLayout() {
           { name: 'Calificaciones', href: '/grades' },
           { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
           { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+          { name: 'Promoción anual', href: '/promotion' },
+          { name: 'PAP', href: '/pap' },
         ],
       },
       {
