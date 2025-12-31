@@ -647,6 +647,40 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['area', 'subject', 'is_active', 'dimension']
 
+    def get_permissions(self):
+        # Creating/editing definitions is a teacher workflow in the UI, but teachers may not
+        # have Django model add/change permissions assigned. We gate it by role instead.
+        if getattr(self, "action", None) in {"create", "update", "partial_update", "destroy"}:
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def _ensure_can_manage_definitions(self, request):
+        role = getattr(getattr(request, 'user', None), 'role', None)
+        if role in {'TEACHER', 'COORDINATOR', 'ADMIN', 'SUPERADMIN'}:
+            return None
+        return Response({"detail": "No tienes permisos para gestionar el banco de logros."}, status=status.HTTP_403_FORBIDDEN)
+
+    def create(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_definitions(request)
+        if denied is not None:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_definitions(request)
+        if denied is not None:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_definitions(request)
+        if denied is not None:
+            return denied
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=False, methods=['post'], url_path='improve-wording', permission_classes=[IsAuthenticated])
     def improve_wording(self, request):
         """
