@@ -4,10 +4,9 @@ import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Toast, type ToastType } from '../../components/ui/Toast'
-import { Upload, FileSpreadsheet, FileText } from 'lucide-react'
+import { FileSpreadsheet, FileText } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 
 export default function EnrollmentReports() {
@@ -24,10 +23,6 @@ export default function EnrollmentReports() {
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }
-
-  // Bulk Upload State
-  const [file, setFile] = useState<File | null>(null)
-  const [uploadResult, setUploadResult] = useState<{ success: number; errors: string[] } | null>(null)
 
   // Report Filters State
   const [filters, setFilters] = useState({
@@ -62,7 +57,7 @@ export default function EnrollmentReports() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Gestión Masiva y Reportes</CardTitle>
+          <CardTitle>Reportes de Matrículas</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-slate-600">No tienes permisos para acceder a reportes de matrículas.</p>
@@ -72,25 +67,6 @@ export default function EnrollmentReports() {
         </CardContent>
       </Card>
     )
-  }
-
-  const handleBulkUpload = async () => {
-    if (!file) {
-      showToast('Seleccione un archivo CSV', 'error')
-      return
-    }
-    setLoading(true)
-    setUploadResult(null)
-    try {
-      const response = await enrollmentsApi.bulkUpload(file)
-      setUploadResult(response.data)
-      showToast(`Proceso completado: ${response.data.success} matriculados`, 'success')
-    } catch (error: unknown) {
-      console.error(error)
-      showToast('Error al procesar el archivo', 'error')
-    } finally {
-      setLoading(false)
-    }
   }
 
   const handleDownloadReport = async (format: 'csv' | 'pdf' | 'xlsx' = 'csv') => {
@@ -132,7 +108,7 @@ export default function EnrollmentReports() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-3xl font-bold tracking-tight text-slate-900">
-        Gestión Masiva y Reportes
+        Reportes de Matrículas
       </h2>
 
       <Toast
@@ -142,57 +118,7 @@ export default function EnrollmentReports() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Bulk Upload Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="w-5 h-5" />
-              Carga Masiva de Matrículas
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="p-4 bg-blue-50 text-blue-800 rounded-md text-sm">
-              <p className="font-medium mb-1">Instrucciones:</p>
-              <ul className="list-disc list-inside space-y-1">
-                <li>El archivo debe ser formato <strong>.csv</strong></li>
-                <li>Columnas requeridas: <code>document_number</code>, <code>first_name</code>, <code>last_name</code>, <code>grade_name</code></li>
-                <li>Columnas opcionales: <code>group_name</code>, <code>email</code></li>
-              </ul>
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Seleccionar Archivo</Label>
-              <Input 
-                type="file" 
-                accept=".csv"
-                onChange={e => setFile(e.target.files?.[0] || null)}
-              />
-            </div>
-
-            <Button onClick={handleBulkUpload} disabled={loading || !file} className="w-full">
-              {loading ? 'Procesando...' : 'Cargar Matrículas'}
-            </Button>
-
-            {uploadResult && (
-              <div className="mt-4 p-4 border rounded-md bg-slate-50">
-                <p className="font-medium text-green-600">Exitosos: {uploadResult.success}</p>
-                {uploadResult.errors.length > 0 && (
-                  <div className="mt-2">
-                    <p className="font-medium text-red-600">Errores:</p>
-                    <ul className="text-sm text-red-500 list-disc list-inside max-h-40 overflow-y-auto">
-                      {uploadResult.errors.map((err, i) => (
-                        <li key={i}>{err}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Reports Card */}
+      <div className="grid grid-cols-1 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

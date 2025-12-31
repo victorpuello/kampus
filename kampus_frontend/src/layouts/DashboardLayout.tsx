@@ -10,14 +10,18 @@ import {
   Bell,
   GraduationCap,
   Building2,
+  FileText,
   ChevronDown,
+  ChevronLeft,
   ChevronRight
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { academicApi } from '../services/academic'
 import { emitNotificationsUpdated, notificationsApi, onNotificationsUpdated, type Notification } from '../services/notifications'
 
-type NavigationChild = { name: string; href: string }
+type NavigationLinkChild = { name: string; href: string }
+type NavigationGroupChild = { name: string; children: NavigationLinkChild[] }
+type NavigationChild = NavigationLinkChild | NavigationGroupChild
 type NavigationItem =
   | {
       name: string
@@ -35,7 +39,10 @@ type NavigationItem =
 
 export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(true)
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
+  const [expandedChildGroups, setExpandedChildGroups] = useState<string[]>([])
   const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean>(false)
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -50,11 +57,65 @@ export default function DashboardLayout() {
   const isParent = user?.role === 'PARENT'
 
   const EXPANDED_MENU_STORAGE_KEY = 'kampus.sidebar.expandedMenu'
+  const COLLAPSED_SIDEBAR_STORAGE_KEY = 'kampus.sidebar.collapsed'
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)')
+
+    const update = (matches: boolean) => {
+      setIsDesktop(matches)
+    }
+
+    update(mq.matches)
+
+    const handler = (e: MediaQueryListEvent) => update(e.matches)
+
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', handler)
+      return () => mq.removeEventListener('change', handler)
+    }
+
+    // Legacy Safari fallback
+    const legacyMq = mq as MediaQueryList & {
+      addListener: (listener: (e: MediaQueryListEvent) => void) => void
+      removeListener: (listener: (e: MediaQueryListEvent) => void) => void
+    }
+    legacyMq.addListener(handler)
+    return () => legacyMq.removeListener(handler)
+  }, [])
+
+  const isCollapsed = isDesktop && isSidebarCollapsed
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(COLLAPSED_SIDEBAR_STORAGE_KEY)
+      setIsSidebarCollapsed(stored === 'true')
+    } catch {
+      setIsSidebarCollapsed(false)
+    }
+  }, [])
+
+  const toggleSidebarCollapsed = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, next ? 'true' : 'false')
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  }
 
   const isPathActive = (href: string) => {
     if (!href) return false
     if (href === '/') return location.pathname === '/'
     return location.pathname === href || location.pathname.startsWith(href + '/')
+  }
+
+  const isChildActive = (child: NavigationChild) => {
+    if ('href' in child) return isPathActive(child.href)
+    return child.children.some((c) => isPathActive(c.href))
   }
 
   useEffect(() => {
@@ -187,6 +248,15 @@ export default function DashboardLayout() {
   }
 
   const getMenuDomId = (name: string) => `submenu-${name.toLowerCase().replace(/\s+/g, '-')}`
+  const getChildGroupDomId = (parentName: string, groupName: string) =>
+    `submenu-${parentName.toLowerCase().replace(/\s+/g, '-')}-${groupName.toLowerCase().replace(/\s+/g, '-')}`
+
+  const getChildGroupKey = (parentName: string, groupName: string) => `${parentName}::${groupName}`
+
+  const toggleChildGroup = (parentName: string, groupName: string) => {
+    const key = getChildGroupKey(parentName, groupName)
+    setExpandedChildGroups((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]))
+  }
 
   const toggleMenu = (name: string) => {
     setExpandedMenus((prev) => {
@@ -232,8 +302,13 @@ export default function DashboardLayout() {
         children: [
           { name: 'Planeación', href: '/planning' },
           { name: 'Calificaciones', href: '/grades' },
-          { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
-          { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+          {
+            name: 'Solicitudes',
+            children: [
+              { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
+              { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+            ],
+          },
           { name: 'Asignación', href: '/my-assignment' },
           { name: 'Convivencia', href: '/discipline/cases' },
         ],
@@ -248,10 +323,18 @@ export default function DashboardLayout() {
 
     const managementChildren: NavigationChild[] = [
       { name: 'Estudiantes', href: '/students' },
-      { name: 'Matrículas', href: '/enrollments' },
-      { name: 'Reportes', href: '/enrollments/reports' },
+      {
+        name: 'Matrículas',
+        children: [
+          { name: 'Listado', href: '/enrollments' },
+          { name: 'Carga masiva', href: '/enrollments/bulk-upload' },
+        ],
+      },
       { name: 'Convivencia', href: '/discipline/cases' },
       { name: 'Docentes', href: '/teachers' },
+    ]
+
+    const usersChildren: NavigationChild[] = [
       { name: 'Usuarios', href: '/users' },
       ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac' }] : []),
     ]
@@ -264,6 +347,12 @@ export default function DashboardLayout() {
         icon: Users,
         children: managementChildren,
       },
+      { name: 'Reportes', href: '/enrollments/reports', icon: FileText },
+      {
+        name: 'Usuarios',
+        icon: Users,
+        children: usersChildren,
+      },
       {
         name: 'Académico',
         icon: GraduationCap,
@@ -271,8 +360,13 @@ export default function DashboardLayout() {
           { name: 'Configuración', href: '/academic-config' },
           { name: 'Planeación', href: '/planning' },
           { name: 'Calificaciones', href: '/grades' },
-          { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
-          { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+          {
+            name: 'Solicitudes',
+            children: [
+              { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
+              { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+            ],
+          },
           { name: 'Promoción anual', href: '/promotion' },
           { name: 'PAP', href: '/pap' },
         ],
@@ -292,7 +386,7 @@ export default function DashboardLayout() {
     // Ensure the active submenu is expanded so the user can see where they are.
     const activeParents = navigation
       .filter((item): item is Extract<NavigationItem, { children: NavigationChild[] }> => 'children' in item)
-      .filter((item) => item.children.some((c) => isPathActive(c.href)))
+      .filter((item) => item.children.some((c) => isChildActive(c)))
       .map((item) => item.name)
 
     if (activeParents.length === 0) {
@@ -319,6 +413,29 @@ export default function DashboardLayout() {
       activeParents.forEach((p) => next.add(p))
       return Array.from(next)
     })
+
+    // Ensure nested groups are expanded when active.
+    const nextChildGroups: string[] = []
+    navigation
+      .filter((item): item is Extract<NavigationItem, { children: NavigationChild[] }> => 'children' in item)
+      .forEach((item) => {
+        item.children.forEach((child) => {
+          if ('children' in child) {
+            const hasActiveGrandchild = child.children.some((c) => isPathActive(c.href))
+            if (hasActiveGrandchild) {
+              nextChildGroups.push(getChildGroupKey(item.name, child.name))
+            }
+          }
+        })
+      })
+
+    if (nextChildGroups.length > 0) {
+      setExpandedChildGroups((prev) => {
+        const set = new Set(prev)
+        nextChildGroups.forEach((k) => set.add(k))
+        return Array.from(set)
+      })
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, navigation])
 
@@ -340,39 +457,71 @@ export default function DashboardLayout() {
 
       {/* Sidebar */}
       <div className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-200 ease-in-out lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 bg-white shadow-lg transform transition-all duration-200 ease-in-out lg:translate-x-0",
+        'w-64',
+        isCollapsed ? 'lg:w-20' : 'lg:w-64',
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex flex-col h-full">
           {/* Sidebar Header */}
-          <div className="flex items-center justify-between h-16 px-6 border-b border-slate-100">
+          <div className={cn(
+            'flex items-center justify-between h-16 border-b border-slate-100',
+            isCollapsed ? 'px-4' : 'px-6'
+          )}>
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xl">K</span>
               </div>
-              <span className="text-xl font-bold text-slate-900">Kampus</span>
+              {!isCollapsed && <span className="text-xl font-bold text-slate-900">Kampus</span>}
             </div>
-            <button 
-              onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden text-slate-500 hover:text-slate-700"
-              aria-label="Cerrar menú"
-            >
-              <X className="w-6 h-6" />
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleSidebarCollapsed}
+                className="hidden lg:inline-flex text-slate-500 hover:text-slate-700"
+                aria-label={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+                title={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
+              >
+                {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+              </button>
+
+              <button 
+                onClick={() => setIsSidebarOpen(false)}
+                className="lg:hidden text-slate-500 hover:text-slate-700"
+                aria-label="Cerrar menú"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
+          <nav className={cn('flex-1 py-6 space-y-1 overflow-y-auto', isCollapsed ? 'px-2 lg:px-2' : 'px-4 lg:px-4')}>
             {navigation.map((item) => {
               if (item.children) {
                 const isExpanded = expandedMenus.includes(item.name)
-                const isActive = item.children.some(child => isPathActive(child.href))
+                const isActive = item.children.some((child) => isChildActive(child))
                 const menuDomId = getMenuDomId(item.name)
                 
                 return (
                   <div key={item.name}>
                     <button
-                      onClick={() => toggleMenu(item.name)}
+                      onClick={() => {
+                        if (isCollapsed) {
+                          setIsSidebarCollapsed(false)
+                          try {
+                            localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, 'false')
+                            localStorage.setItem(EXPANDED_MENU_STORAGE_KEY, item.name)
+                          } catch {
+                            // ignore
+                          }
+                          setExpandedMenus([item.name])
+                          return
+                        }
+
+                        toggleMenu(item.name)
+                      }}
                       className={cn(
                         "w-full flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg transition-colors",
                         isActive 
@@ -381,34 +530,87 @@ export default function DashboardLayout() {
                       )}
                       aria-expanded={isExpanded}
                       aria-controls={menuDomId}
+                      aria-label={item.name}
+                      title={item.name}
                     >
-                      <div className="flex items-center">
-                        <item.icon className={cn("w-5 h-5 mr-3", isActive ? "text-blue-600" : "text-slate-400")} />
-                        {item.name}
+                      <div className={cn('flex items-center', isCollapsed ? 'justify-center w-full' : '')}>
+                        <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600" : "text-slate-400", !isCollapsed && 'mr-3')} />
+                        {!isCollapsed && item.name}
                       </div>
-                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      {!isCollapsed && (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)}
                     </button>
                     
-                    {isExpanded && (
+                    {isExpanded && !isCollapsed && (
                       <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4">
-                        {item.children.map(child => {
-                           const isChildActive = isPathActive(child.href)
-                           return (
-                             <Link
-                               key={child.name}
-                               to={child.href}
-                               onClick={() => setIsSidebarOpen(false)}
-                               className={cn(
-                                 "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                                 isChildActive
-                                   ? "text-blue-700 bg-blue-50"
-                                   : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
-                               )}
-                               aria-current={isChildActive ? 'page' : undefined}
-                             >
-                               {child.name}
-                             </Link>
-                           )
+                        {item.children.map((child) => {
+                          if ('href' in child) {
+                            const active = isPathActive(child.href)
+                            return (
+                              <Link
+                                key={child.name}
+                                to={child.href}
+                                onClick={() => setIsSidebarOpen(false)}
+                                className={cn(
+                                  "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                  active
+                                    ? "text-blue-700 bg-blue-50"
+                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                )}
+                                aria-current={active ? 'page' : undefined}
+                              >
+                                {child.name}
+                              </Link>
+                            )
+                          }
+
+                          const groupKey = getChildGroupKey(item.name, child.name)
+                          const isGroupExpanded = expandedChildGroups.includes(groupKey)
+                          const groupDomId = getChildGroupDomId(item.name, child.name)
+                          const groupHasActive = child.children.some((c) => isPathActive(c.href))
+
+                          return (
+                            <div key={child.name} className="pt-2">
+                              <button
+                                type="button"
+                                onClick={() => toggleChildGroup(item.name, child.name)}
+                                className={cn(
+                                  'w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                                  groupHasActive
+                                    ? 'text-blue-700 bg-blue-50'
+                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                                )}
+                                aria-expanded={isGroupExpanded}
+                                aria-controls={groupDomId}
+                              >
+                                <span>{child.name}</span>
+                                {isGroupExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                              </button>
+
+                              {isGroupExpanded && (
+                                <div id={groupDomId} className="mt-1 space-y-1">
+                                  {child.children.map((grandChild) => {
+                                    const active = isPathActive(grandChild.href)
+                                    return (
+                                      <Link
+                                        key={grandChild.name}
+                                        to={grandChild.href}
+                                        onClick={() => setIsSidebarOpen(false)}
+                                        className={cn(
+                                          "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                          active
+                                            ? "text-blue-700 bg-blue-50"
+                                            : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                        )}
+                                        aria-current={active ? 'page' : undefined}
+                                      >
+                                        {grandChild.name}
+                                      </Link>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )
                         })}
                       </div>
                     )}
@@ -424,15 +626,18 @@ export default function DashboardLayout() {
                   onClick={() => setIsSidebarOpen(false)}
                   className={cn(
                     "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                    isCollapsed && 'justify-center',
                     isActive 
                       ? "bg-blue-50 text-blue-700" 
                       : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                   )}
                   aria-current={isActive ? 'page' : undefined}
+                  aria-label={item.name}
+                  title={item.name}
                 >
-                  <item.icon className={cn("w-5 h-5 mr-3", isActive ? "text-blue-600" : "text-slate-400")} />
-                  <span className="flex-1">{item.name}</span>
-                  {!!item.badgeCount && item.badgeCount > 0 && (
+                  <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600" : "text-slate-400", !isCollapsed && 'mr-3')} />
+                  {!isCollapsed && <span className="flex-1">{item.name}</span>}
+                  {!isCollapsed && !!item.badgeCount && item.badgeCount > 0 && (
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                       {item.badgeCount}
                     </span>
@@ -516,6 +721,7 @@ export default function DashboardLayout() {
                 type="button"
                 className={cn(
                   "w-full flex items-center p-4 rounded-lg border transition-colors",
+                  isCollapsed && 'justify-center',
                   userMenuOpen
                     ? "bg-white border-slate-200"
                     : "bg-slate-50 border-slate-100 hover:bg-slate-100"
@@ -523,6 +729,15 @@ export default function DashboardLayout() {
                 aria-haspopup="menu"
                 aria-expanded={userMenuOpen}
                 onClick={async () => {
+                  if (isCollapsed) {
+                    setIsSidebarCollapsed(false)
+                    try {
+                      localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, 'false')
+                    } catch {
+                      // ignore
+                    }
+                  }
+
                   const next = !userMenuOpen
                   setUserMenuOpen(next)
                   if (next) {
@@ -533,13 +748,17 @@ export default function DashboardLayout() {
                 <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold">
                   {user?.first_name?.[0] || user?.username?.[0] || 'U'}
                 </div>
-                <div className="ml-3 flex-1 overflow-hidden text-left">
-                  <p className="text-sm font-medium text-slate-900 truncate">
-                    {user?.first_name || user?.username}
-                  </p>
-                  <p className="text-xs text-slate-500 truncate">{user?.email || 'Usuario'}</p>
-                </div>
-                <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", userMenuOpen ? "rotate-180" : "")} />
+                {!isCollapsed && (
+                  <>
+                    <div className="ml-3 flex-1 overflow-hidden text-left">
+                      <p className="text-sm font-medium text-slate-900 truncate">
+                        {user?.first_name || user?.username}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate">{user?.email || 'Usuario'}</p>
+                    </div>
+                    <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", userMenuOpen ? "rotate-180" : "")} />
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -547,7 +766,7 @@ export default function DashboardLayout() {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col min-h-screen w-full lg:ml-64">
+      <div className={cn('flex-1 flex flex-col min-h-screen w-full', isCollapsed ? 'lg:ml-20' : 'lg:ml-64')}>
         {/* Mobile Header */}
         <header className="lg:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-slate-200">
           <button 

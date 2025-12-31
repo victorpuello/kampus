@@ -18,6 +18,7 @@ import EnrollmentList from './pages/enrollments/EnrollmentList'
 import EnrollmentWizard from './pages/enrollments/EnrollmentWizard'
 import EnrollmentExisting from './pages/enrollments/EnrollmentExisting'
 import EnrollmentReports from './pages/enrollments/EnrollmentReports'
+import EnrollmentBulkUpload from './pages/enrollments/EnrollmentBulkUpload'
 import PlanningModule from './pages/planning/PlanningModule'
 import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/enrollments" element={<EnrollmentList />} />
             <Route path="/enrollments/new" element={<EnrollmentWizard />} />
             <Route path="/enrollments/existing" element={<EnrollmentExisting />} />
+            <Route path="/enrollments/bulk-upload" element={<EnrollmentBulkUpload />} />
             <Route path="/enrollments/reports" element={<EnrollmentReports />} />
             <Route path="/teachers" element={<TeacherList />} />
             <Route path="/teachers/new" element={<TeacherForm />} />
