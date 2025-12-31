@@ -20,6 +20,10 @@ export default function InstitutionSettings() {
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [letterheadPreview, setLetterheadPreview] = useState<string | null>(null)
+  const [letterheadFile, setLetterheadFile] = useState<File | null>(null)
+  const letterheadInputRef = useRef<HTMLInputElement>(null)
   const [rectorsList, setRectorsList] = useState<User[]>([])
   const [secretariesList, setSecretariesList] = useState<User[]>([])
   
@@ -60,7 +64,8 @@ export default function InstitutionSettings() {
     try {
       const res = await coreApi.exportConfig(includeMedia)
       const blob = res.data as Blob
-      const cd = (res.headers as any)?.['content-disposition'] as string | undefined
+      const headers = res.headers as Record<string, string | undefined>
+      const cd = headers?.['content-disposition']
       const filename =
         getFilenameFromContentDisposition(cd) ||
         `kampus_config_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
@@ -102,9 +107,15 @@ export default function InstitutionSettings() {
       })
       setLastImportResult(res.data)
       showToast(dryRunImport ? 'Validación completada' : 'Importación completada', 'success')
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err)
-      const detail = err?.response?.data?.detail
+      const maybe = err as { response?: { data?: unknown } }
+      const data = maybe.response?.data
+      const detail =
+        typeof data === 'object' && data !== null && 'detail' in data
+          ? (data as { detail?: string }).detail
+          : undefined
+
       showToast(detail || 'Error al importar la configuración', 'error')
     } finally {
       setImportingConfig(false)
@@ -121,6 +132,14 @@ export default function InstitutionSettings() {
     website: '',
     rector: '' as string | number,
     secretary: '' as string | number,
+
+    // PDF letterhead
+    pdf_show_logo: true,
+    pdf_logo_height_px: '60',
+    pdf_header_line1: '',
+    pdf_header_line2: '',
+    pdf_header_line3: '',
+    pdf_footer_text: '',
   })
 
   useEffect(() => {
@@ -174,9 +193,20 @@ export default function InstitutionSettings() {
           website: inst.website || '',
           rector: inst.rector || '',
           secretary: inst.secretary || '',
+
+          pdf_show_logo: inst.pdf_show_logo ?? true,
+          pdf_logo_height_px: String(inst.pdf_logo_height_px ?? 60),
+          pdf_header_line1: inst.pdf_header_line1 || '',
+          pdf_header_line2: inst.pdf_header_line2 || '',
+          pdf_header_line3: inst.pdf_header_line3 || '',
+          pdf_footer_text: inst.pdf_footer_text || '',
         })
         if (inst.logo) {
           setLogoPreview(inst.logo)
+        }
+
+        if (inst.pdf_letterhead_image) {
+          setLetterheadPreview(inst.pdf_letterhead_image)
         }
       }
     } catch (err) {
@@ -204,6 +234,23 @@ export default function InstitutionSettings() {
     }
   }
 
+  const handleLetterheadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setLetterheadFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setLetterheadPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target
+    setFormData(prev => ({ ...prev, [name]: checked }))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
@@ -214,7 +261,12 @@ export default function InstitutionSettings() {
       // Add all form fields except rector and secretary
       const { rector, secretary, ...restData } = formData
       Object.entries(restData).forEach(([key, value]) => {
-        data.append(key, value as string)
+        // FormData expects strings/files
+        if (typeof value === 'boolean') {
+          data.append(key, value ? 'true' : 'false')
+        } else {
+          data.append(key, String(value ?? ''))
+        }
       })
       
       // Handle rector (required)
@@ -231,6 +283,10 @@ export default function InstitutionSettings() {
       
       if (logoFile) {
         data.append('logo', logoFile)
+      }
+
+      if (letterheadFile) {
+        data.append('pdf_letterhead_image', letterheadFile)
       }
 
       if (institution) {
@@ -395,6 +451,114 @@ export default function InstitutionSettings() {
               <div className="text-sm text-slate-500">
                 <p>Haz clic en el recuadro para subir el escudo o logo de la institución.</p>
                 <p className="mt-1">Formatos: PNG, JPG, GIF. Tamaño máximo: 2MB</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Membrete para reportes PDF</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="space-y-2">
+              <Label>Imagen de membrete (opcional)</Label>
+              <div className="flex items-center gap-6">
+                <div
+                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors"
+                  onClick={() => letterheadInputRef.current?.click()}
+                >
+                  {letterheadPreview ? (
+                    <img src={letterheadPreview} alt="Membrete" className="h-full w-full object-contain" />
+                  ) : (
+                    <div className="text-center text-slate-400">
+                      <Upload className="h-8 w-8 mx-auto mb-1" />
+                      <span className="text-xs">Subir membrete</span>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  ref={letterheadInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleLetterheadChange}
+                  className="hidden"
+                />
+
+                <div className="text-sm text-slate-500">
+                  <p>Si subes una imagen, se usará como encabezado (ancho completo) en los PDFs.</p>
+                  <p className="mt-1">Recomendado: PNG/JPG horizontal.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2 md:col-span-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="pdf_show_logo"
+                    checked={formData.pdf_show_logo}
+                    onChange={handleCheckboxChange}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span className="text-sm text-slate-700">Mostrar escudo/logo en PDFs</span>
+                </label>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pdf_logo_height_px">Alto del logo (px)</Label>
+                <Input
+                  id="pdf_logo_height_px"
+                  name="pdf_logo_height_px"
+                  type="number"
+                  min={10}
+                  max={200}
+                  value={formData.pdf_logo_height_px}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="pdf_header_line1">Encabezado (línea 1)</Label>
+                <Input
+                  id="pdf_header_line1"
+                  name="pdf_header_line1"
+                  value={formData.pdf_header_line1}
+                  onChange={handleChange}
+                  placeholder="Si está vacío, se usa el nombre de la institución"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="pdf_header_line2">Encabezado (línea 2)</Label>
+                <Input
+                  id="pdf_header_line2"
+                  name="pdf_header_line2"
+                  value={formData.pdf_header_line2}
+                  onChange={handleChange}
+                  placeholder="Opcional"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="pdf_header_line3">Encabezado (línea 3)</Label>
+                <Input
+                  id="pdf_header_line3"
+                  name="pdf_header_line3"
+                  value={formData.pdf_header_line3}
+                  onChange={handleChange}
+                  placeholder="Opcional"
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="pdf_footer_text">Pie de página</Label>
+                <Input
+                  id="pdf_footer_text"
+                  name="pdf_footer_text"
+                  value={formData.pdf_footer_text}
+                  onChange={handleChange}
+                  placeholder="Opcional"
+                />
               </div>
             </div>
           </CardContent>

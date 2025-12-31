@@ -24,6 +24,15 @@ export interface Institution {
   rector_name?: string
   secretary_name?: string
   logo?: string | null
+
+  // PDF letterhead fields
+  pdf_letterhead_image?: string | null
+  pdf_show_logo?: boolean
+  pdf_logo_height_px?: number
+  pdf_header_line1?: string
+  pdf_header_line2?: string
+  pdf_header_line3?: string
+  pdf_footer_text?: string
 }
 
 export interface Campus {

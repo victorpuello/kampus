@@ -40,6 +40,24 @@ export default function EnrollmentReports() {
   const [grades, setGrades] = useState<Grade[]>([])
   const [groups, setGroups] = useState<Group[]>([])
 
+  useEffect(() => {
+    if (isTeacher) return
+    Promise.all([
+      academicApi.listYears(),
+      academicApi.listGrades(),
+      academicApi.listGroups()
+    ]).then(([yearsRes, gradesRes, groupsRes]) => {
+      setYears(yearsRes.data)
+      setGrades(gradesRes.data)
+      setGroups(groupsRes.data)
+      
+      const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
+      if (activeYear) {
+        setFilters(prev => ({ ...prev, year: String(activeYear.id) }))
+      }
+    }).catch(console.error)
+  }, [isTeacher])
+
   if (isTeacher) {
     return (
       <Card>
@@ -56,23 +74,6 @@ export default function EnrollmentReports() {
     )
   }
 
-  useEffect(() => {
-    Promise.all([
-      academicApi.listYears(),
-      academicApi.listGrades(),
-      academicApi.listGroups()
-    ]).then(([yearsRes, gradesRes, groupsRes]) => {
-      setYears(yearsRes.data)
-      setGrades(gradesRes.data)
-      setGroups(groupsRes.data)
-      
-      const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
-      if (activeYear) {
-        setFilters(prev => ({ ...prev, year: String(activeYear.id) }))
-      }
-    }).catch(console.error)
-  }, [])
-
   const handleBulkUpload = async () => {
     if (!file) {
       showToast('Seleccione un archivo CSV', 'error')
@@ -84,7 +85,7 @@ export default function EnrollmentReports() {
       const response = await enrollmentsApi.bulkUpload(file)
       setUploadResult(response.data)
       showToast(`Proceso completado: ${response.data.success} matriculados`, 'success')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast('Error al procesar el archivo', 'error')
     } finally {
@@ -92,18 +93,26 @@ export default function EnrollmentReports() {
     }
   }
 
-  const handleDownloadReport = async (format: 'csv' | 'pdf' = 'csv') => {
+  const handleDownloadReport = async (format: 'csv' | 'pdf' | 'xlsx' = 'csv') => {
     setLoading(true)
     try {
-      const response = await enrollmentsApi.downloadReport({ ...filters, format })
-      // Create blob link to download
-      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const response = await enrollmentsApi.downloadReport({ ...filters, export: format })
+
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
+      const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.setAttribute('download', format === 'csv' ? 'matriculados.csv' : 'reporte_matriculados.pdf')
+
+      const filename =
+        format === 'csv' ? 'matriculados.csv' :
+        format === 'xlsx' ? 'matriculados.xlsx' :
+        'reporte_matriculados.pdf'
+
+      link.setAttribute('download', filename)
       document.body.appendChild(link)
       link.click()
       link.remove()
+      window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error(error)
       showToast('Error al descargar reporte', 'error')
@@ -237,6 +246,10 @@ export default function EnrollmentReports() {
               <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="flex-1">
                 <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
                 CSV
+              </Button>
+              <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="flex-1">
+                <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
+                XLSX
               </Button>
               <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="flex-1">
                 <FileText className="w-4 h-4 mr-2 text-red-600" />
