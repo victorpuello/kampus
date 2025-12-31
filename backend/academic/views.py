@@ -647,12 +647,16 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['area', 'subject', 'is_active', 'dimension']
 
-    @action(detail=False, methods=['post'], url_path='improve-wording')
+    @action(detail=False, methods=['post'], url_path='improve-wording', permission_classes=[IsAuthenticated])
     def improve_wording(self, request):
         """
         Mejora la redacción de un texto usando IA.
         Body: { "text": "..." }
         """
+        role = getattr(getattr(request, 'user', None), 'role', None)
+        if role not in {'TEACHER', 'COORDINATOR', 'ADMIN', 'SUPERADMIN'}:
+            return Response({"detail": "No tienes permisos para usar esta función."}, status=status.HTTP_403_FORBIDDEN)
+
         text = request.data.get('text')
         if not text:
             return Response({"error": "Text is required"}, status=status.HTTP_400_BAD_REQUEST)
