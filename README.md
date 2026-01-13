@@ -173,6 +173,10 @@ kampus/
 
 ---
 
+## 🤝 Compartir data para desarrollo
+
+Ver la guía: [docs/compartir_data_dev.md](docs/compartir_data_dev.md)
+
 ## 📄 Licencia
 
 Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.

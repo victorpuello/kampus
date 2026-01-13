@@ -9,6 +9,13 @@ __pycache__/
 # Django media (local dev)
 /backend/media/
 
+# Dev data sharing artifacts (generated fixtures/dumps)
+/backend/fixtures/dev-data*.json
+/backend/fixtures/dev-data*.json.gz
+/backend/fixtures/dev-media*.zip
+/backend/fixtures/kampus-dev-bundle*.zip
+/backend/fixtures/kampus-dev-bundle*.zip.sha256
+
 # Node
 node_modules/
 dist/
