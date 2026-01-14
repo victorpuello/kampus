@@ -135,6 +135,59 @@ class AIService:
             logger.exception("Error calling Gemini API")
             raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
 
+    def analyze_group_state(self, context: dict) -> str:
+        """Genera un análisis interpretativo del estado de un grupo para el docente.
+
+        Importante: este método debe usarse con contexto agregado (sin nombres de estudiantes).
+        """
+        self._ensure_available()
+
+        prompt = f"""
+    Actúa como un coordinador académico y orientador pedagógico.
+
+    Objetivo: redactar un INFORME EJECUTIVO sobre el estado del grupo usando SOLO los datos suministrados.
+
+    Reglas estrictas:
+    - No uses nombres propios ni datos personales.
+    - No inventes cifras ni supongas cosas que no estén en los datos.
+    - No incluyas saludos ni frases de introducción tipo carta (por ejemplo: "Estimado docente", "A continuación...").
+    - Evita párrafos largos de advertencia. Si necesitas mencionar limitaciones por cobertura, hazlo en 1-2 viñetas dentro de la sección "Alcance y supuestos".
+    - Escribe en español, tono profesional, claro, accionable y orientado a decisiones.
+
+    Formato de salida (usa exactamente estos títulos y viñetas con "-"):
+
+    RESUMEN EJECUTIVO
+    - (2-4 viñetas con lo más importante)
+
+    HALLAZGOS CLAVE
+    - (3-6 viñetas)
+
+    RIESGOS
+    - (2-5 viñetas)
+
+    RECOMENDACIONES
+    - (3-6 viñetas concretas)
+
+    PLAN DE ACCIÓN (PRÓXIMAS 2 SEMANAS)
+    - (3-8 viñetas, acciones operativas)
+
+    INDICADORES A MONITOREAR
+    - (3-6 viñetas con métricas observables)
+
+    ALCANCE Y SUPUESTOS
+    - (1-2 viñetas, opcional)
+
+    Datos (JSON):
+    {json.dumps(context, ensure_ascii=False)}
+    """
+
+        try:
+            response = self.model.generate_content(prompt)
+            return (response.text or "").strip()
+        except Exception as e:
+            logger.exception("Error generating group state analysis")
+            raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
+
 
 class AIServiceError(Exception):
     pass

@@ -19,6 +19,17 @@ export interface PromotionPreviewItem {
   failed_subjects_distinct_areas_count: number
   failed_subject_ids: number[]
   failed_area_ids: number[]
+
+  // Extended fields (optional for backward compatibility)
+  student_id?: number
+  student_name?: string
+  student_document_number?: string
+  grade_id?: number
+  grade_name?: string
+  grade_ordinal?: number | null
+
+  target_grade_id?: number | null
+  target_grade_name?: string | null
 }
 
 export interface PromotionPreviewResponse {
@@ -41,6 +52,7 @@ export interface ApplyPromotionsResponse {
   skipped_existing: number
   skipped_graduated: number
   skipped_missing_grade_ordinal: number
+  skipped_repeated?: number
 }
 export interface Period {
   id: number
@@ -53,7 +65,7 @@ export interface Period {
   planning_edit_until?: string | null
 }
 export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
-export interface Grade { id: number; name: string; level: number | null; level_name?: string }
+export interface Grade { id: number; name: string; level: number | null; level_name?: string; ordinal?: number | null }
 export interface Group { 
   id: number; 
   name: string; 
@@ -314,7 +326,17 @@ export const academicApi = {
     api.get<PromotionPreviewResponse>(`/api/academic-years/${yearId}/promotion-preview/`, { params }),
   closeWithPromotion: (yearId: number, data?: { passing_score?: string | number | null }) =>
     api.post<CloseWithPromotionResponse>(`/api/academic-years/${yearId}/close-with-promotion/`, data ?? {}),
-  applyPromotions: (sourceYearId: number, data: { target_academic_year: number }) =>
+  applyPromotions: (
+    sourceYearId: number,
+    data: {
+      target_academic_year: number
+      passing_score?: string | number | null
+      enrollment_ids?: number[]
+      source_grade_id?: number
+      exclude_repeated?: boolean
+      target_group_id?: number
+    }
+  ) =>
     api.post<ApplyPromotionsResponse>(`/api/academic-years/${sourceYearId}/apply-promotions/`, data),
   
   // Periods

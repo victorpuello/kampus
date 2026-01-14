@@ -47,6 +47,7 @@ export const enrollmentsApi = {
   getById: (id: number) => api.get<Enrollment>(`/api/enrollments/${id}/`),
   create: (data: Record<string, unknown>) => api.post<Enrollment>('/api/enrollments/', data),
   update: (id: number, data: Record<string, unknown>) => api.put<Enrollment>(`/api/enrollments/${id}/`, data),
+  patch: (id: number, data: Record<string, unknown>) => api.patch<Enrollment>(`/api/enrollments/${id}/`, data),
   delete: (id: number) => api.delete(`/api/enrollments/${id}/`),
   
   // Bulk & Reports

@@ -655,15 +655,27 @@ export default function PeriodPlanning() {
                           {!formData.dimensionId ? 'Seleccione una dimensión primero' : '-- Escribir nuevo --'}
                         </option>
                         {definitions
-                          .filter(d => 
-                            d.dimension === Number(formData.dimensionId) &&
-                            d.grade === Number(selectedGrade) &&
-                            d.subject === Number(selectedSubject)
-                          )
-                          .map(d => (
-                            <option key={d.id} value={d.id}>{d.code} - {d.description.substring(0, 50)}...</option>
-                          ))
-                        }
+                          .filter((d) => {
+                            const selectedDimension = dimensions.find((dim) => dim.id === Number(formData.dimensionId))
+                            const selectedDimensionName = selectedDimension?.name?.trim().toLowerCase() || ''
+                            const definitionDimensionName = d.dimension_name?.trim().toLowerCase() || ''
+
+                            const dimensionMatches =
+                              d.dimension === Number(formData.dimensionId) ||
+                              (selectedDimensionName !== '' && definitionDimensionName !== '' && definitionDimensionName === selectedDimensionName)
+
+                            return (
+                              d.is_active &&
+                              dimensionMatches &&
+                              d.grade === Number(selectedGrade) &&
+                              d.subject === Number(selectedSubject)
+                            )
+                          })
+                          .map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.code} - {d.description.substring(0, 50)}...
+                            </option>
+                          ))}
                       </select>
                     </div>
                   </div>

@@ -59,7 +59,7 @@ User = get_user_model()
 
 
 class StudentViewSet(viewsets.ModelViewSet):
-    queryset = Student.objects.select_related("user").all().order_by("user__id")
+    queryset = Student.objects.select_related("user").all().order_by("user__last_name", "user__first_name", "user__id")
     serializer_class = StudentSerializer
     permission_classes = [KampusModelPermissions]
     parser_classes = (JSONParser, FormParser, MultiPartParser)
@@ -68,7 +68,7 @@ class StudentViewSet(viewsets.ModelViewSet):
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
     def get_queryset(self):
-        qs = Student.objects.select_related("user").all().order_by("user__id")
+        qs = Student.objects.select_related("user").all().order_by("user__last_name", "user__first_name", "user__id")
         user = getattr(self.request, 'user', None)
 
         exclude_year_raw = self.request.query_params.get('exclude_active_enrollment_year')
@@ -93,18 +93,32 @@ class StudentViewSet(viewsets.ModelViewSet):
             if not directed_groups.exists():
                 return qs.none()
 
-            qs = (
-                qs.filter(
-                    enrollment__group__in=directed_groups,
-                    enrollment__status='ACTIVE',
+            from students.models import Enrollment
+
+            directed_student_ids = (
+                Enrollment.objects.filter(
+                    group__in=directed_groups,
+                    status='ACTIVE',
                 )
+                .values_list('student_id', flat=True)
                 .distinct()
             )
+            qs = qs.filter(pk__in=directed_student_ids)
 
         if exclude_year_id is not None:
-            qs = qs.exclude(enrollment__academic_year_id=exclude_year_id, enrollment__status='ACTIVE').distinct()
+            from students.models import Enrollment
 
-        return qs
+            excluded_student_ids = (
+                Enrollment.objects.filter(
+                    academic_year_id=exclude_year_id,
+                    status='ACTIVE',
+                )
+                .values_list('student_id', flat=True)
+                .distinct()
+            )
+            qs = qs.exclude(pk__in=excluded_student_ids)
+
+        return qs.order_by("user__last_name", "user__first_name", "user__id")
 
     def list(self, request, *args, **kwargs):
         try:
@@ -605,7 +619,11 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
-    queryset = Enrollment.objects.select_related("student").all().order_by("id")
+    queryset = (
+        Enrollment.objects.select_related("student", "student__user", "academic_year", "grade", "group")
+        .all()
+        .order_by("student__user__last_name", "student__user__first_name", "id")
+    )
     serializer_class = EnrollmentSerializer
     permission_classes = [KampusModelPermissions]
     pagination_class = EnrollmentPagination

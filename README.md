@@ -39,6 +39,9 @@
 - Panel de configuración centralizado.
 - Navegación intuitiva y rápida (SPA).
 
+### 🤖 Informe IA (Oficial)
+- Formato oficial del **Informe IA (Estado del grupo)** en PDF: ver `docs/formato_oficial_informe_ia.md`.
+
 ---
 
 ## 🛠️ Stack Tecnológico

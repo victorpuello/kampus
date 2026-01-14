@@ -74,6 +74,14 @@ services:
       - VITE_API_BASE_URL=http://localhost:8000
     depends_on:
       - backend
+    command: >
+      sh -c "
+        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ]; then
+          echo 'Installing frontend deps (incl. Tremor)…';
+          npm install --legacy-peer-deps;
+        fi;
+        npm run dev -- --host
+      "
 
 volumes:
   postgres_data:

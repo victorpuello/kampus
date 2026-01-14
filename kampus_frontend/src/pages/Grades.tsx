@@ -108,31 +108,6 @@ export default function Grades() {
     }
   }, [gradebook?.period?.id, gradebook?.teacher_assignment?.group, selectedGroupId, selectedPeriodId, showToast])
 
-  const handleDownloadEnrollmentReport = useCallback(
-    async (enrollmentId: number) => {
-      const periodId = gradebook?.period?.id ?? selectedPeriodId
-      if (!periodId) {
-        showToast('Selecciona el periodo.', 'error')
-        return
-      }
-
-      try {
-        const res = await academicApi.downloadAcademicPeriodReportByEnrollment(enrollmentId, periodId)
-        const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
-        const headers = res.headers as Record<string, string | undefined>
-        const filename =
-          getFilenameFromContentDisposition(headers?.['content-disposition']) ||
-          `informe-academico-enrollment-${enrollmentId}-period-${periodId}.pdf`
-
-        downloadBlob(blob, filename)
-      } catch (e) {
-        console.error(e)
-        showToast('Error al descargar el informe del estudiante', 'error')
-      }
-    },
-    [gradebook?.period?.id, selectedPeriodId, showToast]
-  )
-
   const selectedPeriod = useMemo(() => {
     if (!selectedPeriodId) return null
     return periods.find((p) => p.id === selectedPeriodId) ?? null
@@ -1485,18 +1460,6 @@ export default function Grades() {
                       <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white">
                         <div className="font-medium text-slate-900 max-w-40 sm:max-w-none truncate" title={s.student_name}>
                           {s.student_name}
-                        </div>
-                        <div className="mt-1">
-                          <Button
-                            variant="link"
-                            size="sm"
-                            className="h-6 px-0 text-xs"
-                            onClick={() => handleDownloadEnrollmentReport(s.enrollment_id)}
-                            disabled={!gradebook}
-                            title="Descargar informe académico del estudiante"
-                          >
-                            Descargar informe
-                          </Button>
                         </div>
                       </td>
 

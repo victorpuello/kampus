@@ -16,6 +16,9 @@ __pycache__/
 /backend/fixtures/kampus-dev-bundle*.zip
 /backend/fixtures/kampus-dev-bundle*.zip.sha256
 
+# Accidental local artifacts (legacy)
+/backend/fixture/
+
 # Node
 node_modules/
 dist/

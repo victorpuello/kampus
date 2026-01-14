@@ -366,12 +366,12 @@ export default function StudentList() {
                         <div className="flex items-center">
                           <div className="shrink-0 h-10 w-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                             <span className="text-white font-semibold text-sm">
-                              {(s.user?.first_name?.[0] || '')}{(s.user?.last_name?.[0] || '')}
+                              {(s.user?.last_name?.[0] || '')}{(s.user?.first_name?.[0] || '')}
                             </span>
                           </div>
                           <div className="ml-4">
                             <div className="font-semibold text-slate-900 uppercase">
-                              {s.user?.first_name} {s.user?.last_name}
+                              {s.user?.last_name} {s.user?.first_name}
                             </div>
                             <div className="text-xs text-slate-500">@{s.user?.username}</div>
                           </div>

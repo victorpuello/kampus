@@ -302,6 +302,7 @@ export default function DashboardLayout() {
         children: [
           { name: 'Planeación', href: '/planning' },
           { name: 'Calificaciones', href: '/grades' },
+          { name: 'Estadísticas', href: '/teacher-stats' },
           {
             name: 'Solicitudes',
             children: [

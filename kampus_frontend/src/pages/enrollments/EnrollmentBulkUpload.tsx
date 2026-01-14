@@ -88,8 +88,10 @@ export default function EnrollmentBulkUpload() {
             <ul className="list-disc list-inside space-y-1">
               <li>El archivo debe ser formato <strong>.csv</strong></li>
               <li>
-                Columnas requeridas: <code>document_number</code>, <code>first_name</code>, <code>last_name</code>,{' '}
-                <code>grade_name</code>
+                Para <strong>estudiantes antiguos (ya existentes)</strong>: <code>document_number</code>, <code>grade_name</code>
+              </li>
+              <li>
+                Para <strong>estudiantes nuevos</strong>: agregar <code>first_name</code> y <code>last_name</code>
               </li>
               <li>
                 Columnas opcionales: <code>group_name</code>, <code>email</code>

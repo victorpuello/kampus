@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import gzip
 import zipfile
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management import BaseCommand, CommandError, call_command
+
+
+def _fixture_contains_model(input_path: Path, model_label: str) -> bool:
+    needle = f'"model": "{model_label}"'
+    if input_path.suffix == ".gz":
+        opener = lambda: gzip.open(input_path, mode="rt", encoding="utf-8", errors="ignore")
+    else:
+        opener = lambda: input_path.open(mode="rt", encoding="utf-8", errors="ignore")
+
+    with opener() as fp:
+        for chunk in fp:
+            if needle in chunk:
+                return True
+    return False
 
 
 class Command(BaseCommand):
@@ -59,6 +74,32 @@ class Command(BaseCommand):
                 database=options["database"],
                 interactive=False,
             )
+
+            # Django recrea automáticamente contenttypes/permisos tras el flush.
+            # Si el fixture también los contiene, loaddata puede fallar por duplicados.
+            fixture_has_contenttypes = _fixture_contains_model(input_path, "contenttypes.contenttype")
+            fixture_has_permissions = _fixture_contains_model(input_path, "auth.permission")
+
+            if fixture_has_contenttypes or fixture_has_permissions:
+                if fixture_has_contenttypes:
+                    from django.contrib.contenttypes.models import ContentType
+
+                    self.stdout.write(
+                        self.style.WARNING(
+                            "El fixture incluye contenttypes; limpiando ContentType antes de loaddata..."
+                        )
+                    )
+                    ContentType.objects.all().delete()
+
+                if fixture_has_permissions:
+                    from django.contrib.auth.models import Permission
+
+                    self.stdout.write(
+                        self.style.WARNING(
+                            "El fixture incluye permisos; limpiando Permission antes de loaddata..."
+                        )
+                    )
+                    Permission.objects.all().delete()
 
         self.stdout.write(f"Importando fixture: {input_path} (database={options['database']})")
         call_command(

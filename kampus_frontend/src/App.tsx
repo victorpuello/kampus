@@ -32,6 +32,7 @@ import DisciplineCases from './pages/DisciplineCases'
 import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
 import PapPlans from './pages/PapPlans'
 import PromotionWorkflow from './pages/PromotionWorkflow'
+import TeacherStatistics from './pages/TeacherStatistics'
 
 export default function App() {
   return (
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/rbac" element={<RbacSettings />} />
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
+            <Route path="/teacher-stats" element={<TeacherStatistics />} />
           </Route>
         </Route>
       </Routes>

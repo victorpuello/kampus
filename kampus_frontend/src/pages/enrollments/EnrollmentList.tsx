@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi, type Enrollment } from '../../services/enrollments'
-import { academicApi, type AcademicYear } from '../../services/academic'
+import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
 import { Button } from '../../components/ui/Button'
 import { Card, CardContent, CardHeader } from '../../components/ui/Card'
 import { Input } from '../../components/ui/Input'
-import { Search, Plus, FileText, GraduationCap, Users, BookOpen } from 'lucide-react'
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
+import { Search, Plus, FileText, GraduationCap, Users, BookOpen, Upload } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 
 export default function EnrollmentList() {
@@ -14,6 +15,8 @@ export default function EnrollmentList() {
   const isTeacher = user?.role === 'TEACHER'
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
+  const [grades, setGrades] = useState<Grade[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -22,6 +25,16 @@ export default function EnrollmentList() {
   const [count, setCount] = useState(0)
   const [hasNext, setHasNext] = useState(false)
   const [hasPrevious, setHasPrevious] = useState(false)
+
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editGradeId, setEditGradeId] = useState<number | ''>('')
+  const [editGroupId, setEditGroupId] = useState<number | ''>('')
+  const [editStatus, setEditStatus] = useState<Enrollment['status']>('ACTIVE')
+  const [rowBusyId, setRowBusyId] = useState<number | null>(null)
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; studentName: string } | null>(null)
 
   useEffect(() => {
     loadInitialData()
@@ -35,8 +48,9 @@ export default function EnrollmentList() {
 
   const loadInitialData = async () => {
     try {
-      const yearsRes = await academicApi.listYears()
+      const [yearsRes, gradesRes] = await Promise.all([academicApi.listYears(), academicApi.listGrades()])
       setYears(yearsRes.data)
+      setGrades(gradesRes.data)
       const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
       if (activeYear) {
         setSelectedYear(String(activeYear.id))
@@ -45,6 +59,95 @@ export default function EnrollmentList() {
       }
     } catch (error) {
       console.error('Error loading years:', error)
+    }
+  }
+
+  const getId = (value: unknown): number | null => {
+    if (typeof value === 'number') return value
+    if (value && typeof value === 'object' && 'id' in (value as Record<string, unknown>)) {
+      const v = (value as Record<string, unknown>).id
+      if (typeof v === 'number') return v
+    }
+    return null
+  }
+
+  const loadGroupsForEdit = async (gradeId: number) => {
+    if (!selectedYear) {
+      setGroups([])
+      return
+    }
+    try {
+      const res = await academicApi.listGroups({ academic_year: Number(selectedYear), grade: gradeId })
+      setGroups(res.data)
+    } catch (e) {
+      console.error(e)
+      setGroups([])
+    }
+  }
+
+  const startEdit = async (enrollment: Enrollment) => {
+    const gradeId = getId(enrollment.grade)
+    if (!gradeId) return
+
+    const groupId = getId(enrollment.group)
+    setEditingId(enrollment.id)
+    setEditGradeId(gradeId)
+    setEditGroupId(typeof groupId === 'number' ? groupId : '')
+    setEditStatus(enrollment.status)
+    await loadGroupsForEdit(gradeId)
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditGradeId('')
+    setEditGroupId('')
+    setGroups([])
+  }
+
+  const saveEdit = async (enrollmentId: number) => {
+    if (typeof editGradeId !== 'number') return
+
+    setRowBusyId(enrollmentId)
+    try {
+      await enrollmentsApi.patch(enrollmentId, {
+        grade: editGradeId,
+        group: typeof editGroupId === 'number' ? editGroupId : null,
+        status: editStatus,
+      })
+      await loadEnrollments()
+      cancelEdit()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setRowBusyId(null)
+    }
+  }
+
+  const requestDeleteEnrollment = (enrollment: Enrollment) => {
+    const student = typeof enrollment.student === 'number' ? null : enrollment.student
+    setDeleteTarget({
+      id: enrollment.id,
+      studentName: student?.full_name || `Matrícula #${enrollment.id}`,
+    })
+    setDeleteConfirmOpen(true)
+  }
+
+  const confirmDeleteEnrollment = async () => {
+    if (!deleteTarget) return
+
+    setDeleteConfirmLoading(true)
+    setRowBusyId(deleteTarget.id)
+    try {
+      await enrollmentsApi.delete(deleteTarget.id)
+      await loadEnrollments()
+      if (editingId === deleteTarget.id) cancelEdit()
+      setDeleteConfirmOpen(false)
+      setDeleteTarget(null)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setRowBusyId(null)
+      setDeleteConfirmLoading(false)
     }
   }
 
@@ -125,6 +228,10 @@ export default function EnrollmentList() {
           <Button variant="outline" onClick={() => navigate('/enrollments/reports')}>
             <FileText className="mr-2 h-4 w-4" />
             Reportes
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/enrollments/bulk-upload')}>
+            <Upload className="mr-2 h-4 w-4" />
+            Carga masiva
           </Button>
           <Button variant="outline" onClick={() => navigate('/enrollments/existing')}>
             <Plus className="mr-2 h-4 w-4" />
@@ -215,7 +322,7 @@ export default function EnrollmentList() {
         <CardContent>
           <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
                     Estudiante
@@ -267,15 +374,20 @@ export default function EnrollmentList() {
                     const group = typeof enrollment.group === 'number' ? null : enrollment.group
 
                     if (!student || !grade) return null
+                    const isEditing = editingId === enrollment.id
+
                     return (
                       <tr 
                         key={enrollment.id} 
                         className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer"
-                        onClick={() => navigate(`/students/${student.id}`)}
+                        onClick={() => {
+                          if (isEditing) return
+                          navigate(`/students/${student.id}`)
+                        }}
                       >
                         <td className="px-6 py-4">
                           <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                            <div className="shrink-0 h-10 w-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                               <span className="text-white font-semibold text-sm">
                                 {student.full_name
                                   .split(' ')
@@ -298,12 +410,58 @@ export default function EnrollmentList() {
                           {student.document_number}
                         </td>
                         <td className="px-6 py-4">
-                          <span className="inline-flex items-center px-3 py-1 rounded-md bg-purple-100 text-purple-800 text-sm font-medium">
-                            {grade.name}
-                          </span>
+                          {isEditing ? (
+                            <select
+                              value={editGradeId}
+                              onChange={async (e) => {
+                                const v = e.target.value ? Number(e.target.value) : ''
+                                if (typeof v === 'number') {
+                                  setEditGradeId(v)
+                                  setEditGroupId('')
+                                  await loadGroupsForEdit(v)
+                                } else {
+                                  setEditGradeId('')
+                                  setEditGroupId('')
+                                  setGroups([])
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                            >
+                              {grades
+                                .slice()
+                                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                                .map((g) => (
+                                  <option key={g.id} value={g.id}>
+                                    {g.name}
+                                  </option>
+                                ))}
+                            </select>
+                          ) : (
+                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-purple-100 text-purple-800 text-sm font-medium">
+                              {grade.name}
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4">
-                          {group ? (
+                          {isEditing ? (
+                            <select
+                              value={editGroupId}
+                              onChange={(e) => setEditGroupId(e.target.value ? Number(e.target.value) : '')}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                            >
+                              <option value="">Sin grupo</option>
+                              {groups
+                                .slice()
+                                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                                .map((g) => (
+                                  <option key={g.id} value={g.id}>
+                                    {g.name}
+                                  </option>
+                                ))}
+                            </select>
+                          ) : group ? (
                             <span className="inline-flex items-center px-3 py-1 rounded-md bg-indigo-100 text-indigo-800 text-sm font-medium">
                               {group.name}
                             </span>
@@ -312,31 +470,99 @@ export default function EnrollmentList() {
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${
-                            enrollment.status === 'ACTIVE' ? 'bg-green-100 text-green-800 ring-1 ring-green-600/20' :
-                            enrollment.status === 'RETIRED' ? 'bg-red-100 text-red-800 ring-1 ring-red-600/20' :
-                            'bg-blue-100 text-blue-800 ring-1 ring-blue-600/20'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full mr-2 ${
-                              enrollment.status === 'ACTIVE' ? 'bg-green-600' :
-                              enrollment.status === 'RETIRED' ? 'bg-red-600' : 'bg-blue-600'
-                            }`}></span>
-                            {enrollment.status === 'ACTIVE' ? 'Activo' :
-                             enrollment.status === 'RETIRED' ? 'Retirado' : 'Graduado'}
-                          </span>
+                          {isEditing ? (
+                            <select
+                              value={editStatus}
+                              onChange={(e) => setEditStatus(e.target.value as Enrollment['status'])}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                            >
+                              <option value="ACTIVE">Activo</option>
+                              <option value="RETIRED">Retirado</option>
+                              <option value="GRADUATED">Graduado</option>
+                            </select>
+                          ) : (
+                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${
+                              enrollment.status === 'ACTIVE' ? 'bg-green-100 text-green-800 ring-1 ring-green-600/20' :
+                              enrollment.status === 'RETIRED' ? 'bg-red-100 text-red-800 ring-1 ring-red-600/20' :
+                              'bg-blue-100 text-blue-800 ring-1 ring-blue-600/20'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full mr-2 ${
+                                enrollment.status === 'ACTIVE' ? 'bg-green-600' :
+                                enrollment.status === 'RETIRED' ? 'bg-red-600' : 'bg-blue-600'
+                              }`}></span>
+                              {enrollment.status === 'ACTIVE' ? 'Activo' :
+                               enrollment.status === 'RETIRED' ? 'Retirado' : 'Graduado'}
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              navigate(`/students/${student.id}`)
-                            }}
-                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          >
-                            Ver Ficha →
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            {isEditing ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    cancelEdit()
+                                  }}
+                                  disabled={rowBusyId === enrollment.id}
+                                >
+                                  Cancelar
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    saveEdit(enrollment.id)
+                                  }}
+                                  disabled={rowBusyId === enrollment.id}
+                                >
+                                  Guardar
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    startEdit(enrollment)
+                                  }}
+                                  className="text-slate-700 hover:bg-slate-100"
+                                  disabled={rowBusyId === enrollment.id}
+                                >
+                                  Editar
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    requestDeleteEnrollment(enrollment)
+                                  }}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  disabled={rowBusyId === enrollment.id}
+                                >
+                                  Eliminar
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    navigate(`/students/${student.id}`)
+                                  }}
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  disabled={rowBusyId === enrollment.id}
+                                >
+                                  Ver Ficha →
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     )
@@ -409,6 +635,27 @@ export default function EnrollmentList() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmationModal
+        isOpen={deleteConfirmOpen}
+        onClose={() => {
+          if (deleteConfirmLoading) return
+          setDeleteConfirmOpen(false)
+          setDeleteTarget(null)
+        }}
+        onConfirm={() => {
+          void confirmDeleteEnrollment()
+        }}
+        title="Eliminar matrícula"
+        description={
+          deleteTarget
+            ? `¿Seguro que deseas eliminar la matrícula de ${deleteTarget.studentName}? Esta acción no se puede deshacer.`
+            : '¿Seguro que deseas eliminar esta matrícula? Esta acción no se puede deshacer.'
+        }
+        confirmText={deleteConfirmLoading ? 'Eliminando…' : 'Eliminar'}
+        cancelText="Cancelar"
+        loading={deleteConfirmLoading}
+      />
     </div>
   )
 }

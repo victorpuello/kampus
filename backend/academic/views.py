@@ -76,6 +76,7 @@ from .serializers import (
     EditGrantSerializer,
 )
 from .ai import AIService, AIConfigError, AIParseError, AIProviderError
+from .grade_ordinals import guess_ordinal
 from .grading import (
     DEFAULT_EMPTY_SCORE,
     final_grade_from_dimensions,
@@ -94,6 +95,14 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
     def promotion_preview(self, request, pk=None):
         year: AcademicYear = self.get_object()
 
+        grade_id_raw = request.query_params.get("grade_id")
+        grade_id = None
+        if grade_id_raw not in (None, ""):
+            try:
+                grade_id = int(str(grade_id_raw))
+            except Exception:
+                return Response({"detail": "grade_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
         passing_score_raw = request.query_params.get("passing_score")
         try:
             passing_score = PASSING_SCORE_DEFAULT if not passing_score_raw else Decimal(str(passing_score_raw))
@@ -105,17 +114,87 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        enrollments_qs = Enrollment.objects.filter(id__in=list(computed.keys())).select_related(
+            "student",
+            "student__user",
+            "grade",
+        )
+        if grade_id is not None:
+            enrollments_qs = enrollments_qs.filter(grade_id=grade_id)
+
+        # Infer grade progression for UI (target grade per decision)
+        grades = list(Grade.objects.all().only("id", "ordinal", "name", "level_id"))
+        grade_name_by_id = {int(g.id): getattr(g, "name", "") for g in grades}
+        ordinal_to_grade_id_by_level: dict[int, dict[int, int]] = {}
+        ordinal_to_grade_id_global: dict[int, int] = {}
+        for g in grades:
+            ord_val = getattr(g, "ordinal", None)
+            if ord_val is None:
+                ord_val = guess_ordinal(getattr(g, "name", ""))
+            if ord_val is None:
+                continue
+            o = int(ord_val)
+            gid = int(g.id)
+            lvl = int(getattr(g, "level_id", 0) or 0)
+            ordinal_to_grade_id_by_level.setdefault(lvl, {}).setdefault(o, gid)
+            ordinal_to_grade_id_global.setdefault(o, gid)
+
+        def _grade_ordinal(current_grade: Grade) -> int | None:
+            ord_val = getattr(current_grade, "ordinal", None)
+            if ord_val is not None:
+                return int(ord_val)
+            guessed = guess_ordinal(getattr(current_grade, "name", ""))
+            return int(guessed) if guessed is not None else None
+
+        def next_grade_id(current_grade: Grade) -> int | None:
+            ord_val = _grade_ordinal(current_grade)
+            if ord_val is None:
+                return None
+            lvl = int(getattr(current_grade, "level_id", 0) or 0)
+            per_level = ordinal_to_grade_id_by_level.get(lvl) or {}
+            return per_level.get(ord_val + 1) or ordinal_to_grade_id_global.get(ord_val + 1)
+
+        def is_last_grade(current_grade: Grade) -> bool:
+            ord_val = _grade_ordinal(current_grade)
+            if ord_val is not None:
+                return ord_val >= 13
+            return str(getattr(current_grade, "name", "")).strip().lower() in {"11", "11°", "once", "undecimo", "undécimo"}
+
         results = []
-        for enrollment_id, c in computed.items():
+        for e in enrollments_qs.order_by("id"):
+            c = computed.get(e.id)
+            if not c:
+                continue
+            u = getattr(e.student, "user", None)
+            student_name = ""
+            if u is not None:
+                student_name = u.get_full_name()
+
+            grade_ord = _grade_ordinal(e.grade)
+            target_grade_id = None
+            if c.decision in {"PROMOTED", "CONDITIONAL"}:
+                if not is_last_grade(e.grade):
+                    target_grade_id = next_grade_id(e.grade)
+            elif c.decision == "REPEATED":
+                target_grade_id = int(e.grade_id)
+
             results.append(
                 {
-                    "enrollment_id": enrollment_id,
+                    "enrollment_id": e.id,
                     "decision": c.decision,
                     "failed_subjects_count": len(c.failed_subject_ids),
                     "failed_areas_count": len(c.failed_area_ids),
                     "failed_subjects_distinct_areas_count": c.failed_subjects_distinct_areas_count,
                     "failed_subject_ids": c.failed_subject_ids,
                     "failed_area_ids": c.failed_area_ids,
+                    "student_id": int(e.student_id),
+                    "student_name": student_name,
+                    "student_document_number": getattr(e.student, "document_number", ""),
+                    "grade_id": int(e.grade_id),
+                    "grade_name": getattr(e.grade, "name", ""),
+                    "grade_ordinal": grade_ord,
+                    "target_grade_id": int(target_grade_id) if target_grade_id is not None else None,
+                    "target_grade_name": grade_name_by_id.get(int(target_grade_id)) if target_grade_id is not None else None,
                 }
             )
 
@@ -241,6 +320,47 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
         if not target_year_id:
             return Response({"detail": "target_academic_year es requerido"}, status=status.HTTP_400_BAD_REQUEST)
 
+        passing_score_raw = request.data.get("passing_score")
+        try:
+            passing_score = PASSING_SCORE_DEFAULT if passing_score_raw in (None, "") else Decimal(str(passing_score_raw))
+        except Exception:
+            return Response({"detail": "passing_score inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        enrollment_ids_raw = request.data.get("enrollment_ids")
+        enrollment_ids = None
+        if enrollment_ids_raw not in (None, ""):
+            if not isinstance(enrollment_ids_raw, list):
+                return Response({"detail": "enrollment_ids debe ser una lista"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                enrollment_ids = [int(x) for x in enrollment_ids_raw]
+            except Exception:
+                return Response({"detail": "enrollment_ids inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        source_grade_id_raw = request.data.get("source_grade_id")
+        source_grade_id = None
+        if source_grade_id_raw not in (None, ""):
+            try:
+                source_grade_id = int(str(source_grade_id_raw))
+            except Exception:
+                return Response({"detail": "source_grade_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        exclude_repeated_raw = request.data.get("exclude_repeated")
+        exclude_repeated = False
+        if exclude_repeated_raw not in (None, ""):
+            if isinstance(exclude_repeated_raw, bool):
+                exclude_repeated = exclude_repeated_raw
+            else:
+                s = str(exclude_repeated_raw).strip().lower()
+                exclude_repeated = s in {"1", "true", "t", "yes", "y", "si", "sí"}
+
+        target_group_id_raw = request.data.get("target_group_id")
+        target_group_id = None
+        if target_group_id_raw not in (None, ""):
+            try:
+                target_group_id = int(str(target_group_id_raw))
+            except Exception:
+                return Response({"detail": "target_group_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             target_year = AcademicYear.objects.get(id=int(target_year_id))
         except Exception:
@@ -260,46 +380,195 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
             Period.objects.filter(academic_year=target_year).order_by("start_date").only("id").first()
         )
 
-        # Grade progression mapping using ordinal
-        grades = list(Grade.objects.exclude(ordinal__isnull=True).only("id", "ordinal"))
-        ordinal_to_grade_id = {int(g.ordinal): int(g.id) for g in grades}
+        # Grade progression mapping using ordinal (with fallback inference from Grade.name)
+        grades = list(Grade.objects.all().only("id", "ordinal", "name", "level_id"))
+        ordinal_to_grade_id_by_level: dict[int, dict[int, int]] = {}
+        ordinal_to_grade_id_global: dict[int, int] = {}
+
+        for g in grades:
+            ord_val = getattr(g, "ordinal", None)
+            if ord_val is None:
+                ord_val = guess_ordinal(getattr(g, "name", ""))
+            if ord_val is None:
+                continue
+            o = int(ord_val)
+            gid = int(g.id)
+            lvl = int(getattr(g, "level_id", 0) or 0)
+            ordinal_to_grade_id_by_level.setdefault(lvl, {}).setdefault(o, gid)
+            ordinal_to_grade_id_global.setdefault(o, gid)
+
+        def _grade_ordinal(current_grade: Grade) -> int | None:
+            ord_val = getattr(current_grade, "ordinal", None)
+            if ord_val is not None:
+                return int(ord_val)
+            guessed = guess_ordinal(getattr(current_grade, "name", ""))
+            return int(guessed) if guessed is not None else None
 
         def next_grade_id(current_grade: Grade) -> int | None:
-            ord_val = getattr(current_grade, "ordinal", None)
+            ord_val = _grade_ordinal(current_grade)
             if ord_val is None:
                 return None
-            return ordinal_to_grade_id.get(int(ord_val) + 1)
+            lvl = int(getattr(current_grade, "level_id", 0) or 0)
+            per_level = ordinal_to_grade_id_by_level.get(lvl) or {}
+            return per_level.get(ord_val + 1) or ordinal_to_grade_id_global.get(ord_val + 1)
 
-        source_enrollments = (
-            Enrollment.objects.filter(academic_year=source_year)
-            .select_related("student", "grade", "grade__level")
-            .order_by("id")
+        def is_last_grade(current_grade: Grade) -> bool:
+            ord_val = _grade_ordinal(current_grade)
+            if ord_val is not None:
+                return ord_val >= 13
+            return str(getattr(current_grade, "name", "")).strip().lower() in {"11", "11°", "once", "undecimo", "undécimo"}
+
+        # Only ACTIVE enrollments are eligible for promotion.
+        source_enrollments = Enrollment.objects.filter(academic_year=source_year, status="ACTIVE")
+        if source_grade_id is not None:
+            source_enrollments = source_enrollments.filter(grade_id=source_grade_id)
+        if enrollment_ids is not None:
+            source_enrollments = source_enrollments.filter(id__in=enrollment_ids)
+
+        source_enrollments = source_enrollments.select_related("student", "grade", "grade__level").order_by("id")
+
+        # Preload groups in target year for auto-assignment / validation
+        target_groups = list(
+            Group.objects.filter(academic_year=target_year)
+            .only("id", "name", "grade_id", "campus_id", "shift")
+            .order_by("grade_id", "name", "id")
         )
+        groups_by_key: dict[tuple[int, int | None], list[Group]] = {}
+        for g in target_groups:
+            key = (int(g.grade_id), int(g.campus_id) if getattr(g, "campus_id", None) is not None else None)
+            groups_by_key.setdefault(key, []).append(g)
+
+        selected_group_obj = None
+        if target_group_id is not None:
+            selected_group_obj = next((g for g in target_groups if int(g.id) == int(target_group_id)), None)
+            if selected_group_obj is None:
+                return Response(
+                    {"detail": "El grupo seleccionado no existe en el año destino."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         snapshots = {
             s.enrollment_id: s
             for s in EnrollmentPromotionSnapshot.objects.filter(enrollment__in=source_enrollments)
         }
 
+        # Fallback: compute decisions on-the-fly when snapshots are missing.
+        # This supports environments where the year is CLOSED but snapshots were never generated.
+        computed = {}
+        try:
+            computed = compute_promotions_for_year(academic_year=source_year, passing_score=passing_score)
+        except Exception:
+            computed = {}
+
         created = 0
         skipped_existing = 0
         skipped_graduated = 0
         skipped_missing_grade_ordinal = 0
+        skipped_repeated = 0
+
+        # Pre-check ambiguity when there are multiple groups for the target grade.
+        # Avoid partial creations: fail fast with the available options.
+        source_student_ids = list(source_enrollments.values_list("student_id", flat=True))
+        existing_in_target = set(
+            Enrollment.objects.filter(academic_year=target_year, student_id__in=source_student_ids).values_list(
+                "student_id", flat=True
+            )
+        )
+        ambiguous_groups = []
+        if target_group_id is None:
+            for e in source_enrollments:
+                if int(e.student_id) in existing_in_target:
+                    continue
+
+                snap = snapshots.get(e.id)
+                decision = None
+                if snap is not None:
+                    decision = snap.decision
+                else:
+                    c = computed.get(e.id)
+                    if c is None:
+                        continue
+                    decision = c.decision
+
+                if exclude_repeated and decision == "REPEATED":
+                    continue
+                if e.status == "GRADUATED" or decision == "GRADUATED":
+                    continue
+                if decision == "PROMOTED" and is_last_grade(e.grade):
+                    continue
+
+                if decision in {"PROMOTED", "CONDITIONAL"}:
+                    ngid = next_grade_id(e.grade)
+                    if ngid is None:
+                        continue
+                    target_grade_id = int(ngid)
+                else:
+                    target_grade_id = int(e.grade_id)
+
+                campus_id = int(e.campus_id) if getattr(e, "campus_id", None) is not None else None
+                candidates = groups_by_key.get((target_grade_id, campus_id), [])
+                if not candidates and campus_id is not None:
+                    candidates = groups_by_key.get((target_grade_id, None), [])
+
+                if len(candidates) > 1:
+                    ambiguous_groups.append(
+                        {
+                            "enrollment_id": int(e.id),
+                            "target_grade_id": int(target_grade_id),
+                            "campus_id": campus_id,
+                            "groups": [
+                                {
+                                    "id": int(g.id),
+                                    "name": g.name,
+                                    "shift": getattr(g, "shift", None),
+                                    "campus_id": int(g.campus_id) if getattr(g, "campus_id", None) is not None else None,
+                                }
+                                for g in candidates
+                            ],
+                        }
+                    )
+
+            if ambiguous_groups:
+                return Response(
+                    {
+                        "detail": "Hay más de un grupo para el grado destino. Selecciona un grupo para aplicar promociones.",
+                        "ambiguous_groups": ambiguous_groups,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         with transaction.atomic():
             for e in source_enrollments:
                 snap = snapshots.get(e.id)
-                if not snap:
-                    # Only apply promotions for enrollments with snapshots.
+                decision = None
+                details = {}
+                if snap is not None:
+                    decision = snap.decision
+                    details = snap.details or {}
+                else:
+                    c = computed.get(e.id)
+                    if c is None:
+                        continue
+                    decision = c.decision
+                    details = {"failed_subject_ids": c.failed_subject_ids, "failed_area_ids": c.failed_area_ids}
+
+                # Exclude REPEATED when requested
+                if exclude_repeated and decision == "REPEATED":
+                    skipped_repeated += 1
                     continue
 
                 # Skip already graduated students
-                if e.status == "GRADUATED" or snap.decision == "GRADUATED":
+                if e.status == "GRADUATED" or decision == "GRADUATED":
+                    skipped_graduated += 1
+                    continue
+
+                # Last grade promoted => treated as graduated (no next-year enrollment)
+                if decision == "PROMOTED" and is_last_grade(e.grade):
                     skipped_graduated += 1
                     continue
 
                 # Decide target grade
-                if snap.decision in {"PROMOTED", "CONDITIONAL"}:
+                if decision in {"PROMOTED", "CONDITIONAL"}:
                     ngid = next_grade_id(e.grade)
                     if ngid is None:
                         skipped_missing_grade_ordinal += 1
@@ -308,6 +577,30 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 else:
                     # REPEATED => stays in same grade
                     target_grade_id = e.grade_id
+
+                # Determine target group
+                assigned_group_id = None
+                if selected_group_obj is not None:
+                    # Ensure chosen group matches the target grade and (if present) campus
+                    if int(selected_group_obj.grade_id) != int(target_grade_id):
+                        return Response(
+                            {"detail": "El grupo seleccionado no corresponde al grado destino."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    if getattr(e, "campus_id", None) is not None and getattr(selected_group_obj, "campus_id", None) is not None:
+                        if int(selected_group_obj.campus_id) != int(e.campus_id):
+                            return Response(
+                                {"detail": "El grupo seleccionado no corresponde a la sede (campus) de la matrícula."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                    assigned_group_id = int(selected_group_obj.id)
+                else:
+                    campus_id = int(e.campus_id) if getattr(e, "campus_id", None) is not None else None
+                    candidates = groups_by_key.get((int(target_grade_id), campus_id), [])
+                    if not candidates and campus_id is not None:
+                        candidates = groups_by_key.get((int(target_grade_id), None), [])
+                    if len(candidates) == 1:
+                        assigned_group_id = int(candidates[0].id)
 
                 # Ensure uniqueness (student, academic_year)
                 if Enrollment.objects.filter(student=e.student, academic_year=target_year).exists():
@@ -318,7 +611,7 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                     student=e.student,
                     academic_year=target_year,
                     grade_id=target_grade_id,
-                    group=None,
+                    group_id=assigned_group_id,
                     campus=e.campus,
                     status="ACTIVE",
                     origin_school=e.origin_school,
@@ -328,8 +621,7 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 created += 1
 
                 # Create conditional promotion plan (PAP placeholder)
-                if snap.decision == "CONDITIONAL":
-                    details = snap.details or {}
+                if decision == "CONDITIONAL":
                     ConditionalPromotionPlan.objects.create(
                         enrollment=new_enrollment,
                         source_enrollment=e,
@@ -348,6 +640,7 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 "skipped_existing": skipped_existing,
                 "skipped_graduated": skipped_graduated,
                 "skipped_missing_grade_ordinal": skipped_missing_grade_ordinal,
+                "skipped_repeated": skipped_repeated,
             },
             status=status.HTTP_200_OK,
         )

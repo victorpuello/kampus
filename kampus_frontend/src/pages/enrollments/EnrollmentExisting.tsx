@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { studentsApi, type Student } from '../../services/students'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
@@ -10,13 +10,37 @@ import { Label } from '../../components/ui/Label'
 import { Search, UserCheck, AlertCircle } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 
+type ApiErrorShape = {
+  response?: {
+    data?: {
+      detail?: unknown
+      non_field_errors?: unknown
+    }
+  }
+}
+
+function parseEnrollError(e: unknown, fallback: string) {
+  const err = e as ApiErrorShape
+  const data = err?.response?.data
+
+  const nonField = data?.non_field_errors
+  if (Array.isArray(nonField) && nonField.length > 0 && typeof nonField[0] === 'string') {
+    return nonField[0]
+  }
+
+  const detail = data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+
+  return fallback
+}
+
 export default function EnrollmentExisting() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
-  const isTeacher = user?.role === 'TEACHER'
+  const blocked = user?.role === 'TEACHER'
   const [searchTerm, setSearchTerm] = useState('')
   const [students, setStudents] = useState<Student[]>([])
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [loading, setLoading] = useState(false)
   const [searching, setSearching] = useState(false)
   
@@ -29,34 +53,29 @@ export default function EnrollmentExisting() {
   const [selectedGrade, setSelectedGrade] = useState('')
   const [selectedGroup, setSelectedGroup] = useState('')
   const [error, setError] = useState('')
+  const [submitResult, setSubmitResult] = useState<{ success: number; errors: string[] } | null>(null)
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Matricular Antiguo</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  const selectedStudents = useMemo(() => {
+    if (selectedIds.length === 0) return []
+    const byId = new Map(students.map((s) => [s.id, s]))
+    return selectedIds.map((id) => byId.get(id)).filter(Boolean) as Student[]
+  }, [selectedIds, students])
 
   useEffect(() => {
+    if (blocked) return
     loadInitialData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked])
 
   useEffect(() => {
+    if (blocked) return
     if (selectedGrade && activeYear) {
       loadGroups(Number(selectedGrade))
     } else {
       setGroups([])
     }
-  }, [selectedGrade, activeYear])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked, selectedGrade, activeYear])
 
   const loadInitialData = async () => {
     try {
@@ -99,19 +118,19 @@ export default function EnrollmentExisting() {
         return
     }
 
+    if (!activeYear) {
+      setError('No hay un año académico activo configurado.')
+      return
+    }
+
     setSearching(true)
-    // Only clear selected student if explicitly searching new term? 
-    // For now let's keep the behavior but maybe don't clear selectedStudent immediately if it's just typing?
-    // The user might want to keep the current selection while looking for another.
-    // But the UI hides the list if selectedStudent is present.
-    // Let's clear selectedStudent if the user explicitly searches (hits enter or types enough)
-    // actually, let's NOT clear it automatically on type, but let the user clear it or replace it.
-    
+
     try {
       const response = await studentsApi.list({
         search: searchTerm,
         page: 1,
         page_size: 10,
+        exclude_active_enrollment_year: activeYear.id,
       })
       setStudents(response.data.results)
     } catch (error) {
@@ -124,6 +143,7 @@ export default function EnrollmentExisting() {
   // Predictive search effect
   useEffect(() => {
     const timer = setTimeout(() => {
+      if (blocked) return
       if (searchTerm.trim().length >= 2) {
         handleSearch()
       } else {
@@ -132,42 +152,78 @@ export default function EnrollmentExisting() {
     }, 500)
 
     return () => clearTimeout(timer)
-  }, [searchTerm])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked, searchTerm, activeYear])
 
-  const handleEnroll = async () => {
-    if (!selectedStudent || !activeYear || !selectedGrade) return
+  const toggleSelected = (studentId: number) => {
+    setSubmitResult(null)
+    setSelectedIds((prev) => {
+      if (prev.includes(studentId)) return prev.filter((id) => id !== studentId)
+      return [...prev, studentId]
+    })
+  }
+
+  const clearSelection = () => {
+    setSelectedIds([])
+    setSelectedGrade('')
+    setSelectedGroup('')
+    setSubmitResult(null)
+  }
+
+  const handleEnrollSelected = async () => {
+    if (!activeYear || !selectedGrade || selectedIds.length === 0) return
 
     setLoading(true)
     setError('')
+    setSubmitResult(null)
 
     try {
-      await enrollmentsApi.create({
-        student: selectedStudent.id,
-        academic_year: activeYear.id,
-        grade: Number(selectedGrade),
-        group: selectedGroup ? Number(selectedGroup) : null,
-        status: 'ACTIVE'
-      })
-      
-      navigate('/enrollments')
-    } catch (err: any) {
-      console.error('Error enrolling student:', err)
-      if (err.response?.data) {
-        // Handle specific validation errors
-        const errors = err.response.data
-        if (errors.non_field_errors) {
-          setError(errors.non_field_errors[0])
-        } else if (errors.detail) {
-          setError(errors.detail)
-        } else {
-          setError('Error al procesar la matrícula. Verifique los datos.')
+      const results = { success: 0, errors: [] as string[] }
+
+      for (const studentId of selectedIds) {
+        try {
+          await enrollmentsApi.create({
+            student: studentId,
+            academic_year: activeYear.id,
+            grade: Number(selectedGrade),
+            group: selectedGroup ? Number(selectedGroup) : null,
+            status: 'ACTIVE',
+          })
+          results.success += 1
+        } catch (e: unknown) {
+          const st = selectedStudents.find((s) => s.id === studentId)
+          const who = st ? `${st.user.last_name} ${st.user.first_name} (${st.document_number})` : `ID ${studentId}`
+          results.errors.push(`${who}: ${parseEnrollError(e, 'No se pudo procesar la matrícula')}`)
         }
-      } else {
-        setError('Error de conexión al servidor.')
       }
+
+      setSubmitResult(results)
+
+      if (results.errors.length === 0) {
+        navigate('/enrollments')
+      }
+    } catch (err: unknown) {
+      console.error('Error enrolling students:', err)
+      setError(parseEnrollError(err, 'Error al procesar las matrículas. Verifique los datos.'))
     } finally {
       setLoading(false)
     }
+  }
+
+  if (blocked) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Matricular Antiguo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   if (!activeYear && !error) {
@@ -178,7 +234,7 @@ export default function EnrollmentExisting() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matricular Estudiante Antiguo</h2>
-        <p className="text-slate-500">Busque un estudiante existente para matricularlo en el año {activeYear?.year}</p>
+        <p className="text-slate-500">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
       </div>
 
       {error && (
@@ -209,27 +265,42 @@ export default function EnrollmentExisting() {
 
           {students.length > 0 && (
             <div className="mt-6 border rounded-md divide-y">
-              {students.map(student => (
-                <div 
-                  key={student.id} 
-                  className="p-4 flex items-center justify-between hover:bg-slate-50 cursor-pointer"
-                  onClick={() => {
-                    setSelectedStudent(student)
-                    setStudents([])
-                    setSearchTerm('')
-                  }}
-                >
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {student.user.first_name} {student.user.last_name}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      {student.document_type}: {student.document_number}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm">Seleccionar</Button>
-                </div>
-              ))}
+              {[...students]
+                .sort((a, b) => {
+                  const aLast = (a.user?.last_name || '').toLocaleLowerCase()
+                  const bLast = (b.user?.last_name || '').toLocaleLowerCase()
+                  if (aLast !== bLast) return aLast.localeCompare(bLast)
+
+                  const aFirst = (a.user?.first_name || '').toLocaleLowerCase()
+                  const bFirst = (b.user?.first_name || '').toLocaleLowerCase()
+                  return aFirst.localeCompare(bFirst)
+                })
+                .map((student) => {
+                const checked = selectedIds.includes(student.id)
+                return (
+                  <label
+                    key={student.id}
+                    className="p-4 flex items-center justify-between hover:bg-slate-50 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelected(student.id)}
+                      />
+                      <div>
+                        <p className="font-medium text-slate-900">
+                          {student.user.last_name} {student.user.first_name}
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          {student.document_type}: {student.document_number}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-sm text-slate-500">{checked ? 'Seleccionado' : ''}</span>
+                  </label>
+                )
+              })}
             </div>
           )}
 
@@ -241,21 +312,22 @@ export default function EnrollmentExisting() {
         </CardContent>
       </Card>
 
-      {selectedStudent && (
+      {selectedIds.length > 0 && (
         <Card className="border-blue-200 ring-1 ring-blue-100">
           <CardHeader>
             <div className="flex items-center gap-4">
-              <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-xl">
-                {selectedStudent.user.first_name[0]}
-              </div>
               <div>
-                <CardTitle>{selectedStudent.user.first_name} {selectedStudent.user.last_name}</CardTitle>
-                <p className="text-sm text-slate-500">
-                  {selectedStudent.document_type} {selectedStudent.document_number}
-                </p>
+                <CardTitle>Seleccionados: {selectedIds.length}</CardTitle>
+                {selectedStudents.length > 0 ? (
+                  <p className="text-sm text-slate-500">
+                    {selectedStudents
+                      .map((s) => `${s.user.last_name} ${s.user.first_name}`)
+                      .join(', ')}
+                  </p>
+                ) : null}
               </div>
-              <Button variant="ghost" className="ml-auto" onClick={() => setSelectedStudent(null)}>
-                Cambiar
+              <Button variant="ghost" className="ml-auto" onClick={clearSelection}>
+                Limpiar
               </Button>
             </div>
           </CardHeader>
@@ -297,11 +369,27 @@ export default function EnrollmentExisting() {
             </div>
 
             <div className="flex justify-end pt-4">
-              <Button onClick={handleEnroll} disabled={loading || !selectedGrade}>
+              <Button onClick={handleEnrollSelected} disabled={loading || !selectedGrade || selectedIds.length === 0}>
                 <UserCheck className="mr-2 h-4 w-4" />
-                {loading ? 'Procesando...' : 'Confirmar Matrícula'}
+                {loading ? 'Procesando...' : `Confirmar Matrículas (${selectedIds.length})`}
               </Button>
             </div>
+
+            {submitResult && (
+              <div className="mt-2 p-4 border rounded-md bg-slate-50">
+                <p className="font-medium text-green-600">Exitosos: {submitResult.success}</p>
+                {submitResult.errors.length > 0 && (
+                  <div className="mt-2">
+                    <p className="font-medium text-red-600">Errores:</p>
+                    <ul className="text-sm text-red-500 list-disc list-inside max-h-40 overflow-y-auto">
+                      {submitResult.errors.map((err, i) => (
+                        <li key={i}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -2,6 +2,59 @@ from django.conf import settings
 from django.db import models
 
 
+class TeacherStatisticsAIAnalysis(models.Model):
+    """Cached AI analysis for teacher statistics (aggregated; no student PII)."""
+
+    MODE_PERIOD = "period"
+    MODE_ACCUMULATED = "accumulated"
+    MODE_CHOICES = [(MODE_PERIOD, "Periodo"), (MODE_ACCUMULATED, "Acumulado")]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="teacher_statistics_ai_analyses",
+    )
+    academic_year = models.ForeignKey(
+        "academic.AcademicYear",
+        on_delete=models.CASCADE,
+        related_name="teacher_statistics_ai_analyses",
+    )
+    period = models.ForeignKey(
+        "academic.Period",
+        on_delete=models.CASCADE,
+        related_name="teacher_statistics_ai_analyses",
+    )
+
+    director_mode = models.CharField(max_length=12, choices=MODE_CHOICES, default=MODE_PERIOD)
+    # 0 = "Todos" (todos los grupos dirigidos). Otherwise a concrete Group.id
+    director_group_id = models.IntegerField(default=0)
+    passing_score = models.DecimalField(max_digits=6, decimal_places=2)
+
+    context = models.JSONField(default=dict, blank=True)
+    analysis = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "user",
+                    "academic_year",
+                    "period",
+                    "director_mode",
+                    "director_group_id",
+                    "passing_score",
+                ],
+                name="uniq_teacher_stats_ai_scope",
+            )
+        ]
+
+    def __str__(self):
+        return f"AI analysis {self.user_id} y{self.academic_year_id} p{self.period_id} g{self.director_group_id}"
+
+
 class Teacher(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,

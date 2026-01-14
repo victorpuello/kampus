@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
 import { academicApi, type AcademicYear } from '../services/academic'
@@ -114,6 +114,20 @@ export default function TeacherList() {
     t.document_number.includes(searchTerm) ||
     t.title.toLowerCase().includes(searchTerm.toLowerCase())
   )
+
+  const sortedData = useMemo(() => {
+    return [...filteredData].sort((a, b) => {
+      const aLast = (a.user.last_name || '').trim().toLocaleLowerCase()
+      const bLast = (b.user.last_name || '').trim().toLocaleLowerCase()
+      if (aLast !== bLast) return aLast.localeCompare(bLast)
+
+      const aFirst = (a.user.first_name || '').trim().toLocaleLowerCase()
+      const bFirst = (b.user.first_name || '').trim().toLocaleLowerCase()
+      if (aFirst !== bFirst) return aFirst.localeCompare(bFirst)
+
+      return (a.user.username || '').localeCompare(b.user.username || '')
+    })
+  }, [filteredData])
 
   // Stats
   const totalTeachers = data.length
@@ -245,7 +259,7 @@ export default function TeacherList() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Docente</th>
                   <th className="px-6 py-4 font-semibold">Título / Especialidad</th>
@@ -268,15 +282,15 @@ export default function TeacherList() {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((t) => (
+                  sortedData.map((t) => (
                     <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
-                            {t.user.first_name[0]}{t.user.last_name[0]}
+                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
+                            {t.user.last_name[0]}{t.user.first_name[0]}
                           </div>
                           <div>
-                            <div className="font-medium text-slate-900 uppercase">{t.user.first_name} {t.user.last_name}</div>
+                            <div className="font-medium text-slate-900 uppercase">{t.user.last_name} {t.user.first_name}</div>
                             <div className="text-xs text-slate-500 flex items-center gap-1">
                               <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{t.user.username}</span>
                               <span>•</span>

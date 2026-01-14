@@ -5,7 +5,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
-import { academicApi, type AcademicYear, type PromotionPreviewResponse } from '../services/academic'
+import { academicApi, type AcademicYear, type Grade, type Group, type PromotionDecision, type PromotionPreviewResponse } from '../services/academic'
 import { useAuthStore } from '../store/auth'
 
 type ApiErrorShape = {
@@ -32,10 +32,17 @@ export default function PromotionWorkflow() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [years, setYears] = useState<AcademicYear[]>([])
+  const [grades, setGrades] = useState<Grade[]>([])
 
   const [sourceYearId, setSourceYearId] = useState<number | ''>('')
   const [targetYearId, setTargetYearId] = useState<number | ''>('')
   const [passingScore, setPassingScore] = useState('')
+  const [sourceGradeId, setSourceGradeId] = useState<number | ''>('')
+  const [excludeRepeated, setExcludeRepeated] = useState(true)
+  const [selectedEnrollmentIds, setSelectedEnrollmentIds] = useState<number[]>([])
+
+  const [targetGroups, setTargetGroups] = useState<Group[]>([])
+  const [targetGroupId, setTargetGroupId] = useState<number | ''>('')
 
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<PromotionPreviewResponse | null>(null)
@@ -58,9 +65,10 @@ export default function PromotionWorkflow() {
     setLoading(true)
     setError(null)
     try {
-      const res = await academicApi.listYears()
-      const ys = res.data || []
+      const [yearsRes, gradesRes] = await Promise.all([academicApi.listYears(), academicApi.listGrades()])
+      const ys = yearsRes.data || []
       setYears(ys)
+      setGrades(gradesRes.data || [])
 
       const active = ys.find((y) => y.status === 'ACTIVE')
       if (active && sourceYearId === '') {
@@ -97,6 +105,27 @@ export default function PromotionWorkflow() {
     }
   }, [preview])
 
+  const filteredGrades = useMemo(() => {
+    return (grades || []).slice().sort((a, b) => {
+      const ao = typeof a.ordinal === 'number' ? a.ordinal : 999
+      const bo = typeof b.ordinal === 'number' ? b.ordinal : 999
+      if (ao !== bo) return ao - bo
+      return String(a.name || '').localeCompare(String(b.name || ''))
+    })
+  }, [grades])
+
+  const applySelectionDefaults = (p: PromotionPreviewResponse | null, nextExcludeRepeated: boolean) => {
+    if (!p) {
+      setSelectedEnrollmentIds([])
+      return
+    }
+    const ids = (p.results || [])
+      .filter((r) => !nextExcludeRepeated || r.decision !== 'REPEATED')
+      .filter((r) => r.decision !== 'GRADUATED')
+      .map((r) => r.enrollment_id)
+    setSelectedEnrollmentIds(ids)
+  }
+
   const canPreview = typeof sourceYearId === 'number'
   const canClose = typeof sourceYearId === 'number'
   const canApply = typeof sourceYearId === 'number' && typeof targetYearId === 'number' && sourceYearId !== targetYearId
@@ -107,9 +136,15 @@ export default function PromotionWorkflow() {
     setPreviewLoading(true)
     setPreview(null)
     try {
-      const params = passingScore.trim() ? { passing_score: passingScore.trim() } : undefined
+      const params: Record<string, unknown> = {}
+      if (passingScore.trim()) params.passing_score = passingScore.trim()
+      if (typeof sourceGradeId === 'number') params.grade_id = sourceGradeId
+
       const res = await academicApi.promotionPreview(sourceYearId, params)
       setPreview(res.data)
+      applySelectionDefaults(res.data, excludeRepeated)
+      setTargetGroups([])
+      setTargetGroupId('')
       showToast('Previsualización generada', 'success')
     } catch (e) {
       console.error(e)
@@ -125,6 +160,18 @@ export default function PromotionWorkflow() {
   }
 
   const openApplyConfirm = () => {
+    if (!preview) {
+      showToast('Primero genera la previsualización', 'error')
+      return
+    }
+    if (selectedEnrollmentIds.length === 0) {
+      showToast('Selecciona al menos una matrícula para aplicar', 'error')
+      return
+    }
+    if (targetGroups.length > 1 && typeof targetGroupId !== 'number') {
+      showToast('Selecciona el grupo destino para aplicar', 'error')
+      return
+    }
     setConfirmAction('APPLY')
     setConfirmOpen(true)
   }
@@ -142,9 +189,17 @@ export default function PromotionWorkflow() {
         await loadYears()
       } else {
         if (!canApply) return
-        const res = await academicApi.applyPromotions(sourceYearId, { target_academic_year: targetYearId as number })
+        const res = await academicApi.applyPromotions(sourceYearId, {
+          target_academic_year: targetYearId as number,
+          passing_score: passingScore.trim() ? passingScore.trim() : undefined,
+          enrollment_ids: selectedEnrollmentIds,
+          source_grade_id: typeof sourceGradeId === 'number' ? sourceGradeId : undefined,
+          exclude_repeated: excludeRepeated,
+          target_group_id: typeof targetGroupId === 'number' ? targetGroupId : undefined,
+        })
+        const skippedRepeated = typeof res.data.skipped_repeated === 'number' ? res.data.skipped_repeated : 0
         showToast(
-          `Promociones aplicadas: creadas ${res.data.created}. Saltadas: existentes ${res.data.skipped_existing}, graduados ${res.data.skipped_graduated}, sin ordinal ${res.data.skipped_missing_grade_ordinal}`,
+          `Promociones aplicadas: creadas ${res.data.created}. Saltadas: existentes ${res.data.skipped_existing}, graduados ${res.data.skipped_graduated}, sin ordinal ${res.data.skipped_missing_grade_ordinal}${excludeRepeated ? `, reprobados ${skippedRepeated}` : ''}`,
           'success'
         )
       }
@@ -161,6 +216,70 @@ export default function PromotionWorkflow() {
 
   const sourceYear = years.find((y) => y.id === sourceYearId) || null
   const targetYear = years.find((y) => y.id === targetYearId) || null
+
+  const effectiveTargetGradeId = useMemo(() => {
+    const res = preview?.results || []
+    if (!res.length) return null
+    const selected = new Set(selectedEnrollmentIds)
+    const ids = new Set<number>()
+    for (const r of res) {
+      if (!selected.has(r.enrollment_id)) continue
+      if (excludeRepeated && r.decision === 'REPEATED') continue
+      const tg = r.target_grade_id
+      if (typeof tg === 'number') ids.add(tg)
+    }
+    if (ids.size === 1) return Array.from(ids)[0]
+    return null
+  }, [preview, selectedEnrollmentIds, excludeRepeated])
+
+  useEffect(() => {
+    const loadTargetGroups = async () => {
+      if (typeof targetYearId !== 'number') {
+        setTargetGroups([])
+        setTargetGroupId('')
+        return
+      }
+      if (!effectiveTargetGradeId) {
+        setTargetGroups([])
+        setTargetGroupId('')
+        return
+      }
+      try {
+        const res = await academicApi.listGroups({ academic_year: targetYearId, grade: effectiveTargetGradeId })
+        const gs = (res.data || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))
+        setTargetGroups(gs)
+        if (gs.length === 1) {
+          setTargetGroupId(gs[0].id)
+        } else {
+          setTargetGroupId('')
+        }
+      } catch (e) {
+        console.error(e)
+        setTargetGroups([])
+        setTargetGroupId('')
+      }
+    }
+    loadTargetGroups()
+  }, [targetYearId, effectiveTargetGradeId])
+
+  const toggleEnrollment = (id: number) => {
+    setSelectedEnrollmentIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  const selectAllFromPreview = () => {
+    if (!preview) return
+    applySelectionDefaults(preview, excludeRepeated)
+  }
+
+  const clearSelection = () => setSelectedEnrollmentIds([])
+
+  const decisionLabel = (d: PromotionDecision) => {
+    if (d === 'PROMOTED') return 'Promovido'
+    if (d === 'CONDITIONAL') return 'Condicional (PAP)'
+    if (d === 'REPEATED') return 'Reprobó (repite)'
+    if (d === 'GRADUATED') return 'Graduado'
+    return d
+  }
 
   return (
     <div className="space-y-6">
@@ -251,6 +370,76 @@ export default function PromotionWorkflow() {
                     />
                     <div className="text-xs text-slate-500 mt-1">Vacío = usa el valor por defecto del backend</div>
                   </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">Filtrar por grado (opcional)</label>
+                    <select
+                      value={sourceGradeId}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setSourceGradeId(v ? Number(v) : '')
+                        setPreview(null)
+                        setSelectedEnrollmentIds([])
+                        setTargetGroups([])
+                        setTargetGroupId('')
+                      }}
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                    >
+                      <option value="">Todos</option>
+                      {filteredGrades.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}{typeof g.ordinal === 'number' ? ` (ord ${g.ordinal})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="text-xs text-slate-500 mt-1">Útil para pasar, por ejemplo, 10→11</div>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-slate-700">Grupo destino (opcional)</label>
+                    {targetGroups.length === 0 ? (
+                      <div className="text-xs text-slate-500 mt-2">
+                        {typeof targetYearId === 'number' && effectiveTargetGradeId
+                          ? 'No hay grupos para el grado destino (se creará sin grupo).'
+                          : 'Genera previsualización y selecciona matrículas para detectar el grado destino.'}
+                      </div>
+                    ) : targetGroups.length === 1 ? (
+                      <div className="text-xs text-slate-500 mt-2">Se asignará automáticamente: {targetGroups[0].name}</div>
+                    ) : (
+                      <select
+                        value={targetGroupId}
+                        onChange={(e) => setTargetGroupId(e.target.value ? Number(e.target.value) : '')}
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                      >
+                        <option value="">Selecciona…</option>
+                        {targetGroups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {targetGroups.length > 1 ? (
+                      <div className="text-xs text-slate-500 mt-1">Requerido si hay más de un grupo en el grado destino.</div>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    id="excludeRepeated"
+                    type="checkbox"
+                    checked={excludeRepeated}
+                    onChange={(e) => {
+                      const next = e.target.checked
+                      setExcludeRepeated(next)
+                      // Keep selection aligned with the rule
+                      applySelectionDefaults(preview, next)
+                    }}
+                  />
+                  <label htmlFor="excludeRepeated" className="text-sm text-slate-700">
+                    Excluir reprobados (no crear matrícula para “REPEATED”)
+                  </label>
                 </div>
 
                 <div className="flex flex-col sm:flex-row gap-2">
@@ -274,11 +463,26 @@ export default function PromotionWorkflow() {
                       ) : null}
                     </div>
 
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={selectAllFromPreview}>
+                        Seleccionar según regla
+                      </Button>
+                      <Button variant="outline" onClick={clearSelection}>
+                        Limpiar selección
+                      </Button>
+                      <div className="text-sm text-slate-600 flex items-center">
+                        Seleccionadas: <span className="ml-1 font-medium text-slate-900">{selectedEnrollmentIds.length}</span>
+                      </div>
+                    </div>
+
                     <div className="overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200">
                         <thead className="bg-slate-50">
                           <tr>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Matrícula</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Sel</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estudiante</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Documento</th>
+                            <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Grado</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Decisión</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Reprob. materias</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Reprob. áreas</th>
@@ -288,8 +492,24 @@ export default function PromotionWorkflow() {
                         <tbody className="bg-white divide-y divide-slate-200">
                           {preview.results.map((r) => (
                             <tr key={r.enrollment_id} className="hover:bg-slate-50">
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{r.enrollment_id}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.decision}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedEnrollmentIds.includes(r.enrollment_id)}
+                                  onChange={() => toggleEnrollment(r.enrollment_id)}
+                                  disabled={excludeRepeated && r.decision === 'REPEATED'}
+                                />
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                                {r.student_name || `Matrícula #${r.enrollment_id}`}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                                {r.student_document_number || '—'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                                {r.grade_name || '—'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{decisionLabel(r.decision)}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_subjects_count}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_areas_count}</td>
                               <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_subjects_distinct_areas_count}</td>
@@ -323,7 +543,7 @@ export default function PromotionWorkflow() {
           confirmAction === 'CLOSE'
             ? 'Esto guardará snapshots de promoción y cerrará el año. Requiere que todos los periodos estén cerrados.'
             : confirmAction === 'APPLY'
-              ? 'Esto creará matrículas en el año destino usando los snapshots del año origen.'
+              ? 'Esto creará matrículas en el año destino usando los snapshots del año origen, para las matrículas seleccionadas.'
               : ''
         }
         confirmText="Confirmar"

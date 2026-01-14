@@ -74,3 +74,14 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return f"{self.username} ({self.get_role_display()})"
+
+    def get_full_name(self) -> str:
+        """Return the person's full name in 'Apellidos Nombre' format.
+
+        This keeps UI lists consistent in Spanish contexts.
+        """
+
+        last_name = (self.last_name or "").strip()
+        first_name = (self.first_name or "").strip()
+        full_name = f"{last_name} {first_name}".strip()
+        return full_name or (self.username or "")
