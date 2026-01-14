@@ -107,13 +107,24 @@ export default function TeacherList() {
     }
   }
 
-  const filteredData = data.filter(t => 
-    t.user.first_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.user.last_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    t.document_number.includes(searchTerm) ||
-    t.title.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase()
+  const filteredData = data.filter((t) => {
+    if (!normalizedSearch) return true
+
+    const firstName = (t.user.first_name ?? '').toLocaleLowerCase()
+    const lastName = (t.user.last_name ?? '').toLocaleLowerCase()
+    const username = (t.user.username ?? '').toLocaleLowerCase()
+    const documentNumber = (t.document_number ?? '').toString()
+    const title = (t.title ?? '').toString().toLocaleLowerCase()
+
+    return (
+      firstName.includes(normalizedSearch) ||
+      lastName.includes(normalizedSearch) ||
+      username.includes(normalizedSearch) ||
+      documentNumber.includes(searchTerm.trim()) ||
+      title.includes(normalizedSearch)
+    )
+  })
 
   const sortedData = useMemo(() => {
     return [...filteredData].sort((a, b) => {
