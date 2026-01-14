@@ -39,6 +39,7 @@ export default function Grades() {
 
   const [availableSheets, setAvailableSheets] = useState<GradebookAvailableSheet[]>([])
   const [loadingSheets, setLoadingSheets] = useState(false)
+  const [sheetsPage, setSheetsPage] = useState(1)
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingGradebook, setLoadingGradebook] = useState(false)
@@ -152,6 +153,58 @@ export default function Grades() {
   const [baseValues, setBaseValues] = useState<Record<CellKey, string>>({})
   const [cellValues, setCellValues] = useState<Record<CellKey, string>>({})
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
+
+  const SHEETS_PAGE_SIZE = 9
+
+  const orderedAvailableSheets = useMemo(() => {
+    const compareText = (a: string, b: string) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
+
+    const bySubjectThenGrade = (a: GradebookAvailableSheet, b: GradebookAvailableSheet) => {
+      const subjectA = (a.subject_name ?? 'Sin asignatura').trim()
+      const subjectB = (b.subject_name ?? 'Sin asignatura').trim()
+      const subjectCmp = compareText(subjectA, subjectB)
+      if (subjectCmp !== 0) return subjectCmp
+
+      const gradeCmp = compareText((a.grade_name ?? '').trim(), (b.grade_name ?? '').trim())
+      if (gradeCmp !== 0) return gradeCmp
+
+      const groupCmp = compareText((a.group_name ?? '').trim(), (b.group_name ?? '').trim())
+      if (groupCmp !== 0) return groupCmp
+
+      return a.teacher_assignment_id - b.teacher_assignment_id
+    }
+
+    const incomplete: GradebookAvailableSheet[] = []
+    const complete: GradebookAvailableSheet[] = []
+
+    for (const s of availableSheets) {
+      if (s.completion.is_complete) complete.push(s)
+      else incomplete.push(s)
+    }
+
+    incomplete.sort(bySubjectThenGrade)
+    complete.sort(bySubjectThenGrade)
+    return [...incomplete, ...complete]
+  }, [availableSheets])
+
+  const sheetsTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(orderedAvailableSheets.length / SHEETS_PAGE_SIZE)),
+    [orderedAvailableSheets.length]
+  )
+
+  useEffect(() => {
+    setSheetsPage(1)
+  }, [selectedPeriodId])
+
+  useEffect(() => {
+    setSheetsPage((prev) => Math.min(Math.max(1, prev), sheetsTotalPages))
+  }, [sheetsTotalPages])
+
+  const pagedAvailableSheets = useMemo(() => {
+    const start = (sheetsPage - 1) * SHEETS_PAGE_SIZE
+    return orderedAvailableSheets.slice(start, start + SHEETS_PAGE_SIZE)
+  }, [orderedAvailableSheets, sheetsPage])
 
   const visibleAssignments = useMemo(() => {
     if (user?.role === 'TEACHER') return assignments.filter((a) => a.teacher === user.id)
@@ -1281,8 +1334,46 @@ export default function Grades() {
             <div className="p-4 text-slate-600">No hay planillas disponibles para este periodo.</div>
           ) : null}
 
+          {!loadingSheets && availableSheets.length > 0 ? (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
+              <div className="text-sm text-slate-600">
+                {(() => {
+                  const total = orderedAvailableSheets.length
+                  const start = (sheetsPage - 1) * SHEETS_PAGE_SIZE
+                  const from = total === 0 ? 0 : start + 1
+                  const to = Math.min(start + pagedAvailableSheets.length, total)
+                  return `Mostrando ${from}-${to} de ${total}`
+                })()}
+              </div>
+
+              {sheetsTotalPages > 1 ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSheetsPage((p) => Math.max(1, p - 1))}
+                    disabled={sheetsPage <= 1}
+                  >
+                    Anterior
+                  </Button>
+                  <div className="text-sm text-slate-600">
+                    Página {sheetsPage} de {sheetsTotalPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSheetsPage((p) => Math.min(sheetsTotalPages, p + 1))}
+                    disabled={sheetsPage >= sheetsTotalPages}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {availableSheets.map((s) => {
+            {pagedAvailableSheets.map((s) => {
               const complete = s.completion.is_complete
               const badgeClass = complete
                 ? 'border-emerald-200 bg-emerald-50 text-emerald-700'

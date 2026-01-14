@@ -385,7 +385,8 @@ export const academicApi = {
 
   // Assignments
   listAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/'),
-  listMyAssignments: () => api.get<TeacherAssignment[]>('/api/teacher-assignments/me/'),
+  listMyAssignments: (params?: { academic_year?: number | '' }) =>
+    api.get<TeacherAssignment[]>('/api/teacher-assignments/me/', { params }),
   createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'academic_load_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
   deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
 
