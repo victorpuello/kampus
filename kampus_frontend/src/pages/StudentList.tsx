@@ -19,6 +19,7 @@ export default function StudentList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [count, setCount] = useState(0)
@@ -43,6 +44,21 @@ export default function StudentList() {
     if (!importResult?.errors?.length) return []
     return importResult.errors.slice(0, 5)
   }, [importResult])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [searchTerm])
+
+  const searchParam = useMemo(() => {
+    const q = debouncedSearchTerm.trim()
+    return q ? q : undefined
+  }, [debouncedSearchTerm])
 
   useEffect(() => {
     let mounted = true
@@ -107,7 +123,7 @@ export default function StudentList() {
       .list({
         page,
         page_size: pageSize,
-        search: searchTerm.trim() ? searchTerm.trim() : undefined,
+        search: searchParam,
       })
       .then((res) => {
         if (!mounted) return
@@ -125,7 +141,7 @@ export default function StudentList() {
     return () => {
       mounted = false
     }
-  }, [page, pageSize, searchTerm, isTeacher, teacherHasDirectedGroup])
+  }, [page, pageSize, searchParam, isTeacher, teacherHasDirectedGroup])
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
@@ -145,9 +161,6 @@ export default function StudentList() {
     pages.push(totalPages)
     return pages
   })()
-
-  if (loading) return <div className="p-6">Cargando…</div>
-  if (error) return <div className="p-6 text-red-600">{error}</div>
 
   if (isTeacher && teacherHasDirectedGroup === false) {
     return (
@@ -323,6 +336,14 @@ export default function StudentList() {
               />
             </div>
           </div>
+          {loading && data.length > 0 && (
+            <p className="mt-2 text-sm text-slate-500">Actualizando resultados…</p>
+          )}
+          {error && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
@@ -344,7 +365,13 @@ export default function StudentList() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-slate-200">
-                {data.length === 0 ? (
+                {loading && data.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
+                      Cargando…
+                    </td>
+                  </tr>
+                ) : data.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
