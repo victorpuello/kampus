@@ -378,6 +378,7 @@ export default function DashboardLayout() {
         children: [
           { name: 'Institución', href: '/institution' },
           { name: 'Sedes', href: '/campuses' },
+          ...(canManageRbac ? [{ name: 'Sistema', href: '/system' }] : []),
         ],
       },
     ]

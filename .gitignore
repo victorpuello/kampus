@@ -39,3 +39,7 @@ backend/get_token.py
 # Generated SEO (build-time)
 kampus_frontend/public/robots.txt
 kampus_frontend/public/sitemap.xml
+
+# Local config exports (can contain real data)
+docs/kampus_config_*.json
+docs/kampus_config_*.json.gz

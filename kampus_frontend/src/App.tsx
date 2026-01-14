@@ -33,6 +33,7 @@ import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
 import PapPlans from './pages/PapPlans'
 import PromotionWorkflow from './pages/PromotionWorkflow'
 import TeacherStatistics from './pages/TeacherStatistics'
+import SystemSettings from './pages/SystemSettings'
 
 export default function App() {
   return (
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
+            <Route path="/system" element={<SystemSettings />} />
           </Route>
         </Route>
       </Routes>
