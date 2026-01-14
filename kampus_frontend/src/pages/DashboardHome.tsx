@@ -91,6 +91,98 @@ export default function DashboardHome() {
     setMetricsError(null)
 
     try {
+      if (isTeacher) {
+        const [yearsRes, periodsRes, unreadRes, assignmentsRes] = await Promise.allSettled([
+          academicApi.listYears(),
+          academicApi.listPeriods(),
+          notificationsApi.unreadCount(),
+          academicApi.listMyAssignments(),
+        ])
+
+        const unread = unreadRes.status === 'fulfilled' ? unreadRes.value.data.unread || 0 : 0
+        setUnreadNotificationsCount(unread)
+
+        const assignments = assignmentsRes.status === 'fulfilled' ? assignmentsRes.value.data || [] : []
+        setMyAssignmentsCount(assignments.length)
+
+        // Determine an "active" year id for teacher dashboard. Prefer official ACTIVE year,
+        // fallback to the most frequent year from teacher assignments.
+        const years = yearsRes.status === 'fulfilled' ? yearsRes.value.data || [] : []
+        const activeYear = years.find((y) => y.status === 'ACTIVE')
+
+        let yearId: number | null = activeYear?.id ?? null
+        if (!yearId && assignments.length > 0) {
+          const counts = new Map<number, number>()
+          for (const a of assignments) counts.set(a.academic_year, (counts.get(a.academic_year) ?? 0) + 1)
+          let bestId: number | null = null
+          let bestCount = -1
+          for (const [id, c] of counts.entries()) {
+            if (c > bestCount) {
+              bestCount = c
+              bestId = id
+            }
+          }
+          yearId = bestId
+        }
+
+        const periods = periodsRes.status === 'fulfilled' ? periodsRes.value.data || [] : []
+        const periodsForYear = yearId ? periods.filter((p) => p.academic_year === yearId) : periods
+
+        const dashboardPeriod = pickDashboardPeriod(periodsForYear)
+        setDashboardPeriodId(dashboardPeriod?.id ?? null)
+        setDashboardPeriodName(dashboardPeriod?.name ?? null)
+
+        const deadlines = periodsForYear
+          .map((p) => ({
+            periodId: p.id,
+            periodName: p.name,
+            deadline: getGradeDeadlineForPeriod(p),
+            isClosed: p.is_closed,
+          }))
+          .filter((x) => Number.isFinite(x.deadline.getTime()))
+          .sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
+
+        setGradeDeadlines(deadlines)
+
+        if (dashboardPeriod?.id) {
+          try {
+            const sheetsRes = await academicApi.listAvailableGradeSheets(dashboardPeriod.id)
+            const sheets = sheetsRes.data.results || []
+
+            const pending = sheets.filter((s) => !s.completion.is_complete).length
+            setPendingSheetsCount(pending)
+
+            const studentsByGroup = new Map<number, number>()
+            for (const s of sheets) {
+              const prev = studentsByGroup.get(s.group_id) ?? 0
+              studentsByGroup.set(s.group_id, Math.max(prev, s.students_count || 0))
+            }
+            const totalStudents = Array.from(studentsByGroup.values()).reduce((acc, n) => acc + n, 0)
+            setMyStudentsCount(totalStudents)
+          } catch {
+            setPendingSheetsCount(0)
+            setMyStudentsCount(0)
+          }
+        } else {
+          setPendingSheetsCount(0)
+          setMyStudentsCount(0)
+        }
+
+        // If nothing meaningful loaded, show error; otherwise allow partial UI.
+        const nothingLoaded =
+          unreadRes.status !== 'fulfilled' &&
+          assignmentsRes.status !== 'fulfilled' &&
+          periodsRes.status !== 'fulfilled'
+        if (nothingLoaded) setMetricsError('No se pudieron cargar los indicadores.')
+
+        // Avoid showing admin/global metrics for teachers.
+        setStudentsCount(0)
+        setTeachersCount(0)
+        setGroupsCount(0)
+        return
+      }
+
+      // Non-teacher
       const [yearsRes, periodsRes, unreadRes] = await Promise.all([
         academicApi.listYears(),
         academicApi.listPeriods(),
@@ -119,40 +211,6 @@ export default function DashboardHome() {
         .sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
 
       setGradeDeadlines(deadlines)
-
-      if (isTeacher) {
-        const assignmentsRes = await academicApi.listMyAssignments(
-          activeYear ? { academic_year: activeYear.id } : undefined
-        )
-
-        const items = assignmentsRes.data || []
-        setMyAssignmentsCount(items.length)
-
-        if (dashboardPeriod?.id) {
-          const sheetsRes = await academicApi.listAvailableGradeSheets(dashboardPeriod.id)
-          const sheets = sheetsRes.data.results || []
-
-          const pending = sheets.filter((s) => !s.completion.is_complete).length
-          setPendingSheetsCount(pending)
-
-          const studentsByGroup = new Map<number, number>()
-          for (const s of sheets) {
-            const prev = studentsByGroup.get(s.group_id) ?? 0
-            studentsByGroup.set(s.group_id, Math.max(prev, s.students_count || 0))
-          }
-          const totalStudents = Array.from(studentsByGroup.values()).reduce((acc, n) => acc + n, 0)
-          setMyStudentsCount(totalStudents)
-        } else {
-          setPendingSheetsCount(0)
-          setMyStudentsCount(0)
-        }
-
-        // Avoid showing admin/global metrics for teachers.
-        setStudentsCount(0)
-        setTeachersCount(0)
-        setGroupsCount(0)
-        return
-      }
 
       // Admin / other roles
       const [studentsRes, teachersRes] = await Promise.all([
