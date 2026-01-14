@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { usersApi } from '../services/users'
 import type { User } from '../services/users'
@@ -14,26 +14,11 @@ export default function UserList() {
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Usuarios</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de usuarios.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const [data, setData] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [count, setCount] = useState(0)
@@ -46,7 +31,22 @@ export default function UserList() {
   const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300)
+
+    return () => window.clearTimeout(t)
+  }, [searchTerm])
+
+  const searchParam = useMemo(() => {
+    const q = debouncedSearchTerm.trim()
+    return q ? q : undefined
+  }, [debouncedSearchTerm])
+
+  useEffect(() => {
     let mounted = true
+
+    if (isTeacher) return
 
     setLoading(true)
     setError(null)
@@ -55,7 +55,7 @@ export default function UserList() {
       .list({
         page,
         page_size: pageSize,
-        search: searchTerm.trim() ? searchTerm.trim() : undefined,
+        search: searchParam,
       })
       .then((res) => {
         if (!mounted) return
@@ -74,11 +74,13 @@ export default function UserList() {
     return () => {
       mounted = false
     }
-  }, [page, pageSize, searchTerm])
+  }, [isTeacher, page, pageSize, searchParam])
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
   const endIndex = Math.min(count, (page - 1) * pageSize + data.length)
+
+  const isInitialLoading = loading && data.length === 0
 
   const pageNumbers: Array<number | 'ellipsis'> = (() => {
     if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1)
@@ -161,11 +163,28 @@ export default function UserList() {
     return roles[role] || role
   }
 
-  if (loading) return <div className="p-6">Cargando usuarios...</div>
-  if (error) return <div className="p-6 text-red-600">{error}</div>
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Usuarios</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de usuarios.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-6">
+      {error ? (
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{error}</div>
+      ) : null}
+
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
@@ -240,11 +259,14 @@ export default function UserList() {
               />
             </div>
           </div>
+          {loading && data.length > 0 ? (
+            <div className="mt-3 text-xs text-slate-500">Actualizando resultados…</div>
+          ) : null}
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Usuario</th>
                   <th className="px-6 py-4 font-semibold">Rol</th>
@@ -254,7 +276,13 @@ export default function UserList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {data.length === 0 ? (
+                {isInitialLoading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                      Cargando usuarios…
+                    </td>
+                  </tr>
+                ) : data.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center py-4">
@@ -271,7 +299,7 @@ export default function UserList() {
                     <tr key={user.id} className="bg-white hover:bg-slate-50/80 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 text-slate-600 shadow-sm border border-slate-200">
+                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 text-slate-600 shadow-sm border border-slate-200">
                             <span className="font-bold text-sm">{user.first_name[0]}{user.last_name[0]}</span>
                           </div>
                           <div>
