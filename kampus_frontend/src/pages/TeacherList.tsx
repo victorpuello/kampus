@@ -15,28 +15,13 @@ export default function TeacherList() {
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Docentes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de docentes.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const [data, setData] = useState<Teacher[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -50,6 +35,7 @@ export default function TeacherList() {
 
   const loadData = async () => {
     setLoading(true)
+    setError(null)
     try {
       // Load years first if not loaded
       let currentYearId = selectedYear
@@ -74,8 +60,20 @@ export default function TeacherList() {
   }
 
   useEffect(() => {
+    if (isTeacher) return
     loadData()
-  }, [selectedYear])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, isTeacher])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [searchTerm])
 
   const handleDelete = async (id: number) => {
     try {
@@ -107,24 +105,28 @@ export default function TeacherList() {
     }
   }
 
-  const normalizedSearch = searchTerm.trim().toLocaleLowerCase()
-  const filteredData = data.filter((t) => {
-    if (!normalizedSearch) return true
+  const normalizedSearch = debouncedSearchTerm.trim().toLocaleLowerCase()
+  const filteredData = useMemo(() => {
+    if (!normalizedSearch) return data
 
-    const firstName = (t.user.first_name ?? '').toLocaleLowerCase()
-    const lastName = (t.user.last_name ?? '').toLocaleLowerCase()
-    const username = (t.user.username ?? '').toLocaleLowerCase()
-    const documentNumber = (t.document_number ?? '').toString()
-    const title = (t.title ?? '').toString().toLocaleLowerCase()
+    const raw = debouncedSearchTerm.trim()
 
-    return (
-      firstName.includes(normalizedSearch) ||
-      lastName.includes(normalizedSearch) ||
-      username.includes(normalizedSearch) ||
-      documentNumber.includes(searchTerm.trim()) ||
-      title.includes(normalizedSearch)
-    )
-  })
+    return data.filter((t) => {
+      const firstName = (t.user.first_name ?? '').toLocaleLowerCase()
+      const lastName = (t.user.last_name ?? '').toLocaleLowerCase()
+      const username = (t.user.username ?? '').toLocaleLowerCase()
+      const documentNumber = (t.document_number ?? '').toString()
+      const title = (t.title ?? '').toString().toLocaleLowerCase()
+
+      return (
+        firstName.includes(normalizedSearch) ||
+        lastName.includes(normalizedSearch) ||
+        username.includes(normalizedSearch) ||
+        documentNumber.includes(raw) ||
+        title.includes(normalizedSearch)
+      )
+    })
+  }, [data, debouncedSearchTerm, normalizedSearch])
 
   const sortedData = useMemo(() => {
     return [...filteredData].sort((a, b) => {
@@ -147,8 +149,21 @@ export default function TeacherList() {
     ? (data.reduce((acc, t) => acc + (t.assigned_hours || 0), 0) / data.length).toFixed(1) 
     : '0'
 
-  if (loading) return <div className="p-6">Cargando…</div>
-  if (error) return <div className="p-6 text-red-600">{error}</div>
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Docentes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder al módulo de docentes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -266,6 +281,14 @@ export default function TeacherList() {
               />
             </div>
           </div>
+          {loading && data.length > 0 && (
+            <p className="mt-2 text-sm text-slate-500">Actualizando resultados…</p>
+          )}
+          {error && (
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -280,7 +303,13 @@ export default function TeacherList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredData.length === 0 ? (
+                {loading && data.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
+                      Cargando…
+                    </td>
+                  </tr>
+                ) : sortedData.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center py-4">
@@ -298,7 +327,7 @@ export default function TeacherList() {
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div className="h-10 w-10 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
-                            {t.user.last_name[0]}{t.user.first_name[0]}
+                            {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
                           </div>
                           <div>
                             <div className="font-medium text-slate-900 uppercase">{t.user.last_name} {t.user.first_name}</div>
@@ -311,8 +340,8 @@ export default function TeacherList() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-medium text-slate-900">{t.title}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">{t.specialty}</div>
+                        <div className="font-medium text-slate-900">{t.title || '-'}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{t.specialty || '-'}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="w-full max-w-[180px]">
