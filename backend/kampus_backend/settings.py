@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     "config",
     "notifications",
     "audit",
+    "attendance",
 ]
 
 MIDDLEWARE = [
