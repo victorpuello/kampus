@@ -4,60 +4,64 @@
   <meta charset="utf-8" />
   <style>
     @page {
-      size: letter;
-      margin: 2cm;
+      size: A4;
+      margin: 1.4cm;
       @frame footer {
         -pdf-frame-content: footerContent;
-        bottom: 0.45cm;
-        margin-left: 2cm;
-        margin-right: 2cm;
-        height: 0.55cm;
+        bottom: 0.4cm;
+        margin-left: 1.4cm;
+        margin-right: 1.4cm;
+        height: 0.5cm;
       }
     }
 
-    body { font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #111827; }
+    /* Keep everything on one A4 page where possible */
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; line-height: 1.25; }
+    .page { -pdf-keep-in-frame-mode: shrink; }
 
-    .masthead { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    .masthead { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
     .masthead td { vertical-align: middle; }
     .masthead-left { width: 22%; }
     .masthead-center { width: 56%; text-align: center; }
     .masthead-right { width: 22%; text-align: right; }
 
-    .masthead-logo-wrap { width: 80px; height: 80px; }
-    .masthead-logo { max-height: 80px; max-width: 80px; width: auto; height: auto; }
+    .masthead-logo-wrap { width: 70px; height: 70px; }
+    .masthead-logo { max-height: 70px; max-width: 70px; width: auto; height: auto; }
 
-    .inst-line1 { font-size: 16px; font-weight: bold; }
-    .inst-line2 { font-size: 14px; }
-    .inst-line3 { font-size: 12px; color: #374151; }
+    .inst-line1 { font-size: 14px; font-weight: bold; }
+    .inst-line2 { font-size: 12px; }
+    .inst-line3 { font-size: 11px; color: #374151; }
 
-    .title { text-align: center; font-size: 16px; font-weight: bold; margin: 6px 0 8px; }
-    .subtitle { text-align: center; font-size: 13px; margin-bottom: 8px; }
+    .title { text-align: center; font-size: 14px; font-weight: bold; margin: 5px 0 6px; }
+    .subtitle { text-align: center; font-size: 12px; margin-bottom: 6px; }
 
-    .block { margin: 8px 0; line-height: 1.35; }
+    .block { margin: 6px 0; line-height: 1.25; }
     .block p { margin: 0; }
 
-    .grades-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-    .grades-table th, .grades-table td { border: 1px solid #d1d5db; padding: 4px; }
-    .grades-table th { background: #f3f4f6; font-weight: bold; text-transform: uppercase; font-size: 11px; }
+    .grades-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+    .grades-table th, .grades-table td { border: 1px solid #d1d5db; padding: 3px; }
+    .grades-table th { background: #f3f4f6; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+    .grades-table tr { page-break-inside: avoid; }
     .col-area { width: 56%; }
     .col-score { width: 18%; text-align: center; white-space: nowrap; }
     .col-perf { width: 26%; text-align: center; white-space: nowrap; }
 
-    .meta-row { margin-top: 6px; }
+    .meta-row { margin-top: 5px; }
     .meta-row strong { display: inline-block; width: 240px; }
 
-    .signature { margin-top: 16px; }
-    .signature-image { height: 80px; width: auto; display: block; position: relative; top: 14px; }
+    .signature { margin-top: 12px; page-break-inside: avoid; }
+    .signature-image { height: 65px; width: auto; display: block; position: relative; top: 10px; }
     .signature-name { margin-top: 0px; font-weight: bold; text-transform: uppercase; }
 
-    .qr-wrap { margin-top: 8px; text-align: right; }
-    .qr-wrap img { width: 80px; height: 80px; }
+    .qr-wrap { margin-top: 6px; text-align: right; page-break-inside: avoid; }
+    .qr-wrap img { width: 70px; height: 70px; }
     .qr-wrap .small { word-break: break-all; }
 
-    .small { font-size: 11px; color: #374151; }
+    .small { font-size: 10px; color: #374151; }
   </style>
 </head>
 <body>
+  <div class="page">
   <table class="masthead">
     <tr>
       <td class="masthead-left">
@@ -171,9 +175,10 @@
   </table>
 
   {% if institution.pdf_footer_text %}
-    <div style="margin-top: 10px; text-align: center; font-size: 9px; color: #666;">
+    <div style="margin-top: 8px; text-align: center; font-size: 9px; color: #666;">
       {{ institution.pdf_footer_text }}
     </div>
   {% endif %}
+  </div>
 </body>
 </html>

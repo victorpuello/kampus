@@ -31,6 +31,17 @@ function injectBaseHref(html: string, baseHref: string) {
 function injectPreviewToolbar(html: string) {
   if (!html) return html
 
+  const printHideStyle = `<style>@media print { #kampus-preview-toolbar { display: none !important; } }</style>`
+
+  // Ensure toolbar is hidden when printing.
+  if (!html.includes('#kampus-preview-toolbar') && html.includes('<head>')) {
+    // no-op: keep logic below
+  }
+
+  if (!html.includes('#kampus-preview-toolbar') && html.includes('<head>')) {
+    // no-op
+  }
+
   const toolbar = `
 <div id="kampus-preview-toolbar" style="position: fixed; top: 12px; right: 12px; z-index: 99999; display: flex; gap: 8px;">
   <button onclick="window.print()" style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer;">Imprimir</button>
@@ -38,9 +49,15 @@ function injectPreviewToolbar(html: string) {
 </div>
 `;
 
-  if (html.includes('kampus-preview-toolbar')) return html
-  if (html.includes('</body>')) return html.replace('</body>', `${toolbar}</body>`)
-  return `${html}${toolbar}`
+  let out = html
+  if (!out.includes('#kampus-preview-toolbar')) {
+    if (out.includes('<head>')) out = out.replace('<head>', `<head>${printHideStyle}`)
+    else out = `${printHideStyle}${out}`
+  }
+
+  if (out.includes('kampus-preview-toolbar')) return out
+  if (out.includes('</body>')) return out.replace('</body>', `${toolbar}</body>`)
+  return `${out}${toolbar}`
 }
 
 const downloadBlob = (blob: Blob, filename: string) => {
