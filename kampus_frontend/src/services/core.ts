@@ -27,12 +27,15 @@ export interface Institution {
 
   // PDF letterhead fields
   pdf_letterhead_image?: string | null
+  pdf_rector_signature_image?: string | null
   pdf_show_logo?: boolean
   pdf_logo_height_px?: number
   pdf_header_line1?: string
   pdf_header_line2?: string
   pdf_header_line3?: string
   pdf_footer_text?: string
+
+  certificate_studies_price_cop?: number
 }
 
 export interface Campus {

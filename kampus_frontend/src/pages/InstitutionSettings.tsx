@@ -24,6 +24,10 @@ export default function InstitutionSettings() {
   const [letterheadPreview, setLetterheadPreview] = useState<string | null>(null)
   const [letterheadFile, setLetterheadFile] = useState<File | null>(null)
   const letterheadInputRef = useRef<HTMLInputElement>(null)
+
+  const [rectorSignaturePreview, setRectorSignaturePreview] = useState<string | null>(null)
+  const [rectorSignatureFile, setRectorSignatureFile] = useState<File | null>(null)
+  const rectorSignatureInputRef = useRef<HTMLInputElement>(null)
   const [rectorsList, setRectorsList] = useState<User[]>([])
   const [secretariesList, setSecretariesList] = useState<User[]>([])
   
@@ -208,6 +212,10 @@ export default function InstitutionSettings() {
         if (inst.pdf_letterhead_image) {
           setLetterheadPreview(inst.pdf_letterhead_image)
         }
+
+        if (inst.pdf_rector_signature_image) {
+          setRectorSignaturePreview(inst.pdf_rector_signature_image)
+        }
       }
     } catch (err) {
       console.error(err)
@@ -244,6 +252,25 @@ export default function InstitutionSettings() {
       }
       reader.readAsDataURL(file)
     }
+  }
+
+  const handleRectorSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const isPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+    if (!isPng) {
+      showToast('La firma del rector debe ser un archivo PNG.', 'error')
+      e.target.value = ''
+      return
+    }
+
+    setRectorSignatureFile(file)
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setRectorSignaturePreview(reader.result as string)
+    }
+    reader.readAsDataURL(file)
   }
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -287,6 +314,10 @@ export default function InstitutionSettings() {
 
       if (letterheadFile) {
         data.append('pdf_letterhead_image', letterheadFile)
+      }
+
+      if (rectorSignatureFile) {
+        data.append('pdf_rector_signature_image', rectorSignatureFile)
       }
 
       if (institution) {
@@ -559,6 +590,37 @@ export default function InstitutionSettings() {
                   onChange={handleChange}
                   placeholder="Opcional"
                 />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Firma del rector (PNG) — certificados</Label>
+              <div className="flex items-center gap-6">
+                <div
+                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors"
+                  onClick={() => rectorSignatureInputRef.current?.click()}
+                >
+                  {rectorSignaturePreview ? (
+                    <img src={rectorSignaturePreview} alt="Firma del rector" className="h-full w-full object-contain" />
+                  ) : (
+                    <div className="text-center text-slate-400">
+                      <Upload className="h-8 w-8 mx-auto mb-1" />
+                      <span className="text-xs">Subir firma (PNG)</span>
+                    </div>
+                  )}
+                </div>
+
+                <input
+                  ref={rectorSignatureInputRef}
+                  type="file"
+                  accept="image/png,.png"
+                  onChange={handleRectorSignatureChange}
+                  className="hidden"
+                />
+
+                <div className="text-sm text-slate-500">
+                  <p>Se usa en certificados/reportes. Debe ser PNG (ideal: fondo transparente).</p>
+                </div>
               </div>
             </div>
           </CardContent>
