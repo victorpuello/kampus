@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -71,6 +71,11 @@ export default function AdministrativeCertificates() {
     isVisible: false,
   })
 
+  const [inlinePreviewHtml, setInlinePreviewHtml] = useState<string>('')
+  const [inlinePreviewLoading, setInlinePreviewLoading] = useState<boolean>(false)
+  const [inlinePreviewPayload, setInlinePreviewPayload] = useState<CertificateStudiesIssuePayload | null>(null)
+  const inlinePreviewIframeRef = useRef<HTMLIFrameElement | null>(null)
+
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }
@@ -97,17 +102,36 @@ export default function AdministrativeCertificates() {
     showToast(`${fallbackMessage}${statusText}`, 'error')
   }
 
+  const loadInlinePreview = async (payload: CertificateStudiesIssuePayload) => {
+    setInlinePreviewPayload(payload)
+    setInlinePreviewLoading(true)
+    try {
+      const res = await certificatesApi.previewStudies(payload)
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      setInlinePreviewHtml(injectPreviewToolbar(injectBaseHref(String(res.data ?? ''), baseUrl)))
+    } catch (err) {
+      console.error(err)
+      setInlinePreviewHtml('')
+      showToast('Error cargando vista previa HTML.', 'error')
+    } finally {
+      setInlinePreviewLoading(false)
+    }
+  }
+
   const openPreviewWindow = async (payload: CertificateStudiesIssuePayload) => {
     // Open the tab synchronously (user gesture) to reduce popup-blocking.
     const w = window.open('', '_blank', 'noopener,noreferrer')
     if (!w) {
-      showToast('El navegador bloqueó la ventana emergente. Permite popups para previsualizar.', 'error')
+      showToast('Popup bloqueado: mostrando la vista previa aquí mismo.', 'info')
+      await loadInlinePreview(payload)
       return
     }
 
     try {
       w.document.open()
-      w.document.write('<!doctype html><html><head><meta charset="utf-8" /><title>Vista previa</title></head><body style="font-family: system-ui; padding: 16px;">Cargando vista previa…</body></html>')
+      w.document.write(
+        '<!doctype html><html><head><meta charset="utf-8" /><title>Vista previa</title></head><body style="font-family: system-ui; padding: 16px;">Cargando vista previa…</body></html>'
+      )
       w.document.close()
     } catch {
       // ignore
@@ -589,6 +613,71 @@ export default function AdministrativeCertificates() {
           )}
         </CardContent>
       </Card>
+
+      {inlinePreviewPayload ? (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <CardTitle>Vista previa HTML (embebida)</CardTitle>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!inlinePreviewPayload) return
+                    void loadInlinePreview(inlinePreviewPayload)
+                  }}
+                  disabled={inlinePreviewLoading}
+                >
+                  {inlinePreviewLoading ? 'Cargando...' : 'Recargar'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    try {
+                      const w = inlinePreviewIframeRef.current?.contentWindow
+                      if (!w) {
+                        showToast('No se pudo imprimir la vista previa.', 'error')
+                        return
+                      }
+                      w.focus()
+                      w.print()
+                    } catch (err) {
+                      console.error(err)
+                      showToast('El navegador bloqueó la impresión.', 'error')
+                    }
+                  }}
+                  disabled={inlinePreviewLoading || !inlinePreviewHtml}
+                >
+                  Imprimir
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setInlinePreviewPayload(null)
+                    setInlinePreviewHtml('')
+                  }}
+                  disabled={inlinePreviewLoading}
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {!inlinePreviewHtml ? (
+              <div className="text-slate-600">No hay contenido para mostrar.</div>
+            ) : (
+              <iframe
+                title="Vista previa certificado"
+                ref={inlinePreviewIframeRef}
+                style={{ width: '100%', height: '80vh', border: '1px solid #e5e7eb', borderRadius: 8 }}
+                sandbox="allow-same-origin allow-modals"
+                srcDoc={inlinePreviewHtml}
+              />
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Toast
         message={toast.message}
