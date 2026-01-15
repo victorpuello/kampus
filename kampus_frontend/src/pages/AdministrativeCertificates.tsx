@@ -6,7 +6,7 @@ import { Label } from '../components/ui/Label'
 import { Input } from '../components/ui/Input'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { useAuthStore } from '../store/auth'
-import { certificatesApi } from '../services/certificates'
+import { certificatesApi, type CertificateStudiesIssuePayload } from '../services/certificates'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../services/academic'
 import { enrollmentsApi } from '../services/enrollments'
 
@@ -21,32 +21,26 @@ type ArchiveDocTypeOption = { value: string; label: string }
 
 type GroupOption = Group & { label: string }
 
-const PREVIEW_STORAGE_KEY = 'kampus:certificates:previewPayload'
-const PREVIEW_STORAGE_PREFIX = 'kampus:certificates:previewPayload:'
-const PREVIEW_LAST_ID_KEY = 'kampus:certificates:previewLastId'
-
-const createPreviewId = () => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyCrypto = crypto as any
-    if (anyCrypto?.randomUUID) return String(anyCrypto.randomUUID())
-  } catch {
-    // ignore
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+function injectBaseHref(html: string, baseHref: string) {
+  if (!html) return html
+  if (html.includes('<base ')) return html
+  if (html.includes('<head>')) return html.replace('<head>', `<head><base href="${baseHref}">`)
+  return `<base href="${baseHref}">${html}`
 }
 
-const storePreviewPayload = (payload: unknown) => {
-  const previewId = createPreviewId()
-  localStorage.setItem(`${PREVIEW_STORAGE_PREFIX}${previewId}`, JSON.stringify(payload))
-  localStorage.setItem(PREVIEW_LAST_ID_KEY, previewId)
-  return previewId
-}
+function injectPreviewToolbar(html: string) {
+  if (!html) return html
 
-const openPreviewTab = (previewId: string) => {
-  const url = new URL('/administrativos/certificados/preview', window.location.origin)
-  url.searchParams.set('id', previewId)
-  window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  const toolbar = `
+<div id="kampus-preview-toolbar" style="position: fixed; top: 12px; right: 12px; z-index: 99999; display: flex; gap: 8px;">
+  <button onclick="window.print()" style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer;">Imprimir</button>
+  <button onclick="window.close()" style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer;">Cerrar</button>
+</div>
+`;
+
+  if (html.includes('kampus-preview-toolbar')) return html
+  if (html.includes('</body>')) return html.replace('</body>', `${toolbar}</body>`)
+  return `${html}${toolbar}`
 }
 
 const downloadBlob = (blob: Blob, filename: string) => {
@@ -101,6 +95,44 @@ export default function AdministrativeCertificates() {
     }
 
     showToast(`${fallbackMessage}${statusText}`, 'error')
+  }
+
+  const openPreviewWindow = async (payload: CertificateStudiesIssuePayload) => {
+    // Open the tab synchronously (user gesture) to reduce popup-blocking.
+    const w = window.open('', '_blank', 'noopener,noreferrer')
+    if (!w) {
+      showToast('El navegador bloqueó la ventana emergente. Permite popups para previsualizar.', 'error')
+      return
+    }
+
+    try {
+      w.document.open()
+      w.document.write('<!doctype html><html><head><meta charset="utf-8" /><title>Vista previa</title></head><body style="font-family: system-ui; padding: 16px;">Cargando vista previa…</body></html>')
+      w.document.close()
+    } catch {
+      // ignore
+    }
+
+    try {
+      const res = await certificatesApi.previewStudies(payload)
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const html = injectPreviewToolbar(injectBaseHref(String(res.data ?? ''), baseUrl))
+      w.document.open()
+      w.document.write(html)
+      w.document.close()
+    } catch (err) {
+      console.error(err)
+      try {
+        w.document.open()
+        w.document.write(
+          '<!doctype html><html><head><meta charset="utf-8" /><title>Error</title></head><body style="font-family: system-ui; padding: 16px;"><h3>No se pudo cargar la vista previa</h3><p>Revisa tu sesión y vuelve a intentar.</p></body></html>'
+        )
+        w.document.close()
+      } catch {
+        // ignore
+      }
+      showToast('Error cargando vista previa HTML.', 'error')
+    }
   }
 
   // Registered mode state
@@ -285,10 +317,7 @@ export default function AdministrativeCertificates() {
       const payload = {
         enrollment_id: Number(selectedEnrollmentId),
       }
-      // Backwards-compatible (same-tab) storage
-      sessionStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(payload))
-      const previewId = storePreviewPayload(payload)
-      openPreviewTab(previewId)
+      void openPreviewWindow(payload)
       return true
     } catch {
       showToast('No se pudo preparar la vista previa.', 'error')
@@ -350,10 +379,7 @@ export default function AdministrativeCertificates() {
         grade_id: Number(archiveGradeId),
         academic_year: archiveYear.trim(),
       }
-      // Backwards-compatible (same-tab) storage
-      sessionStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(payload))
-      const previewId = storePreviewPayload(payload)
-      openPreviewTab(previewId)
+      void openPreviewWindow(payload)
       return true
     } catch {
       showToast('No se pudo preparar la vista previa.', 'error')
@@ -458,22 +484,16 @@ export default function AdministrativeCertificates() {
                   <Button onClick={handleIssueRegistered} disabled={loading || !selectedEnrollmentId}>
                     {loading ? 'Generando...' : 'Generar PDF'}
                   </Button>
-                  <a
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white hover:bg-slate-100 hover:text-slate-900 h-10 px-4 py-2"
-                    href="/administrativos/certificados/preview"
-                    target="_blank"
-                    rel="noopener"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      if (loading) {
-                        return
-                      }
-                      const ok = preparePreviewRegistered()
-                      if (!ok) return
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (loading) return
+                      preparePreviewRegistered()
                     }}
+                    disabled={loading}
                   >
                     Vista previa HTML
-                  </a>
+                  </Button>
                 </div>
               </div>
             </div>
@@ -553,22 +573,16 @@ export default function AdministrativeCertificates() {
                   <Button onClick={handleIssueArchive} disabled={loading}>
                     {loading ? 'Generando...' : 'Generar PDF'}
                   </Button>
-                  <a
-                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white hover:bg-slate-100 hover:text-slate-900 h-10 px-4 py-2"
-                    href="/administrativos/certificados/preview"
-                    target="_blank"
-                    rel="noopener"
-                    onClick={(e) => {
-                      e.preventDefault()
-                      if (loading) {
-                        return
-                      }
-                      const ok = preparePreviewArchive()
-                      if (!ok) return
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (loading) return
+                      preparePreviewArchive()
                     }}
+                    disabled={loading}
                   >
                     Vista previa HTML
-                  </a>
+                  </Button>
                 </div>
               </div>
             </div>
