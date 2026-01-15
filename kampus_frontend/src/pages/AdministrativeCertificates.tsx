@@ -28,38 +28,6 @@ function injectBaseHref(html: string, baseHref: string) {
   return `<base href="${baseHref}">${html}`
 }
 
-function injectPreviewToolbar(html: string) {
-  if (!html) return html
-
-  const printHideStyle = `<style>@media print { #kampus-preview-toolbar { display: none !important; } }</style>`
-
-  // Ensure toolbar is hidden when printing.
-  if (!html.includes('#kampus-preview-toolbar') && html.includes('<head>')) {
-    // no-op: keep logic below
-  }
-
-  if (!html.includes('#kampus-preview-toolbar') && html.includes('<head>')) {
-    // no-op
-  }
-
-  const toolbar = `
-<div id="kampus-preview-toolbar" style="position: fixed; top: 12px; right: 12px; z-index: 99999; display: flex; gap: 8px;">
-  <button onclick="window.print()" style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer;">Imprimir</button>
-  <button onclick="window.close()" style="font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; font-size: 13px; padding: 8px 10px; border: 1px solid #e5e7eb; background: white; border-radius: 8px; cursor: pointer;">Cerrar</button>
-</div>
-`;
-
-  let out = html
-  if (!out.includes('#kampus-preview-toolbar')) {
-    if (out.includes('<head>')) out = out.replace('<head>', `<head>${printHideStyle}`)
-    else out = `${printHideStyle}${out}`
-  }
-
-  if (out.includes('kampus-preview-toolbar')) return out
-  if (out.includes('</body>')) return out.replace('</body>', `${toolbar}</body>`)
-  return `${out}${toolbar}`
-}
-
 const downloadBlob = (blob: Blob, filename: string) => {
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -125,54 +93,13 @@ export default function AdministrativeCertificates() {
     try {
       const res = await certificatesApi.previewStudies(payload)
       const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-      setInlinePreviewHtml(injectPreviewToolbar(injectBaseHref(String(res.data ?? ''), baseUrl)))
+      setInlinePreviewHtml(injectBaseHref(String(res.data ?? ''), baseUrl))
     } catch (err) {
       console.error(err)
       setInlinePreviewHtml('')
       showToast('Error cargando vista previa HTML.', 'error')
     } finally {
       setInlinePreviewLoading(false)
-    }
-  }
-
-  const openPreviewWindow = async (payload: CertificateStudiesIssuePayload) => {
-    // Open the tab synchronously (user gesture) to reduce popup-blocking.
-    const w = window.open('', '_blank', 'noopener,noreferrer')
-    if (!w) {
-      showToast('Popup bloqueado: mostrando la vista previa aquí mismo.', 'info')
-      await loadInlinePreview(payload)
-      return
-    }
-
-    try {
-      w.document.open()
-      w.document.write(
-        '<!doctype html><html><head><meta charset="utf-8" /><title>Vista previa</title></head><body style="font-family: system-ui; padding: 16px;">Cargando vista previa…</body></html>'
-      )
-      w.document.close()
-    } catch {
-      // ignore
-    }
-
-    try {
-      const res = await certificatesApi.previewStudies(payload)
-      const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
-      const html = injectPreviewToolbar(injectBaseHref(String(res.data ?? ''), baseUrl))
-      w.document.open()
-      w.document.write(html)
-      w.document.close()
-    } catch (err) {
-      console.error(err)
-      try {
-        w.document.open()
-        w.document.write(
-          '<!doctype html><html><head><meta charset="utf-8" /><title>Error</title></head><body style="font-family: system-ui; padding: 16px;"><h3>No se pudo cargar la vista previa</h3><p>Revisa tu sesión y vuelve a intentar.</p></body></html>'
-        )
-        w.document.close()
-      } catch {
-        // ignore
-      }
-      showToast('Error cargando vista previa HTML.', 'error')
     }
   }
 
@@ -358,7 +285,7 @@ export default function AdministrativeCertificates() {
       const payload = {
         enrollment_id: Number(selectedEnrollmentId),
       }
-      void openPreviewWindow(payload)
+      void loadInlinePreview(payload)
       return true
     } catch {
       showToast('No se pudo preparar la vista previa.', 'error')
@@ -420,7 +347,7 @@ export default function AdministrativeCertificates() {
         grade_id: Number(archiveGradeId),
         academic_year: archiveYear.trim(),
       }
-      void openPreviewWindow(payload)
+      void loadInlinePreview(payload)
       return true
     } catch {
       showToast('No se pudo preparar la vista previa.', 'error')
