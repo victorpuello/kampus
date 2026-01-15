@@ -14,11 +14,11 @@ function useQuery() {
 }
 
 function selectLikeClassName() {
-  return 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+  return 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
 }
 
 function textareaClassName() {
-  return 'mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
+  return 'mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
 }
 
 export default function GradeEditRequests() {
@@ -185,8 +185,7 @@ export default function GradeEditRequests() {
         setStudents([])
         showToast('No se pudieron cargar los estudiantes de la planilla.', 'error')
       } finally {
-        if (!mounted) return
-        setLoadingStudents(false)
+        if (mounted) setLoadingStudents(false)
       }
     }
 
@@ -321,7 +320,7 @@ export default function GradeEditRequests() {
           <CardTitle>Solicitudes de edición (Notas)</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para ver esta sección.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para ver esta sección.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver</Button>
           </div>
@@ -341,13 +340,13 @@ export default function GradeEditRequests() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <ClipboardList className="h-6 w-6 text-blue-600" />
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/30">
+              <ClipboardList className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
             Solicitudes de edición (Notas)
           </h2>
-          <p className="text-slate-500 mt-1">Crea solicitudes y consulta su estado.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Crea solicitudes y consulta su estado.</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate('/grades')}>Ir a Calificaciones</Button>
@@ -367,7 +366,7 @@ export default function GradeEditRequests() {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Periodo</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Periodo</label>
                 <select
                   className={selectLikeClassName()}
                   value={selectedPeriodId ?? ''}
@@ -384,7 +383,7 @@ export default function GradeEditRequests() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Asignación</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Asignación</label>
                 <select
                   className={selectLikeClassName()}
                   value={selectedAssignmentId ?? ''}
@@ -403,9 +402,9 @@ export default function GradeEditRequests() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Tipo</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Tipo</label>
                 <div className="mt-2 flex items-center gap-4">
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-800 dark:text-slate-200">
                     <input
                       type="radio"
                       name="grade-edit-request-type"
@@ -415,7 +414,7 @@ export default function GradeEditRequests() {
                     />
                     Completa
                   </label>
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-800">
+                  <label className="inline-flex items-center gap-2 text-sm text-slate-800 dark:text-slate-200">
                     <input
                       type="radio"
                       name="grade-edit-request-type"
@@ -429,13 +428,13 @@ export default function GradeEditRequests() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Hasta (opcional)</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Hasta (opcional)</label>
                 <Input type="datetime-local" value={requestedUntil} onChange={(e) => setRequestedUntil(e.target.value)} disabled={submitting} />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-500 uppercase">Justificación</label>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Justificación</label>
               <textarea
                 className={textareaClassName()}
                 rows={3}
@@ -448,16 +447,16 @@ export default function GradeEditRequests() {
 
             {requestType === 'PARTIAL' && (
               <div>
-                <div className="text-xs font-semibold text-slate-500 uppercase">Estudiantes</div>
-                <div className="mt-2 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white">
+                <div className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Estudiantes</div>
+                <div className="mt-2 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/40">
                   {loadingStudents ? (
-                    <div className="p-3 text-sm text-slate-600">Cargando estudiantes…</div>
+                    <div className="p-3 text-sm text-slate-600 dark:text-slate-300">Cargando estudiantes…</div>
                   ) : students.length === 0 ? (
-                    <div className="p-3 text-sm text-slate-500">No hay estudiantes disponibles para esta planilla.</div>
+                    <div className="p-3 text-sm text-slate-500 dark:text-slate-400">No hay estudiantes disponibles para esta planilla.</div>
                   ) : (
-                    <div className="divide-y divide-slate-100">
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
                       {students.map((s) => (
-                        <label key={s.enrollment_id} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-800">
+                        <label key={s.enrollment_id} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-800 dark:text-slate-200">
                           <input
                             type="checkbox"
                             checked={selectedEnrollments.has(s.enrollment_id)}
@@ -491,7 +490,7 @@ export default function GradeEditRequests() {
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Estado</th>
                     <th className="px-6 py-4 font-semibold">Periodo</th>
@@ -501,23 +500,23 @@ export default function GradeEditRequests() {
                     <th className="px-6 py-4 font-semibold">Creada</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {loadingMyRequests ? (
-                    <tr className="bg-white">
-                      <td className="px-6 py-6 text-slate-600" colSpan={6}>Cargando…</td>
+                    <tr className="bg-white dark:bg-slate-900/40">
+                      <td className="px-6 py-6 text-slate-600 dark:text-slate-300" colSpan={6}>Cargando…</td>
                     </tr>
                   ) : myRequests.length === 0 ? (
-                    <tr className="bg-white">
-                      <td className="px-6 py-6 text-slate-600" colSpan={6}>No has creado solicitudes.</td>
+                    <tr className="bg-white dark:bg-slate-900/40">
+                      <td className="px-6 py-6 text-slate-600 dark:text-slate-300" colSpan={6}>No has creado solicitudes.</td>
                     </tr>
                   ) : (
                     myRequests.map((r) => {
                       const statusClass =
                         r.status === 'APPROVED'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
                           : r.status === 'REJECTED'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
+                          : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
 
                       const detail =
                         r.status === 'APPROVED'
@@ -527,7 +526,7 @@ export default function GradeEditRequests() {
                           : 'Pendiente'
 
                       return (
-                        <tr key={r.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                        <tr key={r.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
                           <td className="px-6 py-4">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}`}>
                               {r.status}
@@ -537,9 +536,9 @@ export default function GradeEditRequests() {
                           <td className="px-6 py-4">{r.teacher_assignment ? assignmentLabelById.get(r.teacher_assignment) || `Asignación ${r.teacher_assignment}` : '—'}</td>
                           <td className="px-6 py-4">{r.request_type === 'FULL' ? 'Completa' : 'Parcial'}</td>
                           <td className="px-6 py-4">
-                            <div className="text-slate-700">{detail}</div>
-                            {r.decision_note ? <div className="text-xs text-slate-500 mt-1">{r.decision_note}</div> : null}
-                            {r.request_type === 'PARTIAL' ? <div className="text-xs text-slate-500 mt-1">Estudiantes: {(r.items ?? []).length}</div> : null}
+                            <div className="text-slate-700 dark:text-slate-200">{detail}</div>
+                            {r.decision_note ? <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{r.decision_note}</div> : null}
+                            {r.request_type === 'PARTIAL' ? <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Estudiantes: {(r.items ?? []).length}</div> : null}
                           </td>
                           <td className="px-6 py-4">{new Date(r.created_at).toLocaleString()}</td>
                         </tr>
@@ -561,7 +560,7 @@ export default function GradeEditRequests() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase">Filtrar por periodo</label>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Filtrar por periodo</label>
                 <select
                   className={selectLikeClassName()}
                   value={adminFilterPeriodId ?? ''}
@@ -579,7 +578,7 @@ export default function GradeEditRequests() {
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Solicitante</th>
                     <th className="px-6 py-4 font-semibold">Periodo</th>
@@ -590,11 +589,11 @@ export default function GradeEditRequests() {
                     <th className="px-6 py-4 font-semibold">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {loadingPending ? (
-                    <tr className="bg-white"><td className="px-6 py-6 text-slate-600" colSpan={7}>Cargando…</td></tr>
+                    <tr className="bg-white dark:bg-slate-900/40"><td className="px-6 py-6 text-slate-600 dark:text-slate-300" colSpan={7}>Cargando…</td></tr>
                   ) : pendingRequests.length === 0 ? (
-                    <tr className="bg-white"><td className="px-6 py-6 text-slate-600" colSpan={7}>No hay solicitudes pendientes.</td></tr>
+                    <tr className="bg-white dark:bg-slate-900/40"><td className="px-6 py-6 text-slate-600 dark:text-slate-300" colSpan={7}>No hay solicitudes pendientes.</td></tr>
                   ) : (
                     pendingRequests.map((r) => {
                       const decision = decisionById[r.id] || { valid_until: '', decision_note: '', submitting: false }
@@ -602,11 +601,11 @@ export default function GradeEditRequests() {
                       const periodName = periodNameById.get(r.period) || `Periodo ${r.period}`
 
                       return (
-                        <tr key={r.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                        <tr key={r.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
                           <td className="px-6 py-4">{r.requested_by_name || r.requested_by}</td>
                           <td className="px-6 py-4">{periodName}</td>
                           <td className="px-6 py-4">{r.request_type === 'FULL' ? 'Completa' : `Parcial (${(r.items ?? []).length})`}</td>
-                          <td className="px-6 py-4 whitespace-pre-wrap text-slate-700">{r.reason}</td>
+                          <td className="px-6 py-4 whitespace-pre-wrap text-slate-700 dark:text-slate-200">{r.reason}</td>
                           <td className="px-6 py-4">
                             <Input type="datetime-local" value={decision.valid_until} onChange={(e) => setDecision(r.id, { valid_until: e.target.value })} disabled={disabled} />
                           </td>

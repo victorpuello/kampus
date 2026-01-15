@@ -169,7 +169,7 @@ export default function StudentList() {
           <CardTitle>Estudiantes</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">
+          <p className="text-slate-600 dark:text-slate-300">
             No tienes asignación como director de grupo. Para ver estudiantes, primero debes
             estar asignado como director de un grupo.
           </p>
@@ -184,12 +184,12 @@ export default function StudentList() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Users className="h-6 w-6 text-blue-600" />
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/30">
+              <Users className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900">Estudiantes</h2>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Estudiantes</h2>
           </div>
-          <p className="text-slate-500">Gestiona la información de los estudiantes matriculados.</p>
+          <p className="text-slate-500 dark:text-slate-400">Gestiona la información de los estudiantes matriculados.</p>
         </div>
         {!isTeacher && (
           <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -213,8 +213,13 @@ export default function StudentList() {
                         res.data.failed > 0 ? 'info' : 'success'
                       )
                       setPage(1)
-                    } catch (err: any) {
-                      showToast(err?.response?.data?.detail || 'No se pudo importar el archivo', 'error')
+                    } catch (err: unknown) {
+                      const detail =
+                        typeof err === 'object' && err !== null && 'response' in err
+                          ? (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+                          : undefined
+
+                      showToast(detail || 'No se pudo importar el archivo', 'error')
                     } finally {
                       setImporting(false)
                       // allow re-selecting the same file
@@ -261,7 +266,10 @@ export default function StudentList() {
             {importResult.failed > 0 && (
               <div className="mt-3 space-y-2">
                 {topErrors.map((e, i) => (
-                  <div key={i} className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm">
+                  <div
+                    key={i}
+                    className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+                  >
                     <span className="font-semibold">Fila {e.row}:</span>{' '}
                     <span className="wrap-break-word">{typeof e.error === 'string' ? e.error : JSON.stringify(e.error)}</span>
                   </div>
@@ -278,11 +286,11 @@ export default function StudentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Total Estudiantes</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{count}</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Estudiantes</p>
+                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-2">{count}</p>
               </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Users className="h-6 w-6 text-blue-600" />
+              <div className="p-3 bg-blue-100 rounded-lg dark:bg-blue-950/30">
+                <Users className="h-6 w-6 text-blue-600 dark:text-blue-300" />
               </div>
             </div>
           </CardContent>
@@ -291,13 +299,13 @@ export default function StudentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Hombres</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Hombres</p>
+                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-2">
                   {data.filter(s => s.sex === 'M').length}
                 </p>
               </div>
-              <div className="p-3 bg-indigo-100 rounded-lg">
-                <User className="h-6 w-6 text-indigo-600" />
+              <div className="p-3 bg-indigo-100 rounded-lg dark:bg-indigo-950/30">
+                <User className="h-6 w-6 text-indigo-600 dark:text-indigo-300" />
               </div>
             </div>
           </CardContent>
@@ -306,13 +314,13 @@ export default function StudentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Mujeres</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Mujeres</p>
+                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-2">
                   {data.filter(s => s.sex === 'F').length}
                 </p>
               </div>
-              <div className="p-3 bg-pink-100 rounded-lg">
-                <UserCheck className="h-6 w-6 text-pink-600" />
+              <div className="p-3 bg-pink-100 rounded-lg dark:bg-pink-950/30">
+                <UserCheck className="h-6 w-6 text-pink-600 dark:text-pink-300" />
               </div>
             </div>
           </CardContent>
@@ -337,37 +345,37 @@ export default function StudentList() {
             </div>
           </div>
           {loading && data.length > 0 && (
-            <p className="mt-2 text-sm text-slate-500">Actualizando resultados…</p>
+            <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Actualizando resultados…</p>
           )}
           {error && (
-            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
               {error}
             </div>
           )}
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
+          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
-              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Estudiante
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Documento
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Contacto
                   </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Acciones
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
+              <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-900 dark:divide-slate-800">
                 {loading && data.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
+                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
                       Cargando…
                     </td>
                   </tr>
@@ -375,10 +383,10 @@ export default function StudentList() {
                   <tr>
                     <td colSpan={4} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
-                        <div className="p-4 bg-slate-100 rounded-full">
+                        <div className="p-4 bg-slate-100 rounded-full dark:bg-slate-800">
                           <GraduationCap className="h-8 w-8 text-slate-400" />
                         </div>
-                        <p className="text-slate-500 text-sm">No se encontraron estudiantes</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">No se encontraron estudiantes</p>
                       </div>
                     </td>
                   </tr>
@@ -386,7 +394,7 @@ export default function StudentList() {
                   data.map((s, index) => (
                     <tr 
                       key={s.user?.id || s.document_number || index} 
-                      className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer"
+                      className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer dark:hover:bg-slate-800/60"
                       onClick={() => navigate(`/students/${s.user?.id}`)}
                     >
                       <td className="px-6 py-4">
@@ -397,20 +405,20 @@ export default function StudentList() {
                             </span>
                           </div>
                           <div className="ml-4">
-                            <div className="font-semibold text-slate-900 uppercase">
+                            <div className="font-semibold text-slate-900 uppercase dark:text-slate-100">
                               {s.user?.last_name} {s.user?.first_name}
                             </div>
-                            <div className="text-xs text-slate-500">@{s.user?.username}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">@{s.user?.username}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-slate-900 font-mono">{s.document_number || '-'}</div>
-                        <div className="text-xs text-slate-500">{s.document_type}</div>
+                        <div className="text-sm text-slate-900 font-mono dark:text-slate-100">{s.document_number || '-'}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{s.document_type}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-slate-900">{s.phone || '-'}</div>
-                        <div className="text-xs text-slate-500">{s.user?.email || '-'}</div>
+                        <div className="text-sm text-slate-900 dark:text-slate-100">{s.phone || '-'}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{s.user?.email || '-'}</div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Button 
@@ -433,14 +441,14 @@ export default function StudentList() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500">Por página</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -465,7 +473,7 @@ export default function StudentList() {
               <div className="hidden md:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
-                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                    <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
                       …
                     </span>
                   ) : (

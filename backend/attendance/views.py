@@ -1,15 +1,23 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db import transaction
+from django.db.models import Count, Q
 from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.filters import OrderingFilter
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from academic.models import TeacherAssignment
+from django_filters.rest_framework import DjangoFilterBackend
+
+from academic.models import Period, TeacherAssignment
 from students.models import Enrollment
 
 from .models import AttendanceRecord, AttendanceSession
@@ -34,11 +42,40 @@ def _user_can_access_session(user, session: AttendanceSession) -> bool:
     return True
 
 
+def _auto_close_if_expired(session: AttendanceSession) -> AttendanceSession:
+    """Auto-lock sessions 1 hour after starts_at.
+
+    This enforces the rule even without a background scheduler: any subsequent
+    read/write will see the session as locked and will prevent edits.
+    """
+
+    if session.locked_at:
+        return session
+
+    try:
+        deadline = session.starts_at + timedelta(hours=1)
+    except Exception:
+        return session
+
+    now = timezone.now()
+    if now >= deadline:
+        session.locked_at = now
+        session.save(update_fields=["locked_at", "updated_at"])
+    return session
+
+
+class AttendanceSessionPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
 class AttendanceSessionViewSet(viewsets.ModelViewSet):
     queryset = AttendanceSession.objects.select_related(
         "teacher_assignment",
         "teacher_assignment__teacher",
         "teacher_assignment__group",
+        "teacher_assignment__group__grade",
         "teacher_assignment__academic_load",
         "teacher_assignment__academic_load__subject",
         "period",
@@ -47,6 +84,20 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSessionSerializer
     permission_classes = [IsAuthenticated]
     parser_classes = (JSONParser, FormParser, MultiPartParser)
+    pagination_class = AttendanceSessionPagination
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    ordering_fields = [
+        "starts_at",
+        "class_date",
+        "sequence",
+        "locked_at",
+        "created_at",
+        "teacher_assignment__group__grade__name",
+        "teacher_assignment__group__grade__ordinal",
+        "teacher_assignment__group__name",
+        "teacher_assignment__academic_load__subject__name",
+    ]
+    ordering = ["-starts_at", "-id"]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -54,6 +105,12 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
         if getattr(user, "role", None) == "TEACHER":
             qs = qs.filter(teacher_assignment__teacher=user)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        # Ensure expired sessions show as closed even if the scheduler hasn't run yet.
+        now = timezone.now()
+        AttendanceSession.objects.filter(locked_at__isnull=True, starts_at__lte=now - timedelta(hours=1)).update(locked_at=now)
+        return super().list(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
         serializer = AttendanceSessionCreateSerializer(data=request.data, context={"request": request})
@@ -64,6 +121,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="roster")
     def roster(self, request, pk=None):
         session = self.get_object()
+        session = _auto_close_if_expired(session)
         if not _user_can_access_session(request.user, session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -83,10 +141,20 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
         students_payload = []
         for e in enrollments:
             r = records_by_enrollment.get(e.id)
+
+            photo_url = None
+            try:
+                photo = getattr(e.student, "photo", None)
+                if photo and getattr(photo, "url", None):
+                    photo_url = request.build_absolute_uri(photo.url)
+            except Exception:
+                photo_url = None
+
             students_payload.append(
                 {
                     "enrollment_id": e.id,
                     "student_full_name": e.student.user.get_full_name(),
+                    "student_photo_url": photo_url,
                     "status": r.status if r else None,
                     "tardy_at": r.tardy_at if r else None,
                     "excuse_reason": r.excuse_reason if r else "",
@@ -104,6 +172,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="bulk-mark")
     def bulk_mark(self, request, pk=None):
         session = self.get_object()
+        session = _auto_close_if_expired(session)
         if not _user_can_access_session(request.user, session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -163,6 +232,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="close")
     def close(self, request, pk=None):
         session = self.get_object()
+        session = _auto_close_if_expired(session)
         if not _user_can_access_session(request.user, session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -197,6 +267,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="mark-tardy-now")
     def mark_tardy_now(self, request, pk=None):
         record = self.get_object()
+        _auto_close_if_expired(record.session)
         if not _user_can_access_session(request.user, record.session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -217,6 +288,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="attach-excuse", parser_classes=[MultiPartParser, FormParser])
     def attach_excuse(self, request, pk=None):
         record = self.get_object()
+        _auto_close_if_expired(record.session)
         if not _user_can_access_session(request.user, record.session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -246,6 +318,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="excuse-attachment")
     def excuse_attachment(self, request, pk=None):
         record = self.get_object()
+        _auto_close_if_expired(record.session)
         if not _user_can_access_session(request.user, record.session):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -259,3 +332,115 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
             # Fallback for storages without open.
             resp = FileResponse(f, as_attachment=True, filename=f.name.split("/")[-1])
         return resp
+
+
+class AttendanceStudentStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        teacher_assignment_id = request.query_params.get("teacher_assignment")
+        period_id = request.query_params.get("period")
+
+        if not teacher_assignment_id or not period_id:
+            return Response(
+                {"detail": "Parámetros requeridos: teacher_assignment y period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher_assignment_id = int(teacher_assignment_id)
+            period_id = int(period_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Parámetros inválidos."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ta = TeacherAssignment.objects.select_related(
+                "group",
+                "academic_year",
+                "academic_load",
+                "academic_load__subject",
+            ).get(pk=teacher_assignment_id)
+        except TeacherAssignment.DoesNotExist:
+            return Response({"detail": "Asignación no existe."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(pk=period_id)
+        except Period.DoesNotExist:
+            return Response({"detail": "Periodo no existe."}, status=status.HTTP_404_NOT_FOUND)
+
+        if ta.academic_year_id != period.academic_year_id:
+            return Response(
+                {"detail": "La asignación y el periodo deben pertenecer al mismo año académico."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        if getattr(user, "role", None) == "TEACHER" and ta.teacher_id != user.id:
+            return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+        enrollments = (
+            Enrollment.objects.select_related("student", "student__user")
+            .filter(
+                academic_year_id=ta.academic_year_id,
+                group_id=ta.group_id,
+                status="ACTIVE",
+            )
+            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
+        )
+
+        base = Q(
+            attendance_records__session__teacher_assignment_id=ta.id,
+            attendance_records__session__period_id=period.id,
+        )
+
+        enrollments = enrollments.annotate(
+            absences=Count(
+                "attendance_records",
+                filter=base & Q(attendance_records__status=AttendanceRecord.STATUS_ABSENT),
+                distinct=True,
+            ),
+            tardies=Count(
+                "attendance_records",
+                filter=base & Q(attendance_records__status=AttendanceRecord.STATUS_TARDY),
+                distinct=True,
+            ),
+            excused=Count(
+                "attendance_records",
+                filter=base & Q(attendance_records__status=AttendanceRecord.STATUS_EXCUSED),
+                distinct=True,
+            ),
+            present=Count(
+                "attendance_records",
+                filter=base & Q(attendance_records__status=AttendanceRecord.STATUS_PRESENT),
+                distinct=True,
+            ),
+        )
+
+        sessions_count = AttendanceSession.objects.filter(teacher_assignment=ta, period=period).count()
+
+        students = []
+        for e in enrollments:
+            students.append(
+                {
+                    "enrollment_id": e.id,
+                    "student_full_name": e.student.user.get_full_name(),
+                    "absences": int(getattr(e, "absences", 0) or 0),
+                    "tardies": int(getattr(e, "tardies", 0) or 0),
+                    "excused": int(getattr(e, "excused", 0) or 0),
+                    "present": int(getattr(e, "present", 0) or 0),
+                }
+            )
+
+        return Response(
+            {
+                "teacher_assignment": {
+                    "id": ta.id,
+                    "group_id": ta.group_id,
+                    "group_name": getattr(ta.group, "name", ""),
+                    "subject_name": getattr(getattr(getattr(ta, "academic_load", None), "subject", None), "name", "") or "",
+                },
+                "period": {"id": period.id, "name": period.name},
+                "sessions_count": sessions_count,
+                "students": students,
+            }
+        )

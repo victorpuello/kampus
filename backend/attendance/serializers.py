@@ -84,8 +84,29 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
 
     group_id = serializers.IntegerField(source="teacher_assignment.group_id", read_only=True)
     grade_id = serializers.IntegerField(source="teacher_assignment.group.grade_id", read_only=True)
-    subject_name = serializers.CharField(source="teacher_assignment.academic_load.subject.name", read_only=True)
+    grade_name = serializers.CharField(source="teacher_assignment.group.grade.name", read_only=True)
+    subject_name = serializers.SerializerMethodField()
     group_name = serializers.CharField(source="teacher_assignment.group.name", read_only=True)
+    group_display = serializers.SerializerMethodField()
+
+    def get_group_display(self, obj: AttendanceSession) -> str:
+        try:
+            g = obj.teacher_assignment.group
+            grade = getattr(getattr(g, "grade", None), "name", "") or ""
+            name = getattr(g, "name", "") or ""
+            if grade and name:
+                return f"{grade} {name}"
+            return name or grade
+        except Exception:
+            return ""
+
+    def get_subject_name(self, obj: AttendanceSession) -> str:
+        try:
+            al = getattr(obj.teacher_assignment, "academic_load", None)
+            subj = getattr(al, "subject", None)
+            return getattr(subj, "name", "") or ""
+        except Exception:
+            return ""
 
     class Meta:
         model = AttendanceSession
@@ -99,6 +120,8 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
             "group_id",
             "group_name",
             "grade_id",
+            "grade_name",
+            "group_display",
             "subject_name",
             "locked_at",
             "created_at",

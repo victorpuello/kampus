@@ -23,6 +23,20 @@
     <meta name="twitter:description" content="Plataforma de gestión escolar para instituciones educativas." />
     <title>Kampus</title>
     <script>
+      (function () {
+        try {
+          var key = 'kampus:theme';
+          var stored = localStorage.getItem(key);
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = stored ? stored === 'dark' : prefersDark;
+          document.documentElement.classList.toggle('dark', isDark);
+          document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+        } catch (e) {
+          // ignore
+        }
+      })();
+    </script>
+    <script>
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
           for(let registration of registrations) {

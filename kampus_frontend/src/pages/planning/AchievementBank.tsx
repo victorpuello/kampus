@@ -228,8 +228,8 @@ export default function AchievementBank() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Banco de Logros</h1>
-          <p className="text-slate-500 mt-1">Gestiona los logros académicos institucionales</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Banco de Logros</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona los logros académicos institucionales</p>
         </div>
         <button 
           onClick={() => { setShowForm(true); setEditingId(null); setFormData({ code: '', description: '', is_active: true }); }}
@@ -243,56 +243,56 @@ export default function AchievementBank() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Total Logros</p>
-              <BookOpen className="h-4 w-4 text-slate-500" />
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Logros</p>
+              <BookOpen className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{totalAchievements}</div>
-            <p className="text-xs text-slate-500 mt-1">Registrados en el banco</p>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalAchievements}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Registrados en el banco</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Activos</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Activos</p>
               <CheckCircle className="h-4 w-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{activeAchievements}</div>
-            <p className="text-xs text-slate-500 mt-1">Disponibles para uso</p>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{activeAchievements}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Disponibles para uso</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Inactivos</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Inactivos</p>
               <XCircle className="h-4 w-4 text-red-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{inactiveAchievements}</div>
-            <p className="text-xs text-slate-500 mt-1">Deshabilitados temporalmente</p>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{inactiveAchievements}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Deshabilitados temporalmente</p>
           </CardContent>
         </Card>
       </div>
 
       {showForm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all">
-          <div className="bg-white/95 backdrop-blur-md p-6 rounded-xl w-full max-w-2xl shadow-2xl border border-white/20">
-            <h2 className="text-xl font-bold mb-4 text-gray-800">{editingId ? 'Editar Logro' : 'Nuevo Logro'}</h2>
+          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-6 rounded-xl w-full max-w-2xl shadow-2xl border border-white/20 dark:border-slate-700/50">
+            <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-slate-100">{editingId ? 'Editar Logro' : 'Nuevo Logro'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 {editingId && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Código</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Código</label>
                     <input 
                       type="text" 
                       disabled
-                      className="mt-1 block w-full rounded-md border-gray-300 bg-gray-100 shadow-sm border p-2"
+                      className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-gray-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 shadow-sm border p-2"
                       value={formData.code || ''}
                     />
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Estado</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Estado</label>
                   <select 
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.is_active ? 'true' : 'false'}
                     onChange={e => setFormData({...formData, is_active: e.target.value === 'true'})}
                   >
@@ -304,7 +304,7 @@ export default function AchievementBank() {
 
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <label className="block text-sm font-medium text-gray-700">Descripción</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Descripción</label>
                   <button
                     type="button"
                     onClick={handleImproveWording}
@@ -319,7 +319,7 @@ export default function AchievementBank() {
                 <textarea 
                   required
                   rows={3}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                   value={formData.description}
                   onChange={e => setFormData({...formData, description: e.target.value})}
                 />
@@ -327,10 +327,10 @@ export default function AchievementBank() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Área <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Área <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.area || ''}
                     onChange={e => setFormData({...formData, area: e.target.value ? Number(e.target.value) : undefined, subject: undefined})}
                   >
@@ -339,10 +339,10 @@ export default function AchievementBank() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Asignatura <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Asignatura <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.subject || ''}
                     onChange={e => {
                       const nextId = e.target.value ? Number(e.target.value) : undefined
@@ -362,10 +362,10 @@ export default function AchievementBank() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Grado <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Grado <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                     value={formData.grade || ''}
                     onChange={e => {
                       const nextGrade = e.target.value ? Number(e.target.value) : undefined
@@ -388,9 +388,9 @@ export default function AchievementBank() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Dimensión (Opcional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Dimensión (Opcional)</label>
                 <select 
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
                   value={formData.dimension || ''}
                   onChange={e => setFormData({...formData, dimension: e.target.value ? Number(e.target.value) : undefined})}
                 >
@@ -399,7 +399,7 @@ export default function AchievementBank() {
                     <option key={d.id} value={d.id}>{d.name} ({d.percentage}%)</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Dimensiones del año lectivo activo.</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Dimensiones del año lectivo activo.</p>
               </div>
 
 
@@ -407,7 +407,7 @@ export default function AchievementBank() {
                 <button 
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-4 py-2 text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700"
                 >
                   Cancelar
                 </button>
@@ -423,10 +423,10 @@ export default function AchievementBank() {
         </div>
       )}
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 bg-white">
+      <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+        <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">Listado de Logros</CardTitle>
+            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de Logros</CardTitle>
             <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input 
@@ -441,7 +441,7 @@ export default function AchievementBank() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Código</th>
                   <th className="px-6 py-4 font-semibold">Descripción</th>
@@ -451,48 +451,48 @@ export default function AchievementBank() {
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading ? (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500">Cargando...</td></tr>
+                  <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">Cargando...</td></tr>
                 ) : filteredDefinitions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center py-4">
-                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
                           <Search className="h-6 w-6 text-slate-400" />
                         </div>
-                        <p className="font-medium text-slate-900">No se encontraron logros</p>
-                        <p className="text-sm text-slate-500 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron logros</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
                       </div>
                     </td>
                   </tr>
                 ) : filteredDefinitions.map((def) => (
-                  <tr key={def.id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-4 font-medium text-slate-900">{def.code}</td>
-                    <td className="px-6 py-4 text-slate-600 max-w-md truncate">{def.description}</td>
-                    <td className="px-6 py-4 text-slate-600">
+                  <tr key={def.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{def.code}</td>
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300 max-w-md truncate">{def.description}</td>
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                       {[
                         def.area_name,
                         def.grade_name,
                         def.subject_name
                       ].filter(Boolean).join(' / ') || 'General'}
                     </td>
-                    <td className="px-6 py-4 text-slate-600">
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
                       {def.dimension_name ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-200">
                           {def.dimension_name}
                         </span>
                       ) : '-'}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${def.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${def.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40'}`}>
                         {def.is_active ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleEdit(def)} className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete(def.id)} className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded transition-colors"><Trash size={16} /></button>
+                        <button onClick={() => handleEdit(def)} className="p-1 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 rounded transition-colors"><Edit size={16} /></button>
+                        <button onClick={() => handleDelete(def.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-300 rounded transition-colors"><Trash size={16} /></button>
                       </div>
                     </td>
                   </tr>

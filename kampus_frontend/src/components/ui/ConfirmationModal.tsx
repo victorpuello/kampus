@@ -35,22 +35,22 @@ export function ConfirmationModal({
       />
       
       {/* Modal Content */}
-      <div className="relative z-50 w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative z-50 w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold leading-6 text-slate-900">
+          <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">
             {title}
           </h3>
           <button
             onClick={!loading ? onClose : undefined}
-            className="rounded-full p-1 hover:bg-slate-100 transition-colors disabled:opacity-50"
+            className="rounded-full p-1 hover:bg-slate-100 transition-colors disabled:opacity-50 dark:hover:bg-slate-800"
             disabled={loading}
           >
-            <X className="h-5 w-5 text-slate-500" />
+            <X className="h-5 w-5 text-slate-500 dark:text-slate-300" />
           </button>
         </div>
         
         <div className="mt-2">
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-slate-300">
             {description}
           </p>
         </div>

@@ -52,15 +52,25 @@ services:
       - KAMPUS_CREATE_SUPERUSER=false
       - DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE=24
       - DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS=900
+      - ATTENDANCE_AUTO_CLOSE_HOURS=1
+      - ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS=60
     depends_on:
       - db
     command: >
       sh -c "
-        echo 'Starting backend scheduler (descargos deadlines)';
-        while true; do
-          python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
-          sleep ${DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS:-900};
-        done
+        echo 'Starting backend scheduler (descargos + attendance auto-close)';
+
+        ( while true; do
+            python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
+            sleep ${DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS:-900};
+          done ) &
+
+        ( while true; do
+            python manage.py close_expired_attendance_sessions --hours ${ATTENDANCE_AUTO_CLOSE_HOURS:-1};
+            sleep ${ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS:-60};
+          done ) &
+
+        wait
       "
 
   frontend:

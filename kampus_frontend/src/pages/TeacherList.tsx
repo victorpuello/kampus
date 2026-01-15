@@ -156,7 +156,7 @@ export default function TeacherList() {
           <CardTitle>Docentes</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de docentes.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de docentes.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -199,20 +199,20 @@ export default function TeacherList() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
               <GraduationCap className="h-6 w-6 text-blue-600" />
             </div>
             Docentes
           </h2>
-          <p className="text-slate-500 mt-1">Gestiona la planta docente de la institución.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona la planta docente de la institución.</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="w-40">
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
             >
               {years.map(y => (
                 <option key={y.id} value={y.id}>Año {y.year} {y.status_display ? `(${y.status_display})` : ''}</option>
@@ -267,10 +267,10 @@ export default function TeacherList() {
         </Card>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 bg-white">
+      <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+        <CardHeader className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">Listado de Docentes</CardTitle>
+            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de Docentes</CardTitle>
             <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input 
@@ -293,7 +293,7 @@ export default function TeacherList() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Docente</th>
                   <th className="px-6 py-4 font-semibold">Título / Especialidad</th>
@@ -302,37 +302,37 @@ export default function TeacherList() {
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading && data.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
+                    <td colSpan={5} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
                       Cargando…
                     </td>
                   </tr>
                 ) : sortedData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                       <div className="flex flex-col items-center justify-center py-4">
-                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 dark:bg-slate-800">
                           <Search className="h-6 w-6 text-slate-400" />
                         </div>
-                        <p className="font-medium text-slate-900">No se encontraron docentes</p>
-                        <p className="text-sm text-slate-500 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron docentes</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   sortedData.map((t) => (
-                    <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                    <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div className="h-10 w-10 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
                             {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
                           </div>
                           <div>
-                            <div className="font-medium text-slate-900 uppercase">{t.user.last_name} {t.user.first_name}</div>
+                            <div className="font-medium text-slate-900 uppercase dark:text-slate-100">{t.user.last_name} {t.user.first_name}</div>
                             <div className="text-xs text-slate-500 flex items-center gap-1">
-                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600">{t.user.username}</span>
+                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 dark:bg-slate-800 dark:text-slate-200">{t.user.username}</span>
                               <span>•</span>
                               <span>{t.user.email}</span>
                             </div>
@@ -340,8 +340,8 @@ export default function TeacherList() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="font-medium text-slate-900">{t.title || '-'}</div>
-                        <div className="text-xs text-slate-500 mt-0.5">{t.specialty || '-'}</div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{t.title || '-'}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{t.specialty || '-'}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="w-full max-w-[180px]">
@@ -352,11 +352,11 @@ export default function TeacherList() {
                             }>
                                 {t.assigned_hours || 0} / {getTargetHours(t.teaching_level)}h
                             </span>
-                            <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                               {getLevelLabel(t.teaching_level)}
                             </span>
                           </div>
-                          <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                          <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
                             <div 
                               className={`h-full rounded-full transition-all duration-500 ${
                                 (t.assigned_hours || 0) > getTargetHours(t.teaching_level) ? 'bg-amber-500' : 
@@ -374,10 +374,10 @@ export default function TeacherList() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">
+                        <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700">
                           {t.salary_scale}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1.5 ml-1">
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-1.5 ml-1">
                           {t.regime === '2277' ? 'Estatuto 2277' : t.regime === '1278' ? 'Estatuto 1278' : ''}
                         </div>
                       </td>

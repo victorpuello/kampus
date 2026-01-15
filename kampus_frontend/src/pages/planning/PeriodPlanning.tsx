@@ -9,6 +9,12 @@ import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 export default function PeriodPlanning() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
+
+  const getErrorResponseData = (error: unknown): unknown => {
+    if (typeof error !== 'object' || error === null) return undefined
+    const maybeAxios = error as { response?: { data?: unknown } }
+    return maybeAxios.response?.data
+  }
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -356,14 +362,14 @@ export default function PeriodPlanning() {
         ]
       });
       loadAchievements();
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(error);
-      const data = (error as any)?.response?.data
+      const data = getErrorResponseData(error)
       if (data?.detail) {
         alert(String(data.detail))
       } else if (data && typeof data === 'object') {
         const firstKey = Object.keys(data)[0]
-        const firstVal = firstKey ? (data as any)[firstKey] : null
+        const firstVal = firstKey ? (data as Record<string, unknown>)[firstKey] : null
         if (firstKey && Array.isArray(firstVal) && firstVal[0]) {
           alert(String(firstVal[0]))
         } else if (firstKey && firstVal) {
@@ -393,14 +399,14 @@ export default function PeriodPlanning() {
       await academicApi.deleteAchievement(deleteConfirmId)
       setAchievements((prev) => prev.filter((a) => a.id !== deleteConfirmId))
       setDeleteConfirmId(null)
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(error)
-      const data = (error as any)?.response?.data
+      const data = getErrorResponseData(error)
       if (data?.detail) {
         alert(String(data.detail))
       } else if (data && typeof data === 'object') {
         const firstKey = Object.keys(data)[0]
-        const firstVal = firstKey ? (data as any)[firstKey] : null
+        const firstVal = firstKey ? (data as Record<string, unknown>)[firstKey] : null
         if (firstKey && Array.isArray(firstVal) && firstVal[0]) {
           alert(String(firstVal[0]))
         } else if (firstKey && firstVal) {
@@ -453,14 +459,14 @@ export default function PeriodPlanning() {
         loading={deletingAchievement}
       />
 
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Planeación de Periodo</h1>
+      <h1 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-6">Planeación de Periodo</h1>
       
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mb-6 space-y-4">
+      <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 mb-6 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Año Lectivo</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Año Lectivo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
               value={selectedYear}
               onChange={e => setSelectedYear(e.target.value ? Number(e.target.value) : '')}
             >
@@ -469,9 +475,9 @@ export default function PeriodPlanning() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Periodo</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Periodo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
               value={selectedPeriod}
               onChange={e => setSelectedPeriod(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedYear}
@@ -481,9 +487,9 @@ export default function PeriodPlanning() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Grado</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Grado</label>
             <select 
-              className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
               value={selectedGrade}
               onChange={e => {
                 const next = e.target.value ? Number(e.target.value) : ''
@@ -508,9 +514,9 @@ export default function PeriodPlanning() {
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Grupo</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Grupo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
               value={selectedGroup}
               onChange={e => {
                 const next = e.target.value ? Number(e.target.value) : ''
@@ -524,9 +530,9 @@ export default function PeriodPlanning() {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Asignatura</label>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Asignatura</label>
             <select 
-              className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
               value={selectedSubject}
               onChange={e => setSelectedSubject(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedGroup}
@@ -539,9 +545,9 @@ export default function PeriodPlanning() {
       </div>
 
       {user?.role === 'TEACHER' && planningWindowClosed && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-6">
-          <div className="text-sm font-bold text-rose-800">Edición cerrada (Planeación)</div>
-          <div className="mt-1 text-sm text-rose-700">
+        <div className="bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 rounded-xl p-4 mb-6">
+          <div className="text-sm font-bold text-rose-800 dark:text-rose-200">Edición cerrada (Planeación)</div>
+          <div className="mt-1 text-sm text-rose-700 dark:text-rose-200/90">
             El plazo para modificar la planeación de este periodo ya venció.
             {loadingPlanningGrant ? ' Verificando permisos…' : ''}
             {activePlanningGrant ? ` Permiso vigente hasta: ${new Date(activePlanningGrant.valid_until).toLocaleString()}` : ''}
@@ -552,7 +558,7 @@ export default function PeriodPlanning() {
               type="button"
               onClick={refreshPlanningGrants}
               disabled={loadingPlanningGrant || !selectedPeriod}
-              className="px-3 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium disabled:opacity-50"
+              className="px-3 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium disabled:opacity-50"
             >
               {loadingPlanningGrant ? 'Revisando…' : 'Revisar permisos'}
             </button>
@@ -571,7 +577,7 @@ export default function PeriodPlanning() {
               <button
                 type="button"
                 onClick={() => navigate('/edit-requests/planning')}
-                className="px-4 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium"
+                className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
               >
                 Ver mis solicitudes
               </button>
@@ -583,35 +589,35 @@ export default function PeriodPlanning() {
       {selectedPeriod && selectedSubject && selectedGroup && (
         <>
           {/* Dimension Stats Panel */}
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-6">
-            <h3 className="text-sm font-bold text-blue-800 mb-3">Estado de la Planeación por Dimensión</h3>
+          <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4 mb-6">
+            <h3 className="text-sm font-bold text-blue-800 dark:text-blue-200 mb-3">Estado de la Planeación por Dimensión</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {dimensionStats.map(stat => (
-                <div key={stat.id} className={`bg-white p-3 rounded-lg border shadow-sm flex justify-between items-center ${
+                <div key={stat.id} className={`bg-white dark:bg-slate-900 p-3 rounded-lg border shadow-sm dark:shadow-none flex justify-between items-center ${
                   !stat.isMinMet ? 'border-amber-300' : stat.isMaxReached ? 'border-green-500' : 'border-slate-200'
                 }`}>
                   <div>
-                    <span className="block text-sm font-medium text-slate-700">{stat.name}</span>
-                    <span className="text-xs text-slate-500">Requerido: 1 - 3 logros</span>
+                    <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">{stat.name}</span>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Requerido: 1 - 3 logros</span>
                   </div>
                   <div className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                    stat.count === 0 ? 'bg-red-100 text-red-700' :
-                    stat.count > 3 ? 'bg-red-100 text-red-700' :
-                    'bg-green-100 text-green-700'
+                    stat.count === 0 ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-200' :
+                    stat.count > 3 ? 'bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-200' :
+                    'bg-green-100 text-green-700 dark:bg-emerald-950/30 dark:text-emerald-200'
                   }`}>
                     {stat.count} / 3
                   </div>
                 </div>
               ))}
             </div>
-            <div className="mt-3 flex gap-4 text-xs text-slate-500">
+            <div className="mt-3 flex gap-4 text-xs text-slate-500 dark:text-slate-400">
               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Pendiente (0 logros)</div>
               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> Correcto (1-3 logros)</div>
             </div>
           </div>
 
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold text-slate-800">Logros Planificados</h2>
+            <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Logros Planificados</h2>
             <button 
               onClick={() => setShowForm(true)}
               disabled={user?.role === 'TEACHER' && !planningCanEdit}
@@ -623,19 +629,19 @@ export default function PeriodPlanning() {
 
           {showForm && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl my-8">
-                <div className="p-6 border-b border-slate-100">
-                  <h3 className="text-xl font-bold text-slate-900">Nuevo Logro</h3>
-                  <p className="text-sm text-slate-500">Define el logro y sus indicadores de desempeño</p>
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-3xl my-8">
+                <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Nuevo Logro</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Define el logro y sus indicadores de desempeño</p>
                 </div>
                 
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Dimensión <span className="text-red-500">*</span></label>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Dimensión <span className="text-red-500">*</span></label>
                       <select 
                         required
-                        className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
                         value={formData.dimensionId}
                         onChange={e => {
                           setFormData({
@@ -652,9 +658,9 @@ export default function PeriodPlanning() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Importar del Banco (Opcional)</label>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Importar del Banco (Opcional)</label>
                       <select 
-                        className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                        className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
                         value={formData.definitionId}
                         onChange={e => handleDefinitionChange(Number(e.target.value))}
                         disabled={!formData.dimensionId}
@@ -689,22 +695,22 @@ export default function PeriodPlanning() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Descripción del Logro</label>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Descripción del Logro</label>
                     <textarea 
                       required
                       rows={3}
-                      className="w-full rounded-lg border-slate-300 focus:border-blue-500 focus:ring-blue-500"
+                      className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
                       onBlur={handleDescriptionBlur}
                       placeholder="Describe el logro que el estudiante debe alcanzar..."
                     />
-                    <p className="text-xs text-slate-500 mt-1">Al terminar de escribir, la IA generará sugerencias de indicadores automáticamente.</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Al terminar de escribir, la IA generará sugerencias de indicadores automáticamente.</p>
                   </div>
 
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                  <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
                     <div className="flex justify-between items-center mb-4">
-                      <label className="block text-sm font-bold text-slate-700">Indicadores de Desempeño</label>
+                      <label className="block text-sm font-bold text-slate-700 dark:text-slate-200">Indicadores de Desempeño</label>
                       <button 
                         type="button"
                         onClick={() => generateIndicators(formData.description)}
@@ -719,15 +725,15 @@ export default function PeriodPlanning() {
                       {formData.indicators.map((ind, idx) => (
                         <div key={ind.level} className="flex gap-3 items-start">
                           <div className={`w-24 shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
-                            ind.level === 'LOW' ? 'bg-red-50 text-red-700 border-red-100' :
-                            ind.level === 'BASIC' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                            ind.level === 'HIGH' ? 'bg-blue-50 text-blue-700 border-blue-100' :
-                            'bg-emerald-50 text-emerald-700 border-emerald-100'
+                            ind.level === 'LOW' ? 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40' :
+                            ind.level === 'BASIC' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/25 dark:text-amber-200 dark:border-amber-900/40' :
+                            ind.level === 'HIGH' ? 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40' :
+                            'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
                           }`}>
                             {ind.level === 'LOW' ? 'Bajo' : ind.level === 'BASIC' ? 'Básico' : ind.level === 'HIGH' ? 'Alto' : 'Superior'}
                           </div>
                           <textarea 
-                            className="flex-1 text-sm border-slate-300 rounded-lg focus:border-blue-500 focus:ring-blue-500 min-h-[60px]"
+                            className="flex-1 text-sm border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-lg focus:border-blue-500 focus:ring-blue-500 min-h-[60px]"
                             rows={2}
                             value={ind.description}
                             onChange={e => {
@@ -742,11 +748,11 @@ export default function PeriodPlanning() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-2 border-t border-slate-100">
+                  <div className="flex justify-end gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <button 
                       type="button"
                       onClick={() => setShowForm(false)}
-                      className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 font-medium"
+                      className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
                     >
                       Cancelar
                     </button>
@@ -765,22 +771,22 @@ export default function PeriodPlanning() {
 
           <div className="space-y-4">
             {achievements.map(ach => (
-              <div key={ach.id} className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
+              <div key={ach.id} className="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 border-l-4 border-blue-500">
                 <div className="flex justify-between items-start">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       {ach.dimension_name && (
-                        <span className="text-xs font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                        <span className="text-xs font-semibold bg-blue-100 dark:bg-blue-950/30 text-blue-800 dark:text-blue-200 px-2 py-0.5 rounded-full">
                           {ach.dimension_name}
                         </span>
                       )}
                       {ach.definition_code && (
-                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                        <span className="text-xs text-gray-500 dark:text-slate-300 bg-gray-100 dark:bg-slate-800 px-2 py-0.5 rounded">
                           Ref: {ach.definition_code}
                         </span>
                       )}
                     </div>
-                    <p className="text-gray-900 font-medium">{ach.description}</p>
+                    <p className="text-gray-900 dark:text-slate-100 font-medium">{ach.description}</p>
                   </div>
                   <button
                     type="button"
@@ -796,8 +802,8 @@ export default function PeriodPlanning() {
                 {ach.indicators && ach.indicators.length > 0 && (
                   <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
                     {ach.indicators.map(ind => (
-                      <div key={ind.id} className="text-xs bg-gray-50 p-2 rounded">
-                        <span className="font-bold text-gray-700">{ind.level_display}:</span> {ind.description}
+                      <div key={ind.id} className="text-xs bg-gray-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-200 p-2 rounded border border-transparent dark:border-slate-700">
+                        <span className="font-bold text-gray-700 dark:text-slate-100">{ind.level_display}:</span> {ind.description}
                       </div>
                     ))}
                   </div>
@@ -805,7 +811,7 @@ export default function PeriodPlanning() {
               </div>
             ))}
             {achievements.length === 0 && !loading && (
-              <p className="text-center text-gray-500 py-8">No hay logros planeados para este periodo.</p>
+              <p className="text-center text-gray-500 dark:text-slate-400 py-8">No hay logros planeados para este periodo.</p>
             )}
           </div>
         </>

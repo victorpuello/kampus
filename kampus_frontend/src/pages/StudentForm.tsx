@@ -91,10 +91,10 @@ function FamilyMemberForm({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between p-4 border-b">
-                    <h3 className="text-lg font-semibold">{member ? 'Editar Familiar' : 'Nuevo Familiar'}</h3>
-                    <button onClick={onCancel}><X className="h-5 w-5 text-slate-500" /></button>
+            <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{member ? 'Editar Familiar' : 'Nuevo Familiar'}</h3>
+                    <button onClick={onCancel}><X className="h-5 w-5 text-slate-500 dark:text-slate-400" /></button>
                 </div>
                 <form onSubmit={handleSubmit} className="p-6 space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -104,7 +104,13 @@ function FamilyMemberForm({
                         </div>
                         <div className="space-y-2">
                             <Label>Parentesco</Label>
-                            <select name="relationship" value={formData.relationship} onChange={handleChange} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm" required>
+                            <select
+                                name="relationship"
+                                value={formData.relationship}
+                                onChange={handleChange}
+                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                required
+                            >
                                 <option value="">Seleccione...</option>
                                 <option value="Madre">Madre</option>
                                 <option value="Padre">Padre</option>
@@ -134,15 +140,15 @@ function FamilyMemberForm({
                     </div>
                     <div className="flex gap-6 pt-2">
                         <label className="flex items-center space-x-2 cursor-pointer">
-                            <input type="checkbox" name="is_main_guardian" checked={formData.is_main_guardian} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300" />
-                            <span className="text-sm text-slate-700">Acudiente Principal</span>
+                            <input type="checkbox" name="is_main_guardian" checked={formData.is_main_guardian} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700" />
+                            <span className="text-sm text-slate-700 dark:text-slate-300">Acudiente Principal</span>
                         </label>
                         <label className="flex items-center space-x-2 cursor-pointer">
-                            <input type="checkbox" name="is_head_of_household" checked={formData.is_head_of_household} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300" />
-                            <span className="text-sm text-slate-700">Cabeza de Familia</span>
+                            <input type="checkbox" name="is_head_of_household" checked={formData.is_head_of_household} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700" />
+                            <span className="text-sm text-slate-700 dark:text-slate-300">Cabeza de Familia</span>
                         </label>
                     </div>
-                    <div className="flex justify-end gap-3 pt-4 border-t">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
                         <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
                         <Button type="submit" disabled={loading}>{loading ? 'Guardando...' : 'Guardar'}</Button>
                     </div>
@@ -760,7 +766,7 @@ export default function StudentForm() {
         }
     }
 
-  if (loading && isEditing && !formData.first_name) return <div className="p-6">Cargando...</div>
+    if (loading && isEditing && !formData.first_name) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando...</div>
 
     if (error && isEditing && !loading) {
         return (
@@ -786,11 +792,11 @@ export default function StudentForm() {
           Volver
         </Button>
                 <div className="flex flex-col">
-                        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                             {isEditing ? 'Editar Estudiante' : 'Nuevo Estudiante'}
                         </h2>
                         {isEditing && studentId && (
-                                <div className="text-sm text-slate-600 mt-1">
+                <div className="text-sm text-slate-600 dark:text-slate-300 mt-1">
                                         <span className="font-medium">Grado / Matrícula actual:</span>{' '}
                                         {currentEnrollmentLoading ? (
                                                 'Cargando…'
@@ -804,7 +810,7 @@ export default function StudentForm() {
                 </div>
       </div>
 
-      <div className="flex space-x-1 rounded-xl bg-slate-100 p-1">
+      <div className="flex space-x-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 p-1">
                 {visibleTabs.map((tab) => {
             const Icon = tab.icon
             return (
@@ -813,8 +819,8 @@ export default function StudentForm() {
                     onClick={() => setActiveTab(tab.id)}
                     className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center gap-2
                     ${activeTab === tab.id 
-                        ? 'bg-white text-blue-700 shadow'
-                        : 'text-slate-600 hover:bg-white/12 hover:text-blue-600'
+            ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
+            : 'text-slate-600 hover:bg-white/12 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-900/50 dark:hover:text-blue-300'
                     }`}
                 >
                     <Icon className="h-4 w-4" />
@@ -826,13 +832,13 @@ export default function StudentForm() {
 
       <div className="space-y-6">
         {error && (
-          <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                    <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-950/30 dark:text-red-300">
             {error}
           </div>
         )}
 
                 {!canEdit && (
-                    <div className="p-3 text-sm text-slate-600 bg-slate-50 rounded-md border border-slate-200">
+                                        <div className="p-3 text-sm text-slate-600 bg-slate-50 rounded-md border border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800">
                         Vista de solo lectura. Como docente no puedes editar datos del estudiante.
                     </div>
                 )}
@@ -868,10 +874,10 @@ export default function StudentForm() {
                             <img
                                 src={studentPhotoPreviewUrl || studentPhotoUrl || ''}
                                 alt="Foto del estudiante"
-                                className="h-16 w-16 rounded-full object-cover border border-slate-200"
+                                className="h-16 w-16 rounded-full object-cover border border-slate-200 dark:border-slate-800"
                             />
                         ) : (
-                            <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50" />
+                            <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40" />
                         )}
 
                         <input
@@ -881,16 +887,16 @@ export default function StudentForm() {
                             accept="image/*"
                             onChange={handlePhotoChange}
                             disabled={!canEdit}
-                            className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60"
+                            className="block w-full text-sm text-slate-700 dark:text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60 dark:file:bg-slate-800 dark:file:text-slate-200 dark:hover:file:bg-slate-700"
                         />
                     </div>
                 </div>
                 
-                <div className="col-span-full border-t my-2"></div>
+                <div className="col-span-full border-t border-slate-200 dark:border-slate-800 my-2"></div>
 
                 <div className="space-y-2">
                     <Label>Tipo Documento</Label>
-                    <select name="document_type" value={formData.document_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
+                    <select name="document_type" value={formData.document_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60">
                         <option value="TI">Tarjeta de Identidad</option>
                         <option value="CC">Cédula de Ciudadanía</option>
                         <option value="RC">Registro Civil</option>
@@ -909,7 +915,7 @@ export default function StudentForm() {
                         value={selectedDepartment} 
                         onChange={handleDepartmentChange}
                         disabled={!canEdit}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                     >
                         <option value="">Seleccione Departamento...</option>
                         {colombiaData.map((dept) => (
@@ -926,7 +932,7 @@ export default function StudentForm() {
                         value={selectedCity} 
                         onChange={handleCityChange}
                         disabled={!canEdit || !selectedDepartment}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                     >
                         <option value="">Seleccione Ciudad...</option>
                         {selectedDepartment && colombiaData.find(d => d.departamento === selectedDepartment)?.ciudades.map((city) => (
@@ -947,7 +953,7 @@ export default function StudentForm() {
                 </div>
                 <div className="space-y-2">
                     <Label>Sexo</Label>
-                    <select name="sex" value={formData.sex} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
+                    <select name="sex" value={formData.sex} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60">
                         <option value="">Seleccione...</option>
                         <option value="M">Masculino</option>
                         <option value="F">Femenino</option>
@@ -960,7 +966,7 @@ export default function StudentForm() {
                         value={formData.blood_type} 
                         onChange={handleChange} 
                         disabled={!canEdit}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                     >
                         <option value="">Seleccione...</option>
                         <option value="O+">O+</option>
@@ -974,7 +980,7 @@ export default function StudentForm() {
                     </select>
                 </div>
             </CardContent>
-            <div className="flex justify-end p-4 border-t bg-slate-50 rounded-b-lg">
+            <div className="flex justify-end p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
                 <Button onClick={() => handleSaveStep('residence')} disabled={loading || !canEdit}>
                     Guardar y Continuar
                 </Button>
@@ -1006,7 +1012,7 @@ export default function StudentForm() {
                         value={formData.living_with} 
                         onChange={handleChange} 
                         disabled={!canEdit}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                     >
                         <option value="">Seleccione...</option>
                         <option value="Madre">Madre</option>
@@ -1024,7 +1030,7 @@ export default function StudentForm() {
                     <Input name="stratum" value={formData.stratum} onChange={handleChange} disabled={!canEdit} />
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
+            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
                 <Button variant="outline" onClick={() => setActiveTab('identification')}>Anterior</Button>
                 <Button onClick={() => handleSaveStep('socioeconomic')} disabled={loading || !canEdit}>
                     Guardar y Continuar
@@ -1065,7 +1071,7 @@ export default function StudentForm() {
                         value={formData.ethnicity} 
                         onChange={handleChange} 
                         disabled={!canEdit}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                     >
                         <option value="">Seleccione...</option>
                         {ethnicityList.map((eth) => (
@@ -1075,12 +1081,12 @@ export default function StudentForm() {
                 </div>
                 <div className="space-y-2 flex items-center pt-6">
                     <label className="flex items-center space-x-2 cursor-pointer">
-                        <input type="checkbox" name="is_victim_of_conflict" checked={formData.is_victim_of_conflict} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300" />
-                        <span className="text-sm text-slate-700">¿Víctima del conflicto?</span>
+                        <input type="checkbox" name="is_victim_of_conflict" checked={formData.is_victim_of_conflict} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700" />
+                        <span className="text-sm text-slate-700 dark:text-slate-300">¿Víctima del conflicto?</span>
                     </label>
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
+            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
                 <Button variant="outline" onClick={() => setActiveTab('residence')}>Anterior</Button>
                 <Button onClick={() => handleSaveStep('support')} disabled={loading || !canEdit}>
                     Guardar y Continuar
@@ -1095,15 +1101,15 @@ export default function StudentForm() {
             <CardHeader><CardTitle>Desarrollo Integral y Apoyos</CardTitle></CardHeader>
             <CardContent className="space-y-4">
                 <div className="flex items-center space-x-2">
-                    <input type="checkbox" name="has_disability" checked={formData.has_disability} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300" />
+                    <input type="checkbox" name="has_disability" checked={formData.has_disability} onChange={handleCheckboxChange} disabled={!canEdit} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700" />
                     <Label>¿Tiene alguna discapacidad o condición especial?</Label>
                 </div>
 
                 {formData.has_disability && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6 border-l-2 border-slate-200">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pl-6 border-l-2 border-slate-200 dark:border-slate-800">
                         <div className="space-y-2">
                             <Label>Tipo de Discapacidad</Label>
-                            <select name="disability_type" value={formData.disability_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100">
+                            <select name="disability_type" value={formData.disability_type} onChange={handleChange} disabled={!canEdit} className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60">
                                 <option value="">Seleccione...</option>
                                 <option value="FISICA">Física</option>
                                 <option value="INTELECTUAL">Intelectual</option>
@@ -1126,12 +1132,12 @@ export default function StudentForm() {
                         value={formData.support_needs} 
                         onChange={handleChange} 
                         disabled={!canEdit}
-                        className="flex min-h-20 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex min-h-20 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800/60"
                         placeholder="Trabajo en aula, casa, terapias, etc."
                     />
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
+            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
                 <Button variant="outline" onClick={() => setActiveTab('socioeconomic')}>Anterior</Button>
                 <Button onClick={() => handleSaveStep('family')} disabled={loading || !canEdit}>
                     Guardar y Continuar
@@ -1183,7 +1189,7 @@ export default function StudentForm() {
                                             <select
                                                 value={selectedEnrollmentId ?? ''}
                                                 onChange={(e) => setSelectedEnrollmentId(e.target.value ? Number(e.target.value) : null)}
-                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                             >
                                                 <option value="">Seleccione...</option>
                                                 {enrollments.map((en) => (
@@ -1211,7 +1217,7 @@ export default function StudentForm() {
                                                     const v = e.target.value
                                                     if (v === 'MINOR' || v === 'MAJOR' || v === 'VERY_MAJOR') setNewCaseManualSeverity(v)
                                                 }}
-                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                             >
                                                 <option value="MINOR">Leve</option>
                                                 <option value="MAJOR">Grave</option>
@@ -1227,7 +1233,7 @@ export default function StudentForm() {
                                                     const v = e.target.value
                                                     if (v === 'I' || v === 'II' || v === 'III' || v === 'UNKNOWN') setNewCaseLawType(v)
                                                 }}
-                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                             >
                                                 <option value="UNKNOWN">Sin clasificar</option>
                                                 <option value="I">Tipo I</option>
@@ -1246,7 +1252,7 @@ export default function StudentForm() {
                                             <textarea
                                                 value={newCaseNarrative}
                                                 onChange={(e) => setNewCaseNarrative(e.target.value)}
-                                                className="flex min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                                className="flex min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                                                 placeholder="Descripción objetiva de los hechos"
                                             />
                                         </div>
@@ -1306,7 +1312,7 @@ export default function StudentForm() {
                                 <CardContent>
                                     <div className="overflow-x-auto">
                                         <table className="w-full text-sm text-left">
-                                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                                 <tr>
                                                     <th className="px-6 py-4 font-semibold">Fecha</th>
                                                     <th className="px-6 py-4 font-semibold">Grado/Grupo</th>
@@ -1315,27 +1321,27 @@ export default function StudentForm() {
                                                     <th className="px-6 py-4 font-semibold">Acciones</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-100">
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                                 {disciplineCases.map((c) => (
-                                                    <tr key={c.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                                                    <tr key={c.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
                                                         <td className="px-6 py-4">{new Date(c.occurred_at).toLocaleString()}</td>
                                                         <td className="px-6 py-4">{(c.grade_name || '-') + ' / ' + (c.group_name || '-')}</td>
                                                         <td className="px-6 py-4">{c.law_1620_type}</td>
 
                                                         <td className="px-6 py-4">
                                                             <div className="flex flex-wrap items-center gap-2">
-                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
                                                                     {disciplineStatusLabel(c.status)}
                                                                 </span>
                                                                 {c.sealed_at && (
-                                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
                                                                         Sellado
                                                                     </span>
                                                                 )}
                                                             </div>
                                                         </td>
                                                         <td className="px-6 py-4">
-                                                            <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 hover:underline">
+                                                            <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 hover:underline dark:text-blue-300">
                                                                 Ver
                                                             </Link>
                                                         </td>
@@ -1343,7 +1349,7 @@ export default function StudentForm() {
                                                 ))}
                                                 {disciplineCases.length === 0 && (
                                                     <tr>
-                                                        <td className="px-6 py-6 text-slate-500" colSpan={5}>
+                                                        <td className="px-6 py-6 text-slate-500 dark:text-slate-400" colSpan={5}>
                                                             No hay casos.
                                                         </td>
                                                     </tr>
@@ -1372,19 +1378,19 @@ export default function StudentForm() {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {academicHistoryError && (
-                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-950/30 dark:text-red-300">
                                 {academicHistoryError}
                             </div>
                         )}
 
                         {academicHistoryLoading ? (
-                            <div className="text-slate-600">Cargando…</div>
+                            <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
                         ) : academicHistory.length === 0 ? (
-                            <div className="text-slate-600">No hay matrículas registradas para este estudiante.</div>
+                            <div className="text-slate-600 dark:text-slate-300">No hay matrículas registradas para este estudiante.</div>
                         ) : (
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                                    <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                         <tr>
                                             <th className="px-6 py-4 font-semibold">Año</th>
                                             <th className="px-6 py-4 font-semibold">Grado</th>
@@ -1394,9 +1400,9 @@ export default function StudentForm() {
                                             <th className="px-6 py-4 font-semibold">Procedencia</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                         {academicHistory.map((en) => (
-                                            <tr key={en.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                                            <tr key={en.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
                                                 <td className="px-6 py-4">{enrollmentYearLabel(en)}</td>
                                                 <td className="px-6 py-4">{enrollmentGradeLabel(en)}</td>
                                                 <td className="px-6 py-4">{enrollmentGroupLabel(en)}</td>
@@ -1430,17 +1436,17 @@ export default function StudentForm() {
             </CardHeader>
             <CardContent>
                 {!isEditing ? (
-                    <div className="text-center py-8 text-slate-500">
+                    <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                         <p>Guarde el estudiante primero para agregar familiares.</p>
                     </div>
                 ) : familyMembers.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500">
+                    <div className="text-center py-8 text-slate-500 dark:text-slate-400">
                         <p>No hay familiares registrados.</p>
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                 <tr>
                                     <th className="px-6 py-3 font-semibold">Nombre</th>
                                     <th className="px-6 py-3 font-semibold">Parentesco</th>
@@ -1449,22 +1455,22 @@ export default function StudentForm() {
                                     {canEdit && <th className="px-6 py-3 font-semibold text-right">Acciones</th>}
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {familyMembers.map((member) => (
-                                    <tr key={member.id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                                        <td className="px-6 py-3 font-medium text-slate-900">{member.full_name}</td>
+                                    <tr key={member.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
+                                        <td className="px-6 py-3 font-medium text-slate-900 dark:text-slate-100">{member.full_name}</td>
                                         <td className="px-6 py-3">{member.relationship}</td>
                                         <td className="px-6 py-3">{member.phone}</td>
                                         <td className="px-6 py-3">
-                                            {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200">Principal</span>}
+                                            {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">Principal</span>}
                                         </td>
                                         {canEdit && (
                                           <td className="px-6 py-3 text-right">
                                               <div className="flex items-center justify-end gap-2">
-                                                  <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                                                  <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-300">
                                                       <Edit2 className="h-4 w-4" />
                                                   </Button>
-                                                  <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50">
+                                                  <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300">
                                                       <Trash2 className="h-4 w-4" />
                                                   </Button>
                                               </div>
@@ -1477,7 +1483,7 @@ export default function StudentForm() {
                     </div>
                 )}
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg">
+            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
                 <Button variant="outline" onClick={() => setActiveTab('support')}>Anterior</Button>
                 <Button onClick={() => setActiveTab('documents')} disabled={loading}>
                     Siguiente
@@ -1491,13 +1497,13 @@ export default function StudentForm() {
         <div className={activeTab === 'documents' ? 'block' : 'hidden'}>
             {isTeacher ? (
                 <Card>
-                    <CardContent className="py-8 text-center text-slate-500">
+                    <CardContent className="py-8 text-center text-slate-500 dark:text-slate-400">
                         Como docente no puedes gestionar documentos del estudiante.
                     </CardContent>
                 </Card>
             ) : !isEditing ? (
                 <Card>
-                    <CardContent className="py-8 text-center text-slate-500">
+                    <CardContent className="py-8 text-center text-slate-500 dark:text-slate-400">
                         Guarde el estudiante primero para gestionar sus documentos.
                     </CardContent>
                 </Card>

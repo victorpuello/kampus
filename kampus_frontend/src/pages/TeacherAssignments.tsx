@@ -5,6 +5,12 @@ import { Button } from '../components/ui/Button'
 import { useAuthStore } from '../store/auth'
 import { academicApi, type AcademicYear, type TeacherAssignment } from '../services/academic'
 
+type AxiosLikeError = {
+  response?: {
+    status?: unknown
+  }
+}
+
 export default function TeacherAssignments() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -77,9 +83,9 @@ export default function TeacherAssignments() {
         if (!mounted) return
         setAssignments(res.data)
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (!mounted) return
-        const status = err?.response?.status
+        const status = (err as AxiosLikeError).response?.status
         if (status === 403) setError('No tienes permisos para ver esta información.')
         else setError('No se pudo cargar la asignación académica.')
       })
@@ -139,7 +145,7 @@ export default function TeacherAssignments() {
           <CardTitle>Asignación Académica</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">Esta pantalla es solo para docentes.</p>
+            <p className="text-slate-600 dark:text-slate-300">Esta pantalla es solo para docentes.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver</Button>
           </div>
@@ -152,14 +158,14 @@ export default function TeacherAssignments() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">Asignación Académica</h2>
-          <p className="text-sm text-slate-600">Tus grupos y asignaturas asignadas.</p>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Asignación Académica</h2>
+          <p className="text-sm text-slate-600 dark:text-slate-300">Tus grupos y asignaturas asignadas.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500">Año</span>
+            <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+              className="h-9 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 text-sm"
               value={yearId}
               disabled={loadingYears || years.length === 0}
               onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
@@ -177,7 +183,7 @@ export default function TeacherAssignments() {
       </div>
 
       {error && (
-        <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">{error}</div>
+        <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-rose-950/30 dark:text-rose-200">{error}</div>
       )}
 
       <Card>
@@ -193,7 +199,7 @@ export default function TeacherAssignments() {
             <div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                  <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                     <tr>
                       <th className="px-6 py-4 font-semibold">Asignatura</th>
                       <th className="px-6 py-4 font-semibold">Área</th>
@@ -203,10 +209,10 @@ export default function TeacherAssignments() {
                       <th className="px-6 py-4 font-semibold text-right">Horas/Semana</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {paginated.items.map((r) => (
-                      <tr key={r.id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                        <td className="px-6 py-4 font-medium text-slate-900">{r.subject}</td>
+                      <tr key={r.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{r.subject}</td>
                         <td className="px-6 py-4">{r.area ?? '—'}</td>
                         <td className="px-6 py-4">{r.grade ?? '—'}</td>
                         <td className="px-6 py-4">{r.group}</td>
@@ -219,7 +225,7 @@ export default function TeacherAssignments() {
               </div>
 
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-slate-600">
+                <div className="text-sm text-slate-600 dark:text-slate-300">
                   Mostrando {paginated.startIdx + 1}–{paginated.endIdx} de {paginated.total}
                 </div>
                 <div className="flex items-center gap-2">
@@ -230,7 +236,7 @@ export default function TeacherAssignments() {
                   >
                     Anterior
                   </Button>
-                  <div className="text-sm text-slate-600">
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
                     Página {paginated.page} de {paginated.totalPages}
                   </div>
                   <Button

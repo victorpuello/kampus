@@ -481,20 +481,20 @@ export default function DashboardHome() {
                   <button
                     key={a.to}
                     type="button"
-                    className="w-full flex items-center justify-between p-3 text-sm font-medium text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+                    className="w-full flex items-center justify-between p-3 text-sm font-medium text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors dark:text-slate-200 dark:bg-slate-900/40 dark:hover:bg-slate-800/60"
                     onClick={() => navigate(a.to)}
                   >
                     <span className="flex flex-col items-start">
                       <span>{a.label}</span>
-                      <span className="text-xs text-slate-500 font-normal">{a.description}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">{a.description}</span>
                     </span>
                     <span className="flex items-center gap-2">
                       {a.to === '/notifications' && unreadNotificationsCount > 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
                           {unreadNotificationsCount}
                         </span>
                       ) : null}
-                      <span className="text-slate-400">→</span>
+                      <span className="text-slate-400 dark:text-slate-500">→</span>
                     </span>
                   </button>
                 ))}

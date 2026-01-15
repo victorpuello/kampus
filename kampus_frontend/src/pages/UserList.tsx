@@ -222,8 +222,8 @@ export default function UserList() {
               <p className="text-sm font-medium text-slate-500">Usuarios Activos</p>
               <CheckCircle className="h-4 w-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{activeUsers}</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{activeUsers}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Activos en esta página
             </p>
           </CardContent>
@@ -234,18 +234,18 @@ export default function UserList() {
               <p className="text-sm font-medium text-slate-500">Administradores</p>
               <Shield className="h-4 w-4 text-purple-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{adminUsers}</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{adminUsers}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               En esta página
             </p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 bg-white">
+      <Card className="border-slate-200 shadow-sm dark:border-slate-800">
+        <CardHeader className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">Listado General</CardTitle>
+            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado General</CardTitle>
             <div className="relative w-full md:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input 
@@ -266,7 +266,7 @@ export default function UserList() {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Usuario</th>
                   <th className="px-6 py-4 font-semibold">Rol</th>
@@ -275,38 +275,38 @@ export default function UserList() {
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {isInitialLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                       Cargando usuarios…
                     </td>
                   </tr>
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                       <div className="flex flex-col items-center justify-center py-4">
-                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+                        <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 dark:bg-slate-800">
                           <Search className="h-6 w-6 text-slate-400" />
                         </div>
-                        <p className="font-medium text-slate-900">No se encontraron usuarios</p>
-                        <p className="text-sm text-slate-500 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                        <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron usuarios</p>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   data.map((user) => (
-                    <tr key={user.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                    <tr key={user.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 text-slate-600 shadow-sm border border-slate-200">
+                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 text-slate-600 shadow-sm border border-slate-200 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200 dark:border-slate-700">
                             <span className="font-bold text-sm">{user.first_name[0]}{user.last_name[0]}</span>
                           </div>
                           <div>
-                            <div className="font-medium text-slate-900 uppercase">
+                            <div className="font-medium text-slate-900 uppercase dark:text-slate-100">
                               {user.first_name} {user.last_name}
                             </div>
-                            <div className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit mt-0.5">@{user.username}</div>
+                            <div className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit mt-0.5 dark:text-slate-300 dark:bg-slate-800">@{user.username}</div>
                           </div>
                         </div>
                       </td>
@@ -315,7 +315,7 @@ export default function UserList() {
                           {getRoleLabel(user.role)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-slate-600">{user.email}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{user.email}</td>
                       <td className="px-6 py-4">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${user.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                           <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${user.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
@@ -349,14 +349,14 @@ export default function UserList() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-6 pb-6">
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500">Por página</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))

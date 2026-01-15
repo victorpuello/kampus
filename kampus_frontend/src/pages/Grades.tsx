@@ -466,15 +466,34 @@ export default function Grades() {
   const definitiveStyle = (category: ReturnType<typeof categoryFromScore>) => {
     switch (category) {
       case 'low':
-        return { label: 'Bajo', className: 'border-rose-200 bg-rose-50 text-rose-700' }
+        return {
+          label: 'Bajo',
+          className:
+            'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200',
+        }
       case 'basic':
-        return { label: 'Básico', className: 'border-amber-200 bg-amber-50 text-amber-700' }
+        return {
+          label: 'Básico',
+          className:
+            'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200',
+        }
       case 'high':
-        return { label: 'Alto', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' }
+        return {
+          label: 'Alto',
+          className:
+            'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
+        }
       case 'superior':
-        return { label: 'Superior', className: 'border-sky-200 bg-sky-50 text-sky-700' }
+        return {
+          label: 'Superior',
+          className:
+            'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/25 dark:text-sky-200',
+        }
       default:
-        return { label: null, className: 'border-slate-200 bg-white text-slate-900' }
+        return {
+          label: null,
+          className: 'border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+        }
     }
   }
 
@@ -1101,16 +1120,16 @@ export default function Grades() {
         : 'Todo guardado'
 
   const globalSaveClass = periodIsClosed
-    ? 'border-amber-200 bg-amber-50 text-amber-700'
+    ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
     : user?.role === 'TEACHER' && gradeWindowClosed && !activeGradeGrant?.hasFull && (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0
-      ? 'border-rose-200 bg-rose-50 text-rose-700'
+      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200'
     : saving || anyInFlightSaves
-      ? 'border-blue-200 bg-blue-50 text-blue-700'
+      ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200'
       : hasDirty
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
 
-  if (loadingInit) return <div className="p-6">Cargando…</div>
+  if (loadingInit) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
 
   const teacherMode = user?.role === 'TEACHER'
   const showingCards = teacherMode && !selectedTeacherAssignmentId
@@ -1126,13 +1145,13 @@ export default function Grades() {
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <GraduationCap className="h-6 w-6 text-blue-600" />
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 dark:bg-blue-950/30 rounded-lg">
+              <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
             Calificaciones
           </h2>
-          <p className="text-slate-500 mt-1">Planilla de notas por logros.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Planilla de notas por logros.</p>
         </div>
 
         {!teacherMode ? (
@@ -1148,7 +1167,7 @@ export default function Grades() {
                   setSelectedPeriodId(null)
                   setGradebook(null)
                 }}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="" disabled>Selecciona grado</option>
                 {gradeOptions.map((g) => (
@@ -1167,7 +1186,7 @@ export default function Grades() {
                   setSelectedPeriodId(null)
                   setGradebook(null)
                 }}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!selectedGradeId}
               >
                 <option value="" disabled>Selecciona grupo</option>
@@ -1186,7 +1205,7 @@ export default function Grades() {
                   setSelectedPeriodId(null)
                   setGradebook(null)
                 }}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!selectedGroupId}
               >
                 <option value="" disabled>Selecciona asignatura</option>
@@ -1200,7 +1219,7 @@ export default function Grades() {
               <select
                 value={selectedPeriodId ?? ''}
                 onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={!selectedAssignment}
               >
                 <option value="" disabled>Selecciona periodo</option>
@@ -1233,7 +1252,7 @@ export default function Grades() {
                   setGradebook(null)
                   replaceTeacherSearch(next, null)
                 }}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={teacherPeriods.length === 0}
               >
                 <option value="" disabled>Selecciona periodo</option>
@@ -1281,17 +1300,17 @@ export default function Grades() {
       </div>
 
       {user?.role === 'TEACHER' && gradeWindowClosed && (
-        <Card className="border border-rose-200 bg-rose-50">
+        <Card className="border border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/30">
           <CardHeader>
-            <CardTitle className="text-rose-800">Edición cerrada (Planilla)</CardTitle>
+            <CardTitle className="text-rose-800 dark:text-rose-200">Edición cerrada (Planilla)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <p className="text-sm text-rose-700">
+            <p className="text-sm text-rose-700 dark:text-rose-200/90">
               El plazo para editar las notas de este periodo ya venció.
               {loadingGradeGrant ? ' Verificando permisos…' : ''}
               {activeGradeGrant?.validUntil ? ` Permiso vigente hasta: ${new Date(activeGradeGrant.validUntil).toLocaleString()}` : ''}
             </p>
-            <p className="text-xs text-rose-700">
+            <p className="text-xs text-rose-700 dark:text-rose-200/90">
               Si necesitas modificar, envía una solicitud con justificación.
             </p>
 
@@ -1329,7 +1348,7 @@ export default function Grades() {
       )}
 
       {lastBlocked.length > 0 && gradebook && (
-        <div className="border border-amber-200 bg-amber-50 text-amber-800 rounded-lg p-3 text-sm">
+        <div className="border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-100 rounded-lg p-3 text-sm">
           <div className="font-semibold">Algunas notas no se guardaron</div>
           <div className="mt-1 text-xs">
             Bloqueadas: {Array.from(new Set(lastBlocked.map((b) => b.enrollment)))
@@ -1340,20 +1359,20 @@ export default function Grades() {
       )}
 
       {teacherMode && showingCards && !selectedPeriodId && (
-        <div className="p-4 text-slate-600">Selecciona un periodo para ver tus planillas.</div>
+        <div className="p-4 text-slate-600 dark:text-slate-300">Selecciona un periodo para ver tus planillas.</div>
       )}
 
       {teacherMode && showingCards && selectedPeriodId && (
         <div className="space-y-4">
-          {loadingSheets ? <div className="p-4">Cargando planillas…</div> : null}
+          {loadingSheets ? <div className="p-4 text-slate-600 dark:text-slate-300">Cargando planillas…</div> : null}
 
           {!loadingSheets && availableSheets.length === 0 ? (
-            <div className="p-4 text-slate-600">No hay planillas disponibles para este periodo.</div>
+            <div className="p-4 text-slate-600 dark:text-slate-300">No hay planillas disponibles para este periodo.</div>
           ) : null}
 
           {!loadingSheets && availableSheets.length > 0 ? (
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
-              <div className="text-sm text-slate-600">
+              <div className="text-sm text-slate-600 dark:text-slate-300">
                 {(() => {
                   const total = orderedAvailableSheets.length
                   const start = (sheetsPage - 1) * SHEETS_PAGE_SIZE
@@ -1373,7 +1392,7 @@ export default function Grades() {
                   >
                     Anterior
                   </Button>
-                  <div className="text-sm text-slate-600">
+                  <div className="text-sm text-slate-600 dark:text-slate-300">
                     Página {sheetsPage} de {sheetsTotalPages}
                   </div>
                   <Button
@@ -1393,18 +1412,18 @@ export default function Grades() {
             {pagedAvailableSheets.map((s) => {
               const complete = s.completion.is_complete
               const badgeClass = complete
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-amber-200 bg-amber-50 text-amber-700'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
+                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
 
               return (
-                <Card key={s.teacher_assignment_id} className="border-slate-200 shadow-sm">
-                  <CardHeader className="border-b border-slate-100 bg-white">
+                <Card key={s.teacher_assignment_id} className="border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
+                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <CardTitle className="text-base font-semibold text-slate-900">
+                        <CardTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
                           {s.grade_name} • {s.group_name}
                         </CardTitle>
-                        <div className="text-sm text-slate-500 mt-0.5">{s.subject_name ?? 'Asignatura'}</div>
+                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{s.subject_name ?? 'Asignatura'}</div>
                         <div className="text-xs text-slate-400 mt-0.5">{s.period.name}{s.period.is_closed ? ' (Cerrado)' : ''}</div>
                       </div>
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
@@ -1414,18 +1433,18 @@ export default function Grades() {
                   </CardHeader>
 
                   <CardContent className="pt-4">
-                    <div className="flex items-center justify-between text-xs text-slate-500">
+                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                       <span>
                         Diligenciamiento: {s.completion.filled}/{s.completion.total}
                       </span>
-                      <span className="font-medium text-slate-700">{s.completion.percent}%</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{s.completion.percent}%</span>
                     </div>
-                    <div className="mt-2 h-2 w-full rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.completion.percent}>
+                    <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.completion.percent}>
                       <div className="h-2 rounded-full bg-blue-600" style={{ width: `${s.completion.percent}%` }} />
                     </div>
 
                     <div className="mt-4 flex items-center justify-between">
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-slate-500 dark:text-slate-400">
                         {s.students_count} estudiantes • {s.achievements_count} logros
                       </div>
                       <Button
@@ -1447,13 +1466,13 @@ export default function Grades() {
         </div>
       )}
 
-      {loadingGradebook && !showingCards && <div className="p-4">Cargando planilla…</div>}
+      {loadingGradebook && !showingCards && <div className="p-4 text-slate-600 dark:text-slate-300">Cargando planilla…</div>}
 
       {!loadingGradebook && gradebook && !showingCards && (
-        <Card className="border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-slate-100 bg-white">
+        <Card className="border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
+          <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between gap-4">
-              <CardTitle className="text-lg font-semibold text-slate-900">Planilla</CardTitle>
+              <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Planilla</CardTitle>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
@@ -1468,7 +1487,7 @@ export default function Grades() {
                   {globalSaveLabel}
                 </span>
                 {periodIsClosed && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200">
                     Periodo cerrado
                   </span>
                 )}
@@ -1477,14 +1496,14 @@ export default function Grades() {
 
             {gradebook?.achievements?.length ? (
               <div className="mt-3">
-                <div className="flex items-center justify-between text-xs text-slate-500">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                   <span>
                     Diligenciamiento: {completion.filled}/{completion.total}
                   </span>
-                  <span className="font-medium text-slate-700">{completion.percent}%</span>
+                  <span className="font-medium text-slate-700 dark:text-slate-200">{completion.percent}%</span>
                 </div>
                 <div
-                  className="mt-2 h-2 w-full rounded-full bg-slate-200"
+                  className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700"
                   role="progressbar"
                   aria-label="Progreso de diligenciamiento de la planilla"
                   aria-valuemin={0}
@@ -1506,16 +1525,16 @@ export default function Grades() {
             </p>
 
             {periodIsClosed && (
-              <div className="text-sm text-slate-600 mb-3">
+              <div className="text-sm text-slate-600 dark:text-slate-300 mb-3">
                 Este periodo está cerrado. La planilla está en modo solo lectura.
               </div>
             )}
 
             <div className="overflow-x-auto -mx-2 sm:mx-0">
               <table className="min-w-max w-full text-xs sm:text-sm text-left">
-                <thead className="text-[11px] sm:text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 sticky top-0 z-20">
+                <thead className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20">
                   <tr>
-                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100" rowSpan={2}>
+                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" rowSpan={2}>
                       Estudiante
                     </th>
                     {dimensionOrder.map((dimId) => {
@@ -1530,7 +1549,7 @@ export default function Grades() {
                           title={dim?.name ?? ''}
                         >
                           <div className="flex flex-col items-center">
-                            <span className="normal-case text-slate-700">
+                            <span className="normal-case text-slate-700 dark:text-slate-200">
                               <span className="sm:hidden">{abbrevDimensionName(dim?.name ?? `Dimensión ${dimId}`)}</span>
                               <span className="hidden sm:inline">{dim?.name ?? `Dimensión ${dimId}`}</span>
                             </span>
@@ -1562,11 +1581,11 @@ export default function Grades() {
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {gradebook.students.map((s) => (
-                    <tr key={s.enrollment_id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white">
-                        <div className="font-medium text-slate-900 max-w-40 sm:max-w-none truncate" title={s.student_name}>
+                    <tr key={s.enrollment_id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white dark:bg-slate-900">
+                        <div className="font-medium text-slate-900 dark:text-slate-100 max-w-40 sm:max-w-none truncate" title={s.student_name}>
                           {s.student_name}
                         </div>
                       </td>
@@ -1582,14 +1601,14 @@ export default function Grades() {
 
                           const statusClass =
                             status === 'error'
-                              ? 'border-rose-300 focus-visible:ring-rose-500'
+                              ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
                               : status === 'saving'
-                                ? 'border-blue-300 focus-visible:ring-blue-500'
+                                ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
                                 : status === 'saved'
-                                  ? 'border-emerald-300 focus-visible:ring-emerald-500'
+                                  ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
                                   : isDirty
-                                    ? 'border-amber-300 focus-visible:ring-amber-500'
-                                    : 'border-slate-200 focus-visible:ring-blue-500'
+                                    ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                    : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
 
                           return (
                             <td key={a.id} className="px-3 sm:px-6 py-3 sm:py-4">
@@ -1621,7 +1640,7 @@ export default function Grades() {
                             {dimAvg === null ? (
                               <span className="text-slate-400">—</span>
                             ) : (
-                              <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900">
+                              <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
                                 {dimAvg.toFixed(2)}
                               </span>
                             )}
@@ -1650,7 +1669,7 @@ export default function Grades() {
                               >
                                 {liveFinal !== null ? liveFinal.toFixed(2) : c ? formatScore(c.final_score) : '—'}
                               </span>
-                              {c?.scale ? <span className="text-xs text-slate-500">{c.scale}</span> : null}
+                              {c?.scale ? <span className="text-xs text-slate-500 dark:text-slate-400">{c.scale}</span> : null}
                             </div>
                           )
                         })()}
@@ -1662,15 +1681,15 @@ export default function Grades() {
             </div>
 
             {gradebook.students.length === 0 && (
-              <div className="text-sm text-slate-500">No hay estudiantes activos en el grupo.</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400">No hay estudiantes activos en el grupo.</div>
             )}
 
             {gradebook.achievements.length === 0 && (
-              <div className="text-sm text-slate-500 mt-2">No hay logros planeados para este periodo/asignación.</div>
+              <div className="text-sm text-slate-500 dark:text-slate-400 mt-2">No hay logros planeados para este periodo/asignación.</div>
             )}
 
             {gradebook.achievements.length > 0 && !periodIsClosed && (
-              <div className="text-xs text-slate-500 mt-3">
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-3">
                 Atajos: Enter/Shift+Enter (abajo/arriba), ↑↓ (fila), ←→ (columna), Tab/Shift+Tab (siguiente/anterior), Cmd/Ctrl+S (guardar), Esc (salir).
               </div>
             )}
@@ -1679,7 +1698,7 @@ export default function Grades() {
       )}
 
       {!loadingGradebook && !gradebook && (
-        <div className="p-4 text-slate-600">
+        <div className="p-4 text-slate-600 dark:text-slate-300">
           Selecciona grado, grupo, asignatura y periodo.
         </div>
       )}

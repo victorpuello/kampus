@@ -11,6 +11,9 @@ import {
   GraduationCap,
   Building2,
   FileText,
+  BarChart3,
+  Sun,
+  Moon,
   ChevronDown,
   ChevronLeft,
   ChevronRight
@@ -51,6 +54,34 @@ export default function DashboardLayout() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
+
+  const THEME_STORAGE_KEY = 'kampus:theme'
+  const [isDarkMode, setIsDarkMode] = useState(false)
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(THEME_STORAGE_KEY)
+      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+      const isDark = stored ? stored === 'dark' : prefersDark
+      document.documentElement.classList.toggle('dark', isDark)
+      document.documentElement.style.colorScheme = isDark ? 'dark' : 'light'
+      setIsDarkMode(isDark)
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const toggleTheme = () => {
+    const next = !isDarkMode
+    setIsDarkMode(next)
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light')
+    } catch {
+      // ignore
+    }
+    document.documentElement.classList.toggle('dark', next)
+    document.documentElement.style.colorScheme = next ? 'dark' : 'light'
+  }
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
   const isTeacher = user?.role === 'TEACHER'
@@ -307,14 +338,7 @@ export default function DashboardLayout() {
         children: [
           { name: 'Planeación', href: '/planning' },
           { name: 'Calificaciones', href: '/grades' },
-          { name: 'Estadísticas', href: '/teacher-stats' },
-          {
-            name: 'Solicitudes',
-            children: [
-              { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
-              { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
-            ],
-          },
+          { name: 'Asistencias', href: '/attendance' },
           { name: 'Asignación', href: '/my-assignment' },
           { name: 'Convivencia', href: '/discipline/cases' },
         ],
@@ -323,6 +347,17 @@ export default function DashboardLayout() {
       if (teacherHasDirectedGroup) {
         items.push({ name: 'Estudiantes', href: '/students', icon: Users })
       }
+
+      items.push({
+        name: 'Solicitudes',
+        icon: FileText,
+        children: [
+          { name: 'Solicitudes (Notas)', href: '/edit-requests/grades' },
+          { name: 'Solicitudes (Planeación)', href: '/edit-requests/planning' },
+        ],
+      })
+
+      items.push({ name: 'Estadísticas', href: '/teacher-stats', icon: BarChart3 })
 
       return items
     }
@@ -461,10 +496,10 @@ export default function DashboardLayout() {
   }, [location.pathname, navigation])
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-60 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:ring-2 focus:ring-blue-500"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-60 focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-900 focus:ring-2 focus:ring-blue-500 dark:focus:bg-slate-900 dark:focus:text-slate-100"
       >
         Saltar al contenido
       </a>
@@ -478,7 +513,7 @@ export default function DashboardLayout() {
 
       {/* Sidebar */}
       <div className={cn(
-        "fixed inset-y-0 left-0 z-50 bg-white shadow-lg transform transition-all duration-200 ease-in-out lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 bg-white shadow-lg transform transition-all duration-200 ease-in-out lg:translate-x-0 dark:bg-slate-900 dark:shadow-black/30",
         'w-64',
         isCollapsed ? 'lg:w-20' : 'lg:w-64',
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -486,21 +521,21 @@ export default function DashboardLayout() {
         <div className="flex flex-col h-full">
           {/* Sidebar Header */}
           <div className={cn(
-            'flex items-center justify-between h-16 border-b border-slate-100',
+            'flex items-center justify-between h-16 border-b border-slate-100 dark:border-slate-800',
             isCollapsed ? 'px-4' : 'px-6'
           )}>
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xl">K</span>
               </div>
-              {!isCollapsed && <span className="text-xl font-bold text-slate-900">Kampus</span>}
+              {!isCollapsed && <span className="text-xl font-bold text-slate-900 dark:text-slate-100">Kampus</span>}
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={toggleSidebarCollapsed}
-                className="hidden lg:inline-flex text-slate-500 hover:text-slate-700"
+                className="hidden lg:inline-flex text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                 aria-label={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
                 title={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
               >
@@ -509,7 +544,7 @@ export default function DashboardLayout() {
 
               <button 
                 onClick={() => setIsSidebarOpen(false)}
-                className="lg:hidden text-slate-500 hover:text-slate-700"
+                className="lg:hidden text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
                 aria-label="Cerrar menú"
               >
                 <X className="w-6 h-6" />
@@ -546,8 +581,8 @@ export default function DashboardLayout() {
                       className={cn(
                         "w-full flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg transition-colors",
                         isActive 
-                          ? "bg-blue-50 text-blue-700" 
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                          ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                       )}
                       aria-expanded={isExpanded}
                       aria-controls={menuDomId}
@@ -555,14 +590,14 @@ export default function DashboardLayout() {
                       title={item.name}
                     >
                       <div className={cn('flex items-center', isCollapsed ? 'justify-center w-full' : '')}>
-                        <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600" : "text-slate-400", !isCollapsed && 'mr-3')} />
+                        <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
                         {!isCollapsed && item.name}
                       </div>
                       {!isCollapsed && (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)}
                     </button>
                     
                     {isExpanded && !isCollapsed && (
-                      <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4">
+                      <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4 dark:border-slate-800">
                         {item.children.map((child) => {
                           if ('href' in child) {
                             const active = isPathActive(child.href)
@@ -574,8 +609,8 @@ export default function DashboardLayout() {
                                 className={cn(
                                   "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
                                   active
-                                    ? "text-blue-700 bg-blue-50"
-                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                    ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
+                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
                                 )}
                                 aria-current={active ? 'page' : undefined}
                               >
@@ -597,8 +632,8 @@ export default function DashboardLayout() {
                                 className={cn(
                                   'w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium transition-colors',
                                   groupHasActive
-                                    ? 'text-blue-700 bg-blue-50'
-                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                                    ? 'text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40'
+                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
                                 )}
                                 aria-expanded={isGroupExpanded}
                                 aria-controls={groupDomId}
@@ -619,8 +654,8 @@ export default function DashboardLayout() {
                                         className={cn(
                                           "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
                                           active
-                                            ? "text-blue-700 bg-blue-50"
-                                            : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
+                                            ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
+                                            : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
                                         )}
                                         aria-current={active ? 'page' : undefined}
                                       >
@@ -649,17 +684,17 @@ export default function DashboardLayout() {
                     "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
                     isCollapsed && 'justify-center',
                     isActive 
-                      ? "bg-blue-50 text-blue-700" 
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
+                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                   )}
                   aria-current={isActive ? 'page' : undefined}
                   aria-label={item.name}
                   title={item.name}
                 >
-                  <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600" : "text-slate-400", !isCollapsed && 'mr-3')} />
+                  <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
                   {!isCollapsed && <span className="flex-1">{item.name}</span>}
                   {!isCollapsed && !!item.badgeCount && item.badgeCount > 0 && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
                       {item.badgeCount}
                     </span>
                   )}
@@ -669,36 +704,36 @@ export default function DashboardLayout() {
           </nav>
 
           {/* User Profile & Logout */}
-          <div className="p-4 border-t border-slate-100">
+          <div className="p-4 border-t border-slate-100 dark:border-slate-800">
             <div ref={userMenuRef} className="relative">
               {userMenuOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-slate-200 bg-white shadow-lg overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100">
-                    <p className="text-sm font-semibold text-slate-900 truncate">
+                <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-slate-200 bg-white shadow-lg overflow-hidden dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30">
+                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
                       {user?.first_name || user?.username}
                     </p>
-                    <p className="text-xs text-slate-500 truncate">{user?.email || 'Usuario'}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email || 'Usuario'}</p>
                   </div>
 
                   <div className="p-2 space-y-1">
                     <Link
                       to="/account"
-                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                       <span>Mi cuenta</span>
-                      <span className="text-xs text-slate-400">Perfil y contraseña</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">Perfil y contraseña</span>
                     </Link>
 
                     <Link
                       to="/notifications"
-                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                     >
                       <span className="flex items-center">
-                        <Bell className="w-4 h-4 mr-2 text-slate-400" />
+                        <Bell className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />
                         Notificaciones
                       </span>
                       {!!unreadNotifications && unreadNotifications > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
                           {unreadNotifications}
                         </span>
                       )}
@@ -706,28 +741,40 @@ export default function DashboardLayout() {
 
                     {unreadNotificationItems.length > 0 && (
                       <div className="px-3 py-2">
-                        <p className="text-xs font-semibold text-slate-500 uppercase">Pendientes</p>
+                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Pendientes</p>
                         <div className="mt-2 space-y-1">
                           {unreadNotificationItems.map((n) => (
                             <Link
                               key={n.id}
                               to={n.url || '/notifications'}
-                              className="block rounded-md border border-slate-100 px-3 py-2 hover:bg-slate-50"
+                              className="block rounded-md border border-slate-100 px-3 py-2 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
                               title={n.title}
                               onClick={() => handleUnreadNotificationClick(n)}
                             >
-                              <p className="text-sm font-medium text-slate-800 line-clamp-1">{n.title}</p>
-                              <p className="text-xs text-slate-500 line-clamp-1">{n.body}</p>
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-1">{n.title}</p>
+                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{n.body}</p>
                             </Link>
                           ))}
                         </div>
                       </div>
                     )}
+
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      onClick={toggleTheme}
+                    >
+                      <span className="flex items-center">
+                        {isDarkMode ? <Sun className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" /> : <Moon className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />}
+                        Apariencia
+                      </span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">{isDarkMode ? 'Claro' : 'Oscuro'}</span>
+                    </button>
                   </div>
 
-                  <div className="p-2 border-t border-slate-100">
+                  <div className="p-2 border-t border-slate-100 dark:border-slate-800">
                     <button
-                      className="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-red-700 hover:bg-red-50"
+                      className="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-red-700 hover:bg-red-50 dark:text-slate-200 dark:hover:text-red-200 dark:hover:bg-red-950/30"
                       onClick={logout}
                       type="button"
                     >
@@ -744,8 +791,8 @@ export default function DashboardLayout() {
                   "w-full flex items-center p-4 rounded-lg border transition-colors",
                   isCollapsed && 'justify-center',
                   userMenuOpen
-                    ? "bg-white border-slate-200"
-                    : "bg-slate-50 border-slate-100 hover:bg-slate-100"
+                    ? "bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800"
+                    : "bg-slate-50 border-slate-100 hover:bg-slate-100 dark:bg-slate-900/40 dark:border-slate-800 dark:hover:bg-slate-800/60"
                 )}
                 aria-haspopup="menu"
                 aria-expanded={userMenuOpen}
@@ -766,18 +813,18 @@ export default function DashboardLayout() {
                   }
                 }}
               >
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold">
+                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold dark:bg-blue-950/30 dark:text-blue-200">
                   {user?.first_name?.[0] || user?.username?.[0] || 'U'}
                 </div>
                 {!isCollapsed && (
                   <>
                     <div className="ml-3 flex-1 overflow-hidden text-left">
-                      <p className="text-sm font-medium text-slate-900 truncate">
+                      <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
                         {user?.first_name || user?.username}
                       </p>
-                      <p className="text-xs text-slate-500 truncate">{user?.email || 'Usuario'}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email || 'Usuario'}</p>
                     </div>
-                    <ChevronDown className={cn("w-4 h-4 text-slate-400 transition-transform", userMenuOpen ? "rotate-180" : "")} />
+                    <ChevronDown className={cn("w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform", userMenuOpen ? "rotate-180" : "")} />
                   </>
                 )}
               </button>
@@ -789,15 +836,15 @@ export default function DashboardLayout() {
       {/* Main Content */}
       <div className={cn('flex-1 flex flex-col min-h-screen w-full', isCollapsed ? 'lg:ml-20' : 'lg:ml-64')}>
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-slate-200">
+        <header className="lg:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
           <button 
             onClick={() => setIsSidebarOpen(true)}
-            className="text-slate-500 hover:text-slate-700"
+            className="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
             aria-label="Abrir menú"
           >
             <Menu className="w-6 h-6" />
           </button>
-          <span className="font-semibold text-slate-900">Kampus</span>
+          <span className="font-semibold text-slate-900 dark:text-slate-100">Kampus</span>
           <div className="w-6" /> {/* Spacer for centering */}
         </header>
 

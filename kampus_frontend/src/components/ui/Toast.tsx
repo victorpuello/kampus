@@ -30,15 +30,15 @@ export function Toast({
   if (!isVisible) return null
 
   const bgColors = {
-    success: 'bg-green-50 border-green-200 text-green-800',
-    error: 'bg-red-50 border-red-200 text-red-800',
-    info: 'bg-blue-50 border-blue-200 text-blue-800'
+    success: 'bg-green-50 border-green-200 text-green-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-200',
+    error: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-900 dark:text-red-200',
+    info: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-200'
   }
 
   const icons = {
-    success: <CheckCircle className="h-5 w-5 text-green-500" />,
-    error: <AlertCircle className="h-5 w-5 text-red-500" />,
-    info: <AlertCircle className="h-5 w-5 text-blue-500" />
+    success: <CheckCircle className="h-5 w-5 text-green-500 dark:text-emerald-300" />,
+    error: <AlertCircle className="h-5 w-5 text-red-500 dark:text-red-300" />,
+    info: <AlertCircle className="h-5 w-5 text-blue-500 dark:text-blue-300" />
   }
 
   return (
@@ -56,7 +56,7 @@ export function Toast({
       </div>
       <button
         onClick={onClose}
-        className="shrink-0 rounded-md p-1 hover:bg-black/5 transition-colors"
+        className="shrink-0 rounded-md p-1 hover:bg-black/5 transition-colors dark:hover:bg-white/10"
         aria-label="Cerrar notificación"
       >
         <X className="h-4 w-4 opacity-50" />

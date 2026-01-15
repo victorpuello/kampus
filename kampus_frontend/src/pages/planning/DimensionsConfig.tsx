@@ -61,10 +61,11 @@ export default function DimensionsConfig() {
       await academicApi.copyDimensionsFromYear(copySourceYearId, selectedYear);
       setShowCopyModal(false);
       await loadDimensions(selectedYear);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const maybeAxios = error as { response?: { data?: { error?: string; detail?: string } } }
       const msg =
-        error?.response?.data?.error ||
-        error?.response?.data?.detail ||
+        maybeAxios?.response?.data?.error ||
+        maybeAxios?.response?.data?.detail ||
         'Error al copiar dimensiones';
       setCopyError(msg);
       console.error('Error copying dimensions', error);
@@ -128,14 +129,14 @@ export default function DimensionsConfig() {
     <div className="p-6 space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dimensiones de Evaluación</h1>
-          <p className="text-slate-500 mt-1">Configura los pesos porcentuales para la evaluación</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Dimensiones de Evaluación</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Configura los pesos porcentuales para la evaluación</p>
         </div>
         <div className="flex items-center gap-4">
           <select
             value={selectedYear || ''}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            className="rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500"
           >
             {years.map(y => (
               <option key={y.id} value={y.id}>Año {y.year} ({y.status_display})</option>
@@ -144,7 +145,7 @@ export default function DimensionsConfig() {
           <button
             onClick={openCopyModal}
             disabled={!selectedYear || years.length < 2}
-            className="bg-slate-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-800 dark:hover:bg-white shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             title={years.length < 2 ? 'Debes tener al menos 2 años lectivos' : 'Copiar dimensiones desde otro año'}
           >
             <Save size={20} /> Copiar de otro año
@@ -160,15 +161,15 @@ export default function DimensionsConfig() {
 
       {showCopyModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all p-4">
-          <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-slate-900">Copiar Dimensiones</h2>
-              <button onClick={() => setShowCopyModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">Copiar Dimensiones</h2>
+              <button onClick={() => setShowCopyModal(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <X size={20} />
               </button>
             </div>
 
-            <p className="text-sm text-slate-600 mb-4">
+            <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">
               Copia las dimensiones del año origen al año seleccionado.
             </p>
 
@@ -178,7 +179,7 @@ export default function DimensionsConfig() {
                 <select
                   value={copySourceYearId || ''}
                   onChange={(e) => setCopySourceYearId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  className="w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 >
                   {years
                     .filter(y => y.id !== selectedYear)
@@ -189,7 +190,7 @@ export default function DimensionsConfig() {
               </div>
 
               {copyError && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded p-2">
+                <div className="text-sm text-red-600 dark:text-red-200 bg-red-50 dark:bg-red-950/40 border border-red-100 dark:border-red-900/40 rounded p-2">
                   {copyError}
                 </div>
               )}
@@ -198,7 +199,7 @@ export default function DimensionsConfig() {
                 <button
                   type="button"
                   onClick={() => setShowCopyModal(false)}
-                  className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium text-sm"
+                  className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 font-medium text-sm"
                   disabled={copying}
                 >
                   Cancelar
@@ -219,22 +220,22 @@ export default function DimensionsConfig() {
 
       {/* Stats / Validation */}
       <div className="grid gap-4 md:grid-cols-1">
-        <div className={`p-4 rounded-lg border ${totalPercentage === 100 ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+        <div className={`p-4 rounded-lg border ${totalPercentage === 100 ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40' : 'bg-amber-50 border-amber-200 dark:bg-amber-950/25 dark:border-amber-900/40'}`}>
           <div className="flex items-center gap-3">
             {totalPercentage === 100 ? (
-              <div className="p-2 bg-emerald-100 rounded-full text-emerald-600">
+              <div className="p-2 bg-emerald-100 dark:bg-emerald-900/40 rounded-full text-emerald-600 dark:text-emerald-200">
                 <Save size={20} />
               </div>
             ) : (
-              <div className="p-2 bg-amber-100 rounded-full text-amber-600">
+              <div className="p-2 bg-amber-100 dark:bg-amber-900/40 rounded-full text-amber-600 dark:text-amber-200">
                 <AlertCircle size={20} />
               </div>
             )}
             <div>
-              <h3 className={`font-semibold ${totalPercentage === 100 ? 'text-emerald-900' : 'text-amber-900'}`}>
+              <h3 className={`font-semibold ${totalPercentage === 100 ? 'text-emerald-900 dark:text-emerald-100' : 'text-amber-900 dark:text-amber-100'}`}>
                 Total Porcentaje: {totalPercentage}%
               </h3>
-              <p className={`text-sm ${totalPercentage === 100 ? 'text-emerald-700' : 'text-amber-700'}`}>
+              <p className={`text-sm ${totalPercentage === 100 ? 'text-emerald-700 dark:text-emerald-200' : 'text-amber-700 dark:text-amber-200'}`}>
                 {totalPercentage === 100 
                   ? 'La configuración de porcentajes es correcta.' 
                   : `La suma de los porcentajes debe ser 100%. Actualmente es ${totalPercentage}%.`}
@@ -246,16 +247,16 @@ export default function DimensionsConfig() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all p-4">
-          <div className="bg-white p-6 rounded-xl w-full max-w-md shadow-2xl">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-slate-900">{editingId ? 'Editar Dimensión' : 'Nueva Dimensión'}</h2>
-              <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-slate-100">{editingId ? 'Editar Dimensión' : 'Nueva Dimensión'}</h2>
+              <button onClick={() => setShowForm(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
                 <X size={20} />
               </button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Nombre</label>
                 <Input 
                   required
                   value={formData.name}
@@ -264,7 +265,7 @@ export default function DimensionsConfig() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Porcentaje (%)</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Porcentaje (%)</label>
                 <Input 
                   type="number"
                   required
@@ -275,19 +276,19 @@ export default function DimensionsConfig() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Descripción</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Descripción</label>
                 <textarea 
-                  className="w-full rounded-md border-slate-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+                  className="w-full rounded-md border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                   rows={3}
                   value={formData.description}
                   onChange={e => setFormData({...formData, description: e.target.value})}
                 />
               </div>
               <div>
-                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
                   <input 
                     type="checkbox"
-                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    className="rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
                     checked={formData.is_active}
                     onChange={e => setFormData({...formData, is_active: e.target.checked})}
                   />
@@ -298,7 +299,7 @@ export default function DimensionsConfig() {
                 <button 
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium text-sm"
+                  className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 font-medium text-sm"
                 >
                   Cancelar
                 </button>
@@ -314,14 +315,14 @@ export default function DimensionsConfig() {
         </div>
       )}
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="border-b border-slate-100 bg-white">
-          <CardTitle className="text-lg font-semibold text-slate-900">Listado de Dimensiones</CardTitle>
+      <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
+        <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de Dimensiones</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-gradient-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-gradient-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Nombre</th>
                   <th className="px-6 py-4 font-semibold">Descripción</th>
@@ -330,33 +331,33 @@ export default function DimensionsConfig() {
                   <th className="px-6 py-4 font-semibold text-right">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {loading ? (
-                  <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500">Cargando...</td></tr>
+                  <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">Cargando...</td></tr>
                 ) : dimensions.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
+                    <td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                       No hay dimensiones configuradas para este año.
                     </td>
                   </tr>
                 ) : dimensions.map((dim) => (
-                  <tr key={dim.id} className="bg-white hover:bg-slate-50/80 transition-colors">
-                    <td className="px-6 py-4 font-medium text-slate-900">{dim.name}</td>
-                    <td className="px-6 py-4 text-slate-600">{dim.description || '-'}</td>
+                  <tr key={dim.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{dim.name}</td>
+                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{dim.description || '-'}</td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-200 border border-blue-200 dark:border-blue-900/40">
                         {dim.percentage}%
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${dim.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${dim.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40' : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'}`}>
                         {dim.is_active ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleEdit(dim)} className="p-1 hover:bg-blue-50 text-slate-400 hover:text-blue-600 rounded transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete(dim.id)} className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded transition-colors"><Trash size={16} /></button>
+                        <button onClick={() => handleEdit(dim)} className="p-1 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 rounded transition-colors"><Edit size={16} /></button>
+                        <button onClick={() => handleDelete(dim.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-300 rounded transition-colors"><Trash size={16} /></button>
                       </div>
                     </td>
                   </tr>

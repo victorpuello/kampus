@@ -66,7 +66,7 @@ export default function DisciplineCases() {
           <CardTitle>Convivencia</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de convivencia.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de convivencia.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -75,15 +75,15 @@ export default function DisciplineCases() {
     )
   }
 
-  if (loading) return <div className="p-6">Cargando…</div>
-  if (error) return <div className="p-6 text-red-600">{error}</div>
+  if (loading) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
+  if (error) return <div className="p-6 text-red-600 dark:text-rose-200">{error}</div>
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Convivencia</h2>
-          <p className="text-slate-500 mt-1">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Convivencia</h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">
             {isParent ? 'Casos asociados a tus acudidos.' : 'Casos registrados en el observador (MVP).'}
           </p>
         </div>
@@ -96,7 +96,7 @@ export default function DisciplineCases() {
         <CardContent>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Fecha</th>
                   <th className="px-6 py-4 font-semibold">Estudiante</th>
@@ -106,9 +106,9 @@ export default function DisciplineCases() {
                   <th className="px-6 py-4 font-semibold">Acciones</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {items.map((c) => (
-                  <tr key={c.id} className="bg-white hover:bg-slate-50/80 transition-colors">
+                  <tr key={c.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
                     <td className="px-6 py-4">{new Date(c.occurred_at).toLocaleString()}</td>
                     <td className="px-6 py-4">{c.student_full_name || `#${c.student_id}`}</td>
                     <td className="px-6 py-4">{(c.grade_name || '-') + ' / ' + (c.group_name || '-')}</td>
@@ -116,18 +116,18 @@ export default function DisciplineCases() {
                     <td className="px-6 py-4">
 
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200">
                           {statusLabel(c.status)}
                         </span>
                         {c.sealed_at && (
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200">
                             Sellado
                           </span>
                         )}
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 hover:underline">
+                      <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 dark:text-blue-300 hover:underline">
                         Ver
                       </Link>
                     </td>
@@ -135,7 +135,7 @@ export default function DisciplineCases() {
                 ))}
                 {items.length === 0 && (
                   <tr>
-                    <td className="px-6 py-6 text-slate-500" colSpan={6}>
+                    <td className="px-6 py-6 text-slate-500 dark:text-slate-400" colSpan={6}>
                       No hay casos.
                     </td>
                   </tr>
