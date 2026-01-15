@@ -37,6 +37,7 @@ urlpatterns = [
     path("api/", include("discipline.urls")),
     path("api/", include("audit.urls")),
     path("api/public/", include("students.public_urls")),
+    path("public/", include("students.public_site_urls")),
 ]
 
 if settings.DEBUG:

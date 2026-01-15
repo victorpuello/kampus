@@ -7,11 +7,11 @@ urlpatterns = [
     path(
         "certificates/<uuid:uuid>/",
         PublicCertificateVerifyUIView.as_view(),
-        name="public-certificate-verify-ui",
+        name="public-site-certificate-verify-ui",
     ),
     path(
         "certificates/<uuid:uuid>/verify/",
         PublicCertificateVerifyView.as_view(),
-        name="public-certificate-verify",
+        name="public-site-certificate-verify",
     ),
 ]

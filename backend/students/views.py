@@ -6,6 +6,8 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
 from django.http import FileResponse, HttpResponse
+from django.shortcuts import redirect, render
+from django.views import View
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Q, Sum
@@ -1700,7 +1702,7 @@ class CertificateStudiesIssueView(APIView):
             )
 
             verify_url = request.build_absolute_uri(
-                reverse("public-certificate-verify", kwargs={"uuid": str(issue.uuid)})
+                reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
             )
         except Exception as e:
             payload = {"error": "Error preparing certificate", "detail": str(e)}
@@ -2001,7 +2003,7 @@ class CertificateStudiesPreviewView(APIView):
 
         preview_uuid = py_uuid.uuid4()
         verify_url = request.build_absolute_uri(
-            reverse("public-certificate-verify", kwargs={"uuid": str(preview_uuid)})
+            reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(preview_uuid)})
         )
 
         # For HTML preview, use a data URI so the browser can render it.
@@ -2057,6 +2059,12 @@ class PublicCertificateVerifyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, uuid, format=None):
+        # If a browser is requesting HTML (typical when scanning a QR), redirect to a
+        # user-friendly public page. Keep JSON response for API clients.
+        accept = (request.META.get("HTTP_ACCEPT") or "").lower()
+        if "text/html" in accept:
+            return redirect(reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(uuid)}))
+
         try:
             issue = CertificateIssue.objects.select_related(
                 "enrollment",
@@ -2101,6 +2109,86 @@ class PublicCertificateVerifyView(APIView):
                 "grade_id": payload.get("grade_id"),
             }
         )
+
+
+class PublicCertificateVerifyUIView(View):
+    def get(self, request, uuid):
+        institution = Institution.objects.first() or Institution()
+
+        status_labels = {
+            CertificateIssue.STATUS_ISSUED: "Emitido",
+            CertificateIssue.STATUS_REVOKED: "Revocado",
+        }
+        type_labels = {
+            CertificateIssue.TYPE_STUDIES: "Certificado de estudios",
+        }
+
+        issue = (
+            CertificateIssue.objects.select_related(
+                "enrollment",
+                "enrollment__student",
+                "enrollment__student__user",
+                "enrollment__grade",
+                "enrollment__academic_year",
+            )
+            .filter(uuid=uuid)
+            .first()
+        )
+
+        if not issue:
+            return render(
+                request,
+                "students/public/certificate_verify.html",
+                {
+                    "institution": institution,
+                    "found": False,
+                    "uuid": str(uuid),
+                },
+                status=404,
+            )
+
+        payload = issue.payload or {}
+
+        student_name = payload.get("student_full_name")
+        document_number = payload.get("document_number")
+        academic_year = payload.get("academic_year")
+        grade_name = payload.get("grade_name")
+
+        if issue.enrollment:
+            try:
+                student_name = student_name or issue.enrollment.student.user.get_full_name()
+                document_number = document_number or issue.enrollment.student.document_number
+                academic_year = academic_year or issue.enrollment.academic_year.year
+                grade_name = grade_name or (issue.enrollment.grade.name if issue.enrollment.grade else "")
+            except Exception:
+                pass
+
+        api_json_url = request.build_absolute_uri(
+            reverse("public-certificate-verify", kwargs={"uuid": str(issue.uuid)})
+        )
+
+        context = {
+            "institution": institution,
+            "found": True,
+            "valid": issue.status == CertificateIssue.STATUS_ISSUED,
+            "status": issue.status,
+            "status_label": status_labels.get(issue.status, issue.status),
+            "certificate_type": issue.certificate_type,
+            "certificate_type_label": type_labels.get(issue.certificate_type, issue.certificate_type),
+            "uuid": str(issue.uuid),
+            "issued_at": issue.issued_at,
+            "seal_hash": issue.seal_hash,
+            "revoked": issue.status == CertificateIssue.STATUS_REVOKED,
+            "revoke_reason": issue.revoke_reason,
+            "student_full_name": student_name or "",
+            "document_number": document_number or "",
+            "academic_year": academic_year or "",
+            "grade": grade_name or "",
+            "grade_id": payload.get("grade_id"),
+            "api_json_url": f"{api_json_url}?format=json",
+        }
+
+        return render(request, "students/public/certificate_verify.html", context)
 
 
 

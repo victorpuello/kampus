@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verificación de certificado</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --card: #0f1b33;
+        --text: #eaf0ff;
+        --muted: rgba(234, 240, 255, 0.75);
+        --border: rgba(234, 240, 255, 0.12);
+        --ok: #16a34a;
+        --warn: #f59e0b;
+        --bad: #ef4444;
+        --pill: rgba(255, 255, 255, 0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 20% 0%, rgba(56, 189, 248, 0.18), transparent 55%),
+          radial-gradient(900px 500px at 90% 10%, rgba(99, 102, 241, 0.18), transparent 50%),
+          var(--bg);
+        color: var(--text);
+      }
+      a { color: #93c5fd; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 28px 16px 42px;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .logo {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border);
+        display: grid;
+        place-items: center;
+        flex: 0 0 auto;
+      }
+      .logo img { width: 100%; height: 100%; object-fit: cover; }
+      .title {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+      .title h1 {
+        font-size: 18px;
+        line-height: 1.2;
+        margin: 0;
+        letter-spacing: 0.2px;
+      }
+      .title p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 18px;
+        box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+      @media (min-width: 900px) {
+        .grid { grid-template-columns: 1.2fr 0.8fr; }
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 10px;
+        padding: 10px 0;
+        border-top: 1px solid rgba(234, 240, 255, 0.08);
+      }
+      .row:first-child { border-top: 0; padding-top: 0; }
+      .k { color: var(--muted); font-size: 13px; }
+      .v { font-size: 14px; word-break: break-word; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: var(--pill);
+        font-size: 13px;
+        width: fit-content;
+      }
+      .dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+      .dot.ok { background: var(--ok); }
+      .dot.bad { background: var(--bad); }
+      .dot.warn { background: var(--warn); }
+      .muted { color: var(--muted); }
+      .notice {
+        margin-top: 12px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(0, 0, 0, 0.18);
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 14px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn:hover { background: rgba(255, 255, 255, 0.09); text-decoration: none; }
+      .small { font-size: 12px; }
+      .footer {
+        margin-top: 16px;
+        text-align: center;
+        color: rgba(234, 240, 255, 0.55);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <div class="top">
+        <div class="logo" aria-hidden="true">
+          {% if institution and institution.logo %}
+            <img src="{{ institution.logo.url }}" alt="Logo" />
+          {% else %}
+            <span class="muted">K</span>
+          {% endif %}
+        </div>
+        <div class="title">
+          <h1>Verificación de certificado</h1>
+          <p>
+            {% if institution and institution.name %}
+              {{ institution.name }}
+            {% else %}
+              Institución educativa
+            {% endif %}
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        {% if not found %}
+          <div class="pill" role="status">
+            <span class="dot bad"></span>
+            <span><strong>No encontrado</strong></span>
+          </div>
+
+          <div class="notice">
+            No se encontró un certificado asociado a este código.<br />
+            <span class="small">Código de verificación: {{ uuid }}</span>
+          </div>
+        {% else %}
+          {% if valid %}
+            <div class="pill" role="status">
+              <span class="dot ok"></span>
+              <span><strong>Válido</strong></span>
+              <span class="muted">· Emitido</span>
+            </div>
+          {% else %}
+            <div class="pill" role="status">
+              <span class="dot {% if revoked %}bad{% else %}warn{% endif %}"></span>
+              <span><strong>No válido</strong></span>
+              <span class="muted">· Estado: {{ status_label|default:status }}</span>
+            </div>
+          {% endif %}
+
+          <div class="grid" style="margin-top: 12px;">
+            <div>
+              <div class="row">
+                <div class="k">Estudiante</div>
+                <div class="v">{{ student_full_name }}</div>
+              </div>
+              <div class="row">
+                <div class="k">Documento</div>
+                <div class="v">{{ document_number }}</div>
+              </div>
+              <div class="row">
+                <div class="k">Año académico</div>
+                <div class="v">{{ academic_year }}</div>
+              </div>
+              <div class="row">
+                <div class="k">Grado</div>
+                <div class="v">{{ grade }}</div>
+              </div>
+              <div class="row">
+                <div class="k">Fecha de emisión</div>
+                <div class="v">
+                  {% if issued_at %}
+                    {{ issued_at|date:"d/m/Y H:i" }}
+                  {% else %}
+                    —
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="row">
+                <div class="k">Tipo</div>
+                <div class="v">{{ certificate_type_label|default:certificate_type }}</div>
+              </div>
+              <div class="row">
+                <div class="k">Código</div>
+                <div class="v"><code style="color: var(--text);">{{ uuid }}</code></div>
+              </div>
+              <div class="row">
+                <div class="k">Sello (hash)</div>
+                <div class="v"><code style="color: var(--text);">{{ seal_hash }}</code></div>
+              </div>
+              {% if revoked %}
+                <div class="row">
+                  <div class="k">Motivo</div>
+                  <div class="v">{{ revoke_reason|default:"—" }}</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="notice">
+            Este resultado confirma si el certificado fue <strong>emitido</strong> por el sistema.
+            Si el estado es “Revoked” o “No válido”, comunícate con la institución.
+          </div>
+
+          <div class="actions">
+            <a class="btn" href="{{ api_json_url }}" rel="nofollow">Ver JSON (técnico)</a>
+            {% if institution and institution.website %}
+              <a class="btn" href="{{ institution.website }}" target="_blank" rel="noopener">Sitio web</a>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="footer">
+        Verificación pública · {% now "Y" %}
+      </div>
+    </div>
+  </body>
+</html>
