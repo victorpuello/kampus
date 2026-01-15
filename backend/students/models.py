@@ -1,5 +1,14 @@
 from django.conf import settings
 from django.db import models
+import hashlib
+import json
+import uuid
+
+
+def certificate_pdf_upload_to(instance, filename: str) -> str:
+    # Keep a deterministic name per issue.
+    ext = (filename.rsplit('.', 1)[-1] if filename and '.' in filename else 'pdf').lower()
+    return f"certificates/{instance.certificate_type.lower()}/{instance.uuid}.{ext}"
 
 
 class Student(models.Model):
@@ -195,3 +204,89 @@ class StudentDocument(models.Model):
 
     def __str__(self):
         return f"{self.get_document_type_display()} - {self.student}"
+
+
+class CertificateIssue(models.Model):
+    """Issued certificates, used for QR verification (public endpoint)."""
+
+    TYPE_STUDIES = "STUDIES"
+    TYPE_CHOICES = (
+        (TYPE_STUDIES, "Certificado de estudios"),
+    )
+
+    STATUS_ISSUED = "ISSUED"
+    STATUS_REVOKED = "REVOKED"
+    STATUS_CHOICES = (
+        (STATUS_ISSUED, "Emitido"),
+        (STATUS_REVOKED, "Revocado"),
+    )
+
+    uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    certificate_type = models.CharField(max_length=30, choices=TYPE_CHOICES, default=TYPE_STUDIES)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_ISSUED)
+
+    enrollment = models.ForeignKey(
+        "students.Enrollment",
+        related_name="issued_certificates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issued_certificates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    issued_at = models.DateTimeField(auto_now_add=True)
+
+    amount_cop = models.PositiveIntegerField(
+        default=10000,
+        help_text="Valor cobrado por este certificado (se guarda al emitir).",
+    )
+
+    pdf_file = models.FileField(
+        upload_to=certificate_pdf_upload_to,
+        blank=True,
+        null=True,
+        help_text="Copia del PDF generado para auditoría y re-descarga.",
+    )
+
+    # Snapshot of data used to render the certificate (manual student details, year, grade, rows, etc.).
+    payload = models.JSONField(default=dict, blank=True)
+    seal_hash = models.CharField(max_length=64, blank=True)
+
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoke_reason = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-issued_at"]
+        indexes = [
+            models.Index(fields=["uuid"], name="idx_cert_issue_uuid"),
+            models.Index(fields=["certificate_type", "status"], name="idx_cert_issue_type_status"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_certificate_type_display()} - {self.uuid}"
+
+    def _compute_seal_hash(self) -> str:
+        data = {
+            "uuid": str(self.uuid),
+            "certificate_type": self.certificate_type,
+            "issued_at": self.issued_at.isoformat() if self.issued_at else "",
+            "payload": self.payload or {},
+        }
+        raw = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    def save(self, *args, **kwargs):
+        creating = self._state.adding
+        super().save(*args, **kwargs)
+
+        # Compute seal after we have issued_at.
+        if (creating or not self.seal_hash) and self.issued_at:
+            seal = self._compute_seal_hash()
+            if self.seal_hash != seal:
+                self.seal_hash = seal
+                super().save(update_fields=["seal_hash"])

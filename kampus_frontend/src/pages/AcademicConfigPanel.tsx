@@ -87,6 +87,7 @@ export default function AcademicConfigPanel() {
   const [editingLevelId, setEditingLevelId] = useState<number | null>(null)
   const [gradeInput, setGradeInput] = useState('')
   const [gradeLevelInput, setGradeLevelInput] = useState('')
+  const [gradeOrdinalInput, setGradeOrdinalInput] = useState('')
   const [editingGradeId, setEditingGradeId] = useState<number | null>(null)
 
   // Areas & Subjects state
@@ -557,9 +558,12 @@ export default function AcademicConfigPanel() {
     e.preventDefault()
     if (!gradeInput.trim()) return
     try {
+      const ordinal = gradeOrdinalInput === '' ? undefined : parseInt(gradeOrdinalInput, 10)
+
       const data = { 
         name: gradeInput.trim(),
-        level: gradeLevelInput ? parseInt(gradeLevelInput) : undefined
+        level: gradeLevelInput ? parseInt(gradeLevelInput) : undefined,
+        ordinal,
       }
 
       if (editingGradeId) {
@@ -573,6 +577,7 @@ export default function AcademicConfigPanel() {
       
       setGradeInput('')
       setGradeLevelInput('')
+      setGradeOrdinalInput('')
       await load()
     } catch (error: any) {
       console.error(error)
@@ -583,6 +588,9 @@ export default function AcademicConfigPanel() {
   const onEditGrade = (grade: Grade) => {
     setGradeInput(grade.name)
     setGradeLevelInput(grade.level ? grade.level.toString() : '')
+    const ordinal = grade.ordinal
+    const inRange = ordinal !== null && ordinal !== undefined && ordinal >= -2 && ordinal <= 11
+    setGradeOrdinalInput(inRange ? String(ordinal) : '')
     setEditingGradeId(grade.id)
   }
 
@@ -595,6 +603,7 @@ export default function AcademicConfigPanel() {
   const onCancelEditGrade = () => {
     setGradeInput('')
     setGradeLevelInput('')
+    setGradeOrdinalInput('')
     setEditingGradeId(null)
   }
 
@@ -1220,6 +1229,12 @@ export default function AcademicConfigPanel() {
     }
   }
 
+  const formatGradeOrdinal = (value: number) => {
+    const abs = Math.abs(value)
+    const padded = abs < 10 ? `0${abs}` : String(abs)
+    return value < 0 ? `-${padded}` : padded
+  }
+
   if (loading) {
     return <div className="p-6 text-slate-500">Cargando configuración...</div>
   }
@@ -1735,6 +1750,19 @@ export default function AcademicConfigPanel() {
                     className="flex-1 border-orange-100 focus:border-orange-300 focus:ring-orange-200"
                   />
                   <select
+                    className="w-24 p-2 border rounded text-sm bg-white border-orange-100 focus:border-orange-300 focus:ring-orange-200"
+                    value={gradeOrdinalInput}
+                    onChange={(e) => setGradeOrdinalInput(e.target.value)}
+                    title="Ordinal (orden institucional)"
+                  >
+                    <option value="">Ord...</option>
+                    {Array.from({ length: 14 }, (_, i) => i - 2).map((n) => (
+                      <option key={n} value={String(n)}>
+                        {formatGradeOrdinal(n)}
+                      </option>
+                    ))}
+                  </select>
+                  <select
                     className="w-32 p-2 border rounded text-sm bg-white border-orange-100 focus:border-orange-300 focus:ring-orange-200"
                     value={gradeLevelInput}
                     onChange={(e) => setGradeLevelInput(e.target.value)}
@@ -1756,7 +1784,15 @@ export default function AcademicConfigPanel() {
                       return (order[a.level_type] || 99) - (order[b.level_type] || 99)
                     })
                     .map(level => {
-                      const levelGrades = grades.filter(g => g.level === level.id)
+                      const levelGrades = grades
+                        .filter(g => g.level === level.id)
+                        .slice()
+                        .sort((a, b) => {
+                          const ao = a.ordinal === null || a.ordinal === undefined ? 999 : a.ordinal
+                          const bo = b.ordinal === null || b.ordinal === undefined ? 999 : b.ordinal
+                          if (ao !== bo) return ao - bo
+                          return (a.name || '').localeCompare(b.name || '')
+                        })
                       if (levelGrades.length === 0) return null
                       return (
                         <div key={level.id}>
@@ -1767,7 +1803,14 @@ export default function AcademicConfigPanel() {
                           <div className="space-y-2 pl-3 border-l-2 border-orange-100">
                             {levelGrades.map((g) => (
                               <div key={g.id} className="p-3 bg-white hover:bg-orange-50 rounded-lg border border-slate-200 flex justify-between items-center shadow-sm transition-colors">
-                                <div className="font-bold text-slate-700">{g.name}</div>
+                                <div className="flex items-center gap-2">
+                                  <div className="font-bold text-slate-700">{g.name}</div>
+                                  {g.ordinal !== null && g.ordinal !== undefined && (
+                                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-0.5 rounded border border-orange-200" title="Ordinal">
+                                      {formatGradeOrdinal(g.ordinal)}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex gap-2">
                                   <Button size="sm" variant="ghost" className="text-orange-600 hover:text-orange-800 hover:bg-orange-100" onClick={() => onEditGrade(g)}>✎</Button>
                                   <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => onDeleteGrade(g.id)}>×</Button>
@@ -1897,7 +1940,15 @@ export default function AcademicConfigPanel() {
               <CardContent className="pt-4">
                 <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
                   {levels.map(level => {
-                    const levelGrades = grades.filter(g => g.level === level.id)
+                    const levelGrades = grades
+                      .filter(g => g.level === level.id)
+                      .slice()
+                      .sort((a, b) => {
+                        const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                        const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                        if (ao !== bo) return bo - ao
+                        return (a.name || '').localeCompare(b.name || '')
+                      })
                     if (levelGrades.length === 0) return null
                     
                     return (
@@ -1929,7 +1980,16 @@ export default function AcademicConfigPanel() {
                     <div className="space-y-1">
                       <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider px-1">Sin Nivel</h4>
                       <div className="space-y-1 pl-2 border-l-2 border-slate-100">
-                        {grades.filter(g => !g.level).map(g => (
+                        {grades
+                          .filter(g => !g.level)
+                          .slice()
+                          .sort((a, b) => {
+                            const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                            const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                            if (ao !== bo) return bo - ao
+                            return (a.name || '').localeCompare(b.name || '')
+                          })
+                          .map(g => (
                           <button
                             key={g.id}
                             onClick={() => setSelectedSubjectGrade(g.id)}
@@ -1987,7 +2047,16 @@ export default function AcademicConfigPanel() {
                         onChange={(e) => setCopyFromGradeId(e.target.value)}
                       >
                         <option value="">Seleccionar Grado Origen</option>
-                        {grades.filter(g => g.id !== selectedSubjectGrade).map(g => (
+                        {grades
+                          .filter(g => g.id !== selectedSubjectGrade)
+                          .slice()
+                          .sort((a, b) => {
+                            const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                            const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                            if (ao !== bo) return bo - ao
+                            return (a.name || '').localeCompare(b.name || '')
+                          })
+                          .map(g => (
                           <option key={g.id} value={g.id}>{g.name}</option>
                         ))}
                       </select>
@@ -2238,7 +2307,15 @@ export default function AcademicConfigPanel() {
                     >
                       <option value="">Seleccionar Grado...</option>
                       {levels.map(level => {
-                        const levelGrades = grades.filter(g => g.level === level.id)
+                        const levelGrades = grades
+                          .filter(g => g.level === level.id)
+                          .slice()
+                          .sort((a, b) => {
+                            const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                            const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                            if (ao !== bo) return bo - ao
+                            return (a.name || '').localeCompare(b.name || '')
+                          })
                         if (levelGrades.length === 0) return null
                         return (
                           <optgroup key={level.id} label={level.name}>
@@ -2248,7 +2325,16 @@ export default function AcademicConfigPanel() {
                       })}
                       {grades.filter(g => !g.level).length > 0 && (
                         <optgroup label="Sin Nivel">
-                          {grades.filter(g => !g.level).map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                          {grades
+                            .filter(g => !g.level)
+                            .slice()
+                            .sort((a, b) => {
+                              const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                              const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                              if (ao !== bo) return bo - ao
+                              return (a.name || '').localeCompare(b.name || '')
+                            })
+                            .map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                         </optgroup>
                       )}
                     </select>

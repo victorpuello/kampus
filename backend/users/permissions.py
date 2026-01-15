@@ -26,6 +26,23 @@ class IsCoordinator(permissions.BasePermission):
         ]
 
 
+class IsSecretary(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == User.ROLE_SECRETARY
+
+
+class IsAdministrativeStaff(permissions.BasePermission):
+    """Admin-like roles allowed to perform administrative operations."""
+
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role in [
+            User.ROLE_SUPERADMIN,
+            User.ROLE_ADMIN,
+            User.ROLE_COORDINATOR,
+            User.ROLE_SECRETARY,
+        ]
+
+
 class IsTeacher(permissions.BasePermission):
     def has_permission(self, request, view):
         return request.user.is_authenticated and request.user.role == User.ROLE_TEACHER

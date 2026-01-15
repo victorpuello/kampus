@@ -430,7 +430,12 @@ export default function EnrollmentList() {
                             >
                               {grades
                                 .slice()
-                                .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                                .sort((a, b) => {
+                                  const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                                  const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                                  if (ao !== bo) return bo - ao
+                                  return String(a.name || '').localeCompare(String(b.name || ''))
+                                })
                                 .map((g) => (
                                   <option key={g.id} value={g.id}>
                                     {g.name}

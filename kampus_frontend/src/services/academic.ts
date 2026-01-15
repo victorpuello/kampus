@@ -353,8 +353,8 @@ export const academicApi = {
 
   // Grades
   listGrades: () => api.get<Grade[]>('/api/grades/'),
-  createGrade: (data: { name: string; level?: number }) => api.post<Grade>('/api/grades/', data),
-  updateGrade: (id: number, data: { name: string; level?: number }) => api.put<Grade>(`/api/grades/${id}/`, data),
+  createGrade: (data: { name: string; level?: number; ordinal?: number }) => api.post<Grade>('/api/grades/', data),
+  updateGrade: (id: number, data: { name: string; level?: number; ordinal?: number }) => api.put<Grade>(`/api/grades/${id}/`, data),
   deleteGrade: (id: number) => api.delete(`/api/grades/${id}/`),
 
   // Groups

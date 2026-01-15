@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
-import { academicApi, type AcademicYear, type Group, type TeacherAssignment, type AcademicLoad } from '../services/academic'
+import { academicApi, type AcademicYear, type Group, type TeacherAssignment, type AcademicLoad, type Grade } from '../services/academic'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -137,6 +137,7 @@ export default function TeacherForm() {
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+  const [grades, setGrades] = useState<Grade[]>([])
   const [academicLoads, setAcademicLoads] = useState<AcademicLoad[]>([])
   const [selectedYear, setSelectedYear] = useState<string>('')
   const [newAssignment, setNewAssignment] = useState({
@@ -152,15 +153,17 @@ export default function TeacherForm() {
 
   const loadAssignmentData = async () => {
     try {
-      const [yearsRes, groupsRes, assignmentsRes, loadsRes] = await Promise.all([
+      const [yearsRes, groupsRes, gradesRes, assignmentsRes, loadsRes] = await Promise.all([
         academicApi.listYears(),
         academicApi.listGroups(),
+        academicApi.listGrades(),
         academicApi.listAssignments(),
         academicApi.listAcademicLoads()
       ])
       
       setYears(yearsRes.data)
       setGroups(groupsRes.data)
+      setGrades(gradesRes.data)
       setAcademicLoads(loadsRes.data)
       
       // Filter assignments for this teacher
@@ -216,7 +219,22 @@ export default function TeacherForm() {
 
   const getFilteredGroups = () => {
     if (!selectedYear) return []
-    return groups.filter(g => g.academic_year === Number(selectedYear))
+    const gradeOrdinalById = new Map<number, number | null | undefined>()
+    for (const gr of grades) gradeOrdinalById.set(gr.id, gr.ordinal)
+
+    return groups
+      .filter(g => g.academic_year === Number(selectedYear))
+      .slice()
+      .sort((a, b) => {
+        const ao = gradeOrdinalById.get(a.grade)
+        const bo = gradeOrdinalById.get(b.grade)
+        const aOrd = ao === null || ao === undefined ? -9999 : ao
+        const bOrd = bo === null || bo === undefined ? -9999 : bo
+        if (aOrd !== bOrd) return bOrd - aOrd
+        const aLabel = `${a.grade_name || ''} ${a.name || ''}`.trim()
+        const bLabel = `${b.grade_name || ''} ${b.name || ''}`.trim()
+        return aLabel.localeCompare(bLabel)
+      })
   }
 
   const selectedYearObj = years.find((y) => y.id === Number(selectedYear))
@@ -408,7 +426,7 @@ export default function TeacherForm() {
           className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'info'
               ? 'bg-white text-blue-700 shadow'
-              : 'text-slate-600 hover:bg-white/[0.12] hover:text-slate-800'
+              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800'
           }`}
         >
           Información General
@@ -424,7 +442,7 @@ export default function TeacherForm() {
           className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'assignments'
               ? 'bg-white text-blue-700 shadow'
-              : 'text-slate-600 hover:bg-white/[0.12] hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed'
+              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed'
           }`}
         >
           Asignación Académica

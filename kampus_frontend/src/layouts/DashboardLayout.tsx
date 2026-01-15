@@ -55,6 +55,11 @@ export default function DashboardLayout() {
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
   const isTeacher = user?.role === 'TEACHER'
   const isParent = user?.role === 'PARENT'
+  const isAdministrativeStaff =
+    user?.role === 'ADMIN' ||
+    user?.role === 'SUPERADMIN' ||
+    user?.role === 'COORDINATOR' ||
+    user?.role === 'SECRETARY'
 
   const EXPANDED_MENU_STORAGE_KEY = 'kampus.sidebar.expandedMenu'
   const COLLAPSED_SIDEBAR_STORAGE_KEY = 'kampus.sidebar.collapsed'
@@ -340,6 +345,11 @@ export default function DashboardLayout() {
       ...(canManageRbac ? [{ name: 'Permisos', href: '/rbac' }] : []),
     ]
 
+    const administrativeChildren: NavigationChild[] = [
+      { name: 'Certificados', href: '/administrativos/certificados' },
+      { name: 'Ingresos (Certificados)', href: '/administrativos/certificados/ingresos' },
+    ]
+
     return [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
@@ -349,6 +359,15 @@ export default function DashboardLayout() {
         children: managementChildren,
       },
       { name: 'Reportes', href: '/enrollments/reports', icon: FileText },
+      ...(isAdministrativeStaff
+        ? [
+            {
+              name: 'Administrativos',
+              icon: FileText,
+              children: administrativeChildren,
+            } as NavigationItem,
+          ]
+        : []),
       {
         name: 'Usuarios',
         icon: Users,
@@ -382,7 +401,7 @@ export default function DashboardLayout() {
         ],
       },
     ]
-  }, [canManageRbac, isParent, isTeacher, teacherHasDirectedGroup, unreadNotifications])
+  }, [canManageRbac, isAdministrativeStaff, isParent, isTeacher, teacherHasDirectedGroup, unreadNotifications])
 
   useEffect(() => {
     // Ensure the active submenu is expanded so the user can see where they are.

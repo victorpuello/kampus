@@ -43,3 +43,7 @@ kampus_frontend/public/sitemap.xml
 # Local config exports (can contain real data)
 docs/kampus_config_*.json
 docs/kampus_config_*.json.gz
+
+# Local artifacts / PII
+CERTIFICADOS PRIMARIA.pdf
+docs/reporte certificados

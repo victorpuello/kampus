@@ -107,9 +107,9 @@ export default function PromotionWorkflow() {
 
   const filteredGrades = useMemo(() => {
     return (grades || []).slice().sort((a, b) => {
-      const ao = typeof a.ordinal === 'number' ? a.ordinal : 999
-      const bo = typeof b.ordinal === 'number' ? b.ordinal : 999
-      if (ao !== bo) return ao - bo
+      const ao = typeof a.ordinal === 'number' ? a.ordinal : -9999
+      const bo = typeof b.ordinal === 'number' ? b.ordinal : -9999
+      if (ao !== bo) return bo - ao
       return String(a.name || '').localeCompare(String(b.name || ''))
     })
   }, [grades])

@@ -117,6 +117,13 @@ class GradeSerializer(serializers.ModelSerializer):
     def get_level_name(self, obj):
         return obj.level.name if obj.level else None
 
+    def validate_ordinal(self, value):
+        if value is None:
+            return value
+        if value < -2 or value > 11:
+            raise serializers.ValidationError("El ordinal debe estar entre -2 y 11.")
+        return value
+
 
 class GroupSerializer(serializers.ModelSerializer):
     grade_name = serializers.CharField(source="grade.name", read_only=True)

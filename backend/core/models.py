@@ -1,5 +1,34 @@
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
+
+
+def validate_png_image(file_obj):
+    """Ensure uploaded image is actually a PNG (not just named .png)."""
+    if not file_obj:
+        return
+
+    try:
+        from PIL import Image
+    except Exception:
+        # If Pillow isn't available, fall back to extension validation.
+        return
+
+    try:
+        file_obj.seek(0)
+        img = Image.open(file_obj)
+        if (img.format or "").upper() != "PNG":
+            raise ValidationError("La firma debe ser una imagen PNG.")
+    except ValidationError:
+        raise
+    except Exception:
+        raise ValidationError("Archivo de firma inválido. Debe ser una imagen PNG válida.")
+    finally:
+        try:
+            file_obj.seek(0)
+        except Exception:
+            pass
 
 class Institution(models.Model):
     name = models.CharField(max_length=200, verbose_name="Nombre Institución")
@@ -50,6 +79,21 @@ class Institution(models.Model):
         blank=True,
         verbose_name="Pie de página PDF",
         help_text="Texto opcional que aparece en el pie del PDF.",
+    )
+
+    pdf_rector_signature_image = models.ImageField(
+        upload_to='institutions/signatures/',
+        blank=True,
+        null=True,
+        verbose_name="Firma del rector (PDF)",
+        help_text="Debe ser PNG (idealmente con fondo transparente) para usar en certificados/reportes.",
+        validators=[FileExtensionValidator(["png"]), validate_png_image],
+    )
+
+    certificate_studies_price_cop = models.PositiveIntegerField(
+        default=10000,
+        verbose_name="Valor certificado de estudios (COP)",
+        help_text="Precio unitario que se registra al emitir certificados de estudios.",
     )
     
     rector = models.ForeignKey(

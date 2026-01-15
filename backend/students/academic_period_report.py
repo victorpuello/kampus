@@ -439,3 +439,55 @@ def generate_academic_period_group_report_pdf(
         raise RuntimeError("Error generating PDF")
 
     return result.getvalue()
+
+
+def compute_certificate_studies_rows(enrollment: Enrollment) -> List[Dict[str, str]]:
+    """Compute final subject rows for a 'certificado de estudios'.
+
+    Uses the same gradebook computation logic as the academic period report.
+    Returns items with keys: area_subject, score, performance.
+    """
+
+    if not enrollment.group_id:
+        return []
+
+    year_periods = _year_periods(enrollment.academic_year_id)
+    if not year_periods:
+        return []
+
+    # Pick the latest period available for the year as the reference.
+    selected_period = year_periods[-1]
+
+    assignments = _teacher_assignments(enrollment.group_id, enrollment.academic_year_id)
+    if not assignments:
+        return []
+
+    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods)
+    achievements_by_ta_period, dim_percentage_by_id = _precompute_achievements(assignments, year_periods, enrollment.group_id)
+
+    report_rows = _build_rows_for_enrollment(
+        enrollment=enrollment,
+        selected_period=selected_period,
+        year_periods=year_periods,
+        assignments=assignments,
+        gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
+        achievements_by_ta_period=achievements_by_ta_period,
+        dim_percentage_by_id=dim_percentage_by_id,
+    )
+
+    out: List[Dict[str, str]] = []
+    for r in report_rows:
+        title = (r.get("title") or "").strip()
+        final_score = (r.get("final_score") or "").strip()
+        final_scale = (r.get("final_scale") or "").strip()
+        if not title:
+            continue
+        out.append(
+            {
+                "area_subject": title,
+                "score": final_score,
+                "performance": final_scale,
+            }
+        )
+
+    return out

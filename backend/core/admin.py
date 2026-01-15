@@ -16,12 +16,18 @@ class InstitutionAdmin(admin.ModelAdmin):
         ("Membrete para reportes PDF", {
             "fields": (
                 'pdf_letterhead_image',
+                'pdf_rector_signature_image',
                 'pdf_show_logo',
                 'pdf_logo_height_px',
                 'pdf_header_line1',
                 'pdf_header_line2',
                 'pdf_header_line3',
                 'pdf_footer_text',
+            )
+        }),
+        ("Certificados", {
+            "fields": (
+                'certificate_studies_price_cop',
             )
         }),
     )

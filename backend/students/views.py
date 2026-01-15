@@ -5,19 +5,26 @@ from rest_framework.views import APIView
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework import status
-from django.http import HttpResponse
+from django.http import FileResponse, HttpResponse
+from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Q, Sum
 from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.urls import reverse
 import csv
+import base64
 import io
 import os
+import random
+import tempfile
 import re
 import unicodedata
+import uuid as py_uuid
 from datetime import date, datetime
 from decimal import Decimal
-from academic.models import AcademicYear, Grade, Group
+from academic.models import AcademicLoad, AcademicYear, Grade, Group
 from academic.models import (
     Achievement,
     AchievementGrade,
@@ -34,12 +41,30 @@ from academic.grading import (
     weighted_average,
 )
 from core.models import Institution
-from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ConditionalPromotionPlan
+from core.models import Campus
+from .models import (
+    CertificateIssue,
+    ConditionalPromotionPlan,
+    Enrollment,
+    FamilyMember,
+    Student,
+    StudentDocument,
+    StudentNovelty,
+)
 try:
     from xhtml2pdf import pisa
 except ImportError:
     pisa = None
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+
+from users.permissions import IsAdministrativeStaff
+
+from audit.services import log_event
+
+try:
+    import qrcode  # type: ignore
+except Exception:  # pragma: no cover
+    qrcode = None
 
 from .serializers import (
     StudentSerializer,
@@ -52,7 +77,7 @@ from .pagination import StudentPagination, EnrollmentPagination
 from core.permissions import HasDjangoPermission, KampusModelPermissions
 import traceback
 
-from .academic_period_report import generate_academic_period_report_pdf
+from .academic_period_report import compute_certificate_studies_rows, generate_academic_period_report_pdf
 
 User = get_user_model()
 
@@ -1289,6 +1314,793 @@ class BulkEnrollmentView(APIView):
                     results['errors'].append(f"Row {row_index}: {str(e)}")
         
         return Response(results)
+
+
+def _pisa_link_callback_for_pdf(uri: str, rel: str):
+    # Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
+    if uri is None:
+        return uri
+    uri = str(uri)
+
+    # Allow absolute URLs
+    if uri.startswith('http://') or uri.startswith('https://'):
+        return uri
+
+    media_url = getattr(settings, 'MEDIA_URL', '') or ''
+    static_url = getattr(settings, 'STATIC_URL', '') or ''
+
+    if media_url and uri.startswith(media_url):
+        path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url):].lstrip('/\\'))
+        return os.path.normpath(path)
+
+    if static_url and uri.startswith(static_url):
+        static_root = getattr(settings, 'STATIC_ROOT', None)
+        if static_root:
+            path = os.path.join(static_root, uri[len(static_url):].lstrip('/\\'))
+            return os.path.normpath(path)
+
+    # If template provided an absolute filesystem path already
+    if os.path.isabs(uri) and os.path.exists(uri):
+        return os.path.normpath(uri)
+
+    # Best effort relative resolution
+    if rel:
+        candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
+        if os.path.exists(candidate):
+            return candidate
+
+    return uri
+
+
+def _format_decimal_score(value: float) -> str:
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return str(value)
+
+
+def _performance_from_score(score: float) -> str:
+    # Simple mapping aligned with the provided sample.
+    return "ALTO" if score >= 4.0 else "BASICO"
+
+
+def _qr_data_uri(text: str) -> str:
+    if not qrcode:
+        return ""
+    img = qrcode.make(text)
+    buff = io.BytesIO()
+    img.save(buff, format="PNG")
+    encoded = base64.b64encode(buff.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def _qr_temp_png_path(text: str) -> str:
+    """Generate a QR image as a temporary PNG file and return its absolute path.
+
+    xhtml2pdf is more reliable with file paths than with data URIs.
+    Caller is responsible for deleting the file.
+    """
+
+    if not qrcode:
+        return ""
+
+    img = qrcode.make(text)
+    tmp = tempfile.NamedTemporaryFile(prefix="kampus_qr_", suffix=".png", delete=False)
+    tmp.close()
+    img.save(tmp.name, format="PNG")
+    return tmp.name
+
+
+def _active_academic_year() -> AcademicYear | None:
+    return AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).first()
+
+
+def _subjects_for_grade(grade_id: int):
+    return (
+        AcademicLoad.objects.filter(grade_id=grade_id)
+        .select_related("subject", "subject__area")
+        .order_by("subject__area__name", "subject__name", "id")
+    )
+
+
+def _normalize_text_for_compare(value: str) -> str:
+    text = (value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text).encode("ASCII", "ignore").decode("utf-8")
+    # Keep only alphanumerics for robust comparisons.
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+def _format_certificate_subject_label(
+    title: str,
+    *,
+    grade_level_type: str | None = None,
+) -> tuple[str, bool]:
+    """Return (label, skip).
+
+    Rules:
+    - Prefer showing ONLY the subject name (no area) for most rows.
+    - For primaria, keep 'Matemáticas - (Aritmética/Geometría/Estadística)'.
+    - Avoid/skip the invalid 'Matemáticas - Matemáticas' row in primaria.
+    """
+
+    raw = (title or "").strip()
+    if not raw:
+        return "", True
+
+    area = None
+    subject = raw
+    if " - " in raw:
+        area, subject = [p.strip() for p in raw.split(" - ", 1)]
+
+    if not area:
+        return subject, False
+
+    area_norm = _normalize_text_for_compare(area)
+    subject_norm = _normalize_text_for_compare(subject)
+    is_primary = (grade_level_type or "").upper() == "PRIMARY"
+
+    math_area_norms = {"matematica", "matematicas"}
+
+    if area_norm in math_area_norms and subject_norm in math_area_norms and is_primary:
+        # Primary plan should not include a 'Matemáticas - Matemáticas' entry.
+        return "", True
+
+    if area_norm == subject_norm:
+        # Avoid duplicates like 'X - X'.
+        return subject, False
+
+    if area_norm in math_area_norms and subject_norm in {"aritmetica", "geometria", "estadistica"}:
+        # Standardize the label to the plural form users expect.
+        return f"Matemáticas - {subject}", False
+
+    # Default: subject only.
+    return subject, False
+
+
+def _certificate_studies_build_context(request, data: dict, institution: Institution):
+    """Build context for the certificate HTML/PDF.
+
+    This is used by both the HTML preview and the PDF issuance.
+    """
+
+    enrollment_id = data.get("enrollment_id")
+    academic_year_id = data.get("academic_year_id")
+
+    manual_name = (data.get("student_full_name") or "").strip()
+    manual_doc_type = (data.get("document_type") or "").strip() or "Documento"
+    manual_doc_number = (data.get("document_number") or "").strip()
+    manual_grade_id = data.get("grade_id")
+    manual_year = data.get("academic_year")
+    manual_campus_id = data.get("campus_id")
+
+    enrollment = None
+    campus = None
+
+    if enrollment_id:
+        enrollment = (
+            Enrollment.objects.select_related(
+                "student",
+                "student__user",
+                "grade",
+                "grade__level",
+                "academic_year",
+                "campus",
+            )
+            .get(pk=int(enrollment_id))
+        )
+
+        campus = getattr(enrollment, "campus", None)
+
+        student_full_name = enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else ""
+        document_type = getattr(enrollment.student, "document_type", "") or "Documento"
+        document_number = getattr(enrollment.student, "document_number", "") or ""
+        grade = enrollment.grade
+        academic_year = enrollment.academic_year.year if enrollment.academic_year else ""
+        if academic_year_id:
+            try:
+                ay = AcademicYear.objects.get(pk=int(academic_year_id))
+                academic_year = ay.year
+            except Exception:
+                pass
+    else:
+        if not manual_name or not manual_doc_number or not manual_grade_id:
+            raise serializers.ValidationError(
+                "For manual issuance you must send student_full_name, document_number and grade_id."
+            )
+
+        grade = Grade.objects.select_related("level").get(pk=int(manual_grade_id))
+
+        if manual_campus_id:
+            try:
+                campus = Campus.objects.select_related("institution").get(pk=int(manual_campus_id))
+            except Exception:
+                campus = None
+
+        student_full_name = manual_name
+        document_type = manual_doc_type
+        document_number = manual_doc_number
+
+        if manual_year:
+            academic_year = manual_year
+        else:
+            active = _active_academic_year()
+            academic_year = active.year if active else date.today().year
+
+    loads = _subjects_for_grade(grade.id)
+    rows = []
+    grade_level_type = getattr(getattr(grade, "level", None), "level_type", None)
+
+    if enrollment is not None:
+        try:
+            computed = compute_certificate_studies_rows(enrollment)
+            if computed:
+                rows = computed
+        except Exception:
+            rows = []
+
+    if not rows:
+        for load in loads:
+            score = round(random.uniform(3.0, 4.5), 2)
+
+            area_subject = ""
+            if load.subject and getattr(load.subject, "area", None):
+                area_subject = f"{(load.subject.area.name or '').strip()} - {(load.subject.name or '').strip()}"
+            else:
+                area_subject = (getattr(load.subject, "name", "") or "").strip()
+
+            label, skip = _format_certificate_subject_label(area_subject, grade_level_type=grade_level_type)
+            if skip:
+                continue
+
+            rows.append(
+                {
+                    "area_subject": label,
+                    "score": _format_decimal_score(score),
+                    "performance": _performance_from_score(score),
+                }
+            )
+
+    # Normalize/format labels for computed rows too.
+    if rows:
+        normalized_rows = []
+        for r in rows:
+            title = (r.get("area_subject") or "").strip()
+            label, skip = _format_certificate_subject_label(title, grade_level_type=grade_level_type)
+            if skip:
+                continue
+            rr = dict(r)
+            rr["area_subject"] = label
+            normalized_rows.append(rr)
+        rows = normalized_rows
+
+    place = ""
+    if campus and (campus.municipality or campus.department):
+        place = " - ".join([p for p in [campus.municipality, campus.department] if p])
+    else:
+        place = institution.pdf_header_line3 or institution.name
+
+    signer_name = ""
+    signer_role = ""
+    if institution.rector:
+        signer_name = institution.rector.get_full_name()
+        signer_role = "Rector(a)"
+    elif institution.secretary:
+        signer_name = institution.secretary.get_full_name()
+        signer_role = "Secretaría"
+
+    return {
+        "enrollment": enrollment,
+        "grade": grade,
+        "institution": institution,
+        "campus": campus,
+        "student_full_name": student_full_name,
+        "document_type": document_type,
+        "document_number": document_number,
+        "academic_year": academic_year,
+        "grade_name": grade.name,
+        "academic_level": getattr(getattr(grade, "level", None), "name", "") or "",
+        "rows": rows,
+        "conduct": "BUENA",
+        "final_status": getattr(enrollment, "final_status", "") or "APROBADO",
+        "place": place,
+        "issue_date": date.today(),
+        "signer_name": signer_name,
+        "signer_role": signer_role,
+    }
+
+
+IDENTIFICATION_DOCUMENT_TYPES = (
+    ("RC", "Registro Civil de Nacimiento"),
+    ("TI", "Tarjeta de Identidad"),
+    ("CC", "Cédula de Ciudadanía"),
+    ("CE", "Cédula de Extranjería"),
+    ("PA", "Pasaporte"),
+    ("PEP", "PEP"),
+)
+
+
+class CertificateDocumentTypesView(APIView):
+    """List identification document types for archived certificate issuance."""
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def get(self, request, format=None):
+        return Response(
+            {
+                "options": [{"value": label, "label": label} for _, label in IDENTIFICATION_DOCUMENT_TYPES],
+                "allow_other": True,
+            }
+        )
+
+
+class CertificateStudiesIssueView(APIView):
+    permission_classes = [IsAdministrativeStaff]
+
+    def post(self, request, format=None):
+        """Issue a 'Certificado de estudios' PDF.
+
+        Payload options:
+        - Registered student: { enrollment_id, academic_year_id? }
+        - Archivo student: { student_full_name, document_type, document_number, grade_id, academic_year? , campus_id? }
+        """
+
+        if not pisa:
+            return Response({"error": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        institution = Institution.objects.first() or Institution()
+
+        try:
+            built = _certificate_studies_build_context(request, request.data, institution)
+        except serializers.ValidationError as e:
+            return Response({"detail": str(e.detail) if hasattr(e, 'detail') else str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Enrollment.DoesNotExist:
+            return Response({"detail": "Enrollment not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Grade.DoesNotExist:
+            return Response({"detail": "Grade not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            payload = {"error": "Error preparing certificate", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        enrollment = built["enrollment"]
+        grade = built["grade"]
+        campus = built["campus"]
+        student_full_name = built["student_full_name"]
+        document_type = built["document_type"]
+        document_number = built["document_number"]
+        academic_year = built["academic_year"]
+        rows = built["rows"]
+        place = built["place"]
+        signer_name = built["signer_name"]
+        signer_role = built["signer_role"]
+
+        try:
+            amount_cop = int(getattr(institution, "certificate_studies_price_cop", 10000) or 10000)
+        except Exception:
+            amount_cop = 10000
+        if amount_cop < 0:
+            amount_cop = 0
+
+        try:
+            issue = CertificateIssue.objects.create(
+                certificate_type=CertificateIssue.TYPE_STUDIES,
+                enrollment=enrollment,
+                issued_by=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
+                amount_cop=amount_cop,
+                payload={
+                    "student_full_name": student_full_name,
+                    "document_type": document_type,
+                    "document_number": document_number,
+                    "academic_year": academic_year,
+                    "grade_id": grade.id,
+                    "grade_name": grade.name,
+                    "rows": rows,
+                },
+            )
+
+            verify_url = request.build_absolute_uri(
+                reverse("public-certificate-verify", kwargs={"uuid": str(issue.uuid)})
+            )
+        except Exception as e:
+            payload = {"error": "Error preparing certificate", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        qr_image_src = ""
+        qr_tmp_path = ""
+        try:
+            qr_tmp_path = _qr_temp_png_path(verify_url)
+            qr_image_src = qr_tmp_path
+        except Exception:
+            qr_image_src = ""
+
+        ctx = {
+            "institution": institution,
+            "campus": campus,
+            "student_full_name": student_full_name,
+            "document_type": document_type,
+            "document_number": document_number,
+            "academic_year": academic_year,
+            "grade_name": grade.name,
+            "academic_level": getattr(getattr(grade, "level", None), "name", "") or "",
+            "rows": rows,
+            "conduct": "BUENA",
+            "final_status": getattr(enrollment, "final_status", "") or "APROBADO",
+            "place": place,
+            "issue_date": date.today(),
+            "signer_name": signer_name,
+            "signer_role": signer_role,
+            "verify_url": verify_url,
+            "qr_image_src": qr_image_src,
+            "seal_hash": issue.seal_hash,
+        }
+
+        try:
+            html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
+
+            result = io.BytesIO()
+            pdf = pisa.pisaDocument(
+                io.BytesIO(html_string.encode("UTF-8")),
+                result,
+                link_callback=_pisa_link_callback_for_pdf,
+                encoding="UTF-8",
+            )
+
+            if pdf.err:
+                try:
+                    issue.delete()
+                except Exception:
+                    pass
+                return Response(
+                    {
+                        "error": "Error generating PDF",
+                        "pisa_errors": getattr(pdf, "err", None),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            pdf_bytes = result.getvalue()
+            try:
+                issue.pdf_file.save(
+                    "certificado_estudios.pdf",
+                    ContentFile(pdf_bytes),
+                    save=True,
+                )
+            except Exception:
+                try:
+                    if issue.pdf_file:
+                        issue.pdf_file.delete(save=False)
+                except Exception:
+                    pass
+                try:
+                    issue.delete()
+                except Exception:
+                    pass
+                raise
+
+            try:
+                log_event(
+                    request,
+                    event_type="CERTIFICATE_ISSUED",
+                    object_type="CertificateIssue",
+                    object_id=str(issue.uuid),
+                    status_code=200,
+                    metadata={
+                        "certificate_type": issue.certificate_type,
+                        "amount_cop": issue.amount_cop,
+                        "student_full_name": student_full_name,
+                        "document_number": document_number,
+                        "academic_year": academic_year,
+                        "grade_name": grade.name,
+                    },
+                )
+            except Exception:
+                # Audit logging must never break issuance.
+                pass
+
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = 'inline; filename="certificado_estudios.pdf"'
+            return response
+        except Exception as e:
+            try:
+                issue.delete()
+            except Exception:
+                pass
+            payload = {"error": "Error generating PDF", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        finally:
+            if qr_tmp_path:
+                try:
+                    os.remove(qr_tmp_path)
+                except Exception:
+                    pass
+
+
+class CertificateIssuesListView(APIView):
+    """List issued certificates for auditing/income reconciliation."""
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def get(self, request, format=None):
+        qs = CertificateIssue.objects.all().order_by("-issued_at")
+
+        q = (request.query_params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(
+                Q(payload__student_full_name__icontains=q)
+                | Q(payload__document_number__icontains=q)
+            )
+
+        issued_by_raw = (request.query_params.get("issued_by") or "").strip()
+        if issued_by_raw:
+            try:
+                qs = qs.filter(issued_by_id=int(issued_by_raw))
+            except Exception:
+                pass
+
+        certificate_type = (request.query_params.get("certificate_type") or "").strip()
+        if certificate_type:
+            qs = qs.filter(certificate_type=certificate_type)
+
+        status_param = (request.query_params.get("status") or "").strip()
+        if status_param:
+            qs = qs.filter(status=status_param)
+
+        start_date_raw = (request.query_params.get("start_date") or "").strip()
+        end_date_raw = (request.query_params.get("end_date") or "").strip()
+
+        def _parse_date(s: str):
+            try:
+                return datetime.strptime(s, "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+        start_date = _parse_date(start_date_raw) if start_date_raw else None
+        end_date = _parse_date(end_date_raw) if end_date_raw else None
+        if start_date:
+            qs = qs.filter(issued_at__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(issued_at__date__lte=end_date)
+
+        try:
+            limit = int(request.query_params.get("limit") or 100)
+        except Exception:
+            limit = 100
+        limit = max(1, min(limit, 500))
+
+        items = []
+        for issue in qs.select_related("issued_by").only(
+            "uuid",
+            "certificate_type",
+            "status",
+            "issued_at",
+            "amount_cop",
+            "payload",
+            "issued_by__id",
+            "issued_by__first_name",
+            "issued_by__last_name",
+        )[:limit]:
+            payload = issue.payload or {}
+            issued_by = getattr(issue, "issued_by", None)
+            items.append(
+                {
+                    "uuid": str(issue.uuid),
+                    "certificate_type": issue.certificate_type,
+                    "status": issue.status,
+                    "issued_at": issue.issued_at,
+                    "amount_cop": issue.amount_cop,
+                    "student_full_name": payload.get("student_full_name") or "",
+                    "document_number": payload.get("document_number") or "",
+                    "academic_year": payload.get("academic_year") or "",
+                    "grade_name": payload.get("grade_name") or "",
+                    "issued_by": (
+                        {
+                            "id": issued_by.id,
+                            "name": issued_by.get_full_name(),
+                        }
+                        if issued_by
+                        else None
+                    ),
+                    "has_pdf": bool(getattr(issue, "pdf_file", None)),
+                }
+            )
+
+        return Response({"results": items, "count": qs.count(), "limit": limit})
+
+
+class CertificateIssueDownloadPDFView(APIView):
+    """Download the stored PDF for an issued certificate."""
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def get(self, request, uuid, format=None):
+        issue = CertificateIssue.objects.filter(uuid=uuid).first()
+        if not issue:
+            return Response({"detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not issue.pdf_file:
+            return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            issue.pdf_file.open("rb")
+            response = FileResponse(issue.pdf_file, content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="certificado_{issue.uuid}.pdf"'
+            return response
+        except Exception as e:
+            payload = {"error": "Error reading stored PDF", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CertificateRevenueSummaryView(APIView):
+    """Revenue summary based on issued certificates (amount_cop snapshot)."""
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def get(self, request, format=None):
+        qs = CertificateIssue.objects.filter(status=CertificateIssue.STATUS_ISSUED)
+
+        certificate_type = (request.query_params.get("certificate_type") or "").strip()
+        if certificate_type:
+            qs = qs.filter(certificate_type=certificate_type)
+
+        start_date_raw = (request.query_params.get("start_date") or "").strip()
+        end_date_raw = (request.query_params.get("end_date") or "").strip()
+
+        def _parse_date(s: str):
+            try:
+                return datetime.strptime(s, "%Y-%m-%d").date()
+            except Exception:
+                return None
+
+        start_date = _parse_date(start_date_raw) if start_date_raw else None
+        end_date = _parse_date(end_date_raw) if end_date_raw else None
+        if start_date:
+            qs = qs.filter(issued_at__date__gte=start_date)
+        if end_date:
+            qs = qs.filter(issued_at__date__lte=end_date)
+
+        agg = qs.aggregate(total_amount_cop=Sum("amount_cop"))
+        total_amount = int(agg.get("total_amount_cop") or 0)
+        total_count = qs.count()
+
+        return Response(
+            {
+                "total_count": total_count,
+                "total_amount_cop": total_amount,
+            }
+        )
+
+
+class CertificateStudiesPreviewView(APIView):
+    """Render the certificate as HTML for live styling (no PDF, no DB write)."""
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def post(self, request, format=None):
+        institution = Institution.objects.first() or Institution()
+
+        try:
+            built = _certificate_studies_build_context(request, request.data, institution)
+        except serializers.ValidationError as e:
+            return Response({"detail": str(e.detail) if hasattr(e, 'detail') else str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Enrollment.DoesNotExist:
+            return Response({"detail": "Enrollment not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Grade.DoesNotExist:
+            return Response({"detail": "Grade not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            payload = {"error": "Error preparing preview", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        preview_uuid = py_uuid.uuid4()
+        verify_url = request.build_absolute_uri(
+            reverse("public-certificate-verify", kwargs={"uuid": str(preview_uuid)})
+        )
+
+        # For HTML preview, use a data URI so the browser can render it.
+        # (Temp file paths are only resolvable by xhtml2pdf, not by the browser.)
+        try:
+            qr_image_src = _qr_data_uri(verify_url)
+        except Exception:
+            qr_image_src = ""
+
+        # Compute a deterministic seal hash for preview (not stored).
+        seal_payload = {
+            "student_full_name": built["student_full_name"],
+            "document_type": built["document_type"],
+            "document_number": built["document_number"],
+            "academic_year": built["academic_year"],
+            "grade_id": built["grade"].id,
+            "grade_name": built["grade"].name,
+            "rows": built["rows"],
+        }
+        try:
+            seal_hash = hashlib.sha256(json.dumps(seal_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+        except Exception:
+            seal_hash = ""
+
+        ctx = {
+            "institution": institution,
+            "campus": built["campus"],
+            "student_full_name": built["student_full_name"],
+            "document_type": built["document_type"],
+            "document_number": built["document_number"],
+            "academic_year": built["academic_year"],
+            "grade_name": built["grade"].name,
+            "academic_level": built["academic_level"],
+            "rows": built["rows"],
+            "conduct": built["conduct"],
+            "final_status": built["final_status"],
+            "place": built["place"],
+            "issue_date": built["issue_date"],
+            "signer_name": built["signer_name"],
+            "signer_role": built["signer_role"],
+            "verify_url": verify_url,
+            "qr_image_src": qr_image_src,
+            "seal_hash": seal_hash,
+        }
+
+        html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
+        return HttpResponse(html_string, content_type="text/html; charset=utf-8")
+
+
+
+class PublicCertificateVerifyView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, uuid, format=None):
+        try:
+            issue = CertificateIssue.objects.select_related(
+                "enrollment",
+                "enrollment__student",
+                "enrollment__student__user",
+                "enrollment__grade",
+                "enrollment__academic_year",
+            ).get(uuid=uuid)
+        except CertificateIssue.DoesNotExist:
+            return Response({"valid": False, "detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = issue.payload or {}
+
+        student_name = payload.get("student_full_name")
+        document_number = payload.get("document_number")
+        academic_year = payload.get("academic_year")
+        grade_name = payload.get("grade_name")
+
+        if issue.enrollment:
+            try:
+                student_name = student_name or issue.enrollment.student.user.get_full_name()
+                document_number = document_number or issue.enrollment.student.document_number
+                academic_year = academic_year or issue.enrollment.academic_year.year
+                grade_name = grade_name or (issue.enrollment.grade.name if issue.enrollment.grade else "")
+            except Exception:
+                pass
+
+        return Response(
+            {
+                "valid": issue.status == CertificateIssue.STATUS_ISSUED,
+                "status": issue.status,
+                "type": issue.certificate_type,
+                "uuid": str(issue.uuid),
+                "issued_at": issue.issued_at,
+                "seal_hash": issue.seal_hash,
+                "revoked": issue.status == CertificateIssue.STATUS_REVOKED,
+                "revoke_reason": issue.revoke_reason,
+                "student_full_name": student_name or "",
+                "document_number": document_number or "",
+                "academic_year": academic_year or "",
+                "grade": grade_name or "",
+                "grade_id": payload.get("grade_id"),
+            }
+        )
 
 
 

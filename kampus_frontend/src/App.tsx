@@ -34,6 +34,9 @@ import PapPlans from './pages/PapPlans'
 import PromotionWorkflow from './pages/PromotionWorkflow'
 import TeacherStatistics from './pages/TeacherStatistics'
 import SystemSettings from './pages/SystemSettings'
+import AdministrativeCertificates from './pages/AdministrativeCertificates'
+import AdministrativeCertificatesPreview from './pages/AdministrativeCertificatesPreview'
+import AdministrativeCertificatesRevenue from './pages/AdministrativeCertificatesRevenue'
 
 export default function App() {
   return (
@@ -77,6 +80,9 @@ export default function App() {
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
+            <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />
+            <Route path="/administrativos/certificados/preview" element={<AdministrativeCertificatesPreview />} />
+            <Route path="/administrativos/certificados/ingresos" element={<AdministrativeCertificatesRevenue />} />
             <Route path="/system" element={<SystemSettings />} />
           </Route>
         </Route>

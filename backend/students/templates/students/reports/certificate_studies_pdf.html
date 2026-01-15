@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page {
+      size: letter;
+      margin: 2cm;
+      @frame footer {
+        -pdf-frame-content: footerContent;
+        bottom: 0.45cm;
+        margin-left: 2cm;
+        margin-right: 2cm;
+        height: 0.55cm;
+      }
+    }
+
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 14px; color: #111827; }
+
+    .masthead { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    .masthead td { vertical-align: middle; }
+    .masthead-left { width: 22%; }
+    .masthead-center { width: 56%; text-align: center; }
+    .masthead-right { width: 22%; text-align: right; }
+
+    .masthead-logo-wrap { width: 80px; height: 80px; }
+    .masthead-logo { max-height: 80px; max-width: 80px; width: auto; height: auto; }
+
+    .inst-line1 { font-size: 16px; font-weight: bold; }
+    .inst-line2 { font-size: 14px; }
+    .inst-line3 { font-size: 12px; color: #374151; }
+
+    .title { text-align: center; font-size: 16px; font-weight: bold; margin: 6px 0 8px; }
+    .subtitle { text-align: center; font-size: 13px; margin-bottom: 8px; }
+
+    .block { margin: 8px 0; line-height: 1.35; }
+    .block p { margin: 0; }
+
+    .grades-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    .grades-table th, .grades-table td { border: 1px solid #d1d5db; padding: 4px; }
+    .grades-table th { background: #f3f4f6; font-weight: bold; text-transform: uppercase; font-size: 11px; }
+    .col-area { width: 56%; }
+    .col-score { width: 18%; text-align: center; white-space: nowrap; }
+    .col-perf { width: 26%; text-align: center; white-space: nowrap; }
+
+    .meta-row { margin-top: 6px; }
+    .meta-row strong { display: inline-block; width: 240px; }
+
+    .signature { margin-top: 16px; }
+    .signature-image { height: 80px; width: auto; display: block; position: relative; top: 14px; }
+    .signature-name { margin-top: 0px; font-weight: bold; text-transform: uppercase; }
+
+    .qr-wrap { margin-top: 8px; text-align: right; }
+    .qr-wrap img { width: 80px; height: 80px; }
+    .qr-wrap .small { word-break: break-all; }
+
+    .small { font-size: 11px; color: #374151; }
+  </style>
+</head>
+<body>
+  <table class="masthead">
+    <tr>
+      <td class="masthead-left">
+        {% if institution.pdf_letterhead_image %}
+          <div class="masthead-logo-wrap">
+            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Membrete" class="masthead-logo" />
+          </div>
+        {% endif %}
+      </td>
+      <td class="masthead-center">
+        <div class="inst-line1">
+          {% if institution.pdf_header_line1 %}
+            {{ institution.pdf_header_line1 }}
+            <p style="margin: 1px;">{{ institution.name }}</p>
+          {% else %}
+            {{ institution.name }}
+          {% endif %}
+        </div>
+        {% if institution.pdf_header_line2 %}
+          <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
+        {% endif %}
+        {% if institution.pdf_header_line3 %}
+          <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
+        {% endif %}
+      </td>
+      <td class="masthead-right">
+        {% if institution.pdf_show_logo and institution.logo %}
+          <div class="masthead-logo-wrap" style="margin-left: auto;">
+            <img src="{{ institution.logo.url }}" alt="Logo" class="masthead-logo" />
+          </div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+
+  <div class="title">CERTIFICADO DE ESTUDIOS</div>
+
+  <div class="block">
+   <p style="text-align: center;"> EL RECTOR(A) DE ESTE ESTABLECIMIENTO EDUCATIVO DE CARÁCTER OFICIAL APROBADO MEDIANTE RESOLUCIÓN 334 DEL 28 DE JULIO DE 2011 EMANADA DE LA SECRETARIA DE EDUCACIÓN DEPARTAMENTAL DE CORDOBA.</p>
+    <div class="subtitle" style="margin-top: 6px; font-weight: bold;">CERTIFICA</div>
+  </div>
+
+  <div class="block">
+    Que <strong>{{ student_full_name|upper }}</strong>
+    identificado(a) con <strong>{{ document_type }}</strong> No. <strong>{{ document_number }}</strong>
+    durante el año lectivo <strong>{{ academic_year }}</strong>
+    cursó el grado <strong>{{ grade_name|upper }}</strong>
+    {% if academic_level %}de Educación <strong>{{ academic_level|upper }}</strong>{% endif %}
+    de acuerdo al Plan de Estudios que establece la Ley 115 de febrero 4 de 1994 y Decreto 1290 del 16 de abril de 2009,
+    habiendo obtenido en las diferentes áreas de estudio las siguientes valoraciones:
+  </div>
+
+  <table class="grades-table">
+    <thead>
+      <tr>
+        <th class="col-area">ÁREA / ASIGNATURA</th>
+        <th class="col-score">NOTA</th>
+        <th class="col-perf">DESEMPEÑO</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="col-area">{{ row.area_subject }}</td>
+          <td class="col-score">{{ row.score }}</td>
+          <td class="col-perf">{{ row.performance }}</td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="3" style="text-align:center; padding: 14px;">No hay asignaturas configuradas para este grado.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="meta-row"><strong>CONDUCTA:</strong> {{ conduct|default:"BUENA" }}</div>
+  <div class="meta-row"><strong>SITUACIÓN ACADÉMICA FINAL:</strong> {{ final_status|default:"APROBADO" }}</div>
+
+  <div class="block" style="margin-top: 12px;">
+    El presente <strong>CERTIFICADO</strong> es fiel copia de su original tomada del <strong>LIBRO DE VALORACIONES</strong>.
+  </div>
+
+  <div class="block">
+    Para mayor constancia se firma en <strong>San Bernardo del Viento, Córdoba </strong> a los {{ issue_date|date:"d" }} días del mes de {{ issue_date|date:"F" }} de {{ issue_date|date:"Y" }}.
+  </div>
+
+  <table style="width: 100%; border-collapse: collapse;">
+    <tr>
+      <td style="width: 68%; vertical-align: top;">
+        <div class="signature">
+          {% if institution.pdf_rector_signature_image %}
+            <img src="{{ institution.pdf_rector_signature_image.url }}" alt="Firma del rector" class="signature-image" />
+          {% else %}
+            <div style="height: 40px;"></div>
+          {% endif %}
+          <div class="signature-name">{{ signer_name|upper }}</div>
+          <div class="small">{% if signer_role %}{{ signer_role }}{% endif %}</div>
+        </div>
+      </td>
+      <td style="width: 32%; vertical-align: top;">
+        <div class="qr-wrap">
+          {% if qr_image_src %}
+            <img src="{{ qr_image_src }}" alt="QR verificación" />
+          {% endif %}
+          <div class="small" style="margin-top: 4px;">
+            Verificar: {{ verify_url }}
+          </div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  {% if institution.pdf_footer_text %}
+    <div style="margin-top: 10px; text-align: center; font-size: 9px; color: #666;">
+      {{ institution.pdf_footer_text }}
+    </div>
+  {% endif %}
+</body>
+</html>

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from core.models import Campus
 import uuid
@@ -85,10 +86,11 @@ class AcademicLevel(models.Model):
 class Grade(models.Model):
     name = models.CharField(max_length=50)
     level = models.ForeignKey(AcademicLevel, related_name="grades", on_delete=models.SET_NULL, null=True, blank=True)
-    ordinal = models.PositiveIntegerField(
+    ordinal = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Orden de progresión institucional (ej: Jardín=1 ... Undécimo=13).",
+        validators=[MinValueValidator(-2), MaxValueValidator(11)],
+        help_text="Orden de progresión institucional (permitido: -2 a 11).",
     )
 
     class Meta:

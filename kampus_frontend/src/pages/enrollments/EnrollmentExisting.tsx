@@ -344,7 +344,15 @@ export default function EnrollmentExisting() {
                   }}
                 >
                   <option value="">Seleccione un grado...</option>
-                  {grades.map(g => (
+                  {grades
+                    .slice()
+                    .sort((a, b) => {
+                      const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                      const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                      if (ao !== bo) return bo - ao
+                      return (a.name || '').localeCompare(b.name || '')
+                    })
+                    .map(g => (
                     <option key={g.id} value={g.id}>{g.name}</option>
                   ))}
                 </select>

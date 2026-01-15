@@ -3,6 +3,7 @@ import { GraduationCap, Save } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   academicApi,
+  type Grade,
   type GradebookAvailableSheet,
   type GradebookResponse,
   type GradebookBlockedItem,
@@ -28,6 +29,7 @@ export default function Grades() {
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
   const [groups, setGroups] = useState<Group[]>([])
+  const [grades, setGrades] = useState<Grade[]>([])
 
   const [selectedGradeId, setSelectedGradeId] = useState<number | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null)
@@ -218,20 +220,33 @@ export default function Grades() {
   }, [groups])
 
   const gradeOptions = useMemo(() => {
+    const gradeById = new Map<number, Grade>()
+    for (const g of grades) gradeById.set(g.id, g)
+
     const gradeIds = new Set<number>()
     for (const a of visibleAssignments) {
       const g = groupById.get(a.group)
       if (g) gradeIds.add(g.grade)
     }
 
-    const options: { id: number; name: string }[] = []
+    const options: { id: number; name: string; ordinal?: number | null }[] = []
     for (const gradeId of gradeIds) {
       const anyGroup = groups.find((g) => g.grade === gradeId)
-      options.push({ id: gradeId, name: anyGroup?.grade_name || `Grado ${gradeId}` })
+      const grade = gradeById.get(gradeId)
+      options.push({
+        id: gradeId,
+        name: grade?.name || anyGroup?.grade_name || `Grado ${gradeId}`,
+        ordinal: grade?.ordinal,
+      })
     }
-    options.sort((a, b) => a.name.localeCompare(b.name))
+    options.sort((a, b) => {
+      const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+      const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+      if (ao !== bo) return bo - ao
+      return a.name.localeCompare(b.name)
+    })
     return options
-  }, [groupById, groups, visibleAssignments])
+  }, [grades, groupById, groups, visibleAssignments])
 
   const groupOptions = useMemo(() => {
     if (!selectedGradeId) return [] as Group[]
@@ -637,15 +652,17 @@ export default function Grades() {
   const loadInit = useCallback(async () => {
     setLoadingInit(true)
     try {
-      const [assignmentsRes, periodsRes, groupsRes] = await Promise.all([
+      const [assignmentsRes, periodsRes, groupsRes, gradesRes] = await Promise.all([
         user?.role === 'TEACHER' ? academicApi.listMyAssignments() : academicApi.listAssignments(),
         academicApi.listPeriods(),
         academicApi.listGroups(),
+        academicApi.listGrades(),
       ])
 
       setAssignments(assignmentsRes.data)
       setPeriods(periodsRes.data)
       setGroups(groupsRes.data)
+      setGrades(gradesRes.data)
 
       const filteredAssignments = assignmentsRes.data
 

@@ -246,11 +246,24 @@ export default function EnrollmentReports() {
     if (!filters.year) return []
     const yearId = Number(filters.year)
     const gradeId = filters.grade ? Number(filters.grade) : null
-    return groups.filter((g) => {
+    const gradeOrdinalById = new Map<number, number | null | undefined>()
+    for (const grade of grades) gradeOrdinalById.set(grade.id, grade.ordinal)
+
+    return groups
+      .filter((g) => {
       if (g.academic_year !== yearId) return false
       if (gradeId && g.grade !== gradeId) return false
       return true
-    })
+      })
+      .slice()
+      .sort((a, b) => {
+        const ao = gradeOrdinalById.get(a.grade)
+        const bo = gradeOrdinalById.get(b.grade)
+        const aOrd = ao === null || ao === undefined ? -9999 : ao
+        const bOrd = bo === null || bo === undefined ? -9999 : bo
+        if (aOrd !== bOrd) return bOrd - aOrd
+        return (a.name || '').localeCompare(b.name || '')
+      })
   }
 
   return (
@@ -296,7 +309,15 @@ export default function EnrollmentReports() {
                 onChange={e => setFilters({...filters, grade: e.target.value, group: ''})}
               >
                 <option value="">Todos</option>
-                {grades.map(g => (
+                {grades
+                  .slice()
+                  .sort((a, b) => {
+                    const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                    const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                    if (ao !== bo) return bo - ao
+                    return (a.name || '').localeCompare(b.name || '')
+                  })
+                  .map(g => (
                   <option key={g.id} value={g.id}>{g.name}</option>
                 ))}
               </select>
