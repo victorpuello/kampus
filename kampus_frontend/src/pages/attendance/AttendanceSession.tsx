@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, CheckCircle2, CloudOff, RotateCcw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -81,6 +82,40 @@ function getAxiosDetail(err: unknown): string | null {
   return typeof detail === 'string' ? detail : null
 }
 
+type Toast = { kind: 'success' | 'info' | 'error'; message: string } | null
+
+function statusLabel(status: AttendanceStatus | null) {
+  if (status === 'PRESENT') return 'Presente'
+  if (status === 'ABSENT') return 'Ausente'
+  if (status === 'TARDY') return 'Tarde'
+  if (status === 'EXCUSED') return 'Excusa'
+  return '(sin marcar)'
+}
+
+function statusPillClasses(status: AttendanceStatus | null) {
+  if (status === 'PRESENT') return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
+  if (status === 'ABSENT') return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
+  if (status === 'TARDY') return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
+  if (status === 'EXCUSED') return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/30 dark:text-sky-200 dark:border-sky-900/40'
+  return 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:border-slate-700'
+}
+
+const OFFLINE_QUEUE_KEY = 'kampus:attendance:offlineQueue:v1'
+
+function getOfflineQueueCountForSession(sessionId: number | null): number {
+  if (!sessionId) return 0
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY)
+    if (!raw) return 0
+    const parsed = JSON.parse(raw) as Array<{ sessionId?: unknown }>
+    if (!Array.isArray(parsed)) return 0
+    return parsed.filter((x) => x && typeof x === 'object' && (x as { sessionId?: unknown }).sessionId === sessionId)
+      .length
+  } catch {
+    return 0
+  }
+}
+
 export default function AttendanceSession() {
   const navigate = useNavigate()
   const params = useParams()
@@ -133,6 +168,15 @@ export default function AttendanceSession() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
+  const [toast, setToast] = useState<Toast>(null)
+  const [offlinePendingTick, setOfflinePendingTick] = useState(0)
+
+  const [undo, setUndo] = useState<{
+    enrollmentId: number
+    prevStatus: AttendanceStatus
+    prevReason?: string
+    timeoutId: number
+  } | null>(null)
 
   const locked = !!data?.session.locked_at
 
@@ -169,6 +213,24 @@ export default function AttendanceSession() {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
+
+  useEffect(() => {
+    if (!error && !info) return
+
+    if (error) setToast({ kind: 'error', message: error })
+    else if (info) setToast({ kind: 'info', message: info })
+
+    const t = window.setTimeout(() => setToast(null), error ? 6000 : 3000)
+    return () => window.clearTimeout(t)
+  }, [error, info])
+
+  const offlinePending = useMemo(
+    () => {
+      void offlinePendingTick
+      return getOfflineQueueCountForSession(sessionId)
+    },
+    [sessionId, offlinePendingTick]
+  )
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -400,6 +462,13 @@ export default function AttendanceSession() {
   }
 
   const onSwipeStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Avoid stealing pointer events from interactive controls inside the card.
+    // Otherwise pointer capture can prevent button clicks from firing.
+    if (e.target instanceof Element) {
+      const interactive = e.target.closest('button, a, input, textarea, select, label, [role="button"], [data-no-swipe]')
+      if (interactive) return
+    }
+
     swipeStartRef.current = { x: e.clientX, y: e.clientY }
     dragStateRef.current = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, lastX: e.clientX }
     setIsDragging(true)
@@ -495,6 +564,10 @@ export default function AttendanceSession() {
 
     const enrollmentId = currentStudent.enrollment_id
 
+    const prev = draft[enrollmentId]
+    const prevStatus = prev?.status
+    const prevReason = prev?.excuse_reason
+
     if (status === 'EXCUSED') {
       setExcuseMode(true)
       setExcuseText(draft[enrollmentId]?.excuse_reason ?? '')
@@ -506,6 +579,19 @@ export default function AttendanceSession() {
     try {
       applyLocalStudentUpdate(enrollmentId, status)
       await persistOne({ enrollment_id: enrollmentId, status })
+
+      // Offer a quick undo if there was a previous status.
+      if (prevStatus) {
+        setUndo((existing) => {
+          if (existing) window.clearTimeout(existing.timeoutId)
+          const timeoutId = window.setTimeout(() => setUndo(null), 5000)
+          return { enrollmentId, prevStatus, prevReason, timeoutId }
+        })
+      } else {
+        setUndo(null)
+      }
+
+      setToast({ kind: 'success', message: 'Marcado' })
 
       // Tiny haptic feedback (mobile).
       try {
@@ -527,6 +613,33 @@ export default function AttendanceSession() {
       }
       setError(getAxiosDetail(err) || 'No se pudo guardar el cambio.')
     } finally {
+      setOfflinePendingTick((x) => x + 1)
+      setSaving(false)
+    }
+  }
+
+  const handleUndo = async () => {
+    if (!undo || !sessionId) return
+    if (locked) return
+
+    setSaving(true)
+    setError(null)
+    setInfo(null)
+
+    const { enrollmentId, prevStatus, prevReason, timeoutId } = undo
+    window.clearTimeout(timeoutId)
+    setUndo(null)
+
+    try {
+      applyLocalStudentUpdate(enrollmentId, prevStatus, prevReason)
+      await persistOne({ enrollment_id: enrollmentId, status: prevStatus, excuse_reason: prevReason })
+      setToast({ kind: 'info', message: 'Se deshizo el último cambio' })
+    } catch (err) {
+      console.error(err)
+      setError(getAxiosDetail(err) || 'No se pudo deshacer.')
+      await load()
+    } finally {
+      setOfflinePendingTick((x) => x + 1)
       setSaving(false)
     }
   }
@@ -553,6 +666,19 @@ export default function AttendanceSession() {
       applyLocalStudentUpdate(enrollmentId, 'EXCUSED', reason)
       await persistOne({ enrollment_id: enrollmentId, status: 'EXCUSED', excuse_reason: reason })
 
+      // Offer undo when a previous status existed.
+      const prevStatus = draft[enrollmentId]?.status
+      const prevReason = draft[enrollmentId]?.excuse_reason
+      if (prevStatus) {
+        setUndo((existing) => {
+          if (existing) window.clearTimeout(existing.timeoutId)
+          const timeoutId = window.setTimeout(() => setUndo(null), 5000)
+          return { enrollmentId, prevStatus, prevReason, timeoutId }
+        })
+      }
+
+      setToast({ kind: 'success', message: 'Excusa guardada' })
+
       try {
         if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
           navigator.vibrate(10)
@@ -574,6 +700,7 @@ export default function AttendanceSession() {
       }
       setError(getAxiosDetail(err) || 'No se pudo guardar la excusa.')
     } finally {
+      setOfflinePendingTick((x) => x + 1)
       setSaving(false)
     }
   }
@@ -603,6 +730,8 @@ export default function AttendanceSession() {
     } catch (err) {
       console.error(err)
       setError('No se pudo reintentar la cola offline.')
+    } finally {
+      setOfflinePendingTick((x) => x + 1)
     }
   }
 
@@ -615,7 +744,10 @@ export default function AttendanceSession() {
         <CardContent>
           <p className="text-slate-600 dark:text-slate-300">Sesión inválida.</p>
           <div className="mt-4">
-            <Button onClick={() => navigate('/attendance')}>Volver</Button>
+            <Button variant="outline" onClick={() => navigate('/attendance')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Volver
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -628,6 +760,45 @@ export default function AttendanceSession() {
         <CardTitle>Toma de asistencia</CardTitle>
       </CardHeader>
       <CardContent>
+        {toast ? (
+          <div className="fixed top-4 right-4 z-50 w-[min(360px,calc(100vw-2rem))]">
+            <div
+              className={
+                'rounded-xl border p-3 shadow-lg backdrop-blur ' +
+                (toast.kind === 'error'
+                  ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100'
+                  : toast.kind === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-100'
+                    : 'border-slate-200 bg-white/90 text-slate-800 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-100')
+              }
+            >
+              <div className="flex items-start gap-2">
+                {toast.kind === 'success' ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4" />
+                ) : toast.kind === 'error' ? (
+                  <CloudOff className="mt-0.5 h-4 w-4" />
+                ) : null}
+                <div className="text-sm font-medium">{toast.message}</div>
+                <button
+                  type="button"
+                  onClick={() => setToast(null)}
+                  className="ml-auto text-xs text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                >
+                  Cerrar
+                </button>
+              </div>
+              {undo ? (
+                <div className="mt-2">
+                  <Button variant="outline" size="sm" onClick={handleUndo} disabled={saving || locked}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Deshacer
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {loading ? (
           <p className="text-slate-600 dark:text-slate-300">Cargando…</p>
         ) : (
@@ -657,22 +828,41 @@ export default function AttendanceSession() {
                       </div>
                     ) : null}
                     {data.session.locked_at ? (
-                      <div className="mt-1 text-sm font-medium text-amber-700 dark:text-amber-200">Cerrada: {formatDateTime(data.session.locked_at)}</div>
+                      <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                        Clase cerrada: {formatDateTime(data.session.locked_at)}
+                      </div>
                     ) : null}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={load}>Actualizar</Button>
-                    <Button variant="outline" onClick={handleFlushQueue}>Reintentar cola offline</Button>
+                    <Button variant="outline" onClick={handleFlushQueue}>
+                      Reintentar cola offline
+                      {offlinePending > 0 ? (
+                        <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                          {offlinePending}
+                        </span>
+                      ) : null}
+                    </Button>
                     <Button onClick={handleSave} disabled={saving || locked}>
                       {saving ? 'Guardando…' : 'Guardar'}
                     </Button>
                     <Button variant="destructive" onClick={handleClose} disabled={locked}>
                       Cerrar clase
                     </Button>
-                    <Link className="text-sm text-blue-600 dark:text-blue-300 underline" to="/attendance">Volver</Link>
+                    <Button variant="outline" onClick={() => navigate('/attendance')}>
+                      <ArrowLeft className="mr-2 h-4 w-4" />
+                      Volver
+                    </Button>
                   </div>
                 </div>
+
+                {offlinePending > 0 ? (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <CloudOff className="h-4 w-4" />
+                    Hay {offlinePending} envío(s) pendientes en cola offline.
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -727,48 +917,107 @@ export default function AttendanceSession() {
                       }
                     >
                       <div className="p-4 sm:p-6">
-                        <div className="flex items-center gap-4">
-                          <div className="h-14 w-14 sm:h-16 sm:w-16 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
-                            {currentStudent.student_photo_url ? (
-                              <img
-                                src={currentStudent.student_photo_url}
-                                alt={currentStudent.student_full_name}
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 text-lg font-semibold text-slate-600 dark:text-slate-200">
-                                {getInitials(currentStudent.student_full_name)}
+                        <div className="rounded-2xl border border-slate-200 bg-linear-to-br from-white to-slate-50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-950">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-[11px] font-semibold tracking-wider text-slate-500 dark:text-slate-400">
+                                CARNET ESTUDIANTIL
                               </div>
-                            )}
+                              <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                                {data?.session.grade_name} · {data?.session.group_name}
+                              </div>
+                            </div>
+                            <div className="shrink-0 flex flex-col items-end gap-2">
+                              <div className={'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold ' + statusPillClasses(currentStudent.status)}>
+                                {statusLabel(currentStudent.status)}
+                              </div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">
+                                {Math.min(currentIndex + 1, students.length)} / {students.length}
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{currentStudent.student_full_name}</div>
-                            <div className="text-sm text-slate-500 dark:text-slate-400">
-                              Estudiante {Math.min(currentIndex + 1, students.length)} de {students.length}
+                          <div className="mt-4 flex items-stretch gap-4">
+                            <div className="w-24 sm:w-28">
+                              <div className="h-32 sm:h-36 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                                {currentStudent.student_photo_url ? (
+                                  <img
+                                    src={currentStudent.student_photo_url}
+                                    alt={currentStudent.student_full_name}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center bg-linear-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-700 text-2xl font-bold text-slate-600 dark:text-slate-200">
+                                    {getInitials(currentStudent.student_full_name)}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="mt-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-center text-[11px] font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                                Estudiante
+                              </div>
                             </div>
-                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                              Estado actual: <span className="font-medium text-slate-700 dark:text-slate-200">{currentStudent.status ?? '(sin marcar)'}</span>
-                              {currentStudent.status === 'TARDY' && currentStudent.tardy_at ? (
-                                <span className="ml-2">· {formatDateTime(currentStudent.tardy_at)}</span>
-                              ) : null}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">
+                                {currentStudent.student_full_name}
+                              </div>
+
+                              <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                                Estado actual:{' '}
+                                <span className="font-semibold text-slate-700 dark:text-slate-200">
+                                  {statusLabel(currentStudent.status)}
+                                </span>
+                                {currentStudent.status === 'TARDY' && currentStudent.tardy_at ? (
+                                  <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">· {formatDateTime(currentStudent.tardy_at)}</span>
+                                ) : null}
+                                {undo ? (
+                                  <button
+                                    type="button"
+                                    className="ml-3 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                                    onClick={handleUndo}
+                                    disabled={saving || locked}
+                                  >
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                    Deshacer
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         </div>
 
                         {/* Desktop actions (bigger, inline) */}
                         <div className="mt-5 hidden grid-cols-2 gap-2 sm:grid-cols-4 lg:grid">
-                          <Button onClick={() => handleMark('PRESENT')} disabled={saving || locked}>
+                          <Button
+                            onClick={() => handleMark('PRESENT')}
+                            disabled={saving || locked}
+                            className={currentStudent.status === 'PRESENT' ? 'ring-2 ring-emerald-400 ring-offset-2 dark:ring-offset-slate-900' : ''}
+                          >
                             Presente
                           </Button>
-                          <Button variant="outline" onClick={() => handleMark('ABSENT')} disabled={saving || locked}>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleMark('ABSENT')}
+                            disabled={saving || locked}
+                            className={currentStudent.status === 'ABSENT' ? 'ring-2 ring-rose-400 ring-offset-2 dark:ring-offset-slate-900' : ''}
+                          >
                             Ausente
                           </Button>
-                          <Button variant="outline" onClick={() => handleMark('TARDY')} disabled={saving || locked}>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleMark('TARDY')}
+                            disabled={saving || locked}
+                            className={currentStudent.status === 'TARDY' ? 'ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-slate-900' : ''}
+                          >
                             Tarde
                           </Button>
-                          <Button variant="outline" onClick={() => handleMark('EXCUSED')} disabled={saving || locked}>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleMark('EXCUSED')}
+                            disabled={saving || locked}
+                            className={currentStudent.status === 'EXCUSED' ? 'ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-900' : ''}
+                          >
                             Excusa
                           </Button>
                         </div>
@@ -836,24 +1085,8 @@ export default function AttendanceSession() {
 
               <div className="lg:col-span-1">
                 <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Acciones</div>
-                  <div className="mt-3 space-y-2">
-                    <Button variant="outline" onClick={handleFlushQueue}>
-                      Reintentar cola offline
-                    </Button>
-                    <Button onClick={handleSave} disabled={saving || locked}>
-                      {saving ? 'Guardando…' : 'Guardar todo (opcional)'}
-                    </Button>
-                    <Button variant="destructive" onClick={handleClose} disabled={locked}>
-                      Cerrar clase
-                    </Button>
-                    <Link className="block text-sm text-blue-600 dark:text-blue-300 underline" to="/attendance">
-                      Volver
-                    </Link>
-                  </div>
-
-                  <div className="mt-4">
-                    <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">Progreso</div>
+                  <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Progreso</div>
+                  <div className="mt-3">
                     <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-slate-800">
                       <div
                         className="h-2 rounded-full bg-slate-900 dark:bg-slate-100 transition-all"
@@ -862,6 +1095,38 @@ export default function AttendanceSession() {
                     </div>
                     <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                       {students.length ? Math.round(((currentIndex + 1) / students.length) * 100) : 0}%
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      {(() => {
+                        const rows = students.map((s) => draft[s.enrollment_id]?.status ?? s.status)
+                        const present = rows.filter((x) => x === 'PRESENT').length
+                        const absent = rows.filter((x) => x === 'ABSENT').length
+                        const tardy = rows.filter((x) => x === 'TARDY').length
+                        const excused = rows.filter((x) => x === 'EXCUSED').length
+                        const unmarked = rows.filter((x) => !x).length
+                        const marked = students.length - unmarked
+                        return (
+                          <>
+                            <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">Marcados</div>
+                              <div className="font-semibold">{marked} / {students.length}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">Sin marcar</div>
+                              <div className="font-semibold">{unmarked}</div>
+                            </div>
+                            <div className="col-span-2 rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>Pres: <span className="font-semibold text-slate-700 dark:text-slate-200">{present}</span></span>
+                                <span>Aus: <span className="font-semibold text-slate-700 dark:text-slate-200">{absent}</span></span>
+                                <span>Tarde: <span className="font-semibold text-slate-700 dark:text-slate-200">{tardy}</span></span>
+                                <span>Exc: <span className="font-semibold text-slate-700 dark:text-slate-200">{excused}</span></span>
+                              </div>
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -873,21 +1138,50 @@ export default function AttendanceSession() {
               <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 lg:hidden">
                 <div className="mx-auto max-w-xl px-4 pt-3" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
                   <div className="grid grid-cols-4 gap-2">
-                    <Button onClick={() => handleMark('PRESENT')} disabled={saving || locked}>
+                    <Button
+                      onClick={() => handleMark('PRESENT')}
+                      disabled={saving || locked}
+                      className={currentStudent.status === 'PRESENT' ? 'ring-2 ring-emerald-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
+                    >
                       Pres.
                     </Button>
-                    <Button variant="outline" onClick={() => handleMark('ABSENT')} disabled={saving || locked}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleMark('ABSENT')}
+                      disabled={saving || locked}
+                      className={currentStudent.status === 'ABSENT' ? 'ring-2 ring-rose-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
+                    >
                       Aus.
                     </Button>
-                    <Button variant="outline" onClick={() => handleMark('TARDY')} disabled={saving || locked}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleMark('TARDY')}
+                      disabled={saving || locked}
+                      className={currentStudent.status === 'TARDY' ? 'ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
+                    >
                       Tarde
                     </Button>
-                    <Button variant="outline" onClick={() => handleMark('EXCUSED')} disabled={saving || locked}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleMark('EXCUSED')}
+                      disabled={saving || locked}
+                      className={currentStudent.status === 'EXCUSED' ? 'ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
+                    >
                       Exc.
                     </Button>
                   </div>
-                  <div className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
-                    Desliza para navegar · 1-4 para marcar
+                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>Desliza · 1-4</span>
+                    {undo ? (
+                      <Button variant="outline" size="sm" onClick={handleUndo} disabled={saving || locked}>
+                        <RotateCcw className="mr-2 h-4 w-4" />
+                        Deshacer
+                      </Button>
+                    ) : (
+                      <span className={'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold ' + statusPillClasses(currentStudent.status)}>
+                        {statusLabel(currentStudent.status)}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -956,6 +1250,7 @@ export default function AttendanceSession() {
                         navigate('/attendance')
                       }}
                     >
+                      <ArrowLeft className="mr-2 h-4 w-4" />
                       Volver
                     </Button>
                   </div>
