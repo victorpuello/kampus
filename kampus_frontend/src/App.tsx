@@ -37,7 +37,7 @@ import SystemSettings from './pages/SystemSettings'
 import AdministrativeCertificates from './pages/AdministrativeCertificates'
 import AdministrativeCertificatesPreview from './pages/AdministrativeCertificatesPreview'
 import AdministrativeCertificatesRevenue from './pages/AdministrativeCertificatesRevenue'
-import TeacherAttendance from './pages/attendance/TeacherAttendance'
+import AttendanceHome from './pages/attendance/AttendanceHome'
 import AttendanceSession from './pages/attendance/AttendanceSession'
 import AttendanceStats from './pages/attendance/AttendanceStats'
 
@@ -83,7 +83,7 @@ export default function App() {
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
-            <Route path="/attendance" element={<TeacherAttendance />} />
+            <Route path="/attendance" element={<AttendanceHome />} />
             <Route path="/attendance/sessions/:id" element={<AttendanceSession />} />
             <Route path="/attendance/stats" element={<AttendanceStats />} />
             <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />
