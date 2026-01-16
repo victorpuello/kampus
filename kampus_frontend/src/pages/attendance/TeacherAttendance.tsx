@@ -5,7 +5,13 @@ import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Pill } from '../../components/ui/Pill'
 import { academicApi, type AcademicYear, type Period, type TeacherAssignment } from '../../services/academic'
-import { createAttendanceSession, flushAttendanceOfflineQueue, listAttendanceSessions, type AttendanceSession } from '../../services/attendance'
+import {
+  createAttendanceSession,
+  downloadAttendanceManualSheetPdf,
+  flushAttendanceOfflineQueue,
+  listAttendanceSessions,
+  type AttendanceSession,
+} from '../../services/attendance'
 
 function safeRandomUUID() {
   try {
@@ -65,6 +71,7 @@ export default function TeacherAttendance() {
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [ordering, setOrdering] = useState('-starts_at')
+  const [downloadingSheet, setDownloadingSheet] = useState(false)
 
   const activeYearId = useMemo(() => {
     const active = years.find((y) => y.status === 'ACTIVE')
@@ -187,6 +194,35 @@ export default function TeacherAttendance() {
     }
   }
 
+  const handleDownloadManualSheet = async () => {
+    setError(null)
+    setQueueStatus(null)
+
+    if (!selectedAssignment) {
+      setError('Selecciona una asignación para descargar la planilla.')
+      return
+    }
+
+    const assignment = filteredAssignments.find((a) => a.id === Number(selectedAssignment))
+    if (!assignment?.group) {
+      setError('No se pudo determinar el grupo de la asignación.')
+      return
+    }
+
+    setDownloadingSheet(true)
+    try {
+      const blob = await downloadAttendanceManualSheetPdf({ group_id: assignment.group, columns: 24 })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      console.error(err)
+      setError('No se pudo descargar la planilla. Verifica tu conexión y permisos.')
+    } finally {
+      setDownloadingSheet(false)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(sessionsCount / pageSize))
 
   return (
@@ -250,6 +286,9 @@ export default function TeacherAttendance() {
               </Button>
               <Button variant="outline" onClick={() => navigate('/attendance/stats')}>
                 Ver reporte
+              </Button>
+              <Button variant="outline" onClick={handleDownloadManualSheet} disabled={downloadingSheet || !selectedAssignment}>
+                {downloadingSheet ? 'Generando planilla…' : 'Descargar planilla (manual)'}
               </Button>
               <Button variant="outline" onClick={handleFlushQueue}>
                 Reintentar envíos offline

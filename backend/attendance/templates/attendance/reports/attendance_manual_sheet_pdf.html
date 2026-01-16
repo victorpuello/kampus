@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page {
+        size: Letter landscape;
+        margin: 10mm;
+      }
+
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 10px;
+        color: #000;
+      }
+
+      .title {
+        font-size: 14px;
+        font-weight: bold;
+      }
+
+      .meta {
+        font-size: 9px;
+        font-weight: bold;
+      }
+
+      table.outer {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      table.grid {
+        width: 98%;
+        margin: 0 auto;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      table.grid td,
+      table.grid th {
+        border: 1px solid #111111;
+        padding: 2px 2px;
+        vertical-align: middle;
+      }
+
+      .head {
+        background: #e8e8e8;
+        font-weight: bold;
+        text-align: center;
+        font-size: 10px;
+      }
+
+      .num {
+        width: 23px;
+        text-align: center;
+        font-size: 9px;
+      }
+
+      .name {
+        width: 248px;
+        font-size: 9px;
+      }
+
+      .cell {
+        width: 15px;
+        text-align: center;
+      }
+
+      .right {
+        text-align: right;
+      }
+
+      .spacer {
+        height: 10px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <table class="outer">
+      <tr>
+        <td class="title">PLANILLA DE CONTROL DE ASISTENCIA</td>
+      </tr>
+      <tr>
+        <td class="meta">
+          Grupo:&nbsp;{{ group_label }}
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+          Jornada:&nbsp;{{ shift }}
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+          Fecha Impresión:&nbsp;{{ printed_at }}
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+          Control asistencia del mes de:__________________
+          <br />
+          Área/Asignatura:_____________________________________&nbsp;&nbsp;&nbsp;&nbsp;
+          Docente: _________________________________________
+        </td>
+      </tr>
+      <tr>
+        <td class="meta">
+          Director de Grupo:&nbsp;<strong>{{ director_name }}</strong>
+        </td>
+      </tr>
+      <tr>
+        <td class="spacer">&nbsp;</td>
+      </tr>
+      <tr>
+        <td>
+          <div align="center">
+            <table class="grid">
+              <tr>
+                <td class="head num">#</td>
+                <td class="head name">APELLIDOS NOMBRES</td>
+                <td class="head" colspan="24">INASISTENCIAS</td>
+              </tr>
+              <tr>
+                <td colspan="2" class="right"><strong>Fechas de Inasistencia</strong></td>
+                {% for _ in columns %}
+                <td class="cell">&nbsp;</td>
+                {% endfor %}
+              </tr>
+
+              {% for row in students %}
+              <tr>
+                <td class="num">{{ row.index }}</td>
+                <td class="name">{{ row.display_name }}</td>
+                {% for _ in columns %}
+                <td class="cell">&nbsp;</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </table>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

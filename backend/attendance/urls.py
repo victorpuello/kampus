@@ -1,7 +1,7 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import AttendanceRecordViewSet, AttendanceSessionViewSet, AttendanceStudentStatsView
+from .views import AttendanceManualSheetView, AttendanceRecordViewSet, AttendanceSessionViewSet, AttendanceStudentStatsView
 
 router = DefaultRouter()
 router.register(r"attendance/sessions", AttendanceSessionViewSet, basename="attendance-session")
@@ -9,4 +9,5 @@ router.register(r"attendance/records", AttendanceRecordViewSet, basename="attend
 
 urlpatterns = router.urls + [
 	path("attendance/stats/students/", AttendanceStudentStatsView.as_view(), name="attendance-student-stats"),
+	path("attendance/planillas/manual/", AttendanceManualSheetView.as_view(), name="attendance-manual-sheet"),
 ]

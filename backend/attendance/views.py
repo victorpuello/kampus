@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import io
+import os
+import traceback
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q
-from django.http import FileResponse
+from django.http import HttpResponse
 from django.utils import timezone
+from django.template.loader import render_to_string
 from rest_framework import status, viewsets
 from rest_framework.filters import OrderingFilter
 from rest_framework.pagination import PageNumberPagination
@@ -17,7 +22,7 @@ from rest_framework.views import APIView
 
 from django_filters.rest_framework import DjangoFilterBackend
 
-from academic.models import Period, TeacherAssignment
+from academic.models import Group, Period, TeacherAssignment
 from students.models import Enrollment
 
 from .models import AttendanceRecord, AttendanceSession
@@ -62,6 +67,148 @@ def _auto_close_if_expired(session: AttendanceSession) -> AttendanceSession:
         session.locked_at = now
         session.save(update_fields=["locked_at", "updated_at"])
     return session
+
+
+def _user_can_access_group(user, group: Group) -> bool:
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+
+    if getattr(user, "role", None) == "TEACHER":
+        if group.director_id == user.id:
+            return True
+        return TeacherAssignment.objects.filter(teacher_id=user.id, group_id=group.id).exists()
+
+    # Administrative staff: allow.
+    return True
+
+
+class AttendanceManualSheetView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Printable attendance control sheet for manual use.
+
+        Query params:
+        - group_id (required): academic.Group id
+        - format (optional): pdf (default) | html
+        - columns (optional): number of absence columns (default 24)
+        """
+
+        group_id_raw = request.query_params.get("group_id")
+        if not group_id_raw:
+            return Response({"detail": "group_id es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group_id = int(group_id_raw)
+        except Exception:
+            return Response({"detail": "group_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        fmt = (request.query_params.get("format") or "pdf").strip().lower()
+        try:
+            cols = int(request.query_params.get("columns") or "24")
+        except Exception:
+            cols = 24
+        cols = max(1, min(cols, 40))
+
+        group = (
+            Group.objects.select_related("grade", "academic_year", "director")
+            .filter(id=group_id)
+            .first()
+        )
+        if not group:
+            return Response({"detail": "Grupo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not _user_can_access_group(request.user, group):
+            return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+        enrollments = (
+            Enrollment.objects.select_related("student", "student__user")
+            .filter(academic_year_id=group.academic_year_id, group_id=group.id, status="ACTIVE")
+            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
+        )
+
+        def _display_name(e: Enrollment) -> str:
+            last_name = (e.student.user.last_name or "").strip().upper()
+            first_name = (e.student.user.first_name or "").strip().upper()
+            full = (last_name + " " + first_name).strip()
+            return full or e.student.user.get_full_name().upper() or ""
+
+        students = [{"index": i + 1, "display_name": _display_name(e)} for i, e in enumerate(enrollments)]
+
+        grade_label = str(getattr(group.grade, "name", "")).strip()
+        group_label = f"{grade_label}-{group.name}" if grade_label else str(group.name)
+        d = timezone.localdate()
+        printed_at = f"{d.month}/{d.day}/{d.year}"
+
+        director_name = ""
+        try:
+            if group.director:
+                director_name = group.director.get_full_name().upper()
+        except Exception:
+            director_name = ""
+
+        html_string = render_to_string(
+            "attendance/reports/attendance_manual_sheet_pdf.html",
+            {
+                "group_label": group_label,
+                "shift": group.get_shift_display(),
+                "printed_at": printed_at,
+                "director_name": director_name,
+                "students": students,
+                "columns": list(range(cols)),
+            },
+        )
+
+        if fmt == "html":
+            return HttpResponse(html_string, content_type="text/html; charset=utf-8")
+
+        # PDF by default.
+        try:
+            from xhtml2pdf import pisa
+
+            def _pisa_link_callback(uri: str, rel: str | None = None):
+                # Allow absolute URLs
+                if uri.startswith("http://") or uri.startswith("https://"):
+                    return uri
+
+                media_url = getattr(settings, "MEDIA_URL", "") or ""
+                static_url = getattr(settings, "STATIC_URL", "") or ""
+
+                if media_url and uri.startswith(media_url):
+                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
+                    return os.path.normpath(path)
+
+                if static_url and uri.startswith(static_url):
+                    static_root = getattr(settings, "STATIC_ROOT", None)
+                    if static_root:
+                        path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
+                        return os.path.normpath(path)
+
+                return uri
+
+            result = io.BytesIO()
+            pdf = pisa.pisaDocument(
+                io.BytesIO(html_string.encode("UTF-8")),
+                result,
+                link_callback=_pisa_link_callback,
+                encoding="UTF-8",
+            )
+
+            if pdf.err:
+                return Response(
+                    {"detail": "Error generando PDF", "pisa_errors": getattr(pdf, "err", None)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            filename = f"planilla_asistencia_{group_label}.pdf".replace(" ", "_")
+            response = HttpResponse(result.getvalue(), content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+        except Exception as e:
+            payload = {"detail": "Error generando PDF", "error": str(e)}
+            if getattr(settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AttendanceSessionPagination(PageNumberPagination):

@@ -187,3 +187,15 @@ export async function getAttendanceStudentStats(input: { teacher_assignment_id: 
   });
   return res.data;
 }
+
+export async function downloadAttendanceManualSheetPdf(input: { group_id: number; columns?: number }): Promise<Blob> {
+  const res = await api.get(`${API_PREFIX}/planillas/manual/`, {
+    params: {
+      group_id: input.group_id,
+      format: 'pdf',
+      columns: input.columns,
+    },
+    responseType: 'blob',
+  })
+  return res.data as Blob
+}
