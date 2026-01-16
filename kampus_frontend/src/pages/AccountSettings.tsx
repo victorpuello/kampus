@@ -87,10 +87,10 @@ export default function AccountSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Mi cuenta</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Mi cuenta</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No hay sesión activa.</p>
+          <p className="text-slate-600 dark:text-slate-300">No hay sesión activa.</p>
         </CardContent>
       </Card>
     )
@@ -100,7 +100,7 @@ export default function AccountSettings() {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Mi cuenta</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Mi cuenta</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -117,7 +117,7 @@ export default function AccountSettings() {
               <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Nombres" />
             </div>
             <div>
-              <Label>Apellidos</Label>
+              <Label className="dark:text-slate-100">Apellidos</Label>
               <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Apellidos" />
             </div>
           </div>
@@ -132,12 +132,12 @@ export default function AccountSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Cambiar contraseña</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Cambiar contraseña</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>Contraseña actual</Label>
+              <Label className="dark:text-slate-100">Contraseña actual</Label>
               <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
             </div>
             <div />

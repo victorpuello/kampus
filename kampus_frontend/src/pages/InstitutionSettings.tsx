@@ -156,10 +156,10 @@ export default function InstitutionSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Institución</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Institución</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a la configuración de la institución.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la configuración de la institución.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -337,7 +337,7 @@ export default function InstitutionSettings() {
     }
   }
 
-  if (loading) return <div className="p-6">Cargando...</div>
+  if (loading) return <div className="p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -349,12 +349,12 @@ export default function InstitutionSettings() {
       />
 
       <div className="flex items-center gap-4">
-        <Building2 className="h-8 w-8 text-slate-700" />
+        <Building2 className="h-8 w-8 text-slate-700 dark:text-slate-200" />
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             Configuración de la Institución
           </h2>
-          <p className="text-slate-500">Administra la información básica de tu institución educativa.</p>
+          <p className="text-slate-500 dark:text-slate-400">Administra la información básica de tu institución educativa.</p>
         </div>
       </div>
 
@@ -365,7 +365,7 @@ export default function InstitutionSettings() {
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-3">
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
                 Exporta la configuración institucional y académica a un archivo JSON.
               </p>
               <label className="flex items-center space-x-2 cursor-pointer">
@@ -373,9 +373,9 @@ export default function InstitutionSettings() {
                   type="checkbox"
                   checked={includeMedia}
                   onChange={(e) => setIncludeMedia(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                 />
-                <span className="text-sm text-slate-700">Incluir archivos (logo) en el JSON</span>
+                <span className="text-sm text-slate-700 dark:text-slate-200">Incluir archivos (logo) en el JSON</span>
               </label>
               <Button type="button" onClick={handleExportConfig} disabled={exportingConfig}>
                 <Download className="mr-2 h-4 w-4" />
@@ -384,7 +384,7 @@ export default function InstitutionSettings() {
             </div>
 
             <div className="space-y-3">
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
                 Importa un archivo JSON previamente exportado.
               </p>
               <div className="space-y-2">
@@ -403,9 +403,9 @@ export default function InstitutionSettings() {
                     type="checkbox"
                     checked={dryRunImport}
                     onChange={(e) => setDryRunImport(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                   />
-                  <span className="text-sm text-slate-700">Solo validar (dry-run)</span>
+                  <span className="text-sm text-slate-700 dark:text-slate-200">Solo validar (dry-run)</span>
                 </label>
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
@@ -416,9 +416,9 @@ export default function InstitutionSettings() {
                       setOverwriteImport(next)
                       if (!next) setConfirmOverwrite(false)
                     }}
-                    className="h-4 w-4 rounded border-slate-300"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                   />
-                  <span className="text-sm text-slate-700">Borrar configuración existente (overwrite)</span>
+                  <span className="text-sm text-slate-700 dark:text-slate-200">Borrar configuración existente (overwrite)</span>
                 </label>
                 {overwriteImport && (
                   <label className="flex items-center space-x-2 cursor-pointer">
@@ -426,9 +426,9 @@ export default function InstitutionSettings() {
                       type="checkbox"
                       checked={confirmOverwrite}
                       onChange={(e) => setConfirmOverwrite(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                     />
-                    <span className="text-sm text-slate-700">
+                    <span className="text-sm text-slate-700 dark:text-slate-200">
                       Confirmo que se borrará la configuración actual
                     </span>
                   </label>
@@ -441,7 +441,7 @@ export default function InstitutionSettings() {
               </Button>
 
               {lastImportResult && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
                   <p className="font-medium">Resultado</p>
                   <p className="mt-1">Dry-run: {lastImportResult.dry_run ? 'Sí' : 'No'}</p>
                   <p>Overwrite: {lastImportResult.overwrite ? 'Sí' : 'No'}</p>
@@ -460,13 +460,13 @@ export default function InstitutionSettings() {
           <CardContent>
             <div className="flex items-center gap-6">
               <div 
-                className="h-32 w-32 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors"
+                className="h-32 w-32 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
                 onClick={() => fileInputRef.current?.click()}
               >
                 {logoPreview ? (
                   <img src={logoPreview} alt="Logo" className="h-full w-full object-contain" />
                 ) : (
-                  <div className="text-center text-slate-400">
+                  <div className="text-center text-slate-400 dark:text-slate-400">
                     <Upload className="h-8 w-8 mx-auto mb-1" />
                     <span className="text-xs">Subir logo</span>
                   </div>
@@ -479,7 +479,7 @@ export default function InstitutionSettings() {
                 onChange={handleLogoChange}
                 className="hidden"
               />
-              <div className="text-sm text-slate-500">
+              <div className="text-sm text-slate-500 dark:text-slate-400">
                 <p>Haz clic en el recuadro para subir el escudo o logo de la institución.</p>
                 <p className="mt-1">Formatos: PNG, JPG, GIF. Tamaño máximo: 2MB</p>
               </div>
@@ -496,13 +496,13 @@ export default function InstitutionSettings() {
               <Label>Imagen de membrete (opcional)</Label>
               <div className="flex items-center gap-6">
                 <div
-                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors"
+                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
                   onClick={() => letterheadInputRef.current?.click()}
                 >
                   {letterheadPreview ? (
                     <img src={letterheadPreview} alt="Membrete" className="h-full w-full object-contain" />
                   ) : (
-                    <div className="text-center text-slate-400">
+                    <div className="text-center text-slate-400 dark:text-slate-400">
                       <Upload className="h-8 w-8 mx-auto mb-1" />
                       <span className="text-xs">Subir membrete</span>
                     </div>
@@ -517,7 +517,7 @@ export default function InstitutionSettings() {
                   className="hidden"
                 />
 
-                <div className="text-sm text-slate-500">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
                   <p>Si subes una imagen, se usará como encabezado (ancho completo) en los PDFs.</p>
                   <p className="mt-1">Recomendado: PNG/JPG horizontal.</p>
                 </div>
@@ -532,9 +532,9 @@ export default function InstitutionSettings() {
                     name="pdf_show_logo"
                     checked={formData.pdf_show_logo}
                     onChange={handleCheckboxChange}
-                    className="h-4 w-4 rounded border-slate-300"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                   />
-                  <span className="text-sm text-slate-700">Mostrar escudo/logo en PDFs</span>
+                  <span className="text-sm text-slate-700 dark:text-slate-200">Mostrar escudo/logo en PDFs</span>
                 </label>
               </div>
 
@@ -597,13 +597,13 @@ export default function InstitutionSettings() {
               <Label>Firma del rector (PNG) — certificados</Label>
               <div className="flex items-center gap-6">
                 <div
-                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors"
+                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
                   onClick={() => rectorSignatureInputRef.current?.click()}
                 >
                   {rectorSignaturePreview ? (
                     <img src={rectorSignaturePreview} alt="Firma del rector" className="h-full w-full object-contain" />
                   ) : (
-                    <div className="text-center text-slate-400">
+                    <div className="text-center text-slate-400 dark:text-slate-400">
                       <Upload className="h-8 w-8 mx-auto mb-1" />
                       <span className="text-xs">Subir firma (PNG)</span>
                     </div>
@@ -618,7 +618,7 @@ export default function InstitutionSettings() {
                   className="hidden"
                 />
 
-                <div className="text-sm text-slate-500">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
                   <p>Se usa en certificados/reportes. Debe ser PNG (ideal: fondo transparente).</p>
                 </div>
               </div>
@@ -731,7 +731,7 @@ export default function InstitutionSettings() {
                 value={formData.rector}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Seleccione un rector</option>
                 {rectorsList.map((user) => (
@@ -740,7 +740,7 @@ export default function InstitutionSettings() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Solo usuarios con rol Administrador o Docente pueden ser rector.
               </p>
             </div>
@@ -751,7 +751,7 @@ export default function InstitutionSettings() {
                 name="secretary"
                 value={formData.secretary}
                 onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Sin secretario asignado</option>
                 {secretariesList.map((user) => (
@@ -760,7 +760,7 @@ export default function InstitutionSettings() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Solo usuarios con rol Secretaría pueden ser asignados.
               </p>
             </div>

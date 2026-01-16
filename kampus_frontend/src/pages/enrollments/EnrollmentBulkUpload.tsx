@@ -31,10 +31,10 @@ export default function EnrollmentBulkUpload() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Carga Masiva de Matrículas</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Carga Masiva de Matrículas</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a la carga masiva de matrículas.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la carga masiva de matrículas.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -66,7 +66,7 @@ export default function EnrollmentBulkUpload() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900">Carga Masiva de Matrículas</h2>
+      <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Carga Masiva de Matrículas</h2>
 
       <Toast
         message={toast.message}
@@ -83,7 +83,7 @@ export default function EnrollmentBulkUpload() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="p-4 bg-blue-50 text-blue-800 rounded-md text-sm">
+          <div className="p-4 bg-blue-50 text-blue-800 rounded-md text-sm dark:bg-blue-950/40 dark:text-blue-200">
             <p className="font-medium mb-1">Instrucciones:</p>
             <ul className="list-disc list-inside space-y-1">
               <li>El archivo debe ser formato <strong>.csv</strong></li>
@@ -114,12 +114,12 @@ export default function EnrollmentBulkUpload() {
           </div>
 
           {uploadResult && (
-            <div className="mt-4 p-4 border rounded-md bg-slate-50">
+            <div className="mt-4 p-4 border rounded-md bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
               <p className="font-medium text-green-600">Exitosos: {uploadResult.success}</p>
               {uploadResult.errors.length > 0 && (
                 <div className="mt-2">
                   <p className="font-medium text-red-600">Errores:</p>
-                  <ul className="text-sm text-red-500 list-disc list-inside max-h-40 overflow-y-auto">
+                  <ul className="text-sm text-red-500 dark:text-red-300 list-disc list-inside max-h-40 overflow-y-auto">
                     {uploadResult.errors.map((err, i) => (
                       <li key={i}>{err}</li>
                     ))}

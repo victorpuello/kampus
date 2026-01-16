@@ -1530,7 +1530,7 @@ export default function StudentForm() {
                                         <select
                                             value={historyGradeId}
                                             onChange={(e) => setHistoryGradeId(e.target.value ? Number(e.target.value) : '')}
-                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900/40"
                                         >
                                             <option value="">Seleccione…</option>
                                             {historyGrades.map((g) => (
@@ -1561,9 +1561,9 @@ export default function StudentForm() {
                                             'Matemáticas, Álgebra, 4.20\n' +
                                             'Ciencias, Biología, 2.50'
                                         }
-                                        className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                                        className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500"
                                     />
-                                    <div className="text-xs text-slate-500">Separador: coma (,) o punto y coma (;).</div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">Separador: coma (,) o punto y coma (;).</div>
                                 </div>
 
                                 <div className="flex gap-2">
@@ -1573,7 +1573,7 @@ export default function StudentForm() {
                                 </div>
 
                                 {historyResult ? (
-                                    <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-sm text-slate-700">
+                                    <div className="p-3 rounded-md bg-slate-50 border border-slate-200 text-sm text-slate-700 dark:bg-slate-900/40 dark:border-slate-800 dark:text-slate-200">
                                         <div><span className="font-medium">Matrícula:</span> {historyResult.enrollment_id}</div>
                                         <div><span className="font-medium">Decisión:</span> {historyResult.decision}</div>
                                         <div><span className="font-medium">Reprobadas:</span> {historyResult.failed_subjects_count} materia(s), {historyResult.failed_areas_count} área(s)</div>

@@ -21,6 +21,7 @@ import {
 import { cn } from '../lib/utils'
 import { academicApi } from '../services/academic'
 import { emitNotificationsUpdated, notificationsApi, onNotificationsUpdated, type Notification } from '../services/notifications'
+import { applyThemeMode, getInitialThemeMode, resolveTheme, toggleThemeMode as toggleThemeModeUtil, type ThemeMode } from '../theme/theme'
 
 type NavigationLinkChild = { name: string; href: string }
 type NavigationGroupChild = { name: string; children: NavigationLinkChild[] }
@@ -55,32 +56,41 @@ export default function DashboardLayout() {
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
 
-  const THEME_STORAGE_KEY = 'kampus:theme'
-  const [isDarkMode, setIsDarkMode] = useState(false)
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getInitialThemeMode())
+  const resolvedTheme = useMemo(() => resolveTheme(themeMode), [themeMode])
+  const isDarkMode = resolvedTheme === 'dark'
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(THEME_STORAGE_KEY)
-      const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
-      const isDark = stored ? stored === 'dark' : prefersDark
-      document.documentElement.classList.toggle('dark', isDark)
-      document.documentElement.style.colorScheme = isDark ? 'dark' : 'light'
-      setIsDarkMode(isDark)
-    } catch {
-      // ignore
+    // Keep DOM in sync (important if another tab modifies storage).
+    applyThemeMode(themeMode)
+
+    if (themeMode !== 'auto') return
+
+    const now = new Date()
+    const next = new Date(now)
+    const hour = now.getHours()
+
+    // Next switch at 06:00 or 18:00.
+    if (hour < 6) {
+      next.setHours(6, 0, 0, 0)
+    } else if (hour < 18) {
+      next.setHours(18, 0, 0, 0)
+    } else {
+      next.setDate(next.getDate() + 1)
+      next.setHours(6, 0, 0, 0)
     }
-  }, [])
+
+    const ms = Math.max(0, next.getTime() - now.getTime())
+    const timer = window.setTimeout(() => {
+      // Re-apply to flip dark/light when boundary is reached.
+      applyThemeMode('auto')
+    }, ms + 50)
+
+    return () => window.clearTimeout(timer)
+  }, [themeMode])
 
   const toggleTheme = () => {
-    const next = !isDarkMode
-    setIsDarkMode(next)
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next ? 'dark' : 'light')
-    } catch {
-      // ignore
-    }
-    document.documentElement.classList.toggle('dark', next)
-    document.documentElement.style.colorScheme = next ? 'dark' : 'light'
+    setThemeMode((current) => toggleThemeModeUtil(current))
   }
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
@@ -768,7 +778,9 @@ export default function DashboardLayout() {
                         {isDarkMode ? <Sun className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" /> : <Moon className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />}
                         Apariencia
                       </span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500">{isDarkMode ? 'Claro' : 'Oscuro'}</span>
+                      <span className="text-xs text-slate-400 dark:text-slate-500">
+                        {themeMode === 'auto' ? `Auto (${isDarkMode ? 'Oscuro' : 'Claro'})` : isDarkMode ? 'Oscuro' : 'Claro'}
+                      </span>
                     </button>
                   </div>
 

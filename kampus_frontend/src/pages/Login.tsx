@@ -58,7 +58,7 @@ export default function Login() {
       </div>
 
       {/* Right Side - Login Form */}
-      <div className="flex items-center justify-center p-8 bg-white h-full">
+      <div className="flex items-center justify-center p-8 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 h-full">
         <div className="mx-auto w-full max-w-[350px] space-y-6">
           <div className="flex flex-col space-y-2 text-center">
             <div className="lg:hidden flex justify-center mb-4">
@@ -69,7 +69,7 @@ export default function Login() {
             <h1 className="text-2xl font-semibold tracking-tight">
               Iniciar sesión
             </h1>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               Ingresa tu usuario y contraseña para continuar
             </p>
           </div>
@@ -84,7 +84,7 @@ export default function Login() {
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoComplete="username"
-                className="bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+                className="transition-colors"
               />
             </div>
             <div className="space-y-2">
@@ -92,7 +92,7 @@ export default function Login() {
                 <Label htmlFor="password">Contraseña</Label>
                 <a 
                   href="#" 
-                  className="text-sm font-medium text-blue-600 hover:text-blue-500 hover:underline"
+                  className="text-sm font-medium text-sky-600 hover:text-sky-500 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
                   onClick={(e) => e.preventDefault()}
                 >
                   ¿Olvidaste tu contraseña?
@@ -106,19 +106,19 @@ export default function Login() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="bg-slate-50 border-slate-200 focus:bg-white transition-colors"
+                className="transition-colors"
               />
             </div>
 
             {localError && (
-              <div className="text-sm text-red-500 font-medium text-center bg-red-50 p-2 rounded border border-red-100">
+              <div className="text-sm font-medium text-center bg-red-50 p-2 rounded border border-red-100 text-red-600 dark:bg-red-950/40 dark:border-red-900/50 dark:text-red-300">
                 {localError}
               </div>
             )}
 
             <Button 
               type="submit" 
-              className="w-full bg-slate-900 hover:bg-slate-800 text-white h-11"
+              className="w-full h-11 bg-slate-900 hover:bg-slate-800 text-white dark:bg-sky-600 dark:hover:bg-sky-700"
               disabled={loading}
             >
               {loading ? (
@@ -132,13 +132,13 @@ export default function Login() {
             </Button>
           </form>
 
-          <p className="px-8 text-center text-sm text-slate-500">
+          <p className="px-8 text-center text-sm text-slate-500 dark:text-slate-400">
             Al continuar, aceptas nuestros{" "}
-            <a href="#" className="underline underline-offset-4 hover:text-slate-900">
+            <a href="#" className="underline underline-offset-4 hover:text-slate-900 dark:hover:text-slate-100">
               Términos de Servicio
             </a>{" "}
             y{" "}
-            <a href="#" className="underline underline-offset-4 hover:text-slate-900">
+            <a href="#" className="underline underline-offset-4 hover:text-slate-900 dark:hover:text-slate-100">
               Política de Privacidad
             </a>
             .

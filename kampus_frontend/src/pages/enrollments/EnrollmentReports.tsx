@@ -94,10 +94,10 @@ export default function EnrollmentReports() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Reportes de Matrículas</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Reportes de Matrículas</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a reportes de matrículas.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a reportes de matrículas.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -268,7 +268,7 @@ export default function EnrollmentReports() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+      <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
         Reportes
       </h2>
 
@@ -291,7 +291,7 @@ export default function EnrollmentReports() {
             <div className="space-y-2">
               <Label>Año Académico</Label>
               <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={filters.year}
                 onChange={e => setFilters({...filters, year: e.target.value})}
               >
@@ -304,7 +304,7 @@ export default function EnrollmentReports() {
             <div className="space-y-2">
               <Label>Grado</Label>
               <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={filters.grade}
                 onChange={e => setFilters({...filters, grade: e.target.value, group: ''})}
               >
@@ -325,7 +325,7 @@ export default function EnrollmentReports() {
             <div className="space-y-2">
               <Label>Grupo</Label>
               <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={filters.group}
                 onChange={e => setFilters({...filters, group: e.target.value})}
                 disabled={!filters.year}
@@ -366,7 +366,7 @@ export default function EnrollmentReports() {
               <div className="space-y-2">
                 <Label>Periodo</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={bulletinPeriodId}
                   onChange={(e) => setBulletinPeriodId(e.target.value)}
                   disabled={!filters.year}
@@ -409,7 +409,7 @@ export default function EnrollmentReports() {
               <div className="space-y-2">
                 <Label>Estudiante</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={bulletinEnrollmentId}
                   onChange={(e) => setBulletinEnrollmentId(e.target.value)}
                   disabled={!filters.group || !filters.year || loadingBulletinEnrollments}
@@ -422,10 +422,10 @@ export default function EnrollmentReports() {
                   ))}
                 </select>
                 {loadingBulletinEnrollments && (
-                  <div className="text-xs text-slate-500">Cargando estudiantes…</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Cargando estudiantes…</div>
                 )}
                 {!loadingBulletinEnrollments && filters.group && filters.year && bulletinEnrollments.length === 0 && (
-                  <div className="text-xs text-slate-500">No hay matrículas activas para este grupo.</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">No hay matrículas activas para este grupo.</div>
                 )}
               </div>
             )}

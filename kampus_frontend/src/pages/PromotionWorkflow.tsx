@@ -286,10 +286,10 @@ export default function PromotionWorkflow() {
       {blocked ? (
         <Card>
           <CardHeader>
-            <CardTitle>Promoción anual (SIEE)</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Promoción anual (SIEE)</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-slate-600">No tienes permisos para acceder a Promoción anual.</p>
+            <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a Promoción anual.</p>
             <div className="mt-4">
               <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
             </div>
@@ -300,8 +300,8 @@ export default function PromotionWorkflow() {
           <CardHeader>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <CardTitle>Promoción anual (SIEE)</CardTitle>
-                <p className="text-sm text-slate-500 mt-1">Previsualizar → Cerrar año → Aplicar promociones al año destino</p>
+                <CardTitle className="text-slate-900 dark:text-slate-100">Promoción anual (SIEE)</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Previsualizar → Cerrar año → Aplicar promociones al año destino</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => navigate('/')}>Volver</Button>
@@ -311,18 +311,18 @@ export default function PromotionWorkflow() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <div className="text-slate-600">Cargando…</div>
+              <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
             ) : error ? (
-              <div className="text-red-600">{error}</div>
+              <div className="text-red-600 dark:text-red-300">{error}</div>
             ) : (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Año origen</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Año origen</label>
                     <select
                       value={sourceYearId}
                       onChange={(e) => setSourceYearId(e.target.value ? Number(e.target.value) : '')}
-                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
                     >
                       <option value="">Selecciona…</option>
                       {years
@@ -335,16 +335,16 @@ export default function PromotionWorkflow() {
                         ))}
                     </select>
                     {sourceYear ? (
-                      <div className="text-xs text-slate-500 mt-1">Estado: {sourceYear.status_display || sourceYear.status}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Estado: {sourceYear.status_display || sourceYear.status}</div>
                     ) : null}
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Año destino (para aplicar)</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Año destino (para aplicar)</label>
                     <select
                       value={targetYearId}
                       onChange={(e) => setTargetYearId(e.target.value ? Number(e.target.value) : '')}
-                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
                     >
                       <option value="">Selecciona…</option>
                       {years
@@ -357,22 +357,22 @@ export default function PromotionWorkflow() {
                         ))}
                     </select>
                     {targetYear ? (
-                      <div className="text-xs text-slate-500 mt-1">Estado: {targetYear.status_display || targetYear.status}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Estado: {targetYear.status_display || targetYear.status}</div>
                     ) : null}
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Puntaje mínimo (opcional)</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Puntaje mínimo (opcional)</label>
                     <Input
                       placeholder="Ej: 3.0"
                       value={passingScore}
                       onChange={(e) => setPassingScore(e.target.value)}
                     />
-                    <div className="text-xs text-slate-500 mt-1">Vacío = usa el valor por defecto del backend</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Vacío = usa el valor por defecto del backend</div>
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Filtrar por grado (opcional)</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Filtrar por grado (opcional)</label>
                     <select
                       value={sourceGradeId}
                       onChange={(e) => {
@@ -383,7 +383,7 @@ export default function PromotionWorkflow() {
                         setTargetGroups([])
                         setTargetGroupId('')
                       }}
-                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
                     >
                       <option value="">Todos</option>
                       {filteredGrades.map((g) => (
@@ -392,24 +392,24 @@ export default function PromotionWorkflow() {
                         </option>
                       ))}
                     </select>
-                    <div className="text-xs text-slate-500 mt-1">Útil para pasar, por ejemplo, 10→11</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Útil para pasar, por ejemplo, 10→11</div>
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium text-slate-700">Grupo destino (opcional)</label>
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Grupo destino (opcional)</label>
                     {targetGroups.length === 0 ? (
-                      <div className="text-xs text-slate-500 mt-2">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-2">
                         {typeof targetYearId === 'number' && effectiveTargetGradeId
                           ? 'No hay grupos para el grado destino (se creará sin grupo).'
                           : 'Genera previsualización y selecciona matrículas para detectar el grado destino.'}
                       </div>
                     ) : targetGroups.length === 1 ? (
-                      <div className="text-xs text-slate-500 mt-2">Se asignará automáticamente: {targetGroups[0].name}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-2">Se asignará automáticamente: {targetGroups[0].name}</div>
                     ) : (
                       <select
                         value={targetGroupId}
                         onChange={(e) => setTargetGroupId(e.target.value ? Number(e.target.value) : '')}
-                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-900"
                       >
                         <option value="">Selecciona…</option>
                         {targetGroups.map((g) => (
@@ -420,7 +420,7 @@ export default function PromotionWorkflow() {
                       </select>
                     )}
                     {targetGroups.length > 1 ? (
-                      <div className="text-xs text-slate-500 mt-1">Requerido si hay más de un grupo en el grado destino.</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Requerido si hay más de un grupo en el grado destino.</div>
                     ) : null}
                   </div>
                 </div>
@@ -429,6 +429,7 @@ export default function PromotionWorkflow() {
                   <input
                     id="excludeRepeated"
                     type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                     checked={excludeRepeated}
                     onChange={(e) => {
                       const next = e.target.checked
@@ -437,7 +438,7 @@ export default function PromotionWorkflow() {
                       applySelectionDefaults(preview, next)
                     }}
                   />
-                  <label htmlFor="excludeRepeated" className="text-sm text-slate-700">
+                  <label htmlFor="excludeRepeated" className="text-sm text-slate-700 dark:text-slate-200">
                     Excluir reprobados (no crear matrícula para “REPEATED”)
                   </label>
                 </div>
@@ -456,8 +457,8 @@ export default function PromotionWorkflow() {
 
                 {preview ? (
                   <div className="space-y-3">
-                    <div className="text-sm text-slate-600">
-                      <span className="font-medium text-slate-900">Resumen:</span> {summary.total} matrícula(s)
+                    <div className="text-sm text-slate-600 dark:text-slate-300">
+                      <span className="font-medium text-slate-900 dark:text-slate-100">Resumen:</span> {summary.total} matrícula(s)
                       {Object.keys(summary.byDecision).length > 0 ? (
                         <span> — {Object.entries(summary.byDecision).map(([k, v]) => `${k}: ${v}`).join(' | ')}</span>
                       ) : null}
@@ -470,14 +471,14 @@ export default function PromotionWorkflow() {
                       <Button variant="outline" onClick={clearSelection}>
                         Limpiar selección
                       </Button>
-                      <div className="text-sm text-slate-600 flex items-center">
-                        Seleccionadas: <span className="ml-1 font-medium text-slate-900">{selectedEnrollmentIds.length}</span>
+                      <div className="text-sm text-slate-600 dark:text-slate-300 flex items-center">
+                        Seleccionadas: <span className="ml-1 font-medium text-slate-900 dark:text-slate-100">{selectedEnrollmentIds.length}</span>
                       </div>
                     </div>
 
                     <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-slate-200">
-                        <thead className="bg-slate-50">
+                      <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                        <thead className="bg-slate-50 dark:bg-slate-900/50">
                           <tr>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Sel</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estudiante</th>
@@ -489,30 +490,31 @@ export default function PromotionWorkflow() {
                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Áreas distintas</th>
                           </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-slate-200">
+                        <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-950 dark:divide-slate-800">
                           {preview.results.map((r) => (
-                            <tr key={r.enrollment_id} className="hover:bg-slate-50">
+                            <tr key={r.enrollment_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
                               <td className="px-6 py-4 whitespace-nowrap text-sm">
                                 <input
                                   type="checkbox"
+                                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                                   checked={selectedEnrollmentIds.includes(r.enrollment_id)}
                                   onChange={() => toggleEnrollment(r.enrollment_id)}
                                   disabled={excludeRepeated && r.decision === 'REPEATED'}
                                 />
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-slate-100">
                                 {r.student_name || `Matrícula #${r.enrollment_id}`}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">
                                 {r.student_document_number || '—'}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">
                                 {r.grade_name || '—'}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{decisionLabel(r.decision)}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_subjects_count}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_areas_count}</td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{r.failed_subjects_distinct_areas_count}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{decisionLabel(r.decision)}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{r.failed_subjects_count}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{r.failed_areas_count}</td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{r.failed_subjects_distinct_areas_count}</td>
                             </tr>
                           ))}
                         </tbody>

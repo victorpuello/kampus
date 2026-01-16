@@ -143,10 +143,10 @@ export default function AdministrativeCertificatesRevenue() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Ingresos por certificados</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Ingresos por certificados</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a este módulo.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a este módulo.</p>
         </CardContent>
       </Card>
     )
@@ -156,8 +156,8 @@ export default function AdministrativeCertificatesRevenue() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Ingresos — Certificados</h2>
-          <p className="text-slate-500 mt-1">Auditoría de emisión y totales por periodo.</p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Ingresos — Certificados</h2>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Auditoría de emisión y totales por periodo.</p>
         </div>
         <div className="flex gap-2">
           <Link to="/administrativos/certificados">
@@ -171,24 +171,24 @@ export default function AdministrativeCertificatesRevenue() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Filtros</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-4">
             <div>
-              <label className="text-sm text-slate-600">Desde</label>
+              <label className="text-sm text-slate-600 dark:text-slate-300">Desde</label>
               <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm text-slate-600">Hasta</label>
+              <label className="text-sm text-slate-600 dark:text-slate-300">Hasta</label>
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
             <div>
-              <label className="text-sm text-slate-600">Estado</label>
+              <label className="text-sm text-slate-600 dark:text-slate-300">Estado</label>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               >
                 <option value="ISSUED">Emitidos</option>
                 <option value="REVOKED">Revocados</option>
@@ -199,7 +199,7 @@ export default function AdministrativeCertificatesRevenue() {
 
           <div className="mt-3 grid gap-3 md:grid-cols-4">
             <div className="md:col-span-3">
-              <label className="text-sm text-slate-600">Buscar (nombre o documento)</label>
+              <label className="text-sm text-slate-600 dark:text-slate-300">Buscar (nombre o documento)</label>
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ej: 1033... o Juan" />
             </div>
             <div className="flex items-end">
@@ -214,29 +214,29 @@ export default function AdministrativeCertificatesRevenue() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-slate-500">Total certificados (emitidos)</p>
-            <div className="text-2xl font-bold text-slate-900">{summary.total_count}</div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total certificados (emitidos)</p>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{summary.total_count}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-6">
-            <p className="text-sm font-medium text-slate-500">Total ingresos (COP)</p>
-            <div className="text-2xl font-bold text-slate-900">{formatCop(summary.total_amount_cop)}</div>
+            <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total ingresos (COP)</p>
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{formatCop(summary.total_amount_cop)}</div>
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Emisiones ({count})</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Emisiones ({count})</CardTitle>
         </CardHeader>
         <CardContent>
           {issues.length === 0 ? (
-            <p className="text-slate-600">No hay registros para mostrar.</p>
+            <p className="text-slate-600 dark:text-slate-300">No hay registros para mostrar.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="bg-slate-50 dark:bg-slate-900">
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                       Fecha
@@ -261,28 +261,28 @@ export default function AdministrativeCertificatesRevenue() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-900 dark:divide-slate-800">
                   {issues.map((row) => (
-                    <tr key={row.uuid} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
+                    <tr key={row.uuid} className="bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/60">
+                      <td className="px-3 py-2 text-sm text-slate-700 dark:text-slate-200 whitespace-nowrap">
                         {row.issued_at ? new Date(row.issued_at).toLocaleString('es-CO') : ''}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-900">{row.student_full_name}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{row.document_number}</td>
-                      <td className="px-3 py-2 text-sm text-slate-700">
+                      <td className="px-3 py-2 text-sm text-slate-900 dark:text-slate-100">{row.student_full_name}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{row.document_number}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">
                         {String(row.academic_year ?? '')} / {row.grade_name}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-900 whitespace-nowrap">
+                      <td className="px-3 py-2 text-sm text-slate-900 dark:text-slate-100 whitespace-nowrap">
                         {formatCop(Number(row.amount_cop || 0))}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-700">{row.issued_by?.name || ''}</td>
+                      <td className="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{row.issued_by?.name || ''}</td>
                       <td className="px-3 py-2 text-sm text-right">
                         {row.has_pdf ? (
                           <Button variant="outline" onClick={() => downloadPdf(row.uuid)}>
                             Ver PDF
                           </Button>
                         ) : (
-                          <span className="text-slate-400">—</span>
+                          <span className="text-slate-400 dark:text-slate-500">—</span>
                         )}
                       </td>
                     </tr>

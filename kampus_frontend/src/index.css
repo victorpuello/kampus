@@ -1,1 +1,26 @@
 @import "tailwindcss";
+
+/* Tailwind v4: make `dark:` utilities depend on `.dark` class (not prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+	Fix: WebKit autofill ignores Tailwind dark styles.
+	Afecta especialmente campos autofill (p.ej. apellidos/contraseña).
+*/
+.dark input:-webkit-autofill,
+.dark textarea:-webkit-autofill,
+.dark select:-webkit-autofill {
+	-webkit-text-fill-color: rgb(241 245 249); /* slate-100 */
+	caret-color: rgb(241 245 249);
+	-webkit-box-shadow: 0 0 0px 1000px rgb(2 6 23) inset; /* slate-950 */
+	box-shadow: 0 0 0px 1000px rgb(2 6 23) inset;
+}
+
+.dark input:-webkit-autofill:focus,
+.dark textarea:-webkit-autofill:focus,
+.dark select:-webkit-autofill:focus {
+	-webkit-text-fill-color: rgb(241 245 249);
+	caret-color: rgb(241 245 249);
+	-webkit-box-shadow: 0 0 0px 1000px rgb(2 6 23) inset;
+	box-shadow: 0 0 0px 1000px rgb(2 6 23) inset;
+}

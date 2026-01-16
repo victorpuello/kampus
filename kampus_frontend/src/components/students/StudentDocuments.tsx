@@ -101,7 +101,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
               <div className="space-y-2">
                 <Label>Tipo de Documento</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-sky-400"
                   value={docType}
                   onChange={(e) => setDocType(e.target.value)}
                 >
@@ -139,7 +139,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                 }}
                 accept=".pdf,.jpg,.jpeg,.png"
               />
-              <p className="text-xs text-slate-500">Formatos: PDF, JPG, PNG. Máximo 5MB.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Formatos: PDF, JPG, PNG. Máximo 5MB.</p>
             </div>
 
             <div className="flex justify-end">
@@ -158,32 +158,32 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="text-center py-4">Cargando documentos...</div>
+            <div className="text-center py-4 text-slate-500 dark:text-slate-400">Cargando documentos...</div>
           ) : documents.length === 0 ? (
-            <div className="text-center py-8 text-slate-500">No hay documentos registrados.</div>
+            <div className="text-center py-8 text-slate-500 dark:text-slate-400">No hay documentos registrados.</div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {documents.map((doc) => (
-                <div key={doc.id} className="border rounded-lg p-4 flex flex-col justify-between bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div key={doc.id} className="border rounded-lg p-4 flex flex-col justify-between bg-slate-50 hover:bg-slate-100 transition-colors dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
                   <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 bg-blue-100 rounded-full text-blue-600">
+                    <div className="p-2 bg-blue-100 rounded-full text-blue-600 dark:bg-sky-950/40 dark:text-sky-300">
                       <FileText className="h-5 w-5" />
                     </div>
-                    <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDelete(doc.id)}>
+                    <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300" onClick={() => handleDelete(doc.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                   <div>
-                    <h4 className="font-medium text-slate-900">{getDocTypeName(doc.document_type)}</h4>
-                    <p className="text-xs text-slate-500 mt-1">{doc.description || 'Sin descripción'}</p>
-                    <p className="text-xs text-slate-400 mt-2">Subido: {new Date(doc.uploaded_at).toLocaleDateString()}</p>
+                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{getDocTypeName(doc.document_type)}</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{doc.description || 'Sin descripción'}</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">Subido: {new Date(doc.uploaded_at).toLocaleDateString()}</p>
                   </div>
-                  <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                     <a 
                       href={doc.file} 
                       target="_blank" 
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline flex items-center justify-center"
+                      className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
                     >
                       <Eye className="mr-1 h-3 w-3" /> Ver Documento
                     </a>

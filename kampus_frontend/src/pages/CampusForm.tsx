@@ -69,10 +69,10 @@ export default function CampusForm() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Sedes</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Sedes</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para crear o editar sedes.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para crear o editar sedes.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -218,7 +218,7 @@ export default function CampusForm() {
     }
   }
 
-  if (loading) return <div className="p-6">Cargando...</div>
+  if (loading) return <div className="p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -235,10 +235,10 @@ export default function CampusForm() {
           Volver
         </Button>
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
             {isEdit ? 'Editar Sede' : 'Nueva Sede'}
           </h2>
-          <p className="text-slate-500">
+          <p className="text-slate-500 dark:text-slate-400">
             {isEdit ? 'Modifica la información de la sede.' : 'Registra una nueva sede educativa.'}
           </p>
         </div>
@@ -316,7 +316,7 @@ export default function CampusForm() {
                 value={formData.sede_type}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {SEDE_TYPE_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -331,7 +331,7 @@ export default function CampusForm() {
                 value={formData.status}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {SEDE_STATUS_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -345,9 +345,9 @@ export default function CampusForm() {
                   name="is_main"
                   checked={formData.is_main}
                   onChange={handleChange}
-                  className="h-4 w-4 rounded border-slate-300"
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                 />
-                <span className="text-sm font-medium">Es Sede Principal</span>
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Es Sede Principal</span>
               </label>
             </div>
           </CardContent>
@@ -392,7 +392,7 @@ export default function CampusForm() {
                 value={formData.character}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {CHARACTER_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -407,7 +407,7 @@ export default function CampusForm() {
                 value={formData.specialty}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {SPECIALTY_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -422,7 +422,7 @@ export default function CampusForm() {
                 value={formData.methodology}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {METHODOLOGY_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -449,7 +449,7 @@ export default function CampusForm() {
                 value={formData.department}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Seleccione...</option>
                 {COLOMBIA_DATA.map(dept => (
@@ -468,7 +468,7 @@ export default function CampusForm() {
                 onChange={handleChange}
                 required
                 disabled={!formData.department}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Seleccione...</option>
                 {municipalities.map(mun => (
@@ -486,7 +486,7 @@ export default function CampusForm() {
                 value={formData.zone}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {ZONE_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -560,9 +560,9 @@ export default function CampusForm() {
                       type="checkbox"
                       checked={formData.levels?.includes(opt.value) || false}
                       onChange={() => handleMultiSelect('levels', opt.value)}
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                     />
-                    <span className="text-sm">{opt.label}</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-200">{opt.label}</span>
                   </label>
                 ))}
               </div>
@@ -576,9 +576,9 @@ export default function CampusForm() {
                       type="checkbox"
                       checked={formData.shifts?.includes(opt.value) || false}
                       onChange={() => handleMultiSelect('shifts', opt.value)}
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                     />
-                    <span className="text-sm">{opt.label}</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-200">{opt.label}</span>
                   </label>
                 ))}
               </div>
@@ -591,7 +591,7 @@ export default function CampusForm() {
                 value={formData.calendar}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 {CALENDAR_OPTIONS.map(opt => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -674,7 +674,7 @@ export default function CampusForm() {
                 name="director"
                 value={formData.director || ''}
                 onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Sin asignar</option>
                 {rectorsList.map(user => (
@@ -683,7 +683,7 @@ export default function CampusForm() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">Usuarios con rol Administrador o Docente</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Usuarios con rol Administrador o Docente</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="campus_secretary">Secretario(a)</Label>
@@ -692,7 +692,7 @@ export default function CampusForm() {
                 name="campus_secretary"
                 value={formData.campus_secretary || ''}
                 onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Sin asignar</option>
                 {secretariesList.map(user => (
@@ -701,7 +701,7 @@ export default function CampusForm() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">Usuarios con rol Secretaría</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Usuarios con rol Secretaría</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="coordinator">Coordinador(a)</Label>
@@ -710,7 +710,7 @@ export default function CampusForm() {
                 name="coordinator"
                 value={formData.coordinator || ''}
                 onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Sin asignar</option>
                 {coordinatorsList.map(user => (
@@ -719,7 +719,7 @@ export default function CampusForm() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-slate-500">Usuarios con rol Coordinador</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Usuarios con rol Coordinador</p>
             </div>
           </CardContent>
         </Card>

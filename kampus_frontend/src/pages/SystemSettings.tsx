@@ -156,10 +156,10 @@ export default function SystemSettings() {
       <div className="p-6">
         <Card>
           <CardHeader>
-            <CardTitle>Sistema</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Sistema</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-sm text-slate-600">No tienes permisos para acceder a esta sección.</div>
+            <div className="text-sm text-slate-600 dark:text-slate-300">No tienes permisos para acceder a esta sección.</div>
           </CardContent>
         </Card>
       </div>
@@ -169,28 +169,28 @@ export default function SystemSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight text-slate-900">Sistema</h2>
-        <p className="text-sm text-slate-600">Backups, descargas y restauración/importación de data.</p>
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Sistema</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-300">Backups, descargas y restauración/importación de data.</p>
       </div>
 
       {error ? (
-        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{error}</div>
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{error}</div>
       ) : null}
 
       {restoreMessage ? (
-        <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm">
+        <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">
           {restoreMessage}
         </div>
       ) : null}
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Backup del sistema</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Backup del sistema</CardTitle>
           <div className="flex items-center gap-2">
-            <label className="hidden sm:flex items-center gap-2 text-sm text-slate-600">
+            <label className="hidden sm:flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
-                className="h-4 w-4"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                 checked={includeMedia}
                 onChange={(e) => setIncludeMedia(e.target.checked)}
                 disabled={creating}
@@ -207,10 +207,10 @@ export default function SystemSettings() {
         </CardHeader>
         <CardContent>
           <div className="sm:hidden mb-3">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
-                className="h-4 w-4"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                 checked={includeMedia}
                 onChange={(e) => setIncludeMedia(e.target.checked)}
                 disabled={creating}
@@ -219,13 +219,13 @@ export default function SystemSettings() {
             </label>
           </div>
           {loading ? (
-            <div className="text-sm text-slate-500">Cargando historial…</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400">Cargando historial…</div>
           ) : backups.length === 0 ? (
-            <div className="text-sm text-slate-500">No hay backups todavía.</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400">No hay backups todavía.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+                <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900/40 dark:to-slate-950/40 dark:border-slate-800">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Archivo</th>
                     <th className="px-6 py-4 font-semibold">Fecha</th>
@@ -233,10 +233,10 @@ export default function SystemSettings() {
                     <th className="px-6 py-4 font-semibold text-right">Acción</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                   {backups.map((b) => (
-                    <tr key={b.filename} className="bg-white hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-4 font-medium text-slate-900">{b.filename}</td>
+                    <tr key={b.filename} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-950 dark:hover:bg-slate-800/60">
+                      <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{b.filename}</td>
                       <td className="px-6 py-4">{formatDate(b.created_at)}</td>
                       <td className="px-6 py-4 text-right">{formatSize(b.size_bytes)}</td>
                       <td className="px-6 py-4 text-right">
@@ -255,14 +255,14 @@ export default function SystemSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Restaurar / Importar data</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Restaurar / Importar data</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-slate-500">Modo</span>
+              <span className="text-sm text-slate-500 dark:text-slate-400">Modo</span>
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 value={mode}
                 onChange={(e) => {
                   const next = e.target.value === 'restore' ? 'restore' : 'import'
@@ -276,10 +276,10 @@ export default function SystemSettings() {
               </select>
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
-                className="h-4 w-4"
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
                 checked={confirm}
                 onChange={(e) => setConfirm(e.target.checked)}
                 disabled={mode !== 'restore'}
@@ -289,13 +289,13 @@ export default function SystemSettings() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 p-4">
-              <div className="text-sm font-semibold text-slate-900">Desde un backup existente</div>
-              <div className="text-xs text-slate-500 mt-1">Selecciona un archivo del historial.</div>
+            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Desde un backup existente</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Selecciona un archivo del historial.</div>
 
               <div className="mt-3 flex flex-col gap-2">
                 <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm"
+                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={selectedFilename}
                   onChange={(e) => setSelectedFilename(e.target.value)}
                 >
@@ -316,15 +316,16 @@ export default function SystemSettings() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 p-4">
-              <div className="text-sm font-semibold text-slate-900">Subir archivo</div>
-              <div className="text-xs text-slate-500 mt-1">Acepta .json, .json.gz o .zip (bundle)</div>
+            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Subir archivo</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Acepta .json, .json.gz o .zip (bundle)</div>
 
               <div className="mt-3 flex flex-col gap-2">
                 <input
                   type="file"
                   accept=".json,.gz,.json.gz,.zip"
                   onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                  className="text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-50 dark:text-slate-300 dark:file:border-slate-700 dark:file:bg-slate-950 dark:file:text-slate-200 dark:hover:file:bg-slate-900"
                 />
 
                 <Button onClick={restoreFromUpload} disabled={restoring || !uploadFile || !canRunDestructive}>

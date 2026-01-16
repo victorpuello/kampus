@@ -139,15 +139,31 @@ export default function UserList() {
     }
   }
 
-  const getRoleBadgeColor = (role: string) => {
+  const getRoleBadgeClasses = (role: string) => {
     switch (role) {
-      case 'SUPERADMIN': return 'bg-purple-100 text-purple-700'
-      case 'ADMIN': return 'bg-red-100 text-red-700'
-      case 'COORDINATOR': return 'bg-orange-100 text-orange-700'
-      case 'TEACHER': return 'bg-emerald-100 text-emerald-700'
-      case 'STUDENT': return 'bg-blue-100 text-blue-700'
-      default: return 'bg-slate-100 text-slate-700'
+      case 'SUPERADMIN':
+        return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:border-purple-500/30'
+      case 'ADMIN':
+        return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-500/30'
+      case 'COORDINATOR':
+        return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-500/30'
+      case 'SECRETARY':
+        return 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-500/30'
+      case 'TEACHER':
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/30'
+      case 'PARENT':
+        return 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-200 dark:border-teal-500/30'
+      case 'STUDENT':
+        return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-500/30'
+      default:
+        return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
     }
+  }
+
+  const getActiveBadgeClasses = (isActive: boolean) => {
+    return isActive
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/30'
+      : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
   }
 
   const getRoleLabel = (role: string) => {
@@ -167,10 +183,10 @@ export default function UserList() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Usuarios</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Usuarios</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de usuarios.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de usuarios.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -182,18 +198,18 @@ export default function UserList() {
   return (
     <div className="space-y-6">
       {error ? (
-        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">{error}</div>
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{error}</div>
       ) : null}
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <UserCog className="h-6 w-6 text-blue-600" />
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
+              <UserCog className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
             Usuarios del Sistema
           </h2>
-          <p className="text-slate-500 mt-1">Administración general de cuentas y roles.</p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Administración general de cuentas y roles.</p>
         </div>
         <Link to="/users/new">
           <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
@@ -207,11 +223,11 @@ export default function UserList() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Total Usuarios</p>
-              <Users className="h-4 w-4 text-slate-500" />
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Usuarios</p>
+              <Users className="h-4 w-4 text-slate-500 dark:text-slate-400" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{totalUsers}</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalUsers}</div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Cuentas registradas
             </p>
           </CardContent>
@@ -219,7 +235,7 @@ export default function UserList() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Usuarios Activos</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Usuarios Activos</p>
               <CheckCircle className="h-4 w-4 text-emerald-500" />
             </div>
             <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{activeUsers}</div>
@@ -231,7 +247,7 @@ export default function UserList() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Administradores</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Administradores</p>
               <Shield className="h-4 w-4 text-purple-500" />
             </div>
             <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{adminUsers}</div>
@@ -247,10 +263,10 @@ export default function UserList() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado General</CardTitle>
             <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
               <Input 
                 placeholder="Buscar por nombre, email..." 
-                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value)
@@ -260,7 +276,7 @@ export default function UserList() {
             </div>
           </div>
           {loading && data.length > 0 ? (
-            <div className="mt-3 text-xs text-slate-500">Actualizando resultados…</div>
+            <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">Actualizando resultados…</div>
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
@@ -311,21 +327,21 @@ export default function UserList() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeColor(user.role).replace('bg-', 'bg-opacity-10 bg-').replace('text-', 'border-').replace('border-', 'border-opacity-20 border-')}`}>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeClasses(user.role)}`}>
                           {getRoleLabel(user.role)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{user.email}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${user.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-50 text-slate-600 border-slate-200'}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${user.is_active ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getActiveBadgeClasses(user.is_active)}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${user.is_active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-400 dark:bg-slate-500'}`}></span>
                           {user.is_active ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Link to={`/users/${user.id}`}>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-sky-300">
                               <span className="sr-only">Editar</span>
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                             </Button>
@@ -333,7 +349,7 @@ export default function UserList() {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:text-slate-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
                             onClick={() => openDeleteModal(user.id)}
                           >
                             <span className="sr-only">Eliminar</span>
@@ -381,7 +397,7 @@ export default function UserList() {
               <div className="hidden md:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
-                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                    <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
                       …
                     </span>
                   ) : (

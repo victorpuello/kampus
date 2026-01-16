@@ -19,10 +19,10 @@ export default function RbacSettings() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Permisos</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Permisos</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para gestionar roles o permisos.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para gestionar roles o permisos.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -197,18 +197,18 @@ export default function RbacSettings() {
   }
 
   if (!canManage) {
-    return <div className="p-6">No tienes permisos para administrar RBAC.</div>
+    return <div className="p-6 text-slate-700 dark:text-slate-200">No tienes permisos para administrar RBAC.</div>
   }
 
   if (loading) {
-    return <div className="p-6">Cargando...</div>
+    return <div className="p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
   }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6" aria-busy={loading || saving}>
       <a
         href="#rbac-permissions"
-        className="sr-only focus:not-sr-only focus:inline-block focus:rounded focus:border focus:border-slate-300 focus:bg-white focus:px-3 focus:py-2"
+        className="sr-only focus:not-sr-only focus:inline-block focus:rounded focus:border focus:border-slate-300 focus:bg-white focus:px-3 focus:py-2 dark:focus:border-slate-700 dark:focus:bg-slate-900 dark:focus:text-slate-100"
       >
         Saltar a la lista de permisos
       </a>
@@ -225,13 +225,13 @@ export default function RbacSettings() {
       />
 
       <div>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Permisos (RBAC)</h2>
-        <p className="text-slate-500">Asigna permisos por rol y excepciones por usuario.</p>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Permisos (RBAC)</h2>
+        <p className="text-slate-500 dark:text-slate-400">Asigna permisos por rol y excepciones por usuario.</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Modo</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Modo</CardTitle>
         </CardHeader>
         <CardContent>
           <fieldset className="flex flex-wrap gap-2" aria-describedby="rbac-mode-help">
@@ -269,12 +269,12 @@ export default function RbacSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Selección</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Selección</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {mode === 'role' ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="role">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200" htmlFor="role">
                 Rol
               </label>
               <select
@@ -288,7 +288,7 @@ export default function RbacSettings() {
                   if (next) loadRolePermissions(next)
                 }}
                 aria-describedby="rbac-role-help"
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950"
               >
                 <option value="">Selecciona un rol</option>
                 {roles.map((r) => (
@@ -297,13 +297,13 @@ export default function RbacSettings() {
                   </option>
                 ))}
               </select>
-              <p id="rbac-role-help" className="text-xs text-slate-500">
+              <p id="rbac-role-help" className="text-xs text-slate-500 dark:text-slate-400">
                 Selecciona un rol para editar los permisos asignados a ese rol.
               </p>
             </div>
           ) : (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700" htmlFor="user">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200" htmlFor="user">
                 Usuario
               </label>
               <select
@@ -317,7 +317,7 @@ export default function RbacSettings() {
                   if (next) loadUserPermissions(next)
                 }}
                 aria-describedby="rbac-user-help"
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950"
               >
                 <option value="">Selecciona un usuario</option>
                 {users.map((u) => (
@@ -326,7 +326,7 @@ export default function RbacSettings() {
                   </option>
                 ))}
               </select>
-              <p id="rbac-user-help" className="text-xs text-slate-500">
+              <p id="rbac-user-help" className="text-xs text-slate-500 dark:text-slate-400">
                 Los permisos aquí son solo excepciones; se suman a los permisos del rol.
               </p>
             </div>
@@ -350,10 +350,10 @@ export default function RbacSettings() {
         </CardHeader>
         <CardContent className="space-y-6">
           {!selectedRole && mode === 'role' ? (
-            <div className="text-sm text-slate-600">Selecciona un rol para ver y editar permisos.</div>
+            <div className="text-sm text-slate-600 dark:text-slate-300">Selecciona un rol para ver y editar permisos.</div>
           ) : null}
           {!selectedUserId && mode === 'user' ? (
-            <div className="text-sm text-slate-600">Selecciona un usuario para editar excepciones.</div>
+            <div className="text-sm text-slate-600 dark:text-slate-300">Selecciona un usuario para editar excepciones.</div>
           ) : null}
 
           {(mode === 'role' ? !!selectedRole : !!selectedUserId) && (
@@ -361,10 +361,10 @@ export default function RbacSettings() {
               {groupedPermissions.map(([key, perms]) => (
                 <fieldset
                   key={key}
-                  className="rounded-lg border border-slate-200"
+                  className="rounded-lg border border-slate-200 dark:border-slate-800"
                   aria-describedby={`perm-group-help-${key.replace(/\./g, '-')}`}
                 >
-                  <legend className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700 w-full">
+                  <legend className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-sm font-semibold text-slate-700 w-full dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
                     {getGroupLabel(key)}
                   </legend>
                   <p id={`perm-group-help-${key.replace(/\./g, '-')}`} className="sr-only">
@@ -374,17 +374,17 @@ export default function RbacSettings() {
                     {perms.map((p) => {
                       const inputId = `perm-${p.id}`
                       return (
-                        <div key={p.id} className="flex items-start gap-2 text-sm text-slate-700">
+                        <div key={p.id} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                           <input
                             id={inputId}
                             type="checkbox"
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                            className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-950"
                             checked={selectedPermissionIds.has(p.id)}
                             onChange={() => togglePermission(p.id)}
                           />
                           <label htmlFor={inputId} className="cursor-pointer">
                             <span className="font-medium">{formatPermissionNameEs(p)}</span>
-                            <span className="block text-xs text-slate-500 font-mono">
+                            <span className="block text-xs text-slate-500 dark:text-slate-400 font-mono">
                               {p.app_label}.{p.model}.{p.codename}
                             </span>
                           </label>

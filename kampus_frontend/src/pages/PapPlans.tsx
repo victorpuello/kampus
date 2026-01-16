@@ -105,10 +105,10 @@ export default function PapPlans() {
       {blocked ? (
         <Card>
           <CardHeader>
-            <CardTitle>PAP (Promoción Condicional)</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">PAP (Promoción Condicional)</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-slate-600">No tienes permisos para acceder a PAP.</p>
+            <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a PAP.</p>
             <div className="mt-4">
               <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
             </div>
@@ -119,8 +119,8 @@ export default function PapPlans() {
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle>PAP (Promoción Condicional)</CardTitle>
-              <p className="text-sm text-slate-500 mt-1">Listado de planes pendientes (OPEN)</p>
+              <CardTitle className="text-slate-900 dark:text-slate-100">PAP (Promoción Condicional)</CardTitle>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Listado de planes pendientes (OPEN)</p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => navigate('/')}>Volver</Button>
@@ -135,36 +135,36 @@ export default function PapPlans() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
-            <div className="text-sm text-slate-500">{filtered.length} resultado(s)</div>
+            <div className="text-sm text-slate-500 dark:text-slate-400">{filtered.length} resultado(s)</div>
           </div>
 
           {loading ? (
-            <div className="text-slate-600">Cargando…</div>
+            <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
           ) : error ? (
-            <div className="text-red-600">{error}</div>
+            <div className="text-red-600 dark:text-red-300">{error}</div>
           ) : filtered.length === 0 ? (
-            <div className="text-slate-600">No hay PAP pendientes.</div>
+            <div className="text-slate-600 dark:text-slate-300">No hay PAP pendientes.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+              <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
+                <thead className="bg-slate-50 dark:bg-slate-900/50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Estudiante</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Documento</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Año</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Grado</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Periodo límite</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Acciones</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Estudiante</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Documento</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Año</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Grado</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Periodo límite</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-slate-200">
+                <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-950 dark:divide-slate-800">
                   {filtered.map((plan) => (
-                    <tr key={plan.id} className="hover:bg-slate-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">{plan.enrollment.student.name || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{plan.enrollment.student.document_number || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{String(plan.enrollment.academic_year.year || '-')}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{plan.enrollment.grade.name || '-'}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{plan.due_period?.name || '-'}</td>
+                    <tr key={plan.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900 dark:text-slate-100">{plan.enrollment.student.name || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{plan.enrollment.student.document_number || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{String(plan.enrollment.academic_year.year || '-')}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{plan.enrollment.grade.name || '-'}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 dark:text-slate-300">{plan.due_period?.name || '-'}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                         <div className="inline-flex gap-2">
                           <Button size="sm" onClick={() => openResolve(plan, 'CLEARED')}>Aprobar</Button>

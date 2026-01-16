@@ -156,14 +156,14 @@ export default function EnrollmentList() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <GraduationCap className="h-6 w-6 text-blue-600" />
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
+              <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">Matrículas</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Matrículas</h2>
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de matrículas.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -217,12 +217,12 @@ export default function EnrollmentList() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <GraduationCap className="h-6 w-6 text-blue-600" />
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
+              <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matrículas</h2>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Matrículas</h2>
           </div>
-          <p className="text-slate-500">Gestión de matrículas académicas</p>
+          <p className="text-slate-500 dark:text-slate-400">Gestión de matrículas académicas</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => navigate('/enrollments/reports')}>
@@ -250,11 +250,11 @@ export default function EnrollmentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Total Matriculados</p>
-                <p className="text-3xl font-bold text-slate-900 mt-2">{count}</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Matriculados</p>
+                <p className="text-3xl font-bold text-slate-900 dark:text-slate-100 mt-2">{count}</p>
               </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <Users className="h-6 w-6 text-blue-600" />
+              <div className="p-3 bg-blue-100 rounded-lg dark:bg-blue-950/40">
+                <Users className="h-6 w-6 text-blue-600 dark:text-blue-300" />
               </div>
             </div>
           </CardContent>
@@ -263,13 +263,13 @@ export default function EnrollmentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Activos</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Activos</p>
                 <p className="text-3xl font-bold text-green-600 mt-2">
                   {enrollments.filter(e => e.status === 'ACTIVE').length}
                 </p>
               </div>
-              <div className="p-3 bg-green-100 rounded-lg">
-                <BookOpen className="h-6 w-6 text-green-600" />
+              <div className="p-3 bg-green-100 rounded-lg dark:bg-green-950/40">
+                <BookOpen className="h-6 w-6 text-green-600 dark:text-green-300" />
               </div>
             </div>
           </CardContent>
@@ -278,13 +278,13 @@ export default function EnrollmentList() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Graduados</p>
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Graduados</p>
                 <p className="text-3xl font-bold text-blue-600 mt-2">
                   {enrollments.filter(e => e.status === 'GRADUATED').length}
                 </p>
               </div>
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <GraduationCap className="h-6 w-6 text-blue-600" />
+              <div className="p-3 bg-blue-100 rounded-lg dark:bg-blue-950/40">
+                <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
               </div>
             </div>
           </CardContent>
@@ -296,7 +296,7 @@ export default function EnrollmentList() {
           <div className="flex flex-col sm:flex-row gap-4 justify-between">
             <div className="w-full sm:w-64">
               <select
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
               >
@@ -306,7 +306,7 @@ export default function EnrollmentList() {
               </select>
             </div>
             <div className="relative w-full sm:w-64">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-400" />
               <Input
                 placeholder="Buscar estudiante..."
                 className="pl-8"
@@ -320,37 +320,37 @@ export default function EnrollmentList() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm">
+          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
-              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200">
+              <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Estudiante
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Documento
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Grado
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Grupo
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Estado
                   </th>
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Acciones
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
+              <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-900 dark:divide-slate-800">
                 {loading ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                        <p className="text-slate-500 text-sm">Cargando matrículas...</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">Cargando matrículas...</p>
                       </div>
                     </td>
                   </tr>
@@ -358,11 +358,11 @@ export default function EnrollmentList() {
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
-                        <div className="p-4 bg-slate-100 rounded-full">
-                          <GraduationCap className="h-8 w-8 text-slate-400" />
+                        <div className="p-4 bg-slate-100 rounded-full dark:bg-slate-800">
+                          <GraduationCap className="h-8 w-8 text-slate-400 dark:text-slate-500" />
                         </div>
-                        <p className="text-slate-500 text-sm">No se encontraron matrículas</p>
-                        <p className="text-slate-400 text-xs">Intenta ajustar los filtros de búsqueda</p>
+                        <p className="text-slate-500 dark:text-slate-400 text-sm">No se encontraron matrículas</p>
+                        <p className="text-slate-400 dark:text-slate-500 text-xs">Intenta ajustar los filtros de búsqueda</p>
                       </div>
                     </td>
                   </tr>
@@ -379,7 +379,7 @@ export default function EnrollmentList() {
                     return (
                       <tr 
                         key={enrollment.id} 
-                        className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer"
+                        className="bg-white hover:bg-slate-50/80 transition-colors duration-150 cursor-pointer dark:bg-slate-900 dark:hover:bg-slate-800/60"
                         onClick={() => {
                           if (isEditing) return
                           navigate(`/students/${student.id}`)
@@ -399,14 +399,14 @@ export default function EnrollmentList() {
                               </span>
                             </div>
                             <div className="ml-4">
-                              <div className="font-semibold text-slate-900">{student.full_name}</div>
-                              <div className="text-xs text-slate-500">
+                              <div className="font-semibold text-slate-900 dark:text-slate-100">{student.full_name}</div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">
                                 {student.document_type ? `${student.document_type}: ` : ''}{student.document_number}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-slate-700 font-mono text-sm">
+                        <td className="px-6 py-4 text-slate-700 dark:text-slate-200 font-mono text-sm">
                           {student.document_number}
                         </td>
                         <td className="px-6 py-4">
@@ -426,7 +426,7 @@ export default function EnrollmentList() {
                                 }
                               }}
                               onClick={(e) => e.stopPropagation()}
-                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                             >
                               {grades
                                 .slice()
@@ -443,7 +443,7 @@ export default function EnrollmentList() {
                                 ))}
                             </select>
                           ) : (
-                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-purple-100 text-purple-800 text-sm font-medium">
+                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-purple-100 text-purple-800 text-sm font-medium dark:bg-purple-950/40 dark:text-purple-200">
                               {grade.name}
                             </span>
                           )}
@@ -454,7 +454,7 @@ export default function EnrollmentList() {
                               value={editGroupId}
                               onChange={(e) => setEditGroupId(e.target.value ? Number(e.target.value) : '')}
                               onClick={(e) => e.stopPropagation()}
-                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                             >
                               <option value="">Sin grupo</option>
                               {groups
@@ -467,11 +467,11 @@ export default function EnrollmentList() {
                                 ))}
                             </select>
                           ) : group ? (
-                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-indigo-100 text-indigo-800 text-sm font-medium">
+                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-indigo-100 text-indigo-800 text-sm font-medium dark:bg-indigo-950/40 dark:text-indigo-200">
                               {group.name}
                             </span>
                           ) : (
-                            <span className="text-slate-400 text-sm">Sin grupo</span>
+                            <span className="text-slate-400 dark:text-slate-500 text-sm">Sin grupo</span>
                           )}
                         </td>
                         <td className="px-6 py-4">
@@ -480,7 +480,7 @@ export default function EnrollmentList() {
                               value={editStatus}
                               onChange={(e) => setEditStatus(e.target.value as Enrollment['status'])}
                               onClick={(e) => e.stopPropagation()}
-                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                             >
                               <option value="ACTIVE">Activo</option>
                               <option value="RETIRED">Retirado</option>
@@ -488,13 +488,18 @@ export default function EnrollmentList() {
                             </select>
                           ) : (
                             <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${
-                              enrollment.status === 'ACTIVE' ? 'bg-green-100 text-green-800 ring-1 ring-green-600/20' :
-                              enrollment.status === 'RETIRED' ? 'bg-red-100 text-red-800 ring-1 ring-red-600/20' :
-                              'bg-blue-100 text-blue-800 ring-1 ring-blue-600/20'
+                              enrollment.status === 'ACTIVE'
+                                ? 'bg-green-100 text-green-800 ring-1 ring-green-600/20 dark:bg-green-950/40 dark:text-green-200 dark:ring-green-500/30'
+                                : enrollment.status === 'RETIRED'
+                                  ? 'bg-red-100 text-red-800 ring-1 ring-red-600/20 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-500/30'
+                                  : 'bg-blue-100 text-blue-800 ring-1 ring-blue-600/20 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-500/30'
                             }`}>
                               <span className={`w-1.5 h-1.5 rounded-full mr-2 ${
-                                enrollment.status === 'ACTIVE' ? 'bg-green-600' :
-                                enrollment.status === 'RETIRED' ? 'bg-red-600' : 'bg-blue-600'
+                                enrollment.status === 'ACTIVE'
+                                  ? 'bg-green-600 dark:bg-green-400'
+                                  : enrollment.status === 'RETIRED'
+                                    ? 'bg-red-600 dark:bg-red-400'
+                                    : 'bg-blue-600 dark:bg-blue-400'
                               }`}></span>
                               {enrollment.status === 'ACTIVE' ? 'Activo' :
                                enrollment.status === 'RETIRED' ? 'Retirado' : 'Graduado'}
@@ -536,7 +541,7 @@ export default function EnrollmentList() {
                                     e.stopPropagation()
                                     startEdit(enrollment)
                                   }}
-                                  className="text-slate-700 hover:bg-slate-100"
+                                  className="text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                                   disabled={rowBusyId === enrollment.id}
                                 >
                                   Editar
@@ -548,7 +553,7 @@ export default function EnrollmentList() {
                                     e.stopPropagation()
                                     requestDeleteEnrollment(enrollment)
                                   }}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300"
                                   disabled={rowBusyId === enrollment.id}
                                 >
                                   Eliminar
@@ -560,7 +565,7 @@ export default function EnrollmentList() {
                                     e.stopPropagation()
                                     navigate(`/students/${student.id}`)
                                   }}
-                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-sky-400 dark:hover:bg-slate-800 dark:hover:text-sky-300"
                                   disabled={rowBusyId === enrollment.id}
                                 >
                                   Ver Ficha →
@@ -578,15 +583,15 @@ export default function EnrollmentList() {
           </div>
 
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
-            <div className="text-sm text-slate-500">
+            <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
 
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500">Por página</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -611,7 +616,7 @@ export default function EnrollmentList() {
               <div className="hidden md:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
-                    <span key={`e-${idx}`} className="px-2 text-slate-500">
+                    <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
                       …
                     </span>
                   ) : (
