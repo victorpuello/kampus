@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { academicApi, type AcademicYear, type Group } from '../../services/academic'
 import { downloadAttendanceManualSheetPdf } from '../../services/attendance'
+import { useAuthStore } from '../../store/auth'
 
 function formatGroupLabel(g: Group) {
   const grade = g.grade_name ? String(g.grade_name).trim() : ''
@@ -14,6 +16,10 @@ function formatGroupLabel(g: Group) {
 }
 
 export default function AttendanceManualSheets() {
+  const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+
   const [years, setYears] = useState<AcademicYear[]>([])
   const [groups, setGroups] = useState<Group[]>([])
 
@@ -186,6 +192,11 @@ export default function AttendanceManualSheets() {
               <Button onClick={handleDownload} disabled={downloading || !selectedGroupId}>
                 {downloading ? 'Generando…' : 'Descargar PDF'}
               </Button>
+              {isAdmin ? (
+                <Button variant="outline" onClick={() => navigate('/attendance/deletion-requests')}>
+                  Solicitudes de eliminación
+                </Button>
+              ) : null}
               <div className="text-sm text-slate-500 dark:text-slate-400">
                 Se abre en una nueva pestaña para imprimir.
               </div>

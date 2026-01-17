@@ -7,12 +7,14 @@ import { Input } from '../../components/ui/Input'
 import {
   bulkMarkAttendance,
   closeAttendanceSession,
+  deleteAttendanceSession,
   flushAttendanceOfflineQueue,
   getAttendanceRoster,
   type AttendanceBulkMarkItem,
   type AttendanceRosterResponse,
   type AttendanceStatus,
 } from '../../services/attendance'
+import { useAuthStore } from '../../store/auth'
 
 type DraftRow = {
   status: AttendanceStatus | null
@@ -120,6 +122,10 @@ export default function AttendanceSession() {
   const navigate = useNavigate()
   const params = useParams()
 
+  const user = useAuthStore((s) => s.user)
+  const isTeacher = user?.role === 'TEACHER'
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+
   const sessionId = useMemo(() => {
     const raw = params.id
     if (!raw) return null
@@ -179,6 +185,7 @@ export default function AttendanceSession() {
   } | null>(null)
 
   const locked = !!data?.session.locked_at
+  const deletionRequestedAt = data?.session?.deletion_requested_at ?? null
 
   const load = async () => {
     if (!sessionId) return
@@ -735,6 +742,43 @@ export default function AttendanceSession() {
     }
   }
 
+  const handleRequestDelete = async () => {
+    if (!sessionId) return
+    const ok = window.confirm(
+      'Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti. ¿Continuar?'
+    )
+    if (!ok) return
+
+    setError(null)
+    setInfo(null)
+    try {
+      const res = await deleteAttendanceSession(sessionId)
+      const msg = res?.detail || 'Solicitud enviada al administrador.'
+      setToast({ kind: 'success', message: msg })
+      window.setTimeout(() => navigate('/attendance'), 600)
+    } catch (err) {
+      console.error(err)
+      setError('No se pudo enviar la solicitud de eliminación.')
+    }
+  }
+
+  const handleDeleteDefinitive = async () => {
+    if (!sessionId) return
+    const ok = window.confirm(`Esto eliminará definitivamente la planilla #${sessionId}. ¿Deseas continuar?`)
+    if (!ok) return
+
+    setError(null)
+    setInfo(null)
+    try {
+      await deleteAttendanceSession(sessionId)
+      setToast({ kind: 'success', message: 'Planilla eliminada definitivamente.' })
+      window.setTimeout(() => navigate('/attendance/deletion-requests'), 600)
+    } catch (err) {
+      console.error(err)
+      setError('No se pudo eliminar definitivamente la planilla.')
+    }
+  }
+
   if (!sessionId) {
     return (
       <Card>
@@ -850,6 +894,16 @@ export default function AttendanceSession() {
                     <Button variant="destructive" onClick={handleClose} disabled={locked}>
                       Cerrar clase
                     </Button>
+                    {isTeacher && !deletionRequestedAt ? (
+                      <Button variant="destructive" onClick={handleRequestDelete}>
+                        Solicitar eliminación
+                      </Button>
+                    ) : null}
+                    {isAdmin && deletionRequestedAt ? (
+                      <Button variant="destructive" onClick={handleDeleteDefinitive}>
+                        Eliminar definitivamente
+                      </Button>
+                    ) : null}
                     <Button variant="outline" onClick={() => navigate('/attendance')}>
                       <ArrowLeft className="mr-2 h-4 w-4" />
                       Volver

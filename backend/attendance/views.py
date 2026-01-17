@@ -36,6 +36,14 @@ from .serializers import (
     AttendanceSessionSerializer,
 )
 
+from notifications.services import admin_like_users_qs, notify_users
+from users.models import User
+
+
+def _is_admin_user(user) -> bool:
+    role = getattr(user, "role", None)
+    return role in {User.ROLE_ADMIN, User.ROLE_SUPERADMIN}
+
 
 def _user_can_access_session(user, session: AttendanceSession) -> bool:
     if not user or not getattr(user, "is_authenticated", False):
@@ -281,7 +289,8 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
         if getattr(user, "role", None) == "TEACHER":
-            qs = qs.filter(teacher_assignment__teacher=user)
+            # Teachers should not see sessions once they requested deletion.
+            qs = qs.filter(teacher_assignment__teacher=user, deletion_requested_at__isnull=True)
         return qs
 
     def list(self, request, *args, **kwargs):
@@ -295,6 +304,114 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         session = serializer.save()
         return Response(AttendanceSessionSerializer(session, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="pending-deletion")
+    def pending_deletion(self, request):
+        if not _is_admin_user(request.user):
+            return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+        qs = (
+            AttendanceSession.objects.select_related(
+                "teacher_assignment",
+                "teacher_assignment__teacher",
+                "teacher_assignment__group",
+                "teacher_assignment__group__grade",
+                "teacher_assignment__academic_load",
+                "teacher_assignment__academic_load__subject",
+                "period",
+            )
+            .filter(deletion_requested_at__isnull=False)
+            .order_by("-deletion_requested_at", "-id")
+        )
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            ser = AttendanceSessionSerializer(page, many=True, context={"request": request})
+            return self.get_paginated_response(ser.data)
+        ser = AttendanceSessionSerializer(qs, many=True, context={"request": request})
+        return Response(ser.data, status=status.HTTP_200_OK)
+
+    def destroy(self, request, *args, **kwargs):
+        session: AttendanceSession = self.get_object()
+        user = request.user
+
+        # Admins: definitive deletion, but only after a teacher requested it.
+        if _is_admin_user(user):
+            if session.deletion_requested_at is None:
+                return Response(
+                    {"detail": "Esta planilla no tiene solicitud de eliminación pendiente."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            now = timezone.now()
+            session.deletion_approved_at = now
+            session.deletion_approved_by = user
+            session.save(update_fields=["deletion_approved_at", "deletion_approved_by", "updated_at"])
+            session.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # Teachers: request deletion (deactivate for teacher) + notify admins.
+        if getattr(user, "role", None) == User.ROLE_TEACHER:
+            if not _user_can_access_session(user, session):
+                return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+            if session.deletion_requested_at is not None:
+                return Response(
+                    {"detail": "Ya existe una solicitud de eliminación para esta planilla."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            now = timezone.now()
+            if session.locked_at is None:
+                session.locked_at = now
+            session.deletion_requested_at = now
+            session.deletion_requested_by = user
+            session.save(update_fields=["locked_at", "deletion_requested_at", "deletion_requested_by", "updated_at"])
+
+            try:
+                group_label = ""
+                subject_label = ""
+                ta = session.teacher_assignment
+                try:
+                    g = getattr(ta, "group", None)
+                    grade = getattr(getattr(g, "grade", None), "name", "") or ""
+                    name = getattr(g, "name", "") or ""
+                    group_label = (f"{grade} {name}").strip() if (grade or name) else ""
+                except Exception:
+                    group_label = ""
+
+                try:
+                    al = getattr(ta, "academic_load", None)
+                    subj = getattr(al, "subject", None)
+                    subject_label = getattr(subj, "name", "") or ""
+                except Exception:
+                    subject_label = ""
+
+                teacher_name = user.get_full_name() or getattr(user, "username", "")
+                title = "Solicitud de eliminación de planilla de asistencia"
+                body = f"El docente {teacher_name} solicitó eliminar la planilla #{session.id} ({session.class_date})."
+                extra = ", ".join([p for p in [group_label, subject_label] if p])
+                if extra:
+                    body += f" [{extra}]"
+
+                notify_users(
+                    recipients=admin_like_users_qs().filter(role__in=[User.ROLE_ADMIN, User.ROLE_SUPERADMIN]),
+                    title=title,
+                    body=body,
+                    url=f"/attendance/sessions/{session.id}",
+                    type="ATTENDANCE_DELETE_REQUEST",
+                    dedupe_key=f"ATTENDANCE_DELETE_REQUEST:session={session.id}",
+                    dedupe_within_seconds=3600,
+                )
+            except Exception:
+                # Notifications are best-effort; do not block the request.
+                pass
+
+            return Response(
+                {"detail": "Solicitud enviada al administrador. La planilla quedó desactivada para el docente."},
+                status=status.HTTP_202_ACCEPTED,
+            )
+
+        return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
     @action(detail=True, methods=["get"], url_path="roster")
     def roster(self, request, pk=None):
@@ -439,7 +556,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
         if getattr(user, "role", None) == "TEACHER":
-            qs = qs.filter(session__teacher_assignment__teacher=user)
+            qs = qs.filter(session__teacher_assignment__teacher=user, session__deletion_requested_at__isnull=True)
         return qs
 
     @action(detail=True, methods=["post"], url_path="mark-tardy-now")

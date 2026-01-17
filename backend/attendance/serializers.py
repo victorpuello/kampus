@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
@@ -57,6 +59,43 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
             return existing
 
         with transaction.atomic():
+            now = timezone.now()
+
+            # Defensive: expire any old "active" sessions (same behavior as views.list).
+            AttendanceSession.objects.filter(
+                locked_at__isnull=True,
+                starts_at__lte=now - timedelta(hours=1),
+            ).update(locked_at=now)
+
+            # Rule: a teacher can't have 2 active attendance sessions within 30 minutes.
+            # If there is an active session older than 30 minutes, we auto-lock it when starting a new one.
+            teacher_id = getattr(ta, "teacher_id", None)
+            if teacher_id is not None:
+                active_qs = AttendanceSession.objects.select_for_update().filter(
+                    teacher_assignment__teacher_id=teacher_id,
+                    locked_at__isnull=True,
+                )
+
+                latest_active = active_qs.order_by("-starts_at", "-id").first()
+                if latest_active is not None:
+                    try:
+                        delta = now - latest_active.starts_at
+                    except Exception:
+                        delta = timedelta(seconds=0)
+
+                    if delta < timedelta(minutes=30):
+                        remaining = int((timedelta(minutes=30) - delta).total_seconds())
+                        remaining_minutes = max(1, int((remaining + 59) // 60))
+                        raise serializers.ValidationError(
+                            {
+                                "detail": "Ya tienes una asistencia activa reciente. Debes esperar al menos 30 minutos antes de crear otra.",
+                                "minutes_remaining": remaining_minutes,
+                            }
+                        )
+
+                    # Old enough: close any still-active sessions for this teacher to avoid overlap.
+                    active_qs.update(locked_at=now)
+
             last_seq = (
                 AttendanceSession.objects.select_for_update()
                 .filter(teacher_assignment=ta, period=period, class_date=class_date)
@@ -69,7 +108,7 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
                 teacher_assignment=ta,
                 period=period,
                 class_date=class_date,
-                starts_at=timezone.now(),
+                starts_at=now,
                 sequence=next_seq,
                 created_by=user if getattr(user, "is_authenticated", False) else None,
                 client_uuid=client_uuid,
@@ -88,6 +127,12 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
     subject_name = serializers.SerializerMethodField()
     group_name = serializers.CharField(source="teacher_assignment.group.name", read_only=True)
     group_display = serializers.SerializerMethodField()
+
+    teacher_id = serializers.IntegerField(source="teacher_assignment.teacher_id", read_only=True)
+    teacher_name = serializers.SerializerMethodField()
+
+    deletion_requested_by = serializers.IntegerField(source="deletion_requested_by_id", read_only=True)
+    deletion_approved_by = serializers.IntegerField(source="deletion_approved_by_id", read_only=True)
 
     def get_group_display(self, obj: AttendanceSession) -> str:
         try:
@@ -108,6 +153,16 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
         except Exception:
             return ""
 
+    def get_teacher_name(self, obj: AttendanceSession) -> str:
+        try:
+            t = getattr(obj.teacher_assignment, "teacher", None)
+            if not t:
+                return ""
+            full = (t.get_full_name() or "").strip()
+            return full or (getattr(t, "username", "") or "")
+        except Exception:
+            return ""
+
     class Meta:
         model = AttendanceSession
         fields = [
@@ -123,7 +178,13 @@ class AttendanceSessionSerializer(serializers.ModelSerializer):
             "grade_name",
             "group_display",
             "subject_name",
+            "teacher_id",
+            "teacher_name",
             "locked_at",
+            "deletion_requested_at",
+            "deletion_requested_by",
+            "deletion_approved_at",
+            "deletion_approved_by",
             "created_at",
             "updated_at",
         ]

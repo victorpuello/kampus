@@ -4,14 +4,49 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { Pill } from '../../components/ui/Pill'
+import { Toast, type ToastType } from '../../components/ui/Toast'
 import { academicApi, type AcademicYear, type Period, type TeacherAssignment } from '../../services/academic'
 import {
   createAttendanceSession,
+  deleteAttendanceSession,
   downloadAttendanceManualSheetPdf,
   flushAttendanceOfflineQueue,
   listAttendanceSessions,
   type AttendanceSession,
 } from '../../services/attendance'
+
+type AxiosLikeError = {
+  response?: {
+    status?: unknown
+    data?: unknown
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getAxiosStatus(err: unknown): number | null {
+  const anyErr = err as AxiosLikeError
+  const status = anyErr.response?.status
+  return typeof status === 'number' ? status : null
+}
+
+function getAxiosData(err: unknown): unknown {
+  const anyErr = err as AxiosLikeError
+  return anyErr.response?.data
+}
+
+function parseMinutesRemaining(data: unknown): number | null {
+  if (!isRecord(data)) return null
+  const raw = data.minutes_remaining
+  if (typeof raw === 'number') return raw
+  if (typeof raw === 'string') {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
 
 function safeRandomUUID() {
   try {
@@ -51,6 +86,16 @@ function getOrderingToggle(current: string, field: string) {
 export default function TeacherAttendance() {
   const navigate = useNavigate()
 
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false,
+  })
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }
+
   const [years, setYears] = useState<AcademicYear[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
@@ -68,6 +113,8 @@ export default function TeacherAttendance() {
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<AttendanceSession[]>([])
   const [sessionsCount, setSessionsCount] = useState(0)
+
+  const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [ordering, setOrdering] = useState('-starts_at')
@@ -177,7 +224,27 @@ export default function TeacherAttendance() {
       navigate(`/attendance/sessions/${session.id}`)
     } catch (err) {
       console.error(err)
-      setError('No se pudo crear la clase. Verifica tu conexión y permisos.')
+      const statusCode = getAxiosStatus(err)
+      const data = getAxiosData(err)
+      const minutesRemaining = parseMinutesRemaining(data)
+
+      const detail = isRecord(data) ? data.detail : null
+      const detailText = typeof detail === 'string' ? detail : ''
+
+      // Friendly message when backend blocks due to an already active session.
+      if (statusCode === 400 && (minutesRemaining != null || detailText.toLowerCase().includes('asistencia activa'))) {
+        const base = 'No puedes tener dos planillas de asistencia abiertas al mismo tiempo. Cierra la planilla actual y vuelve a intentarlo.'
+        const withTime =
+          minutesRemaining && minutesRemaining > 0
+            ? `${base} Intenta de nuevo en ~${minutesRemaining} min.`
+            : base
+        setError(withTime)
+        showToast(withTime, 'error')
+      } else {
+        const msg = 'No se pudo crear la clase. Verifica tu conexión y permisos.'
+        setError(msg)
+        showToast(msg, 'error')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -224,6 +291,29 @@ export default function TeacherAttendance() {
   }
 
   const totalPages = Math.max(1, Math.ceil(sessionsCount / pageSize))
+
+  const handleRequestDelete = async (sessionId: number) => {
+    const ok = window.confirm(
+      'Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti. ¿Continuar?'
+    )
+    if (!ok) return
+
+    setDeletingSessionId(sessionId)
+    setError(null)
+    try {
+      const res = await deleteAttendanceSession(sessionId)
+      const msg = (res && typeof res.detail === 'string' && res.detail) ? res.detail : 'Solicitud enviada al administrador.'
+      showToast(msg, 'success')
+      await loadSessions()
+    } catch (err) {
+      console.error(err)
+      const msg = 'No se pudo enviar la solicitud de eliminación. Verifica tu conexión y permisos.'
+      setError(msg)
+      showToast(msg, 'error')
+    } finally {
+      setDeletingSessionId(null)
+    }
+  }
 
   return (
     <Card>
@@ -437,9 +527,18 @@ export default function TeacherAttendance() {
                               )}
                             </td>
                             <td className="px-4 py-3 whitespace-nowrap">
-                              <Button variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
-                                Abrir
-                              </Button>
+                              <div className="flex flex-wrap gap-2">
+                                <Button variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
+                                  Abrir
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  onClick={() => handleRequestDelete(s.id)}
+                                  disabled={deletingSessionId === s.id}
+                                >
+                                  {deletingSessionId === s.id ? 'Enviando…' : 'Solicitar eliminación'}
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))
@@ -465,6 +564,13 @@ export default function TeacherAttendance() {
             </div>
           </div>
         )}
+
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          isVisible={toast.isVisible}
+          onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
+        />
       </CardContent>
     </Card>
   )

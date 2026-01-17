@@ -38,6 +38,7 @@ import AdministrativeCertificates from './pages/AdministrativeCertificates'
 import AdministrativeCertificatesPreview from './pages/AdministrativeCertificatesPreview'
 import AdministrativeCertificatesRevenue from './pages/AdministrativeCertificatesRevenue'
 import AttendanceHome from './pages/attendance/AttendanceHome'
+import AttendanceDeletionRequests from './pages/attendance/AttendanceDeletionRequests'
 import AttendanceSession from './pages/attendance/AttendanceSession'
 import AttendanceStats from './pages/attendance/AttendanceStats'
 import GroupsManagement from './pages/GroupsManagement'
@@ -88,6 +89,7 @@ export default function App() {
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
             <Route path="/attendance" element={<AttendanceHome />} />
+            <Route path="/attendance/deletion-requests" element={<AttendanceDeletionRequests />} />
             <Route path="/attendance/sessions/:id" element={<AttendanceSession />} />
             <Route path="/attendance/stats" element={<AttendanceStats />} />
             <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />

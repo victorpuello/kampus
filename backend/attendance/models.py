@@ -44,6 +44,25 @@ class AttendanceSession(models.Model):
 
     locked_at = models.DateTimeField(null=True, blank=True)
 
+    # Deletion request workflow: teachers request, admins approve and delete.
+    deletion_requested_at = models.DateTimeField(null=True, blank=True)
+    deletion_requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendance_sessions_deletion_requested",
+    )
+
+    deletion_approved_at = models.DateTimeField(null=True, blank=True)
+    deletion_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="attendance_sessions_deletion_approved",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

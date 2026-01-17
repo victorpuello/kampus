@@ -15,7 +15,14 @@ export interface AttendanceSession {
   grade_name: string;
   group_display?: string;
   subject_name: string;
+  teacher_id?: number;
+  teacher_name?: string;
   locked_at: string | null;
+
+  deletion_requested_at?: string | null;
+  deletion_requested_by?: number | null;
+  deletion_approved_at?: string | null;
+  deletion_approved_by?: number | null;
 }
 
 export interface AttendanceRosterStudent {
@@ -176,6 +183,29 @@ export async function flushAttendanceOfflineQueue() {
 export async function closeAttendanceSession(sessionId: number): Promise<{ locked_at: string }> {
   const res = await api.post<{ locked_at: string }>(`${API_PREFIX}/sessions/${sessionId}/close/`, {});
   return res.data;
+}
+
+/**
+ * Teacher flow: sends deletion request (HTTP 202) and deactivates the session for the teacher.
+ * Admin flow: deletes definitively (HTTP 204) but only if a request exists.
+ */
+export async function deleteAttendanceSession(sessionId: number): Promise<{ detail?: string } | null> {
+  const res = await api.delete(`${API_PREFIX}/sessions/${sessionId}/`)
+  if (!res.data) return null
+  return res.data as { detail?: string }
+}
+
+export async function listPendingDeletionAttendanceSessions(input: {
+  page?: number;
+  page_size?: number;
+}): Promise<PaginatedResponse<AttendanceSession> | AttendanceSession[]> {
+  const res = await api.get(`${API_PREFIX}/sessions/pending-deletion/`, {
+    params: {
+      page: input.page,
+      page_size: input.page_size,
+    },
+  })
+  return res.data as PaginatedResponse<AttendanceSession> | AttendanceSession[]
 }
 
 export async function getAttendanceStudentStats(input: { teacher_assignment_id: number; period_id: number }) {
