@@ -2,8 +2,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
+from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from datetime import datetime, time
@@ -42,6 +44,8 @@ from .models import (
     AcademicLoad,
     GradeSheet,
     AchievementGrade,
+    AchievementActivityColumn,
+    AchievementActivityGrade,
     EditRequest,
     EditRequestItem,
     EditGrant,
@@ -71,6 +75,10 @@ from .serializers import (
     AcademicLoadSerializer,
     GradeSheetSerializer,
     GradebookBulkUpsertSerializer,
+    GradeSheetGradingModeSerializer,
+    AchievementActivityColumnSerializer,
+    ActivityColumnsBulkUpsertSerializer,
+    ActivityGradesBulkUpsertSerializer,
     EditRequestSerializer,
     EditRequestDecisionSerializer,
     EditGrantSerializer,
@@ -79,6 +87,7 @@ from .ai import AIService, AIConfigError, AIParseError, AIProviderError
 from .grade_ordinals import guess_ordinal
 from .grading import (
     DEFAULT_EMPTY_SCORE,
+    coalesce_score,
     final_grade_from_dimensions,
     match_scale,
     weighted_average,
@@ -764,8 +773,24 @@ class GroupViewSet(viewsets.ModelViewSet):
         user = getattr(request, "user", None)
         role = getattr(user, "role", None)
         if role not in {"SUPERADMIN", "ADMIN", "COORDINATOR"}:
-            if not (role == "TEACHER" and group.director_id == getattr(user, "id", None)):
-                return Response({"detail": "No tienes permisos para ver este informe."}, status=status.HTTP_403_FORBIDDEN)
+            if role == "TEACHER":
+                teacher_id = getattr(user, "id", None)
+                is_director = group.director_id == teacher_id
+                is_assigned = (
+                    TeacherAssignment.objects.filter(teacher_id=teacher_id, group_id=group.id).exists()
+                    if teacher_id is not None
+                    else False
+                )
+                if not (is_director or is_assigned):
+                    return Response(
+                        {"detail": "No tienes permisos para ver este informe."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            else:
+                return Response(
+                    {"detail": "No tienes permisos para ver este informe."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         try:
             period = Period.objects.select_related("academic_year").get(id=period_id)
@@ -1528,6 +1553,155 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             qs = qs.filter(teacher=self.request.user)
         return qs.select_related("academic_year", "group", "academic_load").get(id=teacher_assignment_id)
 
+    def _teacher_allowed_enrollment_ids_after_deadline(
+        self,
+        *,
+        user,
+        period: Period,
+        teacher_assignment: TeacherAssignment,
+    ) -> set[int] | None:
+        """Returns None when unrestricted, else the enrollment_id set allowed.
+
+        Mirrors the Gradebook bulk-upsert behavior.
+        """
+
+        is_teacher = user is not None and getattr(user, "role", None) == "TEACHER"
+        if not is_teacher:
+            return None
+
+        effective_deadline = period.grades_edit_until
+        if effective_deadline is None:
+            return None
+        if timezone.now() <= effective_deadline:
+            return None
+
+        active_grants = EditGrant.objects.filter(
+            granted_to=user,
+            scope=EditRequest.SCOPE_GRADES,
+            period_id=period.id,
+            teacher_assignment_id=teacher_assignment.id,
+            valid_until__gte=timezone.now(),
+        )
+
+        has_full = active_grants.filter(grant_type=EditRequest.TYPE_FULL).exists()
+        if has_full:
+            return None
+
+        return set(
+            EditGrantItem.objects.filter(grant__in=active_grants).values_list("enrollment_id", flat=True)
+        )
+
+    def _teacher_can_edit_structure_after_deadline(
+        self,
+        *,
+        user,
+        period: Period,
+        teacher_assignment: TeacherAssignment,
+    ) -> bool:
+        """Whether a teacher can edit gradebook structure (activity columns) after deadline.
+
+        We require a FULL grant when the deadline has passed.
+        """
+
+        is_teacher = user is not None and getattr(user, "role", None) == "TEACHER"
+        if not is_teacher:
+            return True
+        if period.grades_edit_until is None or timezone.now() <= period.grades_edit_until:
+            return True
+
+        return EditGrant.objects.filter(
+            granted_to=user,
+            scope=EditRequest.SCOPE_GRADES,
+            period_id=period.id,
+            teacher_assignment_id=teacher_assignment.id,
+            valid_until__gte=timezone.now(),
+            grant_type=EditRequest.TYPE_FULL,
+        ).exists()
+
+    def _valid_achievements_for_assignment_period(
+        self,
+        *,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+    ):
+        base_achievements = Achievement.objects.filter(
+            academic_load=teacher_assignment.academic_load,
+            period=period,
+        )
+
+        group_achievements = base_achievements.filter(group=teacher_assignment.group)
+        if group_achievements.exists():
+            return group_achievements
+        return base_achievements.filter(group__isnull=True)
+
+    def _recompute_achievement_grades_from_activities(
+        self,
+        *,
+        gradesheet: GradeSheet,
+        achievement_ids: set[int],
+        enrollment_ids: set[int],
+    ) -> int:
+        """Recompute (and persist) logro grades from activity grades.
+
+        Rule: simple average; missing activity scores count as 1.00.
+        Returns the number of AchievementGrade rows upserted.
+        """
+
+        if not achievement_ids or not enrollment_ids:
+            return 0
+
+        columns = list(
+            AchievementActivityColumn.objects.filter(
+                gradesheet=gradesheet,
+                achievement_id__in=list(achievement_ids),
+                is_active=True,
+            ).only("id", "achievement_id")
+        )
+        if not columns:
+            return 0
+
+        column_ids = [c.id for c in columns]
+        columns_by_achievement: dict[int, list[int]] = {}
+        for c in columns:
+            columns_by_achievement.setdefault(int(c.achievement_id), []).append(int(c.id))
+
+        grades = list(
+            AchievementActivityGrade.objects.filter(
+                column_id__in=column_ids,
+                enrollment_id__in=list(enrollment_ids),
+            ).only("column_id", "enrollment_id", "score")
+        )
+
+        score_by_col_enr: dict[tuple[int, int], Decimal | None] = {
+            (int(g.column_id), int(g.enrollment_id)): g.score for g in grades
+        }
+
+        to_upsert: list[AchievementGrade] = []
+        for achievement_id, ach_column_ids in columns_by_achievement.items():
+            denom = Decimal(len(ach_column_ids))
+            for enrollment_id in enrollment_ids:
+                total = sum(
+                    coalesce_score(score_by_col_enr.get((col_id, int(enrollment_id))))
+                    for col_id in ach_column_ids
+                )
+                avg = (total / denom).quantize(Decimal("0.01"))
+                to_upsert.append(
+                    AchievementGrade(
+                        gradesheet=gradesheet,
+                        enrollment_id=int(enrollment_id),
+                        achievement_id=int(achievement_id),
+                        score=avg,
+                    )
+                )
+
+        AchievementGrade.objects.bulk_create(
+            to_upsert,
+            update_conflicts=True,
+            unique_fields=["gradesheet", "enrollment", "achievement"],
+            update_fields=["score", "updated_at"],
+        )
+        return len(to_upsert)
+
     @action(detail=False, methods=["get"], url_path="available")
     def available(self, request):
         period_id = request.query_params.get("period")
@@ -1759,21 +1933,532 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 }
             )
 
+        payload = {
+            "gradesheet": GradeSheetSerializer(gradesheet).data,
+            "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+            "teacher_assignment": {
+                "id": teacher_assignment.id,
+                "group": teacher_assignment.group_id,
+                "academic_load": teacher_assignment.academic_load_id,
+            },
+            "dimensions": dimensions_payload,
+            "achievements": achievement_payload,
+            "students": student_payload,
+            "cells": cell_payload,
+            "computed": computed,
+        }
+
+        # Activities mode payload (columns + per-column grades)
+        if getattr(gradesheet, "grading_mode", None) == GradeSheet.GRADING_MODE_ACTIVITIES:
+            activity_columns = AchievementActivityColumn.objects.filter(
+                gradesheet=gradesheet,
+                achievement__in=achievements,
+            ).order_by("achievement_id", "order", "id")
+
+            activity_grades = AchievementActivityGrade.objects.filter(
+                column__in=activity_columns,
+                enrollment__in=enrollments,
+            ).only("column_id", "enrollment_id", "score")
+            activity_score_by_cell = {
+                (g.enrollment_id, g.column_id): g.score for g in activity_grades
+            }
+
+            payload["activity_columns"] = AchievementActivityColumnSerializer(activity_columns, many=True).data
+            payload["activity_cells"] = [
+                {
+                    "enrollment": e.id,
+                    "column": c.id,
+                    "score": activity_score_by_cell.get((e.id, c.id)),
+                }
+                for e in enrollments
+                for c in activity_columns
+            ]
+
+        return Response(payload)
+
+    @action(detail=False, methods=["post"], url_path="set-grading-mode")
+    def set_grading_mode(self, request):
+        serializer = GradeSheetGradingModeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        teacher_assignment_id = serializer.validated_data["teacher_assignment"]
+        period_id = serializer.validated_data["period"]
+        grading_mode = serializer.validated_data["grading_mode"]
+        default_columns = serializer.validated_data.get("default_columns")
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se puede modificar la planilla."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = getattr(request, "user", None)
+        if not self._teacher_can_edit_structure_after_deadline(
+            user=user,
+            period=period,
+            teacher_assignment=teacher_assignment,
+        ):
+            return Response(
+                {"detail": "La ventana de edición está cerrada para modificar columnas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        created_columns = 0
+        with transaction.atomic():
+            if gradesheet.grading_mode != grading_mode:
+                gradesheet.grading_mode = grading_mode
+                gradesheet.save(update_fields=["grading_mode", "updated_at"])
+
+            if grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES:
+                n = 2 if default_columns is None else int(default_columns)
+                if n > 0:
+                    achievements = self._valid_achievements_for_assignment_period(
+                        teacher_assignment=teacher_assignment,
+                        period=period,
+                    ).only("id")
+                    existing_pairs = set(
+                        AchievementActivityColumn.objects.filter(
+                            gradesheet=gradesheet,
+                            achievement__in=achievements,
+                        ).values_list("achievement_id", flat=True)
+                    )
+
+                    to_create = []
+                    for a in achievements:
+                        if int(a.id) in existing_pairs:
+                            continue
+                        for i in range(1, n + 1):
+                            to_create.append(
+                                AchievementActivityColumn(
+                                    gradesheet=gradesheet,
+                                    achievement_id=int(a.id),
+                                    label=f"Actividad {i}",
+                                    order=i,
+                                    is_active=True,
+                                )
+                            )
+                    if to_create:
+                        AchievementActivityColumn.objects.bulk_create(to_create)
+                        created_columns = len(to_create)
+
         return Response(
             {
                 "gradesheet": GradeSheetSerializer(gradesheet).data,
-                "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
-                "teacher_assignment": {
-                    "id": teacher_assignment.id,
-                    "group": teacher_assignment.group_id,
-                    "academic_load": teacher_assignment.academic_load_id,
-                },
-                "dimensions": dimensions_payload,
-                "achievements": achievement_payload,
-                "students": student_payload,
-                "cells": cell_payload,
-                "computed": computed,
+                "created_columns": created_columns,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"], url_path="activity-columns")
+    def activity_columns(self, request):
+        teacher_assignment_id = request.query_params.get("teacher_assignment")
+        period_id = request.query_params.get("period")
+        if not teacher_assignment_id or not period_id:
+            return Response(
+                {"error": "teacher_assignment y period son requeridos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        achievements = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        ).only("id")
+
+        cols = AchievementActivityColumn.objects.filter(
+            gradesheet=gradesheet,
+            achievement__in=achievements,
+        ).order_by("achievement_id", "order", "id")
+
+        return Response(
+            {
+                "gradesheet": GradeSheetSerializer(gradesheet).data,
+                "columns": AchievementActivityColumnSerializer(cols, many=True).data,
             }
+        )
+
+    @action(detail=False, methods=["post"], url_path="activity-columns/bulk-upsert")
+    def activity_columns_bulk_upsert(self, request):
+        serializer = ActivityColumnsBulkUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        teacher_assignment_id = serializer.validated_data["teacher_assignment"]
+        period_id = serializer.validated_data["period"]
+        columns_payload = serializer.validated_data["columns"]
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se pueden modificar columnas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = getattr(request, "user", None)
+        if not self._teacher_can_edit_structure_after_deadline(
+            user=user,
+            period=period,
+            teacher_assignment=teacher_assignment,
+        ):
+            return Response(
+                {"detail": "La ventana de edición está cerrada para modificar columnas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        achievements_qs = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        valid_achievement_ids = set(achievements_qs.values_list("id", flat=True))
+
+        # Load existing columns for conflict detection
+        existing_cols = list(
+            AchievementActivityColumn.objects.filter(
+                gradesheet=gradesheet,
+                achievement_id__in=list(valid_achievement_ids),
+            ).only("id", "achievement_id", "order")
+        )
+        existing_by_id = {int(c.id): c for c in existing_cols}
+        existing_taken: dict[tuple[int, int], int] = {
+            (int(c.achievement_id), int(c.order)): int(c.id) for c in existing_cols
+        }
+
+        # Precompute next order per achievement when omitted
+        max_order_by_ach: dict[int, int] = {}
+        for c in existing_cols:
+            aid = int(c.achievement_id)
+            max_order_by_ach[aid] = max(max_order_by_ach.get(aid, 0), int(c.order))
+
+        desired_keys: dict[tuple[int, int], int | None] = {}
+        to_create: list[AchievementActivityColumn] = []
+        to_update: list[AchievementActivityColumn] = []
+
+        for item in columns_payload:
+            col_id = item.get("id")
+            achievement_id = int(item["achievement"])
+            if achievement_id not in valid_achievement_ids:
+                return Response(
+                    {"error": f"Achievement inválido: {achievement_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            order = item.get("order")
+            if order in (None, ""):
+                max_order_by_ach[achievement_id] = max_order_by_ach.get(achievement_id, 0) + 1
+                order = max_order_by_ach[achievement_id]
+            order = int(order)
+
+            key = (achievement_id, order)
+            if key in desired_keys:
+                return Response(
+                    {"error": f"Orden duplicado en payload para achievement={achievement_id} order={order}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            desired_keys[key] = int(col_id) if col_id else None
+
+            # Conflict with existing db row not being updated to this id
+            taken_id = existing_taken.get(key)
+            if taken_id is not None and (not col_id or int(col_id) != int(taken_id)):
+                return Response(
+                    {"error": f"Ya existe una columna con achievement={achievement_id} y order={order}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            label = item["label"]
+            is_active = bool(item.get("is_active", True))
+
+            if col_id:
+                existing = existing_by_id.get(int(col_id))
+                if not existing or int(existing.achievement_id) != achievement_id:
+                    return Response(
+                        {"error": f"Columna inválida o no pertenece a la planilla: {col_id}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                existing.label = label
+                existing.order = order
+                existing.is_active = is_active
+                to_update.append(existing)
+            else:
+                to_create.append(
+                    AchievementActivityColumn(
+                        gradesheet=gradesheet,
+                        achievement_id=achievement_id,
+                        label=label,
+                        order=order,
+                        is_active=is_active,
+                    )
+                )
+
+        with transaction.atomic():
+            if to_create:
+                AchievementActivityColumn.objects.bulk_create(to_create)
+            if to_update:
+                AchievementActivityColumn.objects.bulk_update(to_update, ["label", "order", "is_active", "updated_at"])
+
+        cols = AchievementActivityColumn.objects.filter(
+            gradesheet=gradesheet,
+            achievement_id__in=list(valid_achievement_ids),
+        ).order_by("achievement_id", "order", "id")
+
+        return Response(
+            {
+                "created": len(to_create),
+                "updated": len(to_update),
+                "columns": AchievementActivityColumnSerializer(cols, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="activity-grades/bulk-upsert")
+    def activity_grades_bulk_upsert(self, request):
+        serializer = ActivityGradesBulkUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        teacher_assignment_id = serializer.validated_data["teacher_assignment"]
+        period_id = serializer.validated_data["period"]
+        grades_payload = serializer.validated_data["grades"]
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se pueden registrar notas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+
+        from students.models import Enrollment
+
+        valid_enrollments = set(
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+            ).values_list("id", flat=True)
+        )
+
+        achievements_qs = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        valid_achievement_ids = set(achievements_qs.values_list("id", flat=True))
+
+        user = getattr(request, "user", None)
+        allowed_enrollment_ids = self._teacher_allowed_enrollment_ids_after_deadline(
+            user=user,
+            period=period,
+            teacher_assignment=teacher_assignment,
+        )
+
+        column_ids = sorted({int(g["column"]) for g in grades_payload})
+        columns = list(
+            AchievementActivityColumn.objects.filter(
+                id__in=column_ids,
+                gradesheet=gradesheet,
+                is_active=True,
+            ).only("id", "achievement_id")
+        )
+        columns_by_id = {int(c.id): c for c in columns}
+        if len(columns_by_id) != len(column_ids):
+            return Response(
+                {"error": "Una o más columnas son inválidas o no pertenecen a la planilla."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        blocked = []
+        allowed_by_cell: dict[tuple[int, int], AchievementActivityGrade] = {}
+        impacted_enrollment_ids: set[int] = set()
+        impacted_achievement_ids: set[int] = set()
+
+        for g in grades_payload:
+            enrollment_id = int(g["enrollment"])
+            column_id = int(g["column"])
+            if enrollment_id not in valid_enrollments:
+                return Response(
+                    {"error": f"Enrollment inválido: {enrollment_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            column_obj = columns_by_id.get(column_id)
+            achievement_id = int(getattr(column_obj, "achievement_id"))
+            if achievement_id not in valid_achievement_ids:
+                return Response(
+                    {"error": f"Achievement inválido para la columna: {achievement_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if allowed_enrollment_ids is not None and enrollment_id not in allowed_enrollment_ids:
+                blocked.append(
+                    {
+                        "enrollment": enrollment_id,
+                        "column": column_id,
+                        "reason": "EDIT_WINDOW_CLOSED",
+                    }
+                )
+                continue
+
+            impacted_enrollment_ids.add(enrollment_id)
+            impacted_achievement_ids.add(achievement_id)
+
+            allowed_by_cell[(column_id, enrollment_id)] = AchievementActivityGrade(
+                column_id=column_id,
+                enrollment_id=enrollment_id,
+                score=g.get("score"),
+            )
+
+        to_upsert = list(allowed_by_cell.values())
+        if to_upsert:
+            with transaction.atomic():
+                AchievementActivityGrade.objects.bulk_create(
+                    to_upsert,
+                    update_conflicts=True,
+                    unique_fields=["column", "enrollment"],
+                    update_fields=["score", "updated_at"],
+                )
+
+                recomputed = self._recompute_achievement_grades_from_activities(
+                    gradesheet=gradesheet,
+                    achievement_ids=impacted_achievement_ids,
+                    enrollment_ids=impacted_enrollment_ids,
+                )
+
+        else:
+            recomputed = 0
+
+        # Return recomputed final scores for impacted enrollments
+        impacted_enrollment_ids_sorted = sorted(impacted_enrollment_ids)
+
+        achievements = achievements_qs.select_related("dimension").order_by("id")
+
+        achievements_by_dimension: dict[int, list[Achievement]] = {}
+        for a in achievements:
+            if not a.dimension_id:
+                continue
+            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
+
+        dimensions = Dimension.objects.filter(
+            academic_year_id=teacher_assignment.academic_year_id,
+            id__in=list(achievements_by_dimension.keys()),
+        ).only("id", "percentage")
+        dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
+
+        existing_grades = AchievementGrade.objects.filter(
+            gradesheet=gradesheet,
+            enrollment_id__in=impacted_enrollment_ids_sorted,
+            achievement__in=achievements,
+        ).only("enrollment_id", "achievement_id", "score")
+        score_by_cell = {(g.enrollment_id, g.achievement_id): g.score for g in existing_grades}
+
+        computed = []
+        for enrollment_id in impacted_enrollment_ids_sorted:
+            dim_items = []
+            for dim_id, dim_achievements in achievements_by_dimension.items():
+                items = [
+                    (
+                        score_by_cell.get((enrollment_id, a.id)),
+                        int(a.percentage) if a.percentage else 1,
+                    )
+                    for a in dim_achievements
+                ]
+                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
+                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
+
+            final_score = final_grade_from_dimensions(dim_items)
+            scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
+            computed.append(
+                {
+                    "enrollment_id": enrollment_id,
+                    "final_score": final_score,
+                    "scale": scale_match.name if scale_match else None,
+                }
+            )
+
+        return Response(
+            {
+                "requested": len(grades_payload),
+                "updated": len(to_upsert),
+                "recomputed_achievement_grades": recomputed,
+                "computed": computed,
+                "blocked": blocked,
+            },
+            status=status.HTTP_200_OK,
         )
 
     @action(detail=False, methods=["post"], url_path="bulk-upsert")

@@ -368,6 +368,20 @@ class GradeSheet(models.Model):
         TeacherAssignment, related_name="grade_sheets", on_delete=models.CASCADE
     )
     period = models.ForeignKey(Period, related_name="grade_sheets", on_delete=models.CASCADE)
+
+    GRADING_MODE_ACHIEVEMENT = "ACHIEVEMENT"
+    GRADING_MODE_ACTIVITIES = "ACTIVITIES"
+    GRADING_MODE_CHOICES = (
+        (GRADING_MODE_ACHIEVEMENT, "Tradicional (nota por logro)"),
+        (GRADING_MODE_ACTIVITIES, "Actividades (promedio hacia logro)"),
+    )
+
+    grading_mode = models.CharField(
+        max_length=20,
+        choices=GRADING_MODE_CHOICES,
+        default=GRADING_MODE_ACHIEVEMENT,
+        verbose_name="Modo de calificación",
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     published_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -605,4 +619,78 @@ class AchievementGrade(models.Model):
 
     def __str__(self) -> str:
         return f"{self.enrollment} - {self.achievement}: {self.score}"
+
+
+class AchievementActivityColumn(models.Model):
+    """Columnas de actividades definidas por el docente para un logro dentro de una planilla (GradeSheet).
+
+    Estas columnas alimentan el promedio simple que se persiste como nota del logro (AchievementGrade).
+    """
+
+    gradesheet = models.ForeignKey(
+        GradeSheet,
+        related_name="activity_columns",
+        on_delete=models.CASCADE,
+    )
+    achievement = models.ForeignKey(
+        Achievement,
+        related_name="activity_columns",
+        on_delete=models.CASCADE,
+    )
+    label = models.CharField(max_length=80)
+    order = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gradesheet", "achievement", "order"],
+                name="uniq_activitycol_sheet_ach_order",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["gradesheet", "achievement"], name="idx_activitycol_sheet_ach"),
+            models.Index(fields=["gradesheet"], name="idx_activitycol_sheet"),
+        ]
+        verbose_name = "Columna de actividad (logro)"
+        verbose_name_plural = "Columnas de actividad (logro)"
+
+    def __str__(self) -> str:
+        return f"{self.gradesheet_id} - {self.achievement_id}: {self.label}"
+
+
+class AchievementActivityGrade(models.Model):
+    """Nota por actividad (columna) para una matrícula (Enrollment)."""
+
+    column = models.ForeignKey(
+        AchievementActivityColumn,
+        related_name="grades",
+        on_delete=models.CASCADE,
+    )
+    enrollment = models.ForeignKey(
+        "students.Enrollment",
+        related_name="achievement_activity_grades",
+        on_delete=models.CASCADE,
+    )
+    score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["column", "enrollment"],
+                name="uniq_activitygrade_col_enr",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["column", "enrollment"], name="idx_activitygrade_col_enr"),
+            models.Index(fields=["enrollment"], name="idx_activitygrade_enrollment"),
+        ]
+        verbose_name = "Nota de actividad (logro)"
+        verbose_name_plural = "Notas de actividad (logro)"
+
+    def __str__(self) -> str:
+        return f"{self.enrollment_id} - {self.column_id}: {self.score}"
 

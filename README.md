@@ -39,6 +39,10 @@
 - Panel de configuración centralizado.
 - Navegación intuitiva y rápida (SPA).
 
+### 📝 Calificaciones (Planilla)
+- Planilla de notas con modo híbrido: **Tradicional** (nota por logro) y **Actividades** (subcolumnas por logro con promedio automático; vacíos=1.0).
+- Guía: `docs/modo_actividades_notas.md`.
+
 ### 🤖 Informe IA (Oficial)
 - Formato oficial del **Informe IA (Estado del grupo)** en PDF: ver `docs/formato_oficial_informe_ia.md`.
 

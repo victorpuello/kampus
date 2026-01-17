@@ -6,7 +6,8 @@ import {
   type Grade,
   type GradebookAvailableSheet,
   type GradebookResponse,
-  type GradebookBlockedItem,
+  type GradeSheetGradingMode,
+  type GradebookActivityColumn,
   type Group,
   type Period,
   type TeacherAssignment,
@@ -18,8 +19,12 @@ import { Input } from '../components/ui/Input'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
 type CellKey = `${number}:${number}`
+type ActivityCellKey = `${number}:${number}`
 
 const makeKey = (enrollmentId: number, achievementId: number): CellKey => `${enrollmentId}:${achievementId}`
+const makeActivityKey = (enrollmentId: number, columnId: number): ActivityCellKey => `${enrollmentId}:${columnId}`
+
+type BlockedAny = { enrollment: number; reason: string; achievement?: number; column?: number }
 
 export default function Grades() {
   const user = useAuthStore((s) => s.user)
@@ -53,6 +58,11 @@ export default function Grades() {
   const lastInteractionRef = useRef<'keyboard' | 'pointer'>('pointer')
   const [cellStatus, setCellStatus] = useState<Record<CellKey, 'saving' | 'saved' | 'error'>>({})
   const [computedOverrides, setComputedOverrides] = useState<Record<number, { final_score: number | string; scale: string | null }>>({})
+
+  const activitySaveTimersRef = useRef<Record<ActivityCellKey, number>>({})
+  const inFlightActivitySavesRef = useRef<Set<ActivityCellKey>>(new Set())
+  const activityStatusTimersRef = useRef<Record<ActivityCellKey, number>>({})
+  const [activityCellStatus, setActivityCellStatus] = useState<Record<ActivityCellKey, 'saving' | 'saved' | 'error'>>({})
 
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -125,7 +135,7 @@ export default function Grades() {
       }
   >(null)
   const [loadingGradeGrant, setLoadingGradeGrant] = useState(false)
-  const [lastBlocked, setLastBlocked] = useState<GradebookBlockedItem[]>([])
+  const [lastBlocked, setLastBlocked] = useState<BlockedAny[]>([])
 
   const gradeWindowClosed = useMemo(() => {
     if (user?.role !== 'TEACHER') return false
@@ -155,6 +165,99 @@ export default function Grades() {
   const [baseValues, setBaseValues] = useState<Record<CellKey, string>>({})
   const [cellValues, setCellValues] = useState<Record<CellKey, string>>({})
   const [dirtyKeys, setDirtyKeys] = useState<Set<CellKey>>(new Set())
+
+  const [activityBaseValues, setActivityBaseValues] = useState<Record<ActivityCellKey, string>>({})
+  const [activityValues, setActivityValues] = useState<Record<ActivityCellKey, string>>({})
+  const [dirtyActivityKeys, setDirtyActivityKeys] = useState<Set<ActivityCellKey>>(new Set())
+
+  const [editingActivityColumnId, setEditingActivityColumnId] = useState<number | null>(null)
+  const [editingActivityColumnLabel, setEditingActivityColumnLabel] = useState('')
+  const [savingActivityColumnEdit, setSavingActivityColumnEdit] = useState(false)
+
+  const activitiesMode = gradebook?.gradesheet?.grading_mode === 'ACTIVITIES'
+
+  const activeActivityColumns = useMemo(() => {
+    const cols = (gradebook?.activity_columns ?? []).filter((c) => c.is_active)
+    cols.sort((a, b) => (a.achievement - b.achievement) || (a.order - b.order) || (a.id - b.id))
+    return cols
+  }, [gradebook?.activity_columns])
+
+  const activityColumnIndexById = useMemo(() => {
+    const map = new Map<number, number>()
+    for (let i = 0; i < activeActivityColumns.length; i += 1) {
+      map.set(activeActivityColumns[i].id, i)
+    }
+    return map
+  }, [activeActivityColumns])
+
+  const activityColumnsByAchievement = useMemo(() => {
+    const map = new Map<number, GradebookActivityColumn[]>()
+    for (const c of activeActivityColumns) {
+      const list = map.get(c.achievement) ?? []
+      list.push(c)
+      map.set(c.achievement, list)
+    }
+    for (const [k, v] of map.entries()) {
+      v.sort((a, b) => (a.order - b.order) || (a.id - b.id))
+      map.set(k, v)
+    }
+    return map
+  }, [activeActivityColumns])
+
+  const activityColumnToAchievement = useMemo(() => {
+    const map = new Map<number, number>()
+    for (const c of activeActivityColumns) map.set(c.id, c.achievement)
+    return map
+  }, [activeActivityColumns])
+
+  const activityColumnById = useMemo(() => {
+    const map = new Map<number, GradebookActivityColumn>()
+    for (const c of gradebook?.activity_columns ?? []) map.set(c.id, c)
+    return map
+  }, [gradebook?.activity_columns])
+
+  useEffect(() => {
+    if (editingActivityColumnId == null) return
+    const exists = activeActivityColumns.some((c) => c.id === editingActivityColumnId)
+    if (!exists) {
+      setEditingActivityColumnId(null)
+      setEditingActivityColumnLabel('')
+      setSavingActivityColumnEdit(false)
+    }
+  }, [activeActivityColumns, editingActivityColumnId])
+
+  const getAchievementScoreForEnrollment = useCallback(
+    (enrollmentId: number, achievementId: number) => {
+      if (!gradebook) return null
+
+      if (!activitiesMode) {
+        const key = makeKey(enrollmentId, achievementId)
+        const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
+        const score = scoreOrNull === null ? 1 : scoreOrNull
+        return Number.isFinite(score) ? score : null
+      }
+
+      const cols = activityColumnsByAchievement.get(achievementId) ?? []
+      if (cols.length === 0) {
+        const key = makeKey(enrollmentId, achievementId)
+        const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
+        const score = scoreOrNull === null ? 1 : scoreOrNull
+        return Number.isFinite(score) ? score : null
+      }
+
+      let total = 0
+      for (const c of cols) {
+        const k = makeActivityKey(enrollmentId, c.id)
+        const scoreOrNull = parseScoreOrNull(activityValues[k] ?? '')
+        const score = scoreOrNull === null ? 1 : scoreOrNull
+        if (!Number.isFinite(score)) return null
+        total += score
+      }
+      const avg = total / cols.length
+      return Number.isFinite(avg) ? avg : null
+    },
+    [activitiesMode, activityColumnsByAchievement, activityValues, cellValues, gradebook]
+  )
 
   const SHEETS_PAGE_SIZE = 9
 
@@ -382,6 +485,12 @@ export default function Grades() {
     return n.toFixed(2)
   }
 
+  const intOrZero = (value: unknown): number => {
+    const n = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(n)) return 0
+    return Math.trunc(n)
+  }
+
   const sanitizeScoreInput = (raw: string): string => {
     // Allow teachers to type decimals using comma; normalize to dot.
     // Also keep only digits and a single dot to reduce accidental invalid values.
@@ -444,6 +553,32 @@ export default function Grades() {
     return trimmed.length <= 6 ? trimmed : `${trimmed.slice(0, 6)}…`
   }
 
+  const dimensionTone = (rawName?: string | null) => {
+    const n = rawName ? normalizeText(rawName) : ''
+    if (n.includes('cognit')) {
+      return {
+        groupBg: 'bg-indigo-50/40 dark:bg-indigo-950/15',
+        edgeBorder: 'border-indigo-200/70 dark:border-indigo-900/40',
+      }
+    }
+    if (n.includes('proced')) {
+      return {
+        groupBg: 'bg-emerald-50/35 dark:bg-emerald-950/15',
+        edgeBorder: 'border-emerald-200/70 dark:border-emerald-900/40',
+      }
+    }
+    if (n.includes('actitud')) {
+      return {
+        groupBg: 'bg-amber-50/35 dark:bg-amber-950/15',
+        edgeBorder: 'border-amber-200/70 dark:border-amber-900/40',
+      }
+    }
+    return {
+      groupBg: 'bg-slate-50/40 dark:bg-slate-900/20',
+      edgeBorder: 'border-slate-200 dark:border-slate-800',
+    }
+  }
+
   const categoryFromScale = (scaleName: string | null | undefined) => {
     if (!scaleName) return null
     const s = normalizeText(scaleName)
@@ -502,6 +637,56 @@ export default function Grades() {
     for (const d of gradebook?.dimensions ?? []) map.set(d.id, d)
     return map
   }, [gradebook?.dimensions])
+
+  // Mobile quick capture mode (phones/tablets): focus one achievement and optionally one student.
+  const [mobileQuickCapture, setMobileQuickCapture] = useState(false)
+  const [mobileAchievementFocus, setMobileAchievementFocus] = useState<number | 'ALL'>('ALL')
+  const [mobileStudentIndex, setMobileStudentIndex] = useState(0)
+
+  useEffect(() => {
+    setMobileStudentIndex(0)
+  }, [gradebook?.teacher_assignment?.id, gradebook?.period?.id])
+
+  const mobileStudents = useMemo(() => {
+    if (!gradebook) return []
+    if (!mobileQuickCapture) return gradebook.students
+    const one = gradebook.students[mobileStudentIndex]
+    return one ? [one] : []
+  }, [gradebook, mobileQuickCapture, mobileStudentIndex])
+
+  const mobileAchievementOptions = useMemo(() => {
+    if (!gradebook) return [] as { id: number; label: string }[]
+    return gradebook.achievements.map((a, idx) => ({ id: a.id, label: `L${idx + 1} · ${a.percentage}%` }))
+  }, [gradebook])
+
+  useEffect(() => {
+    if (!mobileQuickCapture) return
+    if (!gradebook) return
+
+    const student = gradebook.students[mobileStudentIndex]
+    if (!student) return
+
+    const achievementId =
+      mobileAchievementFocus === 'ALL'
+        ? (gradebook.achievements[0]?.id ?? null)
+        : mobileAchievementFocus
+    if (!achievementId) return
+
+    const targetId = (() => {
+      if (!activitiesMode) return `gradecell-${student.enrollment_id}-${achievementId}`
+
+      const cols = activityColumnsByAchievement.get(achievementId) ?? []
+      const firstCol = cols[0]
+      if (!firstCol) return `gradecell-${student.enrollment_id}-${achievementId}`
+      return `activitycell-${student.enrollment_id}-${firstCol.id}`
+    })()
+
+    // Let the DOM render before focusing.
+    window.setTimeout(() => {
+      const el = document.getElementById(targetId) as HTMLInputElement | null
+      if (el) el.focus()
+    }, 0)
+  }, [activitiesMode, activityColumnsByAchievement, gradebook, mobileAchievementFocus, mobileQuickCapture, mobileStudentIndex])
 
   const achievementsByDimension = useMemo(() => {
     const groups = new Map<number, GradebookResponse['achievements']>()
@@ -589,10 +774,8 @@ export default function Grades() {
         let weightedTotal = 0
 
         for (const a of dimAchievements) {
-          const key = makeKey(enrollmentId, a.id)
-          const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
-          const score = scoreOrNull === null ? 1 : scoreOrNull
-          if (!Number.isFinite(score)) return null
+          const score = getAchievementScoreForEnrollment(enrollmentId, a.id)
+          if (score === null) return null
 
           const w = a.percentage ? Number(a.percentage) : 1
           totalWeight += w
@@ -612,7 +795,7 @@ export default function Grades() {
 
       return Number.isFinite(finalScore) ? finalScore : null
     },
-    [achievementsByDimension, cellValues, dimensionById, dimensionOrder, gradebook]
+    [achievementsByDimension, dimensionById, dimensionOrder, getAchievementScoreForEnrollment, gradebook]
   )
 
   const computeDimScoreForEnrollment = useCallback(
@@ -626,10 +809,8 @@ export default function Grades() {
       let weightedTotal = 0
 
       for (const a of dimAchievements) {
-        const key = makeKey(enrollmentId, a.id)
-        const scoreOrNull = parseScoreOrNull(cellValues[key] ?? '')
-        const score = scoreOrNull === null ? 1 : scoreOrNull
-        if (!Number.isFinite(score)) return null
+        const score = getAchievementScoreForEnrollment(enrollmentId, a.id)
+        if (score === null) return null
 
         const w = a.percentage ? Number(a.percentage) : 1
         totalWeight += w
@@ -639,34 +820,74 @@ export default function Grades() {
       const dimGrade = totalWeight > 0 ? weightedTotal / totalWeight : 1
       return Number.isFinite(dimGrade) ? dimGrade : null
     },
-    [achievementsByDimension, cellValues, gradebook]
+    [achievementsByDimension, getAchievementScoreForEnrollment, gradebook]
   )
 
   const completion = useMemo(() => {
     const studentsCount = gradebook?.students?.length ?? 0
-    const achievementsCount = gradebook?.achievements?.length ?? 0
-    const total = studentsCount * achievementsCount
+    const total = (() => {
+      if (!gradebook) return 0
+      if (!activitiesMode) return studentsCount * (gradebook.achievements?.length ?? 0)
+
+      const colsPerStudent = gradebook.achievements.reduce((acc, a) => {
+        const n = activityColumnsByAchievement.get(a.id)?.length ?? 0
+        return acc + Math.max(1, n)
+      }, 0)
+
+      return studentsCount * colsPerStudent
+    })()
     if (!gradebook || total <= 0) {
       return { total: 0, filled: 0, percent: 0 }
     }
 
     let filled = 0
-    for (const s of gradebook.students) {
-      for (const a of gradebook.achievements) {
-        const key = makeKey(s.enrollment_id, a.id)
-        const raw = (cellValues[key] ?? '').trim()
-        if (!raw) continue
-        const parsed = parseScoreOrNull(raw)
-        if (parsed === null) continue
-        if (!Number.isFinite(parsed)) continue
-        if (parsed < 1 || parsed > 5) continue
-        filled += 1
+    if (activitiesMode) {
+      for (const s of gradebook.students) {
+        for (const a of gradebook.achievements) {
+          const cols = activityColumnsByAchievement.get(a.id) ?? []
+
+          if (cols.length === 0) {
+            const key = makeKey(s.enrollment_id, a.id)
+            const raw = (cellValues[key] ?? '').trim()
+            if (!raw) continue
+            const parsed = parseScoreOrNull(raw)
+            if (parsed === null) continue
+            if (!Number.isFinite(parsed)) continue
+            if (parsed < 1 || parsed > 5) continue
+            filled += 1
+            continue
+          }
+
+          for (const c of cols) {
+            const key = makeActivityKey(s.enrollment_id, c.id)
+            const raw = (activityValues[key] ?? '').trim()
+            if (!raw) continue
+            const parsed = parseScoreOrNull(raw)
+            if (parsed === null) continue
+            if (!Number.isFinite(parsed)) continue
+            if (parsed < 1 || parsed > 5) continue
+            filled += 1
+          }
+        }
+      }
+    } else {
+      for (const s of gradebook.students) {
+        for (const a of gradebook.achievements) {
+          const key = makeKey(s.enrollment_id, a.id)
+          const raw = (cellValues[key] ?? '').trim()
+          if (!raw) continue
+          const parsed = parseScoreOrNull(raw)
+          if (parsed === null) continue
+          if (!Number.isFinite(parsed)) continue
+          if (parsed < 1 || parsed > 5) continue
+          filled += 1
+        }
       }
     }
 
     const percent = Math.round((filled / total) * 100)
     return { total, filled, percent }
-  }, [cellValues, gradebook])
+  }, [activitiesMode, activityColumnsByAchievement, activityValues, cellValues, gradebook, parseScoreOrNull])
 
   const loadInit = useCallback(async () => {
     setLoadingInit(true)
@@ -755,6 +976,17 @@ export default function Grades() {
         nextBase[key] = c.score === null || c.score === undefined ? '' : String(c.score)
       }
 
+      const nextActivityBase: Record<ActivityCellKey, string> = {}
+      for (const c of res.data.activity_cells ?? []) {
+        const key = makeActivityKey(c.enrollment, c.column)
+        nextActivityBase[key] = c.score === null || c.score === undefined ? '' : String(c.score)
+      }
+
+      setActivityBaseValues(nextActivityBase)
+      setActivityValues(nextActivityBase)
+      setDirtyActivityKeys(new Set())
+      setActivityCellStatus({})
+
       setBaseValues(nextBase)
       setCellValues(nextBase)
       setDirtyKeys(new Set())
@@ -764,11 +996,334 @@ export default function Grades() {
       setBaseValues({})
       setCellValues({})
       setDirtyKeys(new Set())
+      setActivityBaseValues({})
+      setActivityValues({})
+      setDirtyActivityKeys(new Set())
+      setActivityCellStatus({})
       showToast('No se pudo cargar la planilla', 'error')
     } finally {
       setLoadingGradebook(false)
     }
   }, [showToast])
+
+  const setGradingMode = useCallback(
+    async (mode: GradeSheetGradingMode) => {
+      if (!selectedAssignment || !selectedPeriodId) return
+      if (periodIsClosed) return
+      try {
+        const res = await academicApi.setGradeSheetGradingMode({
+          teacher_assignment: selectedAssignment.id,
+          period: selectedPeriodId,
+          grading_mode: mode,
+          default_columns: mode === 'ACTIVITIES' ? 2 : 0,
+        })
+        if (res.data.created_columns > 0) {
+          showToast(`Modo actualizado. Se crearon ${res.data.created_columns} columnas.`, 'success')
+        } else {
+          showToast('Modo actualizado', 'success')
+        }
+        await loadGradebook(selectedAssignment.id, selectedPeriodId)
+      } catch (e) {
+        console.error(e)
+        showToast('No se pudo cambiar el modo de calificación', 'error')
+      }
+    },
+    [loadGradebook, periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+  )
+
+  const addActivityColumn = useCallback(
+    async (achievementId: number) => {
+      if (!selectedAssignment || !selectedPeriodId) return
+      if (periodIsClosed) return
+
+      const existing = activityColumnsByAchievement.get(achievementId) ?? []
+      const nextN = existing.length + 1
+      const label = `Actividad ${nextN}`
+
+      try {
+        await academicApi.bulkUpsertActivityColumns({
+          teacher_assignment: selectedAssignment.id,
+          period: selectedPeriodId,
+          columns: [{ achievement: achievementId, label }],
+        })
+        await loadGradebook(selectedAssignment.id, selectedPeriodId)
+      } catch (e) {
+        console.error(e)
+        showToast('No se pudo agregar la columna', 'error')
+      }
+    },
+    [activityColumnsByAchievement, loadGradebook, periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+  )
+
+  const deactivateActivityColumn = useCallback(
+    async (columnId: number) => {
+      if (!selectedAssignment || !selectedPeriodId) return
+      if (periodIsClosed) return
+
+      const col = activityColumnById.get(columnId)
+      if (!col) return
+
+      const ok = window.confirm(`¿Desactivar la columna "${col.label}"?\n\nNo se borra el historial, solo deja de mostrarse.`)
+      if (!ok) return
+
+      if (editingActivityColumnId === columnId) {
+        setEditingActivityColumnId(null)
+        setEditingActivityColumnLabel('')
+        setSavingActivityColumnEdit(false)
+      }
+
+      try {
+        await academicApi.bulkUpsertActivityColumns({
+          teacher_assignment: selectedAssignment.id,
+          period: selectedPeriodId,
+          columns: [
+            {
+              id: columnId,
+              achievement: col.achievement,
+              label: col.label,
+              order: col.order,
+              is_active: false,
+            },
+          ],
+        })
+        showToast('Columna desactivada', 'success')
+        await loadGradebook(selectedAssignment.id, selectedPeriodId)
+      } catch (e) {
+        console.error(e)
+        showToast('No se pudo desactivar la columna', 'error')
+      }
+    },
+    [activityColumnById, editingActivityColumnId, loadGradebook, periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+  )
+
+  const startEditActivityColumn = useCallback(
+    (columnId: number, currentLabel: string) => {
+      if (periodIsClosed) return
+      setEditingActivityColumnId(columnId)
+      setEditingActivityColumnLabel(currentLabel)
+    },
+    [periodIsClosed]
+  )
+
+  const cancelEditActivityColumn = useCallback(() => {
+    setEditingActivityColumnId(null)
+    setEditingActivityColumnLabel('')
+    setSavingActivityColumnEdit(false)
+  }, [])
+
+  const saveEditActivityColumn = useCallback(async () => {
+    if (!selectedAssignment || !selectedPeriodId) return
+    if (periodIsClosed) return
+    if (editingActivityColumnId == null) return
+
+    const label = editingActivityColumnLabel.trim()
+    if (!label) {
+      showToast('El nombre no puede estar vacío', 'error')
+      return
+    }
+
+    const achievementId = activityColumnToAchievement.get(editingActivityColumnId)
+    if (!achievementId) return
+
+    setSavingActivityColumnEdit(true)
+    try {
+      await academicApi.bulkUpsertActivityColumns({
+        teacher_assignment: selectedAssignment.id,
+        period: selectedPeriodId,
+        columns: [{ id: editingActivityColumnId, achievement: achievementId, label }],
+      })
+      cancelEditActivityColumn()
+      await loadGradebook(selectedAssignment.id, selectedPeriodId)
+    } catch (e) {
+      console.error(e)
+      showToast('No se pudo renombrar la columna', 'error')
+    } finally {
+      setSavingActivityColumnEdit(false)
+    }
+  }, [activityColumnToAchievement, cancelEditActivityColumn, editingActivityColumnId, editingActivityColumnLabel, loadGradebook, periodIsClosed, selectedAssignment, selectedPeriodId, showToast])
+
+  const handleActivityColumnLabelKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      saveEditActivityColumn()
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      cancelEditActivityColumn()
+    }
+  }
+
+  const focusActivityCell = (enrollmentId: number, columnId: number) => {
+    const el = document.getElementById(`activitycell-${enrollmentId}-${columnId}`) as HTMLInputElement | null
+    if (!el) return
+    el.focus()
+    el.select()
+  }
+
+  const handleActivityCellKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    enrollmentId: number,
+    columnId: number
+  ) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      handleSave()
+      return
+    }
+    if (e.key === 'Escape') {
+      ;(e.currentTarget as HTMLInputElement).blur()
+      return
+    }
+
+    // Grid navigation (Excel-like)
+    // - Up/Down: move row
+    // - Enter: move down
+    // - Left/Right: move only when caret is at start/end
+    const key = e.key
+    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'Enter') {
+      return
+    }
+
+    const rowIndex = rowOrder.indexOf(enrollmentId)
+    const colIndex = activityColumnIndexById.get(columnId)
+    if (rowIndex < 0 || colIndex == null) return
+
+    const input = e.currentTarget as HTMLInputElement
+    const selStart = input.selectionStart
+    const selEnd = input.selectionEnd
+    const caretStart = selStart == null ? 0 : selStart
+    const caretEnd = selEnd == null ? caretStart : selEnd
+    const atStart = caretStart === 0 && caretEnd === 0
+    const atEnd = caretStart === input.value.length && caretEnd === input.value.length
+
+    let nextRow = rowIndex
+    let nextCol = colIndex
+
+    if (key === 'ArrowUp') nextRow = rowIndex - 1
+    if (key === 'ArrowDown' || key === 'Enter') nextRow = rowIndex + 1
+    if (key === 'ArrowLeft') {
+      if (!atStart) return
+      nextCol = colIndex - 1
+    }
+    if (key === 'ArrowRight') {
+      if (!atEnd) return
+      nextCol = colIndex + 1
+    }
+
+    if (nextRow === rowIndex && nextCol === colIndex) return
+    if (nextRow < 0 || nextRow >= rowOrder.length) return
+    if (nextCol < 0 || nextCol >= activeActivityColumns.length) return
+
+    e.preventDefault()
+    focusActivityCell(rowOrder[nextRow], activeActivityColumns[nextCol].id)
+  }
+
+  const saveActivityCellDebounced = useCallback(
+    (enrollmentId: number, columnId: number, value: string) => {
+      if (!selectedAssignment || !selectedPeriodId) return
+      if (periodIsClosed) return
+      if (!canEditEnrollment(enrollmentId)) return
+
+      const key = makeActivityKey(enrollmentId, columnId)
+
+      const existing = activitySaveTimersRef.current[key]
+      if (existing) window.clearTimeout(existing)
+
+      activitySaveTimersRef.current[key] = window.setTimeout(async () => {
+        const rawScore = sanitizeScoreInput(value ?? '').trim()
+        if (rawScore === '.' || rawScore.endsWith('.')) return
+
+        const parsed = parseScoreOrNull(rawScore)
+        if (Number.isNaN(parsed)) {
+          showToast('Valor inválido. Usa un número entre 1.00 y 5.00', 'error')
+          return
+        }
+        if (parsed !== null && (parsed < 1 || parsed > 5)) {
+          showToast('Las notas deben estar entre 1.00 y 5.00', 'error')
+          return
+        }
+
+        if (inFlightActivitySavesRef.current.has(key)) return
+        inFlightActivitySavesRef.current.add(key)
+        setActivityCellStatus((prev) => ({ ...prev, [key]: 'saving' }))
+
+        try {
+          const res = await academicApi.bulkUpsertActivityGrades({
+            teacher_assignment: selectedAssignment.id,
+            period: selectedPeriodId,
+            grades: [{ enrollment: enrollmentId, column: columnId, score: parsed }],
+          })
+
+          const blocked = res.data.blocked ?? []
+          if (blocked.some((b) => b.enrollment === enrollmentId && b.column === columnId)) {
+            setLastBlocked(blocked.map((b) => ({ enrollment: b.enrollment, column: b.column, reason: b.reason })))
+            showToast('Edición cerrada. Debes solicitar permiso.', 'error')
+            setActivityCellStatus((prev) => ({ ...prev, [key]: 'error' }))
+            return
+          }
+
+          setActivityBaseValues((prev) => ({ ...prev, [key]: rawScore }))
+          setDirtyActivityKeys((prev) => {
+            const next = new Set(prev)
+            next.delete(key)
+            return next
+          })
+
+          if (res.data.computed && res.data.computed.length > 0) {
+            setComputedOverrides((prev) => {
+              const next = { ...prev }
+              for (const row of res.data.computed ?? []) {
+                next[row.enrollment_id] = { final_score: row.final_score, scale: row.scale }
+              }
+              return next
+            })
+          }
+
+          setActivityCellStatus((prev) => ({ ...prev, [key]: 'saved' }))
+          const existingTimer = activityStatusTimersRef.current[key]
+          if (existingTimer) window.clearTimeout(existingTimer)
+          activityStatusTimersRef.current[key] = window.setTimeout(() => {
+            setActivityCellStatus((prev) => {
+              const next = { ...prev }
+              if (next[key] === 'saved') delete next[key]
+              return next
+            })
+          }, 1200)
+        } catch (e) {
+          console.error(e)
+          showToast('No se pudo guardar la nota', 'error')
+          setActivityCellStatus((prev) => ({ ...prev, [key]: 'error' }))
+        } finally {
+          inFlightActivitySavesRef.current.delete(key)
+        }
+      }, 700)
+    },
+    [canEditEnrollment, periodIsClosed, selectedAssignment, selectedPeriodId, showToast]
+  )
+
+  const handleChangeActivityCell = (enrollmentId: number, columnId: number, value: string) => {
+    const key = makeActivityKey(enrollmentId, columnId)
+    const sanitized = clampScoreToRangeInput(sanitizeScoreInput(value))
+
+    setActivityCellStatus((prev) => {
+      if (!prev[key]) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+
+    setActivityValues((prev) => ({ ...prev, [key]: sanitized }))
+    setDirtyActivityKeys((prev) => {
+      const next = new Set(prev)
+      const base = activityBaseValues[key] ?? ''
+      if (sanitized === base) next.delete(key)
+      else next.add(key)
+      return next
+    })
+
+    saveActivityCellDebounced(enrollmentId, columnId, sanitized)
+  }
 
   useEffect(() => {
     loadInit()
@@ -1011,6 +1566,103 @@ export default function Grades() {
 
   const handleSave = async () => {
     if (!selectedAssignment || !selectedPeriodId) return
+
+    if (activitiesMode) {
+      if (dirtyActivityKeys.size === 0) return
+
+      const dirtySnapshot = Array.from(dirtyActivityKeys)
+      const grades: { enrollment: number; column: number; score: number | null }[] = []
+
+      for (const key of dirtySnapshot) {
+        const [enrollmentStr, columnStr] = key.split(':')
+        const enrollment = Number(enrollmentStr)
+        const column = Number(columnStr)
+        const raw = (activityValues[key] ?? '').trim()
+
+        if (!raw) {
+          grades.push({ enrollment, column, score: null })
+          continue
+        }
+
+        const score = Number(raw)
+        if (!Number.isFinite(score)) {
+          showToast('Hay celdas con valores inválidos', 'error')
+          return
+        }
+        if (score < 1 || score > 5) {
+          showToast('Las notas deben estar entre 1.00 y 5.00', 'error')
+          return
+        }
+
+        grades.push({ enrollment, column, score })
+      }
+
+      setSaving(true)
+      try {
+        const res = await academicApi.bulkUpsertActivityGrades({
+          teacher_assignment: selectedAssignment.id,
+          period: selectedPeriodId,
+          grades,
+        })
+
+        const blocked = res.data.blocked ?? []
+        setLastBlocked(blocked.map((b) => ({ enrollment: b.enrollment, column: b.column, reason: b.reason })))
+        const blockedKeys = new Set(blocked.map((b) => makeActivityKey(b.enrollment, b.column)))
+
+        if (blocked.length > 0) {
+          showToast(`Guardadas: ${res.data.updated}. Bloqueadas: ${blocked.length}.`, 'info')
+        } else {
+          showToast('Notas guardadas', 'success')
+        }
+
+        if (res.data.computed && res.data.computed.length > 0) {
+          setComputedOverrides((prev) => {
+            const next = { ...prev }
+            for (const row of res.data.computed ?? []) {
+              next[row.enrollment_id] = { final_score: row.final_score, scale: row.scale }
+            }
+            return next
+          })
+        }
+
+        setDirtyActivityKeys((prev) => {
+          const next = new Set(prev)
+          for (const k of Array.from(prev)) {
+            if (!blockedKeys.has(k)) next.delete(k)
+          }
+          return next
+        })
+
+        setActivityBaseValues((prev) => {
+          const next = { ...prev }
+          for (const k of dirtySnapshot) {
+            if (blockedKeys.has(k)) continue
+            next[k] = (activityValues[k] ?? '').trim()
+          }
+          return next
+        })
+
+        if (blocked.length > 0) {
+          setActivityCellStatus((prev) => {
+            const next = { ...prev }
+            for (const b of blocked) {
+              next[makeActivityKey(b.enrollment, b.column)] = 'error'
+            }
+            return next
+          })
+        } else {
+          await loadGradebook(selectedAssignment.id, selectedPeriodId)
+        }
+      } catch (e) {
+        console.error(e)
+        showToast('No se pudieron guardar las notas', 'error')
+      } finally {
+        setSaving(false)
+      }
+
+      return
+    }
+
     if (dirtyKeys.size === 0) return
 
     const dirtySnapshot = Array.from(dirtyKeys)
@@ -1107,8 +1759,8 @@ export default function Grades() {
     }
   }
 
-  const anyInFlightSaves = inFlightSavesRef.current.size > 0
-  const hasDirty = dirtyKeys.size > 0
+  const anyInFlightSaves = inFlightSavesRef.current.size > 0 || inFlightActivitySavesRef.current.size > 0
+  const hasDirty = dirtyKeys.size > 0 || dirtyActivityKeys.size > 0
   const globalSaveLabel = periodIsClosed
     ? 'Solo lectura'
     : user?.role === 'TEACHER' && gradeWindowClosed && !activeGradeGrant?.hasFull && (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0
@@ -1233,7 +1885,7 @@ export default function Grades() {
 
             <Button
               onClick={handleSave}
-              disabled={saving || dirtyKeys.size === 0 || !gradebook || periodIsClosed}
+              disabled={saving || !hasDirty || !gradebook || periodIsClosed}
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Save className="mr-2 h-4 w-4" />
@@ -1281,7 +1933,7 @@ export default function Grades() {
               onClick={handleSave}
               disabled={
                 saving ||
-                dirtyKeys.size === 0 ||
+                !hasDirty ||
                 !gradebook ||
                 periodIsClosed ||
                 showingCards ||
@@ -1475,6 +2127,7 @@ export default function Grades() {
               <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Planilla</CardTitle>
               <div className="flex items-center gap-2">
                 <Button
+                  className="hidden md:inline-flex"
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadGroupReport}
@@ -1483,6 +2136,28 @@ export default function Grades() {
                 >
                   Descargar informe (grupo)
                 </Button>
+
+                <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-800 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setGradingMode('ACHIEVEMENT')}
+                    disabled={periodIsClosed}
+                    className={`px-2.5 py-1 text-xs font-medium ${activitiesMode ? 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60' : 'bg-blue-600 text-white'} disabled:opacity-60`}
+                    title="Notas directas por logro"
+                  >
+                    Tradicional
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGradingMode('ACTIVITIES')}
+                    disabled={periodIsClosed}
+                    className={`px-2.5 py-1 text-xs font-medium ${activitiesMode ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'} disabled:opacity-60`}
+                    title="Actividades por logro (promedio)"
+                  >
+                    Actividades
+                  </button>
+                </div>
+
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${globalSaveClass}`}>
                   {globalSaveLabel}
                 </span>
@@ -1530,127 +2205,716 @@ export default function Grades() {
               </div>
             )}
 
-            <div className="overflow-x-auto -mx-2 sm:mx-0">
-              <table className="min-w-max w-full text-xs sm:text-sm text-left">
-                <thead className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20">
-                  <tr>
-                    <th className="px-3 sm:px-6 py-3 sm:py-4 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" rowSpan={2}>
-                      Estudiante
-                    </th>
+            {/* Mobile view: student cards (no horizontal scroll) */}
+            <div className="md:hidden space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Vista móvil</div>
+                    <button
+                      type="button"
+                      onClick={() => setMobileQuickCapture((v) => !v)}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${mobileQuickCapture ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/25 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
+                      title="Reduce scroll enfocando un estudiante"
+                    >
+                      {mobileQuickCapture ? 'Captura rápida: ON' : 'Captura rápida: OFF'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-600 dark:text-slate-300 shrink-0">Enfoque</label>
+                    <select
+                      value={mobileAchievementFocus}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setMobileAchievementFocus(v === 'ALL' ? 'ALL' : Number(v))
+                      }}
+                      className="h-10 w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 text-sm text-slate-900 dark:text-slate-100"
+                      aria-label="Seleccionar logro para enfoque en móvil"
+                    >
+                      <option value="ALL">Todos los logros</option>
+                      {mobileAchievementOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {mobileQuickCapture && gradebook.students.length > 0 && (
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMobileStudentIndex((i) => Math.max(0, i - 1))}
+                        disabled={mobileStudentIndex <= 0}
+                        className="h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                      >
+                        Anterior
+                      </button>
+                      <div className="text-xs text-slate-600 dark:text-slate-300">
+                        Estudiante {Math.min(mobileStudentIndex + 1, gradebook.students.length)}/{gradebook.students.length}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setMobileStudentIndex((i) => Math.min(gradebook.students.length - 1, i + 1))}
+                        disabled={mobileStudentIndex >= gradebook.students.length - 1}
+                        className="h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                      >
+                        Siguiente
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {mobileStudents.map((s) => (
+                <div
+                  key={s.enrollment_id}
+                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                >
+                  <div className="px-3 py-3 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div
+                          className="font-semibold text-slate-900 dark:text-slate-100 truncate"
+                          title={s.student_name}
+                        >
+                          {s.student_name}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">#{s.enrollment_id}</div>
+                      </div>
+
+                      {(() => {
+                        const liveFinal = computeFinalScoreForEnrollment(s.enrollment_id)
+                        const c = computedByEnrollmentId.get(s.enrollment_id)
+                        if (liveFinal === null && !c) return <span className="text-slate-400">—</span>
+
+                        const finalScore = liveFinal !== null ? liveFinal : c ? Number(c.final_score) : null
+                        const category = categoryFromScale(c?.scale) ?? categoryFromScore(finalScore)
+                        const style = definitiveStyle(category)
+
+                        return (
+                          <div className="flex flex-col items-end">
+                            <span
+                              className={`inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold border ${style.className}`}
+                              aria-label={`Definitiva ${liveFinal !== null ? liveFinal.toFixed(2) : c ? formatScore(c.final_score) : '—'}${style.label ? ` (${style.label})` : ''}`}
+                            >
+                              {liveFinal !== null ? liveFinal.toFixed(2) : c ? formatScore(c.final_score) : '—'}
+                            </span>
+                            {c?.scale ? (
+                              <span className="text-[11px] text-slate-500 dark:text-slate-400">{c.scale}</span>
+                            ) : null}
+                          </div>
+                        )
+                      })()}
+                    </div>
+                  </div>
+
+                  <div className="px-3 py-3 space-y-4">
                     {dimensionOrder.map((dimId) => {
                       const dim = dimensionById.get(dimId)
-                      const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                      const rawDimAchievements = achievementsByDimension.get(dimId) ?? []
+                      const dimAchievements =
+                        mobileAchievementFocus === 'ALL'
+                          ? rawDimAchievements
+                          : rawDimAchievements.filter((a) => a.id === mobileAchievementFocus)
                       if (dimAchievements.length === 0) return null
+
+                      const dimAvg = computeDimScoreForEnrollment(s.enrollment_id, dimId)
+                      const tone = dimensionTone(dim?.name)
+
                       return (
-                        <th
+                        <section
                           key={dimId}
-                          className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-center"
-                          colSpan={dimAchievements.length + 1}
-                          title={dim?.name ?? ''}
+                          className={`space-y-2 rounded-md border-l-2 pl-2 ${tone.groupBg} ${tone.edgeBorder}`}
                         >
-                          <div className="flex flex-col items-center">
-                            <span className="normal-case text-slate-700 dark:text-slate-200">
-                              <span className="sm:hidden">{abbrevDimensionName(dim?.name ?? `Dimensión ${dimId}`)}</span>
-                              <span className="hidden sm:inline">{dim?.name ?? `Dimensión ${dimId}`}</span>
-                            </span>
-                            <span className="text-[10px] text-slate-400 normal-case">{dim?.percentage ?? 0}%</span>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
+                                {dim?.name ?? `Dimensión ${dimId}`}
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {intOrZero(dim?.percentage)}%
+                              </div>
+                            </div>
+                            <div className="shrink-0">
+                              {dimAvg === null ? (
+                                <span className="text-slate-400 text-xs">—</span>
+                              ) : (
+                                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                  {dimAvg.toFixed(2)}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                        </th>
+
+                          <div className="space-y-3">
+                            {dimAchievements.map((a, idx) => {
+                              const avg = activitiesMode
+                                ? getAchievementScoreForEnrollment(s.enrollment_id, a.id)
+                                : null
+                              const cols = activityColumnsByAchievement.get(a.id) ?? []
+
+                              return (
+                                <div key={a.id} className="rounded-lg border border-slate-100 dark:border-slate-800 p-2.5">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate" title={a.description}>
+                                        L{idx + 1} · {a.percentage}%
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate" title={a.description}>
+                                        {a.description}
+                                      </div>
+                                    </div>
+                                    {activitiesMode ? (
+                                      <div className="shrink-0">
+                                        {avg === null ? (
+                                          <span className="text-slate-400 text-xs">—</span>
+                                        ) : (
+                                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                            {avg.toFixed(2)}
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  {!activitiesMode ? (
+                                    <div className="mt-2">
+                                      {(() => {
+                                        const key = makeKey(s.enrollment_id, a.id)
+                                        const value = cellValues[key] ?? ''
+                                        const status = cellStatus[key]
+                                        const isDirty = dirtyKeys.has(key)
+
+                                        const statusClass =
+                                          status === 'error'
+                                            ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
+                                            : status === 'saving'
+                                              ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
+                                              : status === 'saved'
+                                                ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
+                                                : isDirty
+                                                  ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                                  : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
+
+                                        return (
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-[11px] text-slate-500 dark:text-slate-400">Nota</span>
+                                            <Input
+                                              value={value}
+                                              onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
+                                              onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
+                                              onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
+                                              onFocus={handleCellFocus}
+                                              disabled={!canEditEnrollment(s.enrollment_id)}
+                                              inputMode="decimal"
+                                              pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                              id={`gradecell-${s.enrollment_id}-${a.id}`}
+                                              aria-invalid={status === 'error' ? true : undefined}
+                                              aria-busy={status === 'saving' ? true : undefined}
+                                              aria-describedby="grade-input-help"
+                                              className={`w-24 h-10 px-2 text-center ${statusClass}`}
+                                              placeholder="1.00–5.00"
+                                              aria-label={`Nota ${s.student_name} logro L${idx + 1}. Rango 1 a 5.`}
+                                            />
+                                          </div>
+                                        )
+                                      })()}
+                                    </div>
+                                  ) : (
+                                    <div className="mt-2 space-y-2">
+                                      {cols.length === 0 ? (
+                                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                          No hay actividades activas para este logro.
+                                        </div>
+                                      ) : (
+                                        <div className="flex flex-wrap gap-2">
+                                          {cols.map((c, cIdx) => {
+                                            const key = makeActivityKey(s.enrollment_id, c.id)
+                                            const value = activityValues[key] ?? ''
+                                            const status = activityCellStatus[key]
+                                            const isDirty = dirtyActivityKeys.has(key)
+
+                                            const statusClass =
+                                              status === 'error'
+                                                ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
+                                                : status === 'saving'
+                                                  ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
+                                                  : status === 'saved'
+                                                    ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
+                                                    : isDirty
+                                                      ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                                      : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
+
+                                            return (
+                                              <div key={c.id} className="flex flex-col items-center">
+                                                <span className="text-[10px] text-slate-500 dark:text-slate-400" title={c.label}>
+                                                  A{cIdx + 1}
+                                                </span>
+                                                <Input
+                                                  value={value}
+                                                  onChange={(e) => handleChangeActivityCell(s.enrollment_id, c.id, e.target.value)}
+                                                  onKeyDown={(e) => handleActivityCellKeyDown(e, s.enrollment_id, c.id)}
+                                                  onFocus={handleCellFocus}
+                                                  disabled={!canEditEnrollment(s.enrollment_id)}
+                                                  inputMode="decimal"
+                                                  pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                                  id={`activitycell-${s.enrollment_id}-${c.id}`}
+                                                  aria-invalid={status === 'error' ? true : undefined}
+                                                  aria-busy={status === 'saving' ? true : undefined}
+                                                  aria-describedby="grade-input-help"
+                                                  className={`w-20 h-10 px-2 text-center ${statusClass}`}
+                                                  placeholder="1.00"
+                                                  aria-label={`Nota actividad ${c.label} ${s.student_name}. Rango 1 a 5.`}
+                                                />
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </section>
                       )
                     })}
-                    <th className="px-6 py-4 font-semibold" rowSpan={2}>Definitiva</th>
-                  </tr>
+                  </div>
+                </div>
+              ))}
+            </div>
 
-                  <tr>
-                    {dimensionOrder.flatMap((dimId) => {
-                      const dimAchievements = achievementsByDimension.get(dimId) ?? []
-                      return [
-                        ...dimAchievements.map((a, idx) => (
-                          <th key={a.id} className="px-3 sm:px-6 py-3 sm:py-4 font-semibold" title={a.description}>
-                            <div className="flex flex-col">
-                              <span>{`L${idx + 1}`}</span>
-                              <span className="text-[10px] text-slate-400 normal-case">{a.percentage}%</span>
-                            </div>
-                          </th>
-                        )),
-                        <th key={`dim-${dimId}-avg`} className="px-3 sm:px-6 py-3 sm:py-4 font-semibold text-center" title="Promedio de la dimensión">
-                          <span className="normal-case">Prom.</span>
-                        </th>,
-                      ]
-                    })}
-                  </tr>
+            {/* Desktop/tablet view: existing table */}
+            <div className="hidden md:block overflow-x-auto -mx-2 sm:mx-0">
+              <table className="min-w-max w-full text-xs lg:text-sm text-left">
+                <thead className="text-[11px] lg:text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20">
+                  {activitiesMode ? (
+                    <>
+                      <tr>
+                        <th
+                          className="px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800"
+                          rowSpan={3}
+                        >
+                          Estudiante
+                        </th>
+                        {dimensionOrder.map((dimId) => {
+                          const dim = dimensionById.get(dimId)
+                          const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                          if (dimAchievements.length === 0) return null
+
+                          const tone = dimensionTone(dim?.name)
+
+                          const dimCols = dimAchievements.reduce((acc, a) => {
+                            const n = activityColumnsByAchievement.get(a.id)?.length ?? 0
+                            return acc + Math.max(1, n)
+                          }, 0)
+
+                          return (
+                            <th
+                              key={dimId}
+                              className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold text-center border-l-2 ${tone.groupBg} ${tone.edgeBorder}`}
+                              colSpan={dimCols + 1}
+                              title={dim?.name ?? ''}
+                            >
+                              <div className="flex flex-col items-center">
+                                <span className="normal-case text-slate-700 dark:text-slate-200">
+                                  <span className="sm:hidden">{abbrevDimensionName(dim?.name ?? `Dimensión ${dimId}`)}</span>
+                                  <span className="hidden sm:inline">{dim?.name ?? `Dimensión ${dimId}`}</span>
+                                </span>
+                                <span className="text-[10px] text-slate-400 normal-case">{dim?.percentage ?? 0}%</span>
+                              </div>
+                            </th>
+                          )
+                        })}
+                        <th className="px-2 lg:px-3 py-2 lg:py-2.5 font-semibold" rowSpan={3}>
+                          Definitiva
+                        </th>
+                      </tr>
+
+                      <tr>
+                        {dimensionOrder.flatMap((dimId) => {
+                          const dim = dimensionById.get(dimId)
+                          const tone = dimensionTone(dim?.name)
+                          const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                          return [
+                            ...dimAchievements.map((a, idx) => {
+                              const cols = activityColumnsByAchievement.get(a.id) ?? []
+                              return (
+                                <th
+                                  key={a.id}
+                                  className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold ${tone.groupBg} ${idx === 0 ? `border-l-2 ${tone.edgeBorder}` : ''}`}
+                                  colSpan={Math.max(1, cols.length)}
+                                  title={a.description}
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex flex-col">
+                                      <span>{`L${idx + 1}`}</span>
+                                      <span className="text-[10px] text-slate-400 normal-case">{a.percentage}%</span>
+                                    </div>
+                                    {!periodIsClosed && (
+                                      <button
+                                        type="button"
+                                        onClick={() => addActivityColumn(a.id)}
+                                        className="h-7 w-7 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                        title="Agregar columna de actividad"
+                                      >
+                                        +
+                                      </button>
+                                    )}
+                                  </div>
+                                </th>
+                              )
+                            }),
+                            <th
+                              key={`dim-${dimId}-avg`}
+                              className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold text-center ${tone.groupBg}`}
+                              title="Promedio de la dimensión"
+                              rowSpan={2}
+                            >
+                              <span className="normal-case">Prom.</span>
+                            </th>,
+                          ]
+                        })}
+                      </tr>
+
+                      <tr>
+                        {dimensionOrder.flatMap((dimId) => {
+                          const dim = dimensionById.get(dimId)
+                          const tone = dimensionTone(dim?.name)
+                          const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                          return dimAchievements.flatMap((a) => {
+                            const cols = activityColumnsByAchievement.get(a.id) ?? []
+                            return [
+                              ...(cols.length > 0
+                                ? cols.map((c, idx) => (
+                                    <th
+                                      key={c.id}
+                                      className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold normal-case ${tone.groupBg}`}
+                                      title={c.label}
+                                    >
+                                      {editingActivityColumnId === c.id && !periodIsClosed ? (
+                                        <div className="flex items-center gap-2">
+                                          <Input
+                                            value={editingActivityColumnLabel}
+                                            onChange={(e) => setEditingActivityColumnLabel(e.target.value)}
+                                            onKeyDown={handleActivityColumnLabelKeyDown}
+                                            disabled={savingActivityColumnEdit}
+                                            className="h-8 w-40 px-2 text-sm"
+                                            autoFocus
+                                            aria-label="Editar nombre de columna de actividad"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={saveEditActivityColumn}
+                                            disabled={savingActivityColumnEdit}
+                                            className="h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-60"
+                                            title="Guardar"
+                                          >
+                                            OK
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={cancelEditActivityColumn}
+                                            disabled={savingActivityColumnEdit}
+                                            className="h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-60"
+                                            title="Cancelar"
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-between gap-2">
+                                          <button
+                                            type="button"
+                                            onClick={() => startEditActivityColumn(c.id, c.label)}
+                                            disabled={periodIsClosed}
+                                            className="text-left w-full hover:underline disabled:no-underline disabled:opacity-60"
+                                          >
+                                            <span className="sm:hidden">{`A${idx + 1}`}</span>
+                                            <span className="hidden sm:inline">{c.label}</span>
+                                          </button>
+                                          {!periodIsClosed && (
+                                            <button
+                                              type="button"
+                                              onClick={() => deactivateActivityColumn(c.id)}
+                                              className="h-7 w-7 shrink-0 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                              title="Desactivar columna"
+                                            >
+                                              −
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </th>
+                                  ))
+                                : [
+                                    <th
+                                      key={`ach-${a.id}-fallback`}
+                                      className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold normal-case ${tone.groupBg}`}
+                                      title="Nota directa (sin actividades activas)"
+                                    >
+                                      Nota
+                                    </th>,
+                                  ]),
+                            ]
+                          })
+                        })}
+                      </tr>
+                    </>
+                  ) : (
+                    <>
+                      <tr>
+                        <th className="px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold sticky left-0 z-30 bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800" rowSpan={2}>
+                          Estudiante
+                        </th>
+                        {dimensionOrder.map((dimId) => {
+                          const dim = dimensionById.get(dimId)
+                          const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                          if (dimAchievements.length === 0) return null
+                          const tone = dimensionTone(dim?.name)
+                          return (
+                            <th
+                              key={dimId}
+                              className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold text-center border-l-2 ${tone.groupBg} ${tone.edgeBorder}`}
+                              colSpan={dimAchievements.length + 1}
+                              title={dim?.name ?? ''}
+                            >
+                              <div className="flex flex-col items-center">
+                                <span className="normal-case text-slate-700 dark:text-slate-200">
+                                  <span className="sm:hidden">{abbrevDimensionName(dim?.name ?? `Dimensión ${dimId}`)}</span>
+                                  <span className="hidden sm:inline">{dim?.name ?? `Dimensión ${dimId}`}</span>
+                                </span>
+                                <span className="text-[10px] text-slate-400 normal-case">{dim?.percentage ?? 0}%</span>
+                              </div>
+                            </th>
+                          )
+                        })}
+                        <th className="px-2 lg:px-3 py-2 lg:py-2.5 font-semibold" rowSpan={2}>Definitiva</th>
+                      </tr>
+
+                      <tr>
+                        {dimensionOrder.flatMap((dimId) => {
+                          const dim = dimensionById.get(dimId)
+                          const tone = dimensionTone(dim?.name)
+                          const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                          return [
+                            ...dimAchievements.map((a, idx) => (
+                              <th
+                                key={a.id}
+                                className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold ${tone.groupBg} ${idx === 0 ? `border-l-2 ${tone.edgeBorder}` : ''}`}
+                                title={a.description}
+                              >
+                                <div className="flex flex-col">
+                                  <span>{`L${idx + 1}`}</span>
+                                  <span className="text-[10px] text-slate-400 normal-case">{a.percentage}%</span>
+                                </div>
+                              </th>
+                            )),
+                            <th
+                              key={`dim-${dimId}-avg`}
+                              className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold text-center ${tone.groupBg}`}
+                              title="Promedio de la dimensión"
+                            >
+                              <span className="normal-case">Prom.</span>
+                            </th>,
+                          ]
+                        })}
+                      </tr>
+                    </>
+                  )}
                 </thead>
 
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {gradebook.students.map((s) => (
                     <tr key={s.enrollment_id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap sticky left-0 z-10 bg-white dark:bg-slate-900">
+                      <td className="px-1.5 lg:px-2 py-2 lg:py-2.5 whitespace-nowrap sticky left-0 z-10 bg-white dark:bg-slate-900">
                         <div className="font-medium text-slate-900 dark:text-slate-100 max-w-40 sm:max-w-none truncate" title={s.student_name}>
                           {s.student_name}
                         </div>
                       </td>
 
-                      {dimensionOrder.flatMap((dimId) => {
-                        const dimAchievements = achievementsByDimension.get(dimId) ?? []
-                        const dim = dimensionById.get(dimId)
-                        const cells = dimAchievements.map((a, idx) => {
-                          const key = makeKey(s.enrollment_id, a.id)
-                          const value = cellValues[key] ?? ''
-                          const status = cellStatus[key]
-                          const isDirty = dirtyKeys.has(key)
+                      {activitiesMode
+                        ? dimensionOrder.flatMap((dimId) => {
+                            const dim = dimensionById.get(dimId)
+                            const tone = dimensionTone(dim?.name)
+                            const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                            const cells = dimAchievements.flatMap((a, aIdx) => {
+                              const cols = activityColumnsByAchievement.get(a.id) ?? []
+                              if (cols.length === 0) {
+                                const key = makeKey(s.enrollment_id, a.id)
+                                const value = cellValues[key] ?? ''
+                                const status = cellStatus[key]
+                                const isDirty = dirtyKeys.has(key)
 
-                          const statusClass =
-                            status === 'error'
-                              ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
-                              : status === 'saving'
-                                ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
-                                : status === 'saved'
-                                  ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
-                                  : isDirty
-                                    ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
-                                    : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
+                                const statusClass =
+                                  status === 'error'
+                                    ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
+                                    : status === 'saving'
+                                      ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
+                                      : status === 'saved'
+                                        ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
+                                        : isDirty
+                                          ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                          : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
 
-                          return (
-                            <td key={a.id} className="px-3 sm:px-6 py-3 sm:py-4">
-                              <Input
-                                value={value}
-                                onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
-                                onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
-                                onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
-                                onFocus={handleCellFocus}
-                                disabled={!canEditEnrollment(s.enrollment_id)}
-                                inputMode="decimal"
-                                pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
-                                id={`gradecell-${s.enrollment_id}-${a.id}`}
-                                aria-invalid={status === 'error' ? true : undefined}
-                                aria-busy={status === 'saving' ? true : undefined}
-                                aria-describedby="grade-input-help"
-                                className={`w-20 sm:w-24 h-9 sm:h-10 px-2 sm:px-3 text-center ${statusClass}`}
-                                placeholder="1.00–5.00"
-                                aria-label={`Nota ${s.student_name} ${dim?.name ? `(${dim.name})` : ''} logro L${idx + 1}. Rango 1 a 5.`}
-                              />
-                            </td>
-                          )
-                        })
+                                return [
+                                  <td
+                                    key={`ach-${a.id}-fallback`}
+                                    className={`px-1.5 lg:px-2 py-2 lg:py-2.5 ${tone.groupBg} ${aIdx === 0 ? `border-l-2 ${tone.edgeBorder}` : ''}`}
+                                  >
+                                    <Input
+                                      value={value}
+                                      onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
+                                      onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
+                                      onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
+                                      onFocus={handleCellFocus}
+                                      disabled={!canEditEnrollment(s.enrollment_id)}
+                                      inputMode="decimal"
+                                      pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                      id={`gradecell-${s.enrollment_id}-${a.id}`}
+                                      aria-invalid={status === 'error' ? true : undefined}
+                                      aria-busy={status === 'saving' ? true : undefined}
+                                      aria-describedby="grade-input-help"
+                                      className={`w-16 lg:w-20 h-8 lg:h-9 px-1.5 lg:px-2 text-center ${statusClass}`}
+                                      placeholder="1.00–5.00"
+                                      aria-label={`Nota ${s.student_name} logro. Rango 1 a 5.`}
+                                    />
+                                  </td>,
+                                ]
+                              }
 
-                        const dimAvg = computeDimScoreForEnrollment(s.enrollment_id, dimId)
+                              return cols.map((c, colIdx) => {
+                                const key = makeActivityKey(s.enrollment_id, c.id)
+                                const value = activityValues[key] ?? ''
+                                const status = activityCellStatus[key]
+                                const isDirty = dirtyActivityKeys.has(key)
 
-                        cells.push(
-                          <td key={`dim-${dimId}-avg`} className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
-                            {dimAvg === null ? (
-                              <span className="text-slate-400">—</span>
-                            ) : (
-                              <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-                                {dimAvg.toFixed(2)}
-                              </span>
-                            )}
-                          </td>
-                        )
+                                const statusClass =
+                                  status === 'error'
+                                    ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
+                                    : status === 'saving'
+                                      ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
+                                      : status === 'saved'
+                                        ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
+                                        : isDirty
+                                          ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                          : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
 
-                        return cells
-                      })}
+                                return (
+                                  <td
+                                    key={c.id}
+                                    className={`px-1.5 lg:px-2 py-2 lg:py-2.5 ${tone.groupBg} ${aIdx === 0 && colIdx === 0 ? `border-l-2 ${tone.edgeBorder}` : ''}`}
+                                  >
+                                    <Input
+                                      value={value}
+                                      onChange={(e) => handleChangeActivityCell(s.enrollment_id, c.id, e.target.value)}
+                                      onKeyDown={(e) => handleActivityCellKeyDown(e, s.enrollment_id, c.id)}
+                                      onFocus={handleCellFocus}
+                                      disabled={!canEditEnrollment(s.enrollment_id)}
+                                      inputMode="decimal"
+                                      pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                      id={`activitycell-${s.enrollment_id}-${c.id}`}
+                                      aria-invalid={status === 'error' ? true : undefined}
+                                      aria-busy={status === 'saving' ? true : undefined}
+                                      aria-describedby="grade-input-help"
+                                      className={`w-16 lg:w-20 h-8 lg:h-9 px-1.5 lg:px-2 text-center ${statusClass}`}
+                                      placeholder="1.00–5.00"
+                                      aria-label={`Nota actividad ${c.label} ${s.student_name}. Rango 1 a 5.`}
+                                    />
+                                  </td>
+                                )
+                              })
+                            })
 
-                      <td className="px-3 sm:px-6 py-3 sm:py-4 whitespace-nowrap">
+                            const dimAvg = computeDimScoreForEnrollment(s.enrollment_id, dimId)
+                            cells.push(
+                              <td
+                                key={`dim-${dimId}-avg`}
+                                className={`px-1.5 lg:px-2 py-2 lg:py-2.5 whitespace-nowrap ${tone.groupBg}`}
+                              >
+                                {dimAvg === null ? (
+                                  <span className="text-slate-400">—</span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                    {dimAvg.toFixed(2)}
+                                  </span>
+                                )}
+                              </td>
+                            )
+
+                            return cells
+                          })
+                        : dimensionOrder.flatMap((dimId) => {
+                            const dimAchievements = achievementsByDimension.get(dimId) ?? []
+                            const dim = dimensionById.get(dimId)
+                            const tone = dimensionTone(dim?.name)
+                            const cells = dimAchievements.map((a, idx) => {
+                              const key = makeKey(s.enrollment_id, a.id)
+                              const value = cellValues[key] ?? ''
+                              const status = cellStatus[key]
+                              const isDirty = dirtyKeys.has(key)
+
+                              const statusClass =
+                                status === 'error'
+                                  ? 'border-rose-300 dark:border-rose-800/60 focus-visible:ring-rose-500'
+                                  : status === 'saving'
+                                    ? 'border-blue-300 dark:border-blue-800/60 focus-visible:ring-blue-500'
+                                    : status === 'saved'
+                                      ? 'border-emerald-300 dark:border-emerald-800/60 focus-visible:ring-emerald-500'
+                                      : isDirty
+                                        ? 'border-amber-300 dark:border-amber-800/60 focus-visible:ring-amber-500'
+                                        : 'border-slate-200 dark:border-slate-700 focus-visible:ring-blue-500'
+
+                              return (
+                                <td
+                                  key={a.id}
+                                  className={`px-1.5 lg:px-2 py-2 lg:py-2.5 ${tone.groupBg} ${idx === 0 ? `border-l-2 ${tone.edgeBorder}` : ''}`}
+                                >
+                                  <Input
+                                    value={value}
+                                    onChange={(e) => handleChangeCell(s.enrollment_id, a.id, e.target.value)}
+                                    onBlur={() => handleCellBlur(s.enrollment_id, a.id)}
+                                    onKeyDown={(e) => handleCellKeyDown(e, s.enrollment_id, a.id)}
+                                    onFocus={handleCellFocus}
+                                    disabled={!canEditEnrollment(s.enrollment_id)}
+                                    inputMode="decimal"
+                                    pattern="^([1-4](\\.[0-9]{0,2})?|5(\\.0{0,2})?)$"
+                                    id={`gradecell-${s.enrollment_id}-${a.id}`}
+                                    aria-invalid={status === 'error' ? true : undefined}
+                                    aria-busy={status === 'saving' ? true : undefined}
+                                    aria-describedby="grade-input-help"
+                                    className={`w-16 lg:w-20 h-8 lg:h-9 px-1.5 lg:px-2 text-center ${statusClass}`}
+                                    placeholder="1.00–5.00"
+                                    aria-label={`Nota ${s.student_name} ${dim?.name ? `(${dim.name})` : ''} logro L${idx + 1}. Rango 1 a 5.`}
+                                  />
+                                </td>
+                              )
+                            })
+
+                            const dimAvg = computeDimScoreForEnrollment(s.enrollment_id, dimId)
+
+                            cells.push(
+                              <td
+                                key={`dim-${dimId}-avg`}
+                                className={`px-1.5 lg:px-2 py-2 lg:py-2.5 whitespace-nowrap ${tone.groupBg}`}
+                              >
+                                {dimAvg === null ? (
+                                  <span className="text-slate-400">—</span>
+                                ) : (
+                                  <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 bg-white text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                                    {dimAvg.toFixed(2)}
+                                  </span>
+                                )}
+                              </td>
+                            )
+
+                            return cells
+                          })}
+
+                      <td className="px-1.5 lg:px-2 py-2 lg:py-2.5 whitespace-nowrap">
                         {(() => {
                           const liveFinal = computeFinalScoreForEnrollment(s.enrollment_id)
                           const c = computedByEnrollmentId.get(s.enrollment_id)
@@ -1689,7 +2953,7 @@ export default function Grades() {
             )}
 
             {gradebook.achievements.length > 0 && !periodIsClosed && (
-              <div className="text-xs text-slate-500 dark:text-slate-400 mt-3">
+              <div className="hidden md:block text-xs text-slate-500 dark:text-slate-400 mt-3">
                 Atajos: Enter/Shift+Enter (abajo/arriba), ↑↓ (fila), ←→ (columna), Tab/Shift+Tab (siguiente/anterior), Cmd/Ctrl+S (guardar), Esc (salir).
               </div>
             )}

@@ -211,11 +211,69 @@ export interface GradebookBlockedItem {
   reason: string
 }
 
+export type GradeSheetGradingMode = 'ACHIEVEMENT' | 'ACTIVITIES'
+
+export interface GradebookActivityColumn {
+  id: number
+  gradesheet: number
+  achievement: number
+  label: string
+  order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface GradebookActivityCell {
+  enrollment: number
+  column: number
+  score: number | string | null
+}
+
+export interface ActivityGradeBlockedItem {
+  enrollment: number
+  column: number
+  reason: string
+}
+
 export interface GradebookBulkUpsertResponse {
   requested: number
   updated: number
   computed?: GradebookComputed[]
   blocked?: GradebookBlockedItem[]
+}
+
+export interface GradeSheetSetGradingModeResponse {
+  gradesheet: GradebookResponse['gradesheet']
+  created_columns: number
+}
+
+export type ActivityColumnUpsert = {
+  id?: number
+  achievement: number
+  label: string
+  order?: number
+  is_active?: boolean
+}
+
+export interface ActivityColumnsBulkUpsertResponse {
+  created: number
+  updated: number
+  columns: GradebookActivityColumn[]
+}
+
+export type ActivityGradeUpsert = {
+  enrollment: number
+  column: number
+  score: number | null
+}
+
+export interface ActivityGradesBulkUpsertResponse {
+  requested: number
+  updated: number
+  recomputed_achievement_grades: number
+  computed?: GradebookComputed[]
+  blocked?: ActivityGradeBlockedItem[]
 }
 
 export type EditScope = 'GRADES' | 'PLANNING'
@@ -294,6 +352,7 @@ export interface GradebookResponse {
     id: number;
     teacher_assignment: number;
     period: number;
+    grading_mode?: GradeSheetGradingMode;
     status: string;
     published_at: string | null;
     created_at: string;
@@ -306,6 +365,9 @@ export interface GradebookResponse {
   students: GradebookStudent[];
   cells: GradebookCell[];
   computed: GradebookComputed[];
+
+  activity_columns?: GradebookActivityColumn[];
+  activity_cells?: GradebookActivityCell[];
 }
 
 export interface GradebookCellUpsert {
@@ -410,6 +472,18 @@ export const academicApi = {
     }),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
     api.post<GradebookBulkUpsertResponse>('/api/grade-sheets/bulk-upsert/', data),
+
+  // Gradebook (Activities mode)
+  setGradeSheetGradingMode: (data: {
+    teacher_assignment: number
+    period: number
+    grading_mode: GradeSheetGradingMode
+    default_columns?: number
+  }) => api.post<GradeSheetSetGradingModeResponse>('/api/grade-sheets/set-grading-mode/', data),
+  bulkUpsertActivityColumns: (data: { teacher_assignment: number; period: number; columns: ActivityColumnUpsert[] }) =>
+    api.post<ActivityColumnsBulkUpsertResponse>('/api/grade-sheets/activity-columns/bulk-upsert/', data),
+  bulkUpsertActivityGrades: (data: { teacher_assignment: number; period: number; grades: ActivityGradeUpsert[] }) =>
+    api.post<ActivityGradesBulkUpsertResponse>('/api/grade-sheets/activity-grades/bulk-upsert/', data),
 
   // Edit windows: requests/grants
   createEditRequest: (data: {

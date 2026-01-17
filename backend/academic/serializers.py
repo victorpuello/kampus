@@ -20,6 +20,8 @@ from .models import (
     AcademicLoad,
     GradeSheet,
     AchievementGrade,
+    AchievementActivityColumn,
+    AchievementActivityGrade,
     EditRequest,
     EditRequestItem,
     EditGrant,
@@ -612,4 +614,56 @@ class GradebookBulkUpsertSerializer(serializers.Serializer):
     teacher_assignment = serializers.IntegerField()
     period = serializers.IntegerField()
     grades = GradebookCellUpsertSerializer(many=True)
+
+
+class GradeSheetGradingModeSerializer(serializers.Serializer):
+    teacher_assignment = serializers.IntegerField()
+    period = serializers.IntegerField()
+    grading_mode = serializers.ChoiceField(choices=GradeSheet.GRADING_MODE_CHOICES)
+    default_columns = serializers.IntegerField(required=False, min_value=0, max_value=10)
+
+
+class AchievementActivityColumnSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AchievementActivityColumn
+        fields = ["id", "gradesheet", "achievement", "label", "order", "is_active", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class ActivityColumnUpsertSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    achievement = serializers.IntegerField()
+    label = serializers.CharField(max_length=80)
+    order = serializers.IntegerField(required=False, min_value=1)
+    is_active = serializers.BooleanField(required=False, default=True)
+
+
+class ActivityColumnsBulkUpsertSerializer(serializers.Serializer):
+    teacher_assignment = serializers.IntegerField()
+    period = serializers.IntegerField()
+    columns = ActivityColumnUpsertSerializer(many=True)
+
+
+class ActivityGradeUpsertSerializer(serializers.Serializer):
+    column = serializers.IntegerField()
+    enrollment = serializers.IntegerField()
+    score = serializers.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+    )
+
+    def validate_score(self, value):
+        if value is None:
+            return value
+        if value < 1 or value > 5:
+            raise serializers.ValidationError("La nota debe estar entre 1.00 y 5.00.")
+        return value
+
+
+class ActivityGradesBulkUpsertSerializer(serializers.Serializer):
+    teacher_assignment = serializers.IntegerField()
+    period = serializers.IntegerField()
+    grades = ActivityGradeUpsertSerializer(many=True)
 
