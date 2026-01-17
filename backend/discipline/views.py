@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import io
+import os
+
+from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
 from django.template.loader import render_to_string
@@ -9,12 +13,16 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import renderers
 from rest_framework.response import Response
 
-from academic.models import AcademicYear, Group
+from academic.models import AcademicYear, Group, TeacherAssignment
+from core.models import Institution
 from core.permissions import KampusModelPermissions
 from notifications.services import create_notification
 from students.models import FamilyMember
+
+from django.contrib.auth import get_user_model
 
 from audit.services import log_event
 
@@ -39,6 +47,53 @@ from .serializers import (
 	DisciplineCaseDetailSerializer,
 	DisciplineCaseListSerializer,
 )
+
+
+def _pisa_link_callback_for_pdf(uri: str, rel: str | None = None):
+	# Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
+	if uri is None:
+		return uri
+	uri = str(uri)
+
+	# Allow absolute URLs
+	if uri.startswith("http://") or uri.startswith("https://"):
+		return uri
+
+	media_url = getattr(settings, "MEDIA_URL", "") or ""
+	static_url = getattr(settings, "STATIC_URL", "") or ""
+
+	if media_url and uri.startswith(media_url):
+		path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
+		return os.path.normpath(path)
+
+	if static_url and uri.startswith(static_url):
+		static_root = getattr(settings, "STATIC_ROOT", None)
+		if static_root:
+			path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
+			return os.path.normpath(path)
+
+	# If template provided an absolute filesystem path already
+	if os.path.isabs(uri) and os.path.exists(uri):
+		return os.path.normpath(uri)
+
+	# Best effort relative resolution
+	if rel:
+		candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
+		if os.path.exists(candidate):
+			return candidate
+
+	return uri
+
+
+class PDFRenderer(renderers.BaseRenderer):
+	media_type = "application/pdf"
+	format = "pdf"
+	charset = None
+
+	def render(self, data, accepted_media_type=None, renderer_context=None):
+		# This renderer is used mainly to satisfy DRF content negotiation for
+		# endpoints that return an HttpResponse with application/pdf.
+		return data
 
 
 class DisciplineCaseViewSet(viewsets.ModelViewSet):
@@ -66,7 +121,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	def get_permissions(self):
 		# Portal acudiente (P0): permitir endpoints de lectura y enterado autenticado
 		# y controlar acceso real vía get_queryset() + validaciones en la acción.
-		if self.action in {"list", "retrieve", "acta", "acknowledge_guardian"}:
+		if self.action in {"list", "retrieve", "acta", "acknowledge_guardian", "close"}:
 			return [IsAuthenticated()]
 		return super().get_permissions()
 
@@ -87,9 +142,22 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 			directed_groups = Group.objects.filter(director=user)
 			if active_year:
 				directed_groups = directed_groups.filter(academic_year=active_year)
-			if not directed_groups.exists():
+
+			if active_year:
+				assigned_group_ids = set(
+					TeacherAssignment.objects.filter(teacher=user, academic_year=active_year).values_list(
+						"group_id", flat=True
+					)
+				)
+			else:
+				assigned_group_ids = set(
+					TeacherAssignment.objects.filter(teacher=user).values_list("group_id", flat=True)
+				)
+
+			allowed_group_ids = set(directed_groups.values_list("id", flat=True)) | assigned_group_ids
+			if not allowed_group_ids:
 				return qs.none()
-			qs = qs.filter(enrollment__group__in=directed_groups, enrollment__status="ACTIVE").distinct()
+			qs = qs.filter(enrollment__group_id__in=allowed_group_ids, enrollment__status="ACTIVE").distinct()
 
 		elif role in {"ADMIN", "SUPERADMIN", "COORDINATOR"}:
 			qs = qs
@@ -127,18 +195,85 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 		role = getattr(user, "role", None)
 		if role == "PARENT":
 			raise PermissionDenied("No tienes permisos para crear casos.")
-		serializer.save()
+
+		with transaction.atomic():
+			case: DisciplineCase = serializer.save()
+
+			# Auto-notify group director + admins (ADMIN/SUPERADMIN only)
+			notified_director = False
+			notified_admins = 0
+			director_user = None
+			try:
+				group = getattr(getattr(case, "enrollment", None), "group", None)
+				director_user = getattr(group, "director", None) if group else None
+			except Exception:
+				director_user = None
+
+			if director_user is not None and getattr(director_user, "is_active", False):
+				if getattr(director_user, "id", None) != getattr(user, "id", None):
+					create_notification(
+						recipient=director_user,
+						title=f"Observador: Nuevo caso disciplinario #{case.id}",
+						body="Se registró un nuevo caso de convivencia para un estudiante de tu grupo.",
+						url=f"/discipline/cases/{case.id}",
+						type="DISCIPLINE_CASE",
+						dedupe_key=f"DISCIPLINE_CASE_CREATED:case={case.id}:user={director_user.id}",
+						dedupe_within_seconds=60,
+					)
+					notified_director = True
+
+			User = get_user_model()
+			admin_users = list(
+				User.objects.filter(role__in=["ADMIN", "SUPERADMIN"], is_active=True)
+				.exclude(id=getattr(user, "id", None))
+			)
+			if director_user is not None:
+				admin_users = [u for u in admin_users if u.id != getattr(director_user, "id", None)]
+			for admin_user in admin_users:
+				create_notification(
+					recipient=admin_user,
+					title=f"Observador: Nuevo caso disciplinario #{case.id}",
+					body="Se registró un nuevo caso de convivencia.",
+					url=f"/discipline/cases/{case.id}",
+					type="DISCIPLINE_CASE",
+					dedupe_key=f"DISCIPLINE_CASE_CREATED:case={case.id}:user={admin_user.id}",
+					dedupe_within_seconds=60,
+				)
+			notified_admins = len(admin_users)
+
+			if notified_director or notified_admins:
+				DisciplineCaseEvent.objects.create(
+					case=case,
+					event_type=DisciplineCaseEvent.Type.NOTE,
+					text=f"Notificación automática enviada. Director: {'sí' if notified_director else 'no'}. Admins: {notified_admins}.",
+					created_by=user if getattr(user, "is_authenticated", False) else None,
+				)
+
+			log_event(
+				self.request,
+				event_type="DISCIPLINE_CASE_CREATE",
+				object_type="discipline_case",
+				object_id=case.id,
+				status_code=201,
+				metadata={
+					"notified_director": notified_director,
+					"notified_admins": notified_admins,
+				},
+			)
 
 	def destroy(self, request, *args, **kwargs):
 		case: DisciplineCase = self.get_object()
-		role = getattr(getattr(request, "user", None), "role", None)
+		user = getattr(request, "user", None)
+		role = getattr(user, "role", None)
 		if role == "PARENT":
+			raise PermissionDenied("No tienes permisos para eliminar este caso.")
+		if role == "TEACHER" and case.created_by_id != getattr(user, "id", None):
 			raise PermissionDenied("No tienes permisos para eliminar este caso.")
 		self._ensure_not_sealed(case)
 		return super().destroy(request, *args, **kwargs)
 
 	def perform_update(self, serializer):
-		# MVP: Teachers can only update their own cases.
+		# MVP: Teachers can only update their own cases, except group directors.
 		user = getattr(self.request, "user", None)
 		role = getattr(user, "role", None)
 		instance: DisciplineCase = self.get_object()
@@ -146,7 +281,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 			raise PermissionDenied("No tienes permisos para editar este caso.")
 		if instance.sealed_at is not None:
 			raise PermissionDenied("El caso está sellado y no permite modificaciones.")
-		if role == "TEACHER" and instance.created_by_id != getattr(user, "id", None):
+		if role == "TEACHER" and instance.created_by_id != getattr(user, "id", None) and not self._is_group_director(user, instance):
 			raise PermissionDenied("No tienes permisos para editar este caso.")
 		serializer.save()
 		log_event(
@@ -174,16 +309,35 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 		if case.sealed_at is not None:
 			raise PermissionDenied("El caso está sellado y no permite modificaciones.")
 
-	def _ensure_can_mutate(self, request):
-		role = getattr(getattr(request, "user", None), "role", None)
+	def _is_group_director(self, user, case: DisciplineCase) -> bool:
+		user_id = getattr(user, "id", None)
+		if not user_id:
+			return False
+		try:
+			group = getattr(getattr(case, "enrollment", None), "group", None)
+			director_id = getattr(group, "director_id", None)
+			return director_id == user_id
+		except Exception:
+			return False
+
+	def _ensure_can_mutate(self, request, case: DisciplineCase | None = None):
+		user = getattr(request, "user", None)
+		role = getattr(user, "role", None)
 		if role == "PARENT":
+			raise PermissionDenied("No tienes permisos para modificar este caso.")
+		if (
+			role == "TEACHER"
+			and case is not None
+			and case.created_by_id != getattr(user, "id", None)
+			and not self._is_group_director(user, case)
+		):
 			raise PermissionDenied("No tienes permisos para modificar este caso.")
 
 	@transaction.atomic
 	@action(detail=True, methods=["post"], parser_classes=[MultiPartParser])
 	def add_attachment(self, request, pk=None):
 		case = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		serializer = CaseAddAttachmentSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -215,7 +369,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"])
 	def add_participant(self, request, pk=None):
 		case = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		serializer = CaseAddParticipantSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -245,7 +399,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"])
 	def notify_guardian(self, request, pk=None):
 		case = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		serializer = CaseNotifyGuardianSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -373,13 +527,8 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"])
 	def set_descargos_deadline(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
-		# Same rule as update: teachers can only act on their own cases.
-		user = getattr(request, "user", None)
-		role = getattr(user, "role", None)
-		if role == "TEACHER" and case.created_by_id != getattr(user, "id", None):
-			raise PermissionDenied("No tienes permisos para actualizar este caso.")
 
 		serializer = CaseSetDescargosDeadlineSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -409,9 +558,47 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 		)
 		return Response({"detail": "OK"}, status=status.HTTP_200_OK)
 
-	@action(detail=True, methods=["get"])
+	@action(
+		detail=True,
+		methods=["get"],
+		renderer_classes=[renderers.JSONRenderer, renderers.StaticHTMLRenderer, PDFRenderer],
+	)
 	def acta(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
+		enrollment = case.enrollment
+		campus = getattr(enrollment, "campus", None) if enrollment else None
+		institution = getattr(campus, "institution", None) if campus else Institution.objects.first()
+		group = getattr(enrollment, "group", None) if enrollment else None
+		group_director = getattr(group, "director", None) if group else None
+		guardian = (
+			FamilyMember.objects.filter(student=case.student)
+			.select_related("user")
+			.order_by("-is_main_guardian", "id")
+			.first()
+		)
+		want_pdf = (request.query_params.get("format") or "").lower() == "pdf"
+		events = list(case.events.all())
+		action_event_types = {
+			DisciplineCaseEvent.Type.NOTIFIED_GUARDIAN,
+			DisciplineCaseEvent.Type.DESCARGOS,
+			DisciplineCaseEvent.Type.DECISION,
+			DisciplineCaseEvent.Type.CLOSED,
+		}
+		action_note_markers = (
+			"Fecha límite",
+			"Fecha limite",
+			"Acuse/enterado",
+			"Notificación automática",
+			"Notificacion automática",
+		)
+		actions_taken = []
+		for e in events:
+			if e.event_type in action_event_types:
+				actions_taken.append(e)
+			elif e.event_type == DisciplineCaseEvent.Type.NOTE and (e.text or "").strip():
+				text = (e.text or "").strip()
+				if any(marker in text for marker in action_note_markers):
+					actions_taken.append(e)
 		log_event(
 			request,
 			event_type="DISCIPLINE_CASE_ACTA_DOWNLOAD",
@@ -424,23 +611,45 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 			{
 				"case": case,
 				"student": case.student,
-				"enrollment": case.enrollment,
+				"enrollment": enrollment,
+				"group": group,
+				"group_director": group_director,
+				"guardian": guardian,
+				"campus": campus,
+				"institution": institution,
 				"participants": list(case.participants.all()),
 				"attachments": list(case.attachments.all()),
-				"events": list(case.events.all()),
+				"events": events,
+				"actions_taken": actions_taken,
 				"generated_at": timezone.now(),
 				"generated_by": request.user,
 			},
 		)
-		response = HttpResponse(html, content_type="text/html; charset=utf-8")
-		response["Content-Disposition"] = f'inline; filename="caso-{case.id}-acta.html"'
+
+		if not want_pdf:
+			response = HttpResponse(html, content_type="text/html; charset=utf-8")
+			response["Content-Disposition"] = f'inline; filename="caso-{case.id}-acta.html"'
+			return response
+
+		try:
+			from xhtml2pdf import pisa  # type: ignore[import-not-found]
+		except Exception:
+			return Response({"detail": "PDF no disponible (xhtml2pdf no instalado)."}, status=status.HTTP_400_BAD_REQUEST)
+
+		out = io.BytesIO()
+		pdf = pisa.CreatePDF(html, dest=out, encoding="utf-8", link_callback=_pisa_link_callback_for_pdf)
+		if getattr(pdf, "err", False):
+			return Response({"detail": "No se pudo generar el PDF del acta."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+		response = HttpResponse(out.getvalue(), content_type="application/pdf")
+		response["Content-Disposition"] = f'inline; filename="caso-{case.id}-acta.pdf"'
 		return response
 
 	@transaction.atomic
 	@action(detail=True, methods=["post"], parser_classes=[MultiPartParser])
 	def record_descargos(self, request, pk=None):
 		case = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		serializer = CaseRecordDescargosSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -475,7 +684,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"])
 	def decide(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		serializer = CaseDecideSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
@@ -520,7 +729,10 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"])
 	def close(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
-		self._ensure_can_mutate(request)
+		role = getattr(getattr(request, "user", None), "role", None)
+		if role not in {"ADMIN", "SUPERADMIN"}:
+			raise PermissionDenied("Solo administradores pueden cerrar un caso.")
+		self._ensure_can_mutate(request, case)
 		self._ensure_not_sealed(case)
 		if case.status not in {DisciplineCase.Status.DECIDED, DisciplineCase.Status.OPEN}:
 			return Response(
@@ -559,7 +771,7 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	@action(detail=True, methods=["post"], url_path="add-note")
 	def add_note(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
-		self._ensure_can_mutate(request)
+		self._ensure_can_mutate(request, case)
 		serializer = CaseAddNoteSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
 

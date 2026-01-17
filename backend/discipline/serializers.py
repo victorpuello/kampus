@@ -6,7 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers
 
-from academic.models import AcademicYear, Group
+from academic.models import AcademicYear, Group, TeacherAssignment
 from students.models import Enrollment, Student
 
 from .models import (
@@ -256,7 +256,23 @@ class DisciplineCaseCreateSerializer(serializers.ModelSerializer):
             directed_groups = Group.objects.filter(director=user)
             if active_year:
                 directed_groups = directed_groups.filter(academic_year=active_year)
-            if enrollment.group_id is None or not directed_groups.filter(id=enrollment.group_id).exists():
+            if enrollment.group_id is None:
+                raise serializers.ValidationError("La matrícula no tiene grupo asignado.")
+
+            is_director = directed_groups.filter(id=enrollment.group_id).exists()
+            if active_year:
+                is_assigned = TeacherAssignment.objects.filter(
+                    teacher=user,
+                    academic_year=active_year,
+                    group_id=enrollment.group_id,
+                ).exists()
+            else:
+                is_assigned = TeacherAssignment.objects.filter(
+                    teacher=user,
+                    group_id=enrollment.group_id,
+                ).exists()
+
+            if not (is_director or is_assigned):
                 raise serializers.ValidationError("No tienes permisos para registrar casos para este grupo.")
 
         return enrollment

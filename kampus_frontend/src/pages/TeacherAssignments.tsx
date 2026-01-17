@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
 import { useAuthStore } from '../store/auth'
-import { academicApi, type AcademicYear, type TeacherAssignment } from '../services/academic'
+import { academicApi, type AcademicYear, type Period, type TeacherAssignment } from '../services/academic'
+import { downloadAttendanceManualSheetPdf } from '../services/attendance'
 
 type AxiosLikeError = {
   response?: {
@@ -21,11 +24,22 @@ export default function TeacherAssignments() {
   const [error, setError] = useState<string | null>(null)
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
 
+  const [periods, setPeriods] = useState<Period[]>([])
+  const [loadingPeriods, setLoadingPeriods] = useState(false)
+
   const [years, setYears] = useState<AcademicYear[]>([])
   const [yearId, setYearId] = useState<number | ''>('')
 
   const pageSize = 10
   const [page, setPage] = useState(1)
+
+  const [isPlanillaModalOpen, setIsPlanillaModalOpen] = useState(false)
+  const [planillaType, setPlanillaType] = useState<'attendance' | 'grades'>('attendance')
+  const [selectedAssignment, setSelectedAssignment] = useState<TeacherAssignment | null>(null)
+  const [attendanceColumns, setAttendanceColumns] = useState(24)
+  const [gradeNoteColumns, setGradeNoteColumns] = useState(3)
+  const [gradePeriodId, setGradePeriodId] = useState<number | ''>('')
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -44,7 +58,9 @@ export default function TeacherAssignments() {
         const fallback = items[0]
         const nextId = active?.id ?? fallback?.id
 
-        if (yearId === '' && nextId) setYearId(nextId)
+        if (nextId) {
+          setYearId((prev) => (prev === '' ? nextId : prev))
+        }
       })
       .catch(() => {
         if (!mounted) return
@@ -65,6 +81,32 @@ export default function TeacherAssignments() {
     // Reset pagination when scope changes.
     setPage(1)
   }, [yearId])
+
+  useEffect(() => {
+    let mounted = true
+    if (!isTeacher) return
+    if (!yearId) return
+
+    setLoadingPeriods(true)
+    academicApi
+      .listPeriods()
+      .then((res) => {
+        if (!mounted) return
+        setPeriods(res.data ?? [])
+      })
+      .catch(() => {
+        if (!mounted) return
+        setPeriods([])
+      })
+      .finally(() => {
+        if (!mounted) return
+        setLoadingPeriods(false)
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [isTeacher, yearId])
 
   useEffect(() => {
     let mounted = true
@@ -108,17 +150,101 @@ export default function TeacherAssignments() {
       const year = a.academic_year_year ?? null
       const hours = a.hours_per_week ?? null
 
+      const subjectLabel =
+        [a.area_name, a.subject_name].filter(Boolean).join(' - ') || a.academic_load_name || subject
+
       return {
         id: a.id,
         subject,
+        subjectLabel,
         area,
         group,
         grade,
         year,
         hours,
+        raw: a,
       }
     })
   }, [assignments])
+
+  const myTeacherName = useMemo(() => {
+    const last = (user?.last_name || '').trim()
+    const first = (user?.first_name || '').trim()
+    return `${last} ${first}`.trim()
+  }, [user?.first_name, user?.last_name])
+
+  const periodsForYear = useMemo(() => {
+    if (!yearId) return []
+    return periods.filter((p) => p.academic_year === Number(yearId))
+  }, [periods, yearId])
+
+  const openPdfBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob)
+    const w = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!w) {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
+
+  const handleOpenPlanilla = (type: 'attendance' | 'grades', assignment: TeacherAssignment) => {
+    setPlanillaType(type)
+    setSelectedAssignment(assignment)
+    setDownloading(false)
+
+    if (type === 'attendance') {
+      setAttendanceColumns(24)
+    } else {
+      setGradeNoteColumns(3)
+      const available = periodsForYear
+      setGradePeriodId(available.length > 0 ? available[0].id : '')
+    }
+
+    setIsPlanillaModalOpen(true)
+  }
+
+  const handleDownloadPlanilla = async () => {
+    if (!selectedAssignment) return
+
+    try {
+      setDownloading(true)
+
+      if (planillaType === 'attendance') {
+        const blob = await downloadAttendanceManualSheetPdf({
+          group_id: selectedAssignment.group,
+          columns: attendanceColumns,
+        })
+        openPdfBlob(blob, `planilla_asistencia_grupo_${selectedAssignment.group}.pdf`)
+        return
+      }
+
+      const subject =
+        [selectedAssignment.area_name, selectedAssignment.subject_name].filter(Boolean).join(' - ') ||
+        selectedAssignment.academic_load_name ||
+        ''
+      const teacher = (selectedAssignment.teacher_name || myTeacherName).trim() || undefined
+
+      const period = gradePeriodId !== '' ? Number(gradePeriodId) : undefined
+      const res = await academicApi.downloadGradeReportSheetPdf(selectedAssignment.group, {
+        period,
+        subject: subject || undefined,
+        teacher,
+        columns: gradeNoteColumns,
+      })
+      openPdfBlob(res.data as unknown as Blob, `planilla_notas_grupo_${selectedAssignment.group}.pdf`)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setDownloading(false)
+      setIsPlanillaModalOpen(false)
+    }
+  }
+
 
   const paginated = useMemo(() => {
     const total = rows.length
@@ -207,6 +333,7 @@ export default function TeacherAssignments() {
                       <th className="px-6 py-4 font-semibold">Grupo</th>
                       <th className="px-6 py-4 font-semibold">Año</th>
                       <th className="px-6 py-4 font-semibold text-right">Horas/Semana</th>
+                      <th className="px-6 py-4 font-semibold text-right">Imprimibles</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -218,6 +345,24 @@ export default function TeacherAssignments() {
                         <td className="px-6 py-4">{r.group}</td>
                         <td className="px-6 py-4">{r.year ?? '—'}</td>
                         <td className="px-6 py-4 text-right">{r.hours ?? '—'}</td>
+                        <td className="px-6 py-4">
+                          <div className="flex flex-col sm:flex-row justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() => handleOpenPlanilla('attendance', r.raw)}
+                              disabled={downloading}
+                            >
+                              Asistencia
+                            </Button>
+                            <Button
+                              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                              onClick={() => handleOpenPlanilla('grades', r.raw)}
+                              disabled={downloading}
+                            >
+                              Notas
+                            </Button>
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -252,6 +397,105 @@ export default function TeacherAssignments() {
           )}
         </CardContent>
       </Card>
+
+      {isPlanillaModalOpen && selectedAssignment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div
+            className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
+            onClick={() => {
+              if (!downloading) setIsPlanillaModalOpen(false)
+            }}
+          />
+          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">
+                {planillaType === 'attendance' ? 'Descargar planilla de asistencia' : 'Descargar planilla de notas'}
+              </h3>
+              <button
+                onClick={() => {
+                  if (!downloading) setIsPlanillaModalOpen(false)
+                }}
+                className="rounded-full p-1 hover:bg-slate-100 transition-colors disabled:opacity-50 dark:hover:bg-slate-800"
+                disabled={downloading}
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="text-sm text-slate-600 dark:text-slate-300">
+                <div className="font-medium text-slate-900 dark:text-slate-100">
+                  {selectedAssignment.group_name || `Grupo ${selectedAssignment.group}`}
+                </div>
+                <div>
+                  {([selectedAssignment.area_name, selectedAssignment.subject_name].filter(Boolean).join(' - ') || selectedAssignment.academic_load_name || '').trim()}
+                </div>
+              </div>
+
+              {planillaType === 'attendance' ? (
+                <div>
+                  <Label>Número de columnas (días/registro)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={40}
+                    value={attendanceColumns}
+                    onChange={(e) => setAttendanceColumns(Math.max(1, Math.min(40, Number(e.target.value || 24))))}
+                  />
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <Label>Período</Label>
+                    <select
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                      value={gradePeriodId}
+                      onChange={(e) => setGradePeriodId(e.target.value ? Number(e.target.value) : '')}
+                      disabled={loadingPeriods}
+                    >
+                      {periodsForYear.length === 0 ? <option value="">—</option> : null}
+                      {periodsForYear.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    {periodsForYear.length === 0 && (
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No hay períodos configurados para este año.</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label>Número de columnas (notas)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={12}
+                      value={gradeNoteColumns}
+                      onChange={(e) => setGradeNoteColumns(Math.max(1, Math.min(12, Number(e.target.value || 3))))}
+                    />
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Esto controla cuántas columnas “Nota 1…Nota N” aparecen antes de “Def.”</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsPlanillaModalOpen(false)} disabled={downloading}>
+                Cancelar
+              </Button>
+              <Button
+                className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                onClick={handleDownloadPlanilla}
+                disabled={downloading || (planillaType === 'grades' && periodsForYear.length > 0 && gradePeriodId === '')}
+              >
+                {downloading ? 'Generando…' : 'Descargar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

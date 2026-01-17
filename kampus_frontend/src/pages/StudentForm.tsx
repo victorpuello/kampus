@@ -165,9 +165,9 @@ export default function StudentForm() {
     const user = useAuthStore((s) => s.user)
     const isTeacher = user?.role === 'TEACHER'
         const blockedHistoryImport = user?.role === 'TEACHER' || user?.role === 'PARENT' || user?.role === 'STUDENT'
-    const canEdit = !isTeacher
 
     const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
+    const canEdit = !isTeacher || (isEditing && teacherHasDirectedGroup === true)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -662,8 +662,14 @@ export default function StudentForm() {
 
   const handleSaveStep = async (nextTab?: string) => {
         if (isTeacher) {
-            setError('No tienes permisos para crear o editar estudiantes')
-            return
+            if (!isEditing) {
+                setError('No tienes permisos para crear estudiantes')
+                return
+            }
+            if (teacherHasDirectedGroup !== true) {
+                setError('No tienes asignación como director de grupo')
+                return
+            }
         }
 
     setLoading(true)
@@ -725,7 +731,9 @@ export default function StudentForm() {
     { id: 'documents', label: 'Documentos', icon: FileText },
   ]
 
-    const visibleTabs = isTeacher ? tabs.filter((t) => t.id !== 'family' && t.id !== 'documents') : tabs
+    const visibleTabs = isTeacher && !(isEditing && teacherHasDirectedGroup === true)
+        ? tabs.filter((t) => t.id !== 'family' && t.id !== 'documents')
+        : tabs
 
     if (isTeacher) {
         if (teacherHasDirectedGroup === null) return <div className="p-6">Cargando…</div>
@@ -1421,7 +1429,6 @@ export default function StudentForm() {
         </div>
 
         {/* FAMILY TAB */}
-        {!isTeacher && (
         <div className={activeTab === 'family' ? 'block' : 'hidden'}>
             <Card>
             <CardHeader>
@@ -1491,11 +1498,10 @@ export default function StudentForm() {
             </div>
             </Card>
         </div>
-        )}
 
         {/* DOCUMENTS TAB */}
         <div className={activeTab === 'documents' ? 'block' : 'hidden'}>
-            {isTeacher ? (
+            {isTeacher && !canEdit ? (
                 <Card>
                     <CardContent className="py-8 text-center text-slate-500 dark:text-slate-400">
                         Como docente no puedes gestionar documentos del estudiante.

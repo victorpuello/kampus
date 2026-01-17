@@ -44,6 +44,8 @@ export interface PapPlanListResponse {
 export const enrollmentsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<PaginatedResponse<Enrollment>>('/api/enrollments/', { params }),
+  my: (params?: Record<string, unknown>) =>
+    api.get<PaginatedResponse<Enrollment>>('/api/enrollments/my/', { params }),
   getById: (id: number) => api.get<Enrollment>(`/api/enrollments/${id}/`),
   create: (data: Record<string, unknown>) => api.post<Enrollment>('/api/enrollments/', data),
   update: (id: number, data: Record<string, unknown>) => api.put<Enrollment>(`/api/enrollments/${id}/`, data),

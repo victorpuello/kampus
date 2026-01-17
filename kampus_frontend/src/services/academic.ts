@@ -359,6 +359,15 @@ export const academicApi = {
 
   // Groups
   listGroups: (params?: Record<string, unknown>) => api.get<Group[]>('/api/groups/', { params }),
+  getGroup: (id: number) => api.get<Group>(`/api/groups/${id}/`),
+  downloadGradeReportSheetPdf: (id: number, params?: { period?: number; subject?: string; teacher?: string; columns?: number }) =>
+    api.get<Blob>(`/api/groups/${id}/grade-report-sheet/`, {
+      params: {
+        format: 'pdf',
+        ...(params ?? {}),
+      },
+      responseType: 'blob',
+    }),
   createGroup: (data: GroupUpsertPayload) => api.post<Group>('/api/groups/', data),
   updateGroup: (id: number, data: GroupUpsertPayload) => api.put<Group>(`/api/groups/${id}/`, data),
   deleteGroup: (id: number) => api.delete(`/api/groups/${id}/`),

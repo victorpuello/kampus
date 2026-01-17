@@ -40,6 +40,8 @@ import AdministrativeCertificatesRevenue from './pages/AdministrativeCertificate
 import AttendanceHome from './pages/attendance/AttendanceHome'
 import AttendanceSession from './pages/attendance/AttendanceSession'
 import AttendanceStats from './pages/attendance/AttendanceStats'
+import GroupsManagement from './pages/GroupsManagement'
+import GroupStudents from './pages/groups/GroupStudents'
 
 export default function App() {
   return (
@@ -66,6 +68,8 @@ export default function App() {
             <Route path="/users" element={<UserList />} />
             <Route path="/users/new" element={<UserForm />} />
             <Route path="/users/:id" element={<UserForm />} />
+            <Route path="/groups" element={<GroupsManagement />} />
+            <Route path="/groups/:groupId/students" element={<GroupStudents />} />
             <Route path="/academic-config" element={<AcademicConfigPanel />} />
             <Route path="/institution" element={<InstitutionSettings />} />
             <Route path="/campuses" element={<CampusList />} />

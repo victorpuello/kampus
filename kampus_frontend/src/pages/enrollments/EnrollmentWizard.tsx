@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { studentsApi, documentsApi } from '../../services/students'
 import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
@@ -19,8 +19,22 @@ const STEPS = [
 
 export default function EnrollmentWizard() {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
+
+  const prefill = (() => {
+    const params = new URLSearchParams(location.search)
+    const groupParam = params.get('group')
+    const returnToParam = params.get('returnTo')
+    const groupId = groupParam ? Number(groupParam) : null
+
+    // Prevent open redirects: only allow internal paths.
+    const safeReturnTo = returnToParam && returnToParam.startsWith('/') ? returnToParam : null
+    return { groupId: groupId && Number.isFinite(groupId) ? groupId : null, returnTo: safeReturnTo }
+  })()
+
+  const [prefillApplied, setPrefillApplied] = useState(false)
   const [currentStep, setCurrentStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [studentId, setStudentId] = useState<number | null>(null)
@@ -92,14 +106,30 @@ export default function EnrollmentWizard() {
       setYears(yearsRes.data)
       setGrades(gradesRes.data)
       setGroups(groupsRes.data)
-      
-      // Set active year default
+
+      // Prefill from group (if provided)
+      if (!prefillApplied && prefill.groupId) {
+        const g = groupsRes.data.find((x) => x.id === prefill.groupId)
+        if (g) {
+          setAcademicData((prev) => ({
+            ...prev,
+            academic_year: String(g.academic_year),
+            grade: String(g.grade),
+            group: String(g.id),
+            campus: g.campus ? String(g.campus) : ''
+          }))
+          setPrefillApplied(true)
+          return
+        }
+      }
+
+      // Set active year default (fallback)
       const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
       if (activeYear) {
-        setAcademicData(prev => ({ ...prev, academic_year: String(activeYear.id) }))
+        setAcademicData(prev => ({ ...prev, academic_year: prev.academic_year || String(activeYear.id) }))
       }
     }).catch(console.error)
-  }, [])
+  }, [prefill.groupId, prefillApplied])
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -210,7 +240,7 @@ export default function EnrollmentWizard() {
         status: 'ACTIVE'
       })
       showToast('Matrícula exitosa', 'success')
-      setTimeout(() => navigate('/enrollments'), 1500)
+      setTimeout(() => navigate(prefill.returnTo || '/enrollments'), 1500)
     } catch (error: any) {
       console.error(error)
       const msg = error.response?.data?.group ? error.response.data.group[0] : 
@@ -233,7 +263,7 @@ export default function EnrollmentWizard() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/enrollments')}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(prefill.returnTo || '/enrollments')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>

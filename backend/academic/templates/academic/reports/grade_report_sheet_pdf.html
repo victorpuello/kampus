@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <style>
       @page {
-        size: A4 portrait;
-        margin: 5mm 10mm;
+        size: A4 landscape;
+        margin: 5mm 20mm 10mm 20mm;
       }
 
       body {
@@ -13,17 +13,6 @@
         font-size: 16px;
         color: #000;
         line-height: 1;
-      }
-
-      .letterhead {
-        width: 100%;
-        margin: 0 0 6px 0;
-      }
-      .letterhead img {
-        /* xhtml2pdf has limited support for percentage widths; use page-width in mm.
-           A4 landscape width is 297mm, minus 10mm margins on each side => 277mm content. */
-        width: 277mm;
-        height: auto;
       }
 
       .masthead {
@@ -102,7 +91,7 @@
       }
 
       .num {
-        width: 18px;
+        width: 32px;
         text-align: center;
         font-size: 9px;
       }
@@ -113,40 +102,20 @@
       }
 
       .cell {
-        width: 12px;
+        width: 44px;
         text-align: center;
-      }
-
-      .right {
-        text-align: right;
+        font-size: 9px;
       }
 
       .spacer {
         height: 10px;
       }
 
-      .signature {
-        margin-top: 16px;
-        width: 100%;
-      }
-      .signature-table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-      .signature-table td {
-        border: none;
-        padding: 0;
-        vertical-align: bottom;
-      }
-      .sig-line {
-        border-top: 1px solid #000;
-        margin: 28px 60px 0 60px;
-      }
-      .sig-label {
-        margin-top: 4px;
-        text-align: center;
-        font-size: 9px;
-        font-weight: bold;
+      .line {
+        display: inline-block;
+        border-bottom: 1px solid #000;
+        width: 180px;
+        height: 10px;
       }
     </style>
   </head>
@@ -185,59 +154,66 @@
 
     <table class="outer">
       <tr>
-        <td class="title" style="padding-bottom:10px">PLANILLA DE CONTROL DE ASISTENCIA</td>
+        <td class="title" style="padding-bottom:10px">PLANILLA DE REPORTE DE NOTAS DE ESTUDIANTES</td>
       </tr>
+
       <tr>
         <td class="meta" style="line-height: 1.5">
           Grupo:&nbsp;{{ group_label }}
           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
           Jornada:&nbsp;{{ shift }}
           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-          Fecha Impresión:&nbsp;{{ printed_at }}
+          Fecha:&nbsp;{{ printed_at }}
           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-          Control asistencia del mes de:__________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br />
-          
-          Área/Asignatura:_____________________________________&nbsp;&nbsp;&nbsp;&nbsp;<br />
+          Período:&nbsp;{% if period_name %}{{ period_name }}{% else %}___________{% endif %}
+          <br />
 
-          {% if teacher_name %}
-            Docente: {{ teacher_name }}<br />
-          {% else %}
-            Docente: _________________________________________<br />
-            {% if printed_by_name %}
-              Generado por: {{ printed_by_name }}<br />
-            {% endif %}
-          {% endif %}
-         
+          Área/Asignatura:&nbsp;{% if subject_name %}{{ subject_name }}{% else %}________________________________________________{% endif %}
+          &nbsp;&nbsp;&nbsp;&nbsp;
+          Docente:&nbsp;{% if teacher_name %}{{ teacher_name }}{% else %}_____________________________________________{% endif %}
         </td>
       </tr>
+
+      <tr>
+        <td class="meta" style="padding-top: 6px">
+          Director de Grupo:&nbsp;<strong>{% if director_name %}{{ director_name }}{% else %}_________________________{% endif %}</strong>
+        </td>
+      </tr>
+
+      <tr>
+        <td class="spacer">&nbsp;</td>
+      </tr>
+
       <tr>
         <td>
-          <div style="padding-top:20px">
-            <table class="grid" >
+          <div>
+            <table class="grid">
               <tr>
-                <td class="head num">#</td>
-                <td class="head name">APELLIDOS NOMBRES</td>
-                <td class="head" colspan="{{ columns|length }}">INASISTENCIAS</td>
-              </tr>
-              <tr>
-                <td colspan="2" style="vertical-align:middle; text-align:center; margin-top:3px" class="right"><strong >Fechas de Inasistencia</strong></td>
-                {% for _ in columns %}
-                <td class="cell">&nbsp;</td>
+                <td class="head num"># LISTA</td>
+                <td class="head name">APELLIDOS NOMBRE(s)</td>
+                {% for col in note_columns %}
+                  <td class="head cell">{{ col }}</td>
                 {% endfor %}
+                <td class="head cell">Def.</td>
               </tr>
 
               {% for row in students %}
               <tr>
                 <td class="num">{{ row.index }}</td>
                 <td class="name">{{ row.display_name }}</td>
-                {% for _ in columns %}
-                <td class="cell">&nbsp;</td>
+                {% for col in note_columns %}
+                  <td class="cell">&nbsp;</td>
                 {% endfor %}
+                <td class="cell">&nbsp;</td>
               </tr>
               {% endfor %}
             </table>
           </div>
         </td>
+      </tr>
+
+      <tr>
+        <td class="spacer">&nbsp;</td>
       </tr>
     </table>
   </body>

@@ -57,7 +57,7 @@ try:
     from xhtml2pdf import pisa
 except ImportError:
     pisa = None
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 
 from users.permissions import IsAdministrativeStaff
 
@@ -84,6 +84,79 @@ from .academic_period_report import compute_certificate_studies_rows, generate_a
 User = get_user_model()
 
 
+def _director_student_ids(user):
+    """Student IDs the given teacher can manage as group director.
+
+    Uses ACTIVE academic year when available. If no ACTIVE year exists,
+    falls back to any group where the user is director.
+    """
+
+    if user is None or getattr(user, 'role', None) != 'TEACHER':
+        return set()
+
+    active_year = AcademicYear.objects.filter(status='ACTIVE').first()
+    directed_groups = Group.objects.filter(director=user)
+    if active_year:
+        directed_groups = directed_groups.filter(academic_year=active_year)
+
+    if not directed_groups.exists():
+        return set()
+
+    directed_student_ids = (
+        Enrollment.objects.filter(
+            group__in=directed_groups,
+            status='ACTIVE',
+        )
+        .values_list('student_id', flat=True)
+        .distinct()
+    )
+    return set(directed_student_ids)
+
+
+class IsTeacherDirectorOfStudent(BasePermission):
+    """Teacher can access only students from their directed groups."""
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        return bool(user and user.is_authenticated and getattr(user, 'role', None) == 'TEACHER')
+
+    def has_object_permission(self, request, view, obj):
+        user = getattr(request, 'user', None)
+        if not user or getattr(user, 'role', None) != 'TEACHER':
+            return False
+        return getattr(obj, 'pk', None) in _director_student_ids(user)
+
+
+class IsTeacherDirectorOfRelatedStudent(BasePermission):
+    """Teacher can access objects that point to a directed student.
+
+    Works for models with a `student_id` attribute.
+    For create actions, expects `student` in request.data.
+    """
+
+    def has_permission(self, request, view):
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated and getattr(user, 'role', None) == 'TEACHER'):
+            return False
+
+        if getattr(view, 'action', None) == 'create':
+            raw = request.data.get('student')
+            try:
+                student_id = int(raw)
+            except Exception:
+                return False
+            return student_id in _director_student_ids(user)
+
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        user = getattr(request, 'user', None)
+        if not user or getattr(user, 'role', None) != 'TEACHER':
+            return False
+        student_id = getattr(obj, 'student_id', None)
+        return student_id in _director_student_ids(user)
+
+
 
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.select_related("user").all().order_by("user__last_name", "user__first_name", "user__id")
@@ -93,6 +166,18 @@ class StudentViewSet(viewsets.ModelViewSet):
     pagination_class = StudentPagination
     filter_backends = [filters.SearchFilter]
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
+
+    def get_permissions(self):
+        # Directors (teachers) can manage students in their directed groups,
+        # regardless of Django model-permissions.
+        if getattr(self.request.user, 'role', None) == 'TEACHER' and getattr(self, 'action', None) in {
+            'list',
+            'retrieve',
+            'update',
+            'partial_update',
+        }:
+            return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
+        return super().get_permissions()
 
     def get_queryset(self):
         qs = Student.objects.select_related("user").all().order_by("user__last_name", "user__first_name", "user__id")
@@ -179,12 +264,12 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para editar estudiantes."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
@@ -612,13 +697,24 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
     serializer_class = FamilyMemberSerializer
     permission_classes = [KampusModelPermissions]
 
+    def get_permissions(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return [IsAuthenticated(), IsTeacherDirectorOfRelatedStudent()]
+        return super().get_permissions()
+
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        role = getattr(self.request.user, 'role', None)
+        if role in {'PARENT', 'STUDENT'}:
             return FamilyMember.objects.none()
+        if role == 'TEACHER':
+            allowed_ids = _director_student_ids(self.request.user)
+            if not allowed_ids:
+                return FamilyMember.objects.none()
+            return FamilyMember.objects.select_related('student').filter(student_id__in=allowed_ids).order_by('id')
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
 
         print("FAMILY MEMBER CREATE DATA:", request.data)
@@ -630,17 +726,17 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
@@ -661,6 +757,12 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         "student__document_number",
     ]
     filterset_fields = ["student", "academic_year", "grade", "group", "status"]
+
+    def get_permissions(self):
+        # Teachers need a safe, filtered way to pick enrollments for their groups.
+        if getattr(self, "action", None) in {"my"}:
+            return [IsAuthenticated()]
+        return super().get_permissions()
 
     def get_queryset(self):
         if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
@@ -686,6 +788,76 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['get'], url_path='my')
+    def my(self, request, *args, **kwargs):
+        """List ACTIVE enrollments for the current teacher's groups (directed or assigned).
+
+        This endpoint exists so teachers can register discipline cases without exposing
+        the full enrollments index.
+        """
+
+        user = getattr(request, 'user', None)
+        role = getattr(user, 'role', None)
+        if role != 'TEACHER':
+            return Response({"detail": "No tienes permisos."}, status=status.HTTP_403_FORBIDDEN)
+
+        active_year = AcademicYear.objects.filter(status='ACTIVE').first()
+        if not active_year:
+            page = self.paginate_queryset(Enrollment.objects.none())
+            if page is not None:
+                return self.get_paginated_response([])
+            return Response([], status=status.HTTP_200_OK)
+
+        directed_group_ids = set(
+            Group.objects.filter(director=user, academic_year=active_year).values_list('id', flat=True)
+        )
+        assigned_group_ids = set(
+            TeacherAssignment.objects.filter(teacher=user, academic_year=active_year).values_list('group_id', flat=True)
+        )
+        allowed_group_ids = directed_group_ids | assigned_group_ids
+        if not allowed_group_ids:
+            page = self.paginate_queryset(Enrollment.objects.none())
+            if page is not None:
+                return self.get_paginated_response([])
+            return Response([], status=status.HTTP_200_OK)
+
+        group_raw = request.query_params.get('group_id') or request.query_params.get('group')
+        group_id = None
+        if group_raw is not None and str(group_raw).strip() != '':
+            try:
+                group_id = int(group_raw)
+            except Exception:
+                group_id = None
+
+        qs = (
+            Enrollment.objects.select_related('student', 'student__user', 'academic_year', 'grade', 'group')
+            .filter(
+                academic_year=active_year,
+                status='ACTIVE',
+                group_id__in=allowed_group_ids,
+            )
+            .order_by('student__user__last_name', 'student__user__first_name', 'id')
+        )
+
+        if group_id is not None:
+            qs = qs.filter(group_id=group_id)
+
+        q = (request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(student__user__first_name__icontains=q)
+                | Q(student__user__last_name__icontains=q)
+                | Q(student__document_number__icontains=q)
+            )
+
+        page = self.paginate_queryset(qs)
+        if page is not None:
+            ser = self.get_serializer(page, many=True)
+            return self.get_paginated_response(ser.data)
+
+        ser = self.get_serializer(qs, many=True)
+        return Response(ser.data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'])
     def report(self, request, *args, **kwargs):
@@ -881,6 +1053,22 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         writer = csv.writer(response)
         writer.writerow(['Documento', 'Nombres', 'Apellidos', 'Grado', 'Grupo', 'Año', 'Estado', 'Paz y Salvo'])
 
+        for enrollment in enrollments:
+            student = enrollment.student
+            user = student.user
+            writer.writerow([
+                student.document_number,
+                (user.first_name or '').upper(),
+                (user.last_name or '').upper(),
+                enrollment.grade.name if enrollment.grade else '',
+                enrollment.group.name if enrollment.group else '',
+                enrollment.academic_year.year,
+                enrollment.get_status_display(),
+                student.get_financial_status_display(),
+            ])
+
+        return response
+
     @action(
         detail=True,
         methods=['get'],
@@ -956,22 +1144,6 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             if getattr(settings, "DEBUG", False):
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        for enrollment in enrollments:
-            student = enrollment.student
-            user = student.user
-            writer.writerow([
-                student.document_number,
-                (user.first_name or '').upper(),
-                (user.last_name or '').upper(),
-                enrollment.grade.name if enrollment.grade else '',
-                enrollment.group.name if enrollment.group else '',
-                enrollment.academic_year.year,
-                enrollment.get_status_display(),
-                student.get_financial_status_display()
-            ])
-            
-        return response
 
     @action(detail=False, methods=["get"], url_path="pap-plans")
     def pap_plans(self, request):
@@ -1203,28 +1375,39 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentDocumentSerializer
     permission_classes = [KampusModelPermissions]
 
+    def get_permissions(self):
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            return [IsAuthenticated(), IsTeacherDirectorOfRelatedStudent()]
+        return super().get_permissions()
+
     def get_queryset(self):
-        if getattr(self.request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        role = getattr(self.request.user, 'role', None)
+        if role in {'PARENT', 'STUDENT'}:
             return StudentDocument.objects.none()
+        if role == 'TEACHER':
+            allowed_ids = _director_student_ids(self.request.user)
+            if not allowed_ids:
+                return StudentDocument.objects.none()
+            return StudentDocument.objects.select_related('student').filter(student_id__in=allowed_ids).order_by('-uploaded_at')
         return super().get_queryset()
 
     def create(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
 
     def partial_update(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 

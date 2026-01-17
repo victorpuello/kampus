@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { studentsApi, type Student } from '../../services/students'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
 import { enrollmentsApi } from '../../services/enrollments'
@@ -36,6 +36,7 @@ function parseEnrollError(e: unknown, fallback: string) {
 
 export default function EnrollmentExisting() {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const blocked = user?.role === 'TEACHER'
   const [searchTerm, setSearchTerm] = useState('')
@@ -54,6 +55,19 @@ export default function EnrollmentExisting() {
   const [selectedGroup, setSelectedGroup] = useState('')
   const [error, setError] = useState('')
   const [submitResult, setSubmitResult] = useState<{ success: number; errors: string[] } | null>(null)
+  const [prefillApplied, setPrefillApplied] = useState(false)
+
+  const prefill = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    const groupRaw = params.get('group')
+    const groupId = groupRaw ? Number(groupRaw) : null
+    const returnToRaw = params.get('returnTo')
+    const returnTo = returnToRaw && returnToRaw.startsWith('/') ? returnToRaw : ''
+    return {
+      groupId: groupId && Number.isFinite(groupId) && groupId > 0 ? groupId : null,
+      returnTo,
+    }
+  }, [location.search])
 
   const selectedStudents = useMemo(() => {
     if (selectedIds.length === 0) return []
@@ -83,15 +97,51 @@ export default function EnrollmentExisting() {
         academicApi.listYears(),
         academicApi.listGrades()
       ])
-      
-      const currentYear = yearsRes.data.find(y => y.status === 'ACTIVE')
-      if (currentYear) {
-        setActiveYear(currentYear)
+
+      const years = yearsRes.data
+      const currentYear = years.find(y => y.status === 'ACTIVE')
+      let resolvedActiveYear: AcademicYear | null = currentYear ?? null
+      let prefillGroup: Group | null = null
+
+      if (prefill.groupId) {
+        try {
+          prefillGroup = (await academicApi.getGroup(prefill.groupId)).data
+        } catch (e) {
+          console.warn('Could not load prefill group:', e)
+        }
+
+        if (prefillGroup) {
+          resolvedActiveYear = years.find(y => y.id === prefillGroup.academic_year) ?? resolvedActiveYear
+        }
+      }
+
+      if (resolvedActiveYear) {
+        setActiveYear(resolvedActiveYear)
       } else {
         setError('No hay un año académico activo configurado.')
       }
-      
+
       setGrades(gradesRes.data)
+
+      if (prefillGroup && resolvedActiveYear && !prefillApplied) {
+        setSelectedGrade(String(prefillGroup.grade))
+
+        try {
+          const groupListRes = await academicApi.listGroups({
+            grade: prefillGroup.grade,
+            academic_year: resolvedActiveYear.id,
+          })
+          setGroups(groupListRes.data)
+
+          const existsInList = groupListRes.data.some(g => g.id === prefillGroup!.id)
+          setSelectedGroup(existsInList ? String(prefillGroup.id) : '')
+        } catch (e) {
+          console.warn('Could not load groups for prefill:', e)
+          setSelectedGroup('')
+        }
+
+        setPrefillApplied(true)
+      }
     } catch (error) {
       console.error('Error loading initial data:', error)
       setError('Error cargando datos académicos.')
@@ -200,7 +250,7 @@ export default function EnrollmentExisting() {
       setSubmitResult(results)
 
       if (results.errors.length === 0) {
-        navigate('/enrollments')
+        navigate(prefill.returnTo || '/enrollments')
       }
     } catch (err: unknown) {
       console.error('Error enrolling students:', err)
@@ -232,9 +282,16 @@ export default function EnrollmentExisting() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matricular Estudiante Antiguo</h2>
-        <p className="text-slate-500">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matricular Estudiante Antiguo</h2>
+          <p className="text-slate-500">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
+        </div>
+        {prefill.returnTo ? (
+          <Button variant="outline" onClick={() => navigate(prefill.returnTo)}>
+            Volver
+          </Button>
+        ) : null}
       </div>
 
       {error && (

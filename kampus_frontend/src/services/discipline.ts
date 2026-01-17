@@ -155,9 +155,9 @@ export const disciplineApi = {
   addNote: (id: number, data: { text: string }) => api.post(`/api/discipline/cases/${id}/add-note/`, data),
 
   downloadActa: async (id: number): Promise<Blob> => {
-    const res = await api.get(`/api/discipline/cases/${id}/acta/`, {
+    const res = await api.get(`/api/discipline/cases/${id}/acta/?format=pdf`, {
       responseType: 'blob',
-      headers: { Accept: 'text/html' },
+      headers: { Accept: 'application/pdf' },
     })
     return res.data as Blob
   },

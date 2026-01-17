@@ -5,141 +5,250 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Acta - Caso #{{ case.id }}</title>
     <style>
-      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; }
+      @page {
+        size: A4 portrait;
+        margin: 5mm 20mm;
+      }
+
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; line-height: 1.35; }
       h1, h2 { margin: 0 0 8px 0; }
       h1 { font-size: 18px; }
       h2 { font-size: 14px; margin-top: 16px; }
       .muted { color: #444; }
-      .row { display: flex; gap: 24px; flex-wrap: wrap; }
-      .box { border: 1px solid #ddd; padding: 10px; border-radius: 6px; }
       table { width: 100%; border-collapse: collapse; }
-      th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
-      th { background: #fafafa; }
+      th, td { border: none; padding: 0; text-align: left; vertical-align: top; }
       .badge { display: inline-block; padding: 2px 6px; border: 1px solid #ddd; border-radius: 999px; font-size: 11px; }
       .nowrap { white-space: nowrap; }
       pre { white-space: pre-wrap; font-family: inherit; }
+
+      .kv-line { margin: 2px 0; }
+
+      .richtext { margin-top: 8px; }
+      .richtext p { margin: 0 0 6px 0; }
+
+      .section {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #ddd;
+        page-break-inside: avoid;
+      }
+
+      .list { margin-top: 6px; }
+      .list-item { padding: 6px 0; border-top: 1px solid #eee; page-break-inside: avoid; }
+      .list-item:first-child { border-top: none; }
+      .list-title { font-weight: bold; }
+      .list-meta { font-size: 11px; color: #333; }
+      .list-text { margin-top: 4px; }
+
+      .signatures { margin-top: 18px; }
+      .signature-table { width: 100%; border-collapse: collapse; }
+      .signature-table td { border: none; padding: 0 10px; vertical-align: bottom; }
+      .sig-line { border-top: 1px solid #000; margin: 28px 20px 0 20px; }
+      .sig-label { margin-top: 4px; text-align: center; font-size: 10px; font-weight: bold; }
+      .sig-name { margin-top: 2px; text-align: center; font-size: 10px; }
+
+      .letterhead {
+        width: 100%;
+        margin: 0 0 6px 0;
+      }
+      .letterhead img {
+        /* xhtml2pdf has limited support for percentage widths; use page-width in mm.
+           A4 portrait width is 210mm, minus 10mm margins on each side => 190mm content. */
+        width: 190mm;
+        height: auto;
+      }
+
+      .masthead {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0 0 6px 0;
+      }
+      .masthead td {
+        vertical-align: middle;
+        border: none;
+        padding: 0;
+      }
+      .masthead-left {
+        width: 170px;
+        text-align: right;
+        padding-right: 0;
+      }
+      .masthead-center {
+        text-align: center;
+        padding: 0 6px;
+        line-height: 1.1;
+      }
+      .masthead-right {
+        width: 170px;
+        text-align: left;
+        padding-left: 0;
+      }
+
+      .masthead-logo {
+        height: 80px;
+        width: auto;
+      }
+      .inst-line1 {
+        font-size: 11px;
+        font-weight: bold;
+        text-transform: uppercase;
+      }
+      .inst-line2,
+      .inst-line3 {
+        font-size: 9px;
+      }
+
+      .inst-meta {
+        margin: 2px 0 8px 0;
+        text-align: center;
+        font-size: 9px;
+        font-weight: bold;
+      }
+
     </style>
   </head>
   <body>
-    <h1>Acta / Registro de Convivencia - Caso #{{ case.id }}</h1>
-    <div class="muted">Generado: {{ generated_at|date:"Y-m-d H:i" }}{% if generated_by %} por {{ generated_by.get_full_name|default:generated_by.username }}{% endif %}</div>
+ <table class="masthead">
+      <tr>
+        <td class="masthead-left">
+          {% if institution.pdf_show_logo and institution.logo %}
+            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Logo" class="masthead-logo" />
+          {% endif %}
+        </td>
+        <td class="masthead-center">
+          <div class="inst-line1">
+            {% if institution.pdf_header_line1 %}
+              {{ institution.pdf_header_line1 }}<br />
+              {{ institution.name }}
+            {% else %}
+              {{ institution.name }}
+            {% endif %}
+          </div>
+          {% if institution.pdf_header_line2 %}
+            <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
+          {% endif %}
+          {% if institution.pdf_header_line3 %}
+            <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
+          {% endif %}
+        </td>
+        <td class="masthead-right">
+          {% if institution.pdf_show_logo and institution.logo %}
+            <img src="{{ institution.logo.url }}" alt="Logo" class="masthead-logo" />
+          {% endif %}
+        </td>
+      </tr>
+    </table>
 
-    <div class="row" style="margin-top: 12px;">
-      <div class="box" style="flex: 1; min-width: 320px;">
-        <h2>Estudiante</h2>
-        <div><strong>Nombre:</strong> {{ student.user.get_full_name }}</div>
-        <div><strong>Usuario:</strong> {{ student.user.username }}</div>
-        <div><strong>Documento:</strong> {{ student.document_number }}</div>
-      </div>
-      <div class="box" style="flex: 1; min-width: 320px;">
-        <h2>Contexto académico</h2>
-        <div><strong>Año:</strong> {{ enrollment.academic_year.year }}</div>
-        <div><strong>Grado:</strong> {{ enrollment.grade.name }}</div>
-        <div><strong>Grupo:</strong> {% if enrollment.group %}{{ enrollment.group.name }}{% else %}-{% endif %}</div>
+    <h1 style="text-align: center;">Acta / Registro de Convivencia - Caso #{{ case.id }}</h1>
+    <div class="muted" style="text-align: center;">Generado: {{ generated_at|date:"Y-m-d H:i" }}{% if generated_by %} por {{ generated_by.get_full_name|default:generated_by.username }}{% endif %}</div>
+
+    <div class="section">
+      <h2>Identificación</h2>
+      <div class="kv-line"><strong>Estudiante:</strong> {{ student.user.get_full_name }}</div>
+      <div class="kv-line"><strong>Documento:</strong> {{ student.document_number }}</div>
+      <div class="kv-line">
+        <strong>Año:</strong> {{ enrollment.academic_year.year }}
+        &nbsp;|&nbsp; <strong>Grado:</strong> {{ enrollment.grade.name }}
+        &nbsp;|&nbsp; <strong>Grupo:</strong> {% if enrollment.group %}{{ enrollment.group.name }}{% else %}-{% endif %}
       </div>
     </div>
 
-    <div class="box" style="margin-top: 12px;">
+    <div class="section">
       <h2>Hechos</h2>
-      <div class="row">
-        <div><strong>Fecha y hora:</strong> <span class="nowrap">{{ case.occurred_at|date:"Y-m-d H:i" }}</span></div>
-        <div><strong>Lugar:</strong> {{ case.location|default:"-" }}</div>
-        <div><strong>Manual:</strong> <span class="badge">{{ case.get_manual_severity_display }}</span></div>
-        <div><strong>Ley 1620:</strong> <span class="badge">{{ case.get_law_1620_type_display }}</span></div>
-        <div><strong>Estado:</strong> <span class="badge">{{ case.get_status_display }}</span></div>
-      </div>
-      <pre style="margin-top: 8px;">{{ case.narrative }}</pre>
+      <div class="kv-line"><strong>Fecha y hora:</strong> <span class="nowrap">{{ case.occurred_at|date:"Y-m-d H:i" }}</span></div>
+      <div class="kv-line"><strong>Lugar:</strong> {{ case.location|default:"-" }}</div>
+      <div class="kv-line"><strong>Manual:</strong> <span class="badge">{{ case.get_manual_severity_display }}</span></div>
+      <div class="kv-line"><strong>Ley 1620:</strong> <span class="badge">{{ case.get_law_1620_type_display }}</span></div>
+      <div class="kv-line"><strong>Estado:</strong> <span class="badge">{{ case.get_status_display }}</span></div>
+
+      <div class="richtext">{{ case.narrative|default:""|linebreaksbr }}</div>
     </div>
 
-    <div class="box" style="margin-top: 12px;">
+    <div class="section">
       <h2>Participantes</h2>
       {% if participants %}
-        <table>
-          <thead>
-            <tr>
-              <th>Estudiante</th>
-              <th>Rol</th>
-              <th>Notas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for p in participants %}
-              <tr>
-                <td>{{ p.student.user.get_full_name }}</td>
-                <td>{{ p.get_role_display }}</td>
-                <td>{{ p.notes|default:"" }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="list">
+          {% for p in participants %}
+            <div class="list-item">
+              <div class="list-title">{{ p.student.user.get_full_name }}</div>
+              <div class="list-meta">Rol: {{ p.get_role_display }}</div>
+              {% if p.notes %}
+                <div class="list-text">{{ p.notes|linebreaksbr }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
       {% else %}
         <div class="muted">Sin participantes registrados.</div>
       {% endif %}
     </div>
 
-    <div class="box" style="margin-top: 12px;">
+    <div class="section">
       <h2>Evidencias y adjuntos</h2>
       {% if attachments %}
-        <table>
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>Descripción</th>
-              <th>Archivo</th>
-              <th>Fecha</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for a in attachments %}
-              <tr>
-                <td>{{ a.get_kind_display }}</td>
-                <td>{{ a.description|default:"" }}</td>
-                <td>{% if a.file %}{{ a.file.name }}{% else %}-{% endif %}</td>
-                <td class="nowrap">{{ a.uploaded_at|date:"Y-m-d H:i" }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="list">
+          {% for a in attachments %}
+            <div class="list-item">
+              <div class="list-title">{{ a.get_kind_display }}{% if a.uploaded_at %} — <span class="nowrap">{{ a.uploaded_at|date:"Y-m-d H:i" }}</span>{% endif %}</div>
+              <div class="list-meta">Archivo: {% if a.file %}{{ a.file.name }}{% else %}-{% endif %}</div>
+              {% if a.description %}
+                <div class="list-text">{{ a.description|linebreaksbr }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
       {% else %}
         <div class="muted">Sin adjuntos.</div>
       {% endif %}
     </div>
 
-    <div class="box" style="margin-top: 12px;">
+    <div class="section">
+      <h2>Acciones tomadas</h2>
+      {% if actions_taken %}
+        <div class="list">
+          {% for e in actions_taken %}
+            <div class="list-item">
+              <div class="list-title">
+                <span class="nowrap">{{ e.created_at|date:"Y-m-d H:i" }}</span> — {{ e.get_event_type_display }}
+              </div>
+              {% if e.text %}
+                <div class="list-text">{{ e.text|default:""|linebreaksbr }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="muted">Sin acciones registradas.</div>
+      {% endif %}
+    </div>
+
+    <div class="section">
       <h2>Bitácora (eventos)</h2>
       {% if events %}
-        <table>
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>Tipo</th>
-              <th>Detalle</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for e in events %}
-              <tr>
-                <td class="nowrap">{{ e.created_at|date:"Y-m-d H:i" }}</td>
-                <td>{{ e.get_event_type_display }}</td>
-                <td><pre style="margin: 0;">{{ e.text|default:"" }}</pre></td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="list">
+          {% for e in events %}
+            <div class="list-item">
+              <div class="list-title">
+                <span class="nowrap">{{ e.created_at|date:"Y-m-d H:i" }}</span> — {{ e.get_event_type_display }}
+              </div>
+              <div class="list-text">{{ e.text|default:""|linebreaksbr }}</div>
+            </div>
+          {% endfor %}
+        </div>
       {% else %}
         <div class="muted">Sin eventos.</div>
       {% endif %}
     </div>
 
     {% if case.decision_text %}
-      <div class="box" style="margin-top: 12px;">
+      <div class="section">
         <h2>Decisión</h2>
-        <pre>{{ case.decision_text }}</pre>
+        <div class="richtext">{{ case.decision_text|linebreaksbr }}</div>
       </div>
     {% endif %}
 
     {% if case.sealed_at %}
-      <div class="box" style="margin-top: 12px;">
+      <div class="section">
         <h2>Sello / Cadena de custodia</h2>
         <div><strong>Sellado:</strong> {{ case.sealed_at|date:"Y-m-d H:i" }}{% if case.sealed_by %} por {{ case.sealed_by.get_full_name|default:case.sealed_by.username }}{% endif %}</div>
         <div style="margin-top: 6px;"><strong>Hash (SHA-256):</strong> <span class="nowrap">{{ case.sealed_hash }}</span></div>
@@ -149,8 +258,30 @@
       </div>
     {% endif %}
 
+    <div class="signatures">
+      <table class="signature-table">
+        <tr>
+          <td style="width: 33%;">
+            <div class="sig-line"></div>
+            <div class="sig-label">DIRECTOR(A) DE GRUPO</div>
+            <div class="sig-name">{% if group_director %}{{ group_director.get_full_name|default:group_director.username }}{% else %}&nbsp;{% endif %}</div>
+          </td>
+          <td style="width: 33%;">
+            <div class="sig-line"></div>
+            <div class="sig-label">ESTUDIANTE</div>
+            <div class="sig-name">{{ student.user.get_full_name }}</div>
+          </td>
+          <td style="width: 33%;">
+            <div class="sig-line"></div>
+            <div class="sig-label">ACUDIENTE</div>
+            <div class="sig-name">{% if guardian %}{{ guardian.full_name }}{% else %}&nbsp;{% endif %}</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
     <div class="muted" style="margin-top: 16px;">
-      Nota: Este documento es un registro generado por el sistema para soporte del debido proceso.
+      Este documento corresponde a un registro institucional para soporte del debido proceso.
     </div>
   </body>
 </html>

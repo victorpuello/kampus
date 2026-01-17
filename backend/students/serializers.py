@@ -224,11 +224,15 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         return response
 
     def validate(self, data):
-        group = data.get('group')
-        grade = data.get('grade')
-        academic_year = data.get('academic_year')
-        campus = data.get('campus')
-        student = data.get('student')
+        instance = getattr(self, 'instance', None)
+
+        group = data.get('group') if 'group' in data else getattr(instance, 'group', None)
+        grade = data.get('grade') if 'grade' in data else getattr(instance, 'grade', None)
+        academic_year = (
+            data.get('academic_year') if 'academic_year' in data else getattr(instance, 'academic_year', None)
+        )
+        campus = data.get('campus') if 'campus' in data else getattr(instance, 'campus', None)
+        student = data.get('student') if 'student' in data else getattr(instance, 'student', None)
 
         # 1. Validate Financial Status (Paz y Salvo)
         if student and student.financial_status == 'DEBT':

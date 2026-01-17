@@ -1,7 +1,8 @@
-import { type FormEvent, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { academicApi } from '../services/academic'
 import { coreApi, type Institution, type Campus } from '../services/core'
+import { downloadAttendanceManualSheetPdf } from '../services/attendance'
 import { usersApi, type User } from '../services/users'
 import type {
   AcademicYear,
@@ -11,6 +12,7 @@ import type {
   Subject,
   AcademicLoad,
   Group,
+  TeacherAssignment,
   EvaluationScale,
   AcademicLevel,
 } from '../services/academic'
@@ -22,26 +24,43 @@ import { Toast, type ToastType } from '../components/ui/Toast'
 import DimensionsConfig from './planning/DimensionsConfig'
 import { useAuthStore } from '../store/auth'
 
-export default function AcademicConfigPanel() {
+const ACADEMIC_CONFIG_TABS_FULL = [
+  'general',
+  'institution',
+  'grades_levels',
+  'areas_subjects',
+  'study_plan',
+  'evaluation',
+] as const
+
+type AcademicConfigFullTab = (typeof ACADEMIC_CONFIG_TABS_FULL)[number]
+type AcademicConfigTab = AcademicConfigFullTab | 'organization'
+
+const ACTIVE_TAB_STORAGE_KEY = 'kampus.academic_config.active_tab'
+
+type AcademicConfigPanelMode = 'full' | 'groups-only'
+
+export default function AcademicConfigPanel({ mode = 'full' }: { mode?: AcademicConfigPanelMode } = {}) {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
+  const isGroupsOnly = mode === 'groups-only'
 
-  const tabs = ['general', 'institution', 'grades_levels', 'areas_subjects', 'study_plan', 'organization', 'evaluation'] as const
-  type Tab = typeof tabs[number]
-  const ACTIVE_TAB_STORAGE_KEY = 'kampus.academic_config.active_tab'
-
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
+  const [activeTab, setActiveTab] = useState<AcademicConfigTab>(() => {
+    if (isGroupsOnly) return 'organization'
     try {
       const saved = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY)
-      if (saved && (tabs as readonly string[]).includes(saved)) return saved as Tab
+      if (saved && (ACADEMIC_CONFIG_TABS_FULL as readonly string[]).includes(saved)) return saved as AcademicConfigFullTab
     } catch {
       // ignore
     }
     return 'general'
   })
 
-  const setActiveTabPersisted = (tab: Tab) => {
+  const [urlTabApplied, setUrlTabApplied] = useState(false)
+
+  const setActiveTabPersisted = (tab: AcademicConfigTab) => {
     setActiveTab(tab)
     try {
       localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, tab)
@@ -49,6 +68,38 @@ export default function AcademicConfigPanel() {
       // ignore
     }
   }
+
+  useEffect(() => {
+    if (urlTabApplied) return
+    if (isGroupsOnly) {
+      setUrlTabApplied(true)
+      return
+    }
+
+    const params = new URLSearchParams(location.search)
+    const requestedTab = params.get('tab')
+
+    if (requestedTab === 'organization') {
+      setUrlTabApplied(true)
+      navigate('/groups', { replace: true })
+      return
+    }
+
+    if (requestedTab && (ACADEMIC_CONFIG_TABS_FULL as readonly string[]).includes(requestedTab)) {
+      const nextTab = requestedTab as AcademicConfigFullTab
+      setActiveTab(nextTab)
+      try {
+        localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, nextTab)
+      } catch {
+        // ignore
+      }
+      setUrlTabApplied(true)
+      navigate(location.pathname, { replace: true })
+      return
+    }
+
+    setUrlTabApplied(true)
+  }, [isGroupsOnly, location.pathname, location.search, navigate, urlTabApplied])
   
   // Data states
   const [years, setYears] = useState<AcademicYear[]>([])
@@ -119,8 +170,16 @@ export default function AcademicConfigPanel() {
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null)
   const [isMultigrade, setIsMultigrade] = useState(false)
 
-  const GROUPS_PER_PAGE = 4
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false)
+  const [groupSearch, setGroupSearch] = useState('')
+  const [groupShiftFilter, setGroupShiftFilter] = useState<'ALL' | 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'FULL' | 'WEEKEND'>('ALL')
+  const [groupCampusFilter, setGroupCampusFilter] = useState<'ALL' | string>('ALL')
+  const [groupsPerPage, setGroupsPerPage] = useState(8)
   const [groupsPage, setGroupsPage] = useState(1)
+  const [openGroupActionsId, setOpenGroupActionsId] = useState<number | null>(null)
+  const [showGroupFiltersMobile, setShowGroupFiltersMobile] = useState(false)
+
+  const [printingManualSheetGroupId, setPrintingManualSheetGroupId] = useState<number | null>(null)
 
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false)
   const [importingGroups, setImportingGroups] = useState(false)
@@ -176,19 +235,235 @@ export default function AcademicConfigPanel() {
     setToast({ message, type, isVisible: true })
   }
 
+  const resetGroupForm = useCallback((yearId: string) => {
+    setGroupInput({
+      name: '',
+      grade: '',
+      campus: '',
+      director: '',
+      shift: 'MORNING',
+      classroom: '',
+      academic_year: yearId,
+    })
+    setIsMultigrade(false)
+  }, [])
+
+  const openNewGroupModal = useCallback(() => {
+    setEditingGroupId(null)
+    resetGroupForm(groupInput.academic_year)
+    setIsGroupModalOpen(true)
+  }, [groupInput.academic_year, resetGroupForm])
+
+  const closeGroupModal = useCallback(() => {
+    setIsGroupModalOpen(false)
+    setEditingGroupId(null)
+    resetGroupForm(groupInput.academic_year)
+  }, [groupInput.academic_year, resetGroupForm])
+
   useEffect(() => {
-    // Reset pagination when the filtered year changes
+    if (!isGroupModalOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeGroupModal()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [closeGroupModal, isGroupModalOpen])
+
+  useEffect(() => {
+    if (openGroupActionsId === null) return
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpenGroupActionsId(null)
+    }
+
+    const onPointerDown = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null
+      if (!target) return
+      // Close if click is outside any actions menu trigger/container
+      const inside = target.closest('[data-group-actions-root="true"]')
+      if (!inside) setOpenGroupActionsId(null)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('mousedown', onPointerDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [openGroupActionsId])
+
+  const printManualAttendanceSheet = async (groupId: number) => {
+    try {
+      setPrintingManualSheetGroupId(groupId)
+      const blob = await downloadAttendanceManualSheetPdf({ group_id: groupId })
+      const url = URL.createObjectURL(blob)
+
+      const w = window.open(url, '_blank', 'noopener,noreferrer')
+      if (!w) {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `planilla_asistencia_grupo_${groupId}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        showToast('Descargando planilla…', 'success')
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      console.error(err)
+      showToast('No se pudo generar la planilla de asistencia.', 'error')
+    } finally {
+      setPrintingManualSheetGroupId(null)
+    }
+  }
+
+  const [isGradeSheetModalOpen, setIsGradeSheetModalOpen] = useState(false)
+  const [gradeSheetModalGroup, setGradeSheetModalGroup] = useState<Group | null>(null)
+  const [gradeSheetPeriodId, setGradeSheetPeriodId] = useState('')
+  const [gradeSheetSubject, setGradeSheetSubject] = useState('')
+  const [gradeSheetTeacher, setGradeSheetTeacher] = useState('')
+  const [gradeSheetAssignmentId, setGradeSheetAssignmentId] = useState('')
+  const [gradeSheetAssignments, setGradeSheetAssignments] = useState<TeacherAssignment[]>([])
+  const [gradeSheetAssignmentsLoading, setGradeSheetAssignmentsLoading] = useState(false)
+  const [printingGradeSheet, setPrintingGradeSheet] = useState(false)
+
+  const openGradeSheetModal = (g: Group) => {
+    setGradeSheetModalGroup(g)
+    setGradeSheetPeriodId('')
+    setGradeSheetSubject('')
+    setGradeSheetTeacher('')
+    setGradeSheetAssignmentId('')
+    setGradeSheetAssignments([])
+    setIsGradeSheetModalOpen(true)
+
+    ;(async () => {
+      try {
+        setGradeSheetAssignmentsLoading(true)
+        const res = await academicApi.listAssignments()
+        const all = res.data ?? []
+        const filtered = all.filter((a) => a.group === g.id)
+        setGradeSheetAssignments(filtered)
+
+        if (filtered.length > 0) {
+          const first = filtered[0]
+          setGradeSheetAssignmentId(String(first.id))
+          setGradeSheetTeacher(first.teacher_name || '')
+          const subj = [first.area_name, first.subject_name].filter(Boolean).join(' - ') || first.academic_load_name || ''
+          setGradeSheetSubject(subj)
+        }
+      } catch (e) {
+        console.error(e)
+      } finally {
+        setGradeSheetAssignmentsLoading(false)
+      }
+    })()
+  }
+
+  const closeGradeSheetModal = () => {
+    if (printingGradeSheet) return
+    setIsGradeSheetModalOpen(false)
+    setGradeSheetModalGroup(null)
+  }
+
+  const confirmPrintGradeReportSheet = async () => {
+    const g = gradeSheetModalGroup
+    if (!g) return
+    try {
+      setPrintingGradeSheet(true)
+
+      const period = gradeSheetPeriodId ? Number(gradeSheetPeriodId) : undefined
+      const subject = gradeSheetSubject.trim() ? gradeSheetSubject.trim() : undefined
+      const teacher = gradeSheetTeacher.trim() ? gradeSheetTeacher.trim() : undefined
+
+      const res = await academicApi.downloadGradeReportSheetPdf(g.id, { period, subject, teacher })
+      const blob = res.data as unknown as Blob
+      const url = URL.createObjectURL(blob)
+
+      const w = window.open(url, '_blank', 'noopener,noreferrer')
+      if (!w) {
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `planilla_notas_grupo_${g.id}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        showToast('Descargando planilla…', 'success')
+      }
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      setIsGradeSheetModalOpen(false)
+      setGradeSheetModalGroup(null)
+    } catch (err) {
+      console.error(err)
+      showToast('No se pudo generar la planilla de notas.', 'error')
+    } finally {
+      setPrintingGradeSheet(false)
+    }
+  }
+
+  const getCampusBadgeClasses = (campusId: number | null | undefined) => {
+    const palette = [
+      'bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950/25 dark:text-cyan-200 dark:border-cyan-500/30',
+      'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/25 dark:text-emerald-200 dark:border-emerald-500/30',
+      'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/25 dark:text-violet-200 dark:border-violet-500/30',
+      'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/25 dark:text-amber-200 dark:border-amber-500/30',
+      'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/25 dark:text-sky-200 dark:border-sky-500/30',
+      'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/25 dark:text-rose-200 dark:border-rose-500/30',
+      'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/25 dark:text-indigo-200 dark:border-indigo-500/30',
+      'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/25 dark:text-teal-200 dark:border-teal-500/30',
+    ]
+
+    if (!campusId) {
+      return 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+    }
+
+    const idx = Math.abs(campusId) % palette.length
+    return palette[idx]
+  }
+
+  const activeGroupFilterCount =
+    (groupSearch.trim() ? 1 : 0) +
+    (groupCampusFilter !== 'ALL' ? 1 : 0) +
+    (groupShiftFilter !== 'ALL' ? 1 : 0) +
+    (groupsPerPage !== 8 ? 1 : 0)
+
+  useEffect(() => {
+    // Reset pagination when filters change
     setGroupsPage(1)
-  }, [groupInput.academic_year])
+  }, [groupInput.academic_year, groupSearch, groupShiftFilter, groupCampusFilter, groupsPerPage])
 
   useEffect(() => {
     // Clamp current page when underlying data changes
     const yearId = groupInput.academic_year
     if (!yearId) return
-    const filteredCount = groups.filter(g => g.academic_year.toString() === yearId).length
-    const totalPages = Math.max(1, Math.ceil(filteredCount / GROUPS_PER_PAGE))
+    const q = (groupSearch || '').trim().toLowerCase()
+    const campusId = groupCampusFilter !== 'ALL' ? parseInt(groupCampusFilter) : null
+
+    const filteredCount = groups
+      .filter(g => g.academic_year.toString() === yearId)
+      .filter(g => (groupShiftFilter === 'ALL' ? true : g.shift === groupShiftFilter))
+      .filter(g => (campusId ? g.campus === campusId : true))
+      .filter(g => {
+        if (!q) return true
+        const hay = [
+          g.grade_name,
+          g.name,
+          g.campus_name,
+          g.director_name,
+          g.classroom,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return hay.includes(q)
+      }).length
+
+    const totalPages = Math.max(1, Math.ceil(filteredCount / Math.max(1, groupsPerPage)))
     if (groupsPage > totalPages) setGroupsPage(totalPages)
-  }, [groups, groupInput.academic_year, groupsPage])
+  }, [groups, groupCampusFilter, groupInput.academic_year, groupSearch, groupShiftFilter, groupsPage, groupsPerPage])
 
   const toDateTimeLocal = (iso: string | null | undefined) => {
     if (!iso) return ''
@@ -1035,6 +1310,7 @@ export default function AcademicConfigPanel() {
       })
       setIsMultigrade(false)
       await load()
+      setIsGroupModalOpen(false)
     } catch (error: any) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el grupo'), 'error')
@@ -1053,6 +1329,7 @@ export default function AcademicConfigPanel() {
     })
     setEditingGroupId(group.id)
     setIsMultigrade(false) // Reset, user can check if needed
+    setIsGroupModalOpen(true)
   }
 
   const onDeleteGroup = (id: number) => {
@@ -1062,17 +1339,7 @@ export default function AcademicConfigPanel() {
   }
 
   const onCancelEditGroup = () => {
-    setGroupInput({ 
-      name: '', 
-      grade: '', 
-      campus: '', 
-      director: '', 
-      shift: 'MORNING', 
-      classroom: '',
-      academic_year: groupInput.academic_year 
-    })
-    setEditingGroupId(null)
-    setIsMultigrade(false)
+    closeGroupModal()
   }
 
   const findPreviousAcademicYearId = (targetYearId: number) => {
@@ -1247,8 +1514,12 @@ export default function AcademicConfigPanel() {
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Configuración Académica</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Gestiona años, grados, asignaturas y grupos</p>
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+              {isGroupsOnly ? 'Administración de Grupos' : 'Configuración Académica'}
+            </h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {isGroupsOnly ? 'Crea, edita e importa grupos del año lectivo' : 'Gestiona años, grados, asignaturas y más'}
+            </p>
           </div>
         </div>
         <Button
@@ -1261,27 +1532,28 @@ export default function AcademicConfigPanel() {
         </Button>
       </div>
 
-      <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTabPersisted(tab)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
-              activeTab === tab 
-                ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5 dark:bg-slate-950 dark:text-sky-300 dark:ring-white/10' 
-                : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-slate-800'
-            }`}
-          >
-            {tab === 'general' && 'General'}
-            {tab === 'institution' && 'Institucional'}
-            {tab === 'grades_levels' && 'Grados y Niveles'}
-            {tab === 'areas_subjects' && 'Áreas y Asignaturas'}
-            {tab === 'study_plan' && 'Plan de Estudios'}
-            {tab === 'organization' && 'Grupos'}
-            {tab === 'evaluation' && 'Evaluación (SIEE)'}
-          </button>
-        ))}
-      </div>
+      {!isGroupsOnly && (
+        <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg w-fit overflow-x-auto border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+          {ACADEMIC_CONFIG_TABS_FULL.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTabPersisted(tab)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
+                activeTab === tab
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5 dark:bg-slate-950 dark:text-sky-300 dark:ring-white/10'
+                  : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-slate-800'
+              }`}
+            >
+              {tab === 'general' && 'General'}
+              {tab === 'institution' && 'Institucional'}
+              {tab === 'grades_levels' && 'Grados y Niveles'}
+              {tab === 'areas_subjects' && 'Áreas y Asignaturas'}
+              {tab === 'study_plan' && 'Plan de Estudios'}
+              {tab === 'evaluation' && 'Evaluación (SIEE)'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {activeTab === 'general' && (
         <div className="grid md:grid-cols-2 gap-6">
@@ -2270,177 +2542,218 @@ export default function AcademicConfigPanel() {
         </div>
       )}
 
-      {activeTab === 'organization' && (
+      {(isGroupsOnly || activeTab === 'organization') && (
         <div className="grid md:grid-cols-3 gap-6">
-          <div className="md:col-span-1 space-y-6">
-            <Card className="border-t-4 border-t-sky-500 shadow-sm h-fit sticky top-4">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
-                <CardTitle className="text-sky-800 flex items-center gap-2">
-                  👥 Configurar Grupo
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 pt-4">
-                <form onSubmit={onAddGroup} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200 dark:bg-slate-900/50 dark:border-slate-800">
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Año Lectivo</label>
-                    <select
-                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 text-slate-900 focus:border-sky-300 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      value={groupInput.academic_year}
-                      onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
-                    >
-                      <option value="">Seleccionar Año...</option>
-                      {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Sede (Campus)</label>
-                    <select
-                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 text-slate-900 focus:border-sky-300 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      value={groupInput.campus}
-                      onChange={(e) => setGroupInput({...groupInput, campus: e.target.value})}
-                    >
-                      <option value="">Seleccionar Sede...</option>
-                      {campuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grado</label>
-                    <select
-                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 text-slate-900 focus:border-sky-300 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      value={groupInput.grade}
-                      onChange={(e) => setGroupInput({...groupInput, grade: e.target.value})}
-                    >
-                      <option value="">Seleccionar Grado...</option>
-                      {levels.map(level => {
-                        const levelGrades = grades
-                          .filter(g => g.level === level.id)
-                          .slice()
-                          .sort((a, b) => {
-                            const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
-                            const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
-                            if (ao !== bo) return bo - ao
-                            return (a.name || '').localeCompare(b.name || '')
-                          })
-                        if (levelGrades.length === 0) return null
-                        return (
-                          <optgroup key={level.id} label={level.name}>
-                            {levelGrades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                          </optgroup>
-                        )
-                      })}
-                      {grades.filter(g => !g.level).length > 0 && (
-                        <optgroup label="Sin Nivel">
-                          {grades
-                            .filter(g => !g.level)
-                            .slice()
-                            .sort((a, b) => {
-                              const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
-                              const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
-                              if (ao !== bo) return bo - ao
-                              return (a.name || '').localeCompare(b.name || '')
-                            })
-                            .map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                        </optgroup>
-                      )}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grupo</label>
-                      <Input
-                        placeholder="Ej: A, 01"
-                        value={groupInput.name}
-                        onChange={(e) => setGroupInput({...groupInput, name: e.target.value})}
-                        className="border-sky-100 focus:border-sky-300 focus:ring-sky-200"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Salón</label>
-                      <Input
-                        placeholder="Ej: 101"
-                        value={groupInput.classroom}
-                        onChange={(e) => setGroupInput({...groupInput, classroom: e.target.value})}
-                        className="border-sky-100 focus:border-sky-300 focus:ring-sky-200"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Jornada</label>
-                    <select
-                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 text-slate-900 focus:border-sky-300 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      value={groupInput.shift}
-                      onChange={(e) => setGroupInput({...groupInput, shift: e.target.value})}
-                    >
-                      <option value="MORNING">Mañana</option>
-                      <option value="AFTERNOON">Tarde</option>
-                      <option value="NIGHT">Noche</option>
-                      <option value="FULL">Jornada Única</option>
-                      <option value="WEEKEND">Fin de Semana</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Director de Grupo</label>
-                    <select
-                      className="w-full p-2 border rounded text-sm bg-white border-sky-100 text-slate-900 focus:border-sky-300 focus:ring-sky-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                      value={groupInput.director}
-                      onChange={(e) => setGroupInput({...groupInput, director: e.target.value})}
-                    >
-                      <option value="">Seleccionar Docente...</option>
-                      {users.filter(u => u.role === 'TEACHER').map(u => (
-                        <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {groupInput.director && (
-                    <div className="flex items-start space-x-2 bg-amber-50 p-3 rounded border border-amber-200 dark:bg-amber-950/25 dark:border-amber-500/30">
-                      <input 
-                        type="checkbox" 
-                        id="multigrade"
-                        className="mt-1 rounded border-amber-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
-                        checked={isMultigrade}
-                        onChange={(e) => setIsMultigrade(e.target.checked)}
-                      />
-                      <label htmlFor="multigrade" className="text-xs text-amber-800 dark:text-amber-200 cursor-pointer select-none leading-tight">
-                        <strong>Grupo Multigrado</strong><br/>
-                        Permitir que este docente dirija múltiples grupos.
-                      </label>
-                    </div>
-                  )}
-
-                  <Button type="submit" className="w-full bg-sky-600 hover:bg-sky-700 text-white">
-                    {editingGroupId ? 'Actualizar Grupo' : 'Crear Grupo'}
-                  </Button>
-                  {editingGroupId && (
-                    <Button type="button" variant="outline" className="w-full" onClick={onCancelEditGroup}>Cancelar</Button>
-                  )}
-                </form>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="md:col-span-2 space-y-6">
+          <div className="md:col-span-3 space-y-6">
             <Card className="border-t-4 border-t-cyan-500 shadow-sm">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
-                <div className="flex justify-between items-center">
+              <CardHeader className="sticky top-0 md:top-4 z-30 bg-slate-50/90 border-b pb-3 backdrop-blur dark:bg-slate-900/85 dark:border-slate-800">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <CardTitle className="text-cyan-800 flex items-center gap-2">
                     📋 Grupos Configurados
                   </CardTitle>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-cyan-600 border-cyan-200 hover:bg-cyan-50 dark:text-cyan-300 dark:border-slate-700 dark:hover:bg-slate-800"
-                    onClick={openImportGroupsModal}
-                    disabled={!groupInput.academic_year || editingGroupId !== null}
-                  >
-                    📥 Importar del año anterior
-                  </Button>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                      onClick={openNewGroupModal}
+                      disabled={isGroupModalOpen}
+                    >
+                      + Nuevo grupo
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-cyan-600 border-cyan-200 hover:bg-cyan-50 dark:text-cyan-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                      onClick={openImportGroupsModal}
+                      disabled={!groupInput.academic_year || isGroupModalOpen}
+                    >
+                      📥 Importar del año anterior
+                    </Button>
+                  </div>
                 </div>
+
+                {years.filter(y => y.status === 'ACTIVE').length === 0 ? null : (
+                  <div className="mt-3 bg-cyan-50 p-3 rounded-lg border border-cyan-100 dark:bg-cyan-950/25 dark:border-cyan-500/20">
+                    {/* Desktop filters */}
+                    <div className="hidden md:flex md:items-center md:justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Año:</span>
+                        <select
+                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          value={groupInput.academic_year}
+                          onChange={(e) => setGroupInput({ ...groupInput, academic_year: e.target.value })}
+                          aria-label="Filtrar por año"
+                        >
+                          {years.map((y) => (
+                            <option key={y.id} value={y.id}>
+                              {y.year}
+                            </option>
+                          ))}
+                        </select>
+
+                        <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Sede:</span>
+                        <select
+                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-40 bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          value={groupCampusFilter}
+                          onChange={(e) => setGroupCampusFilter(e.target.value as typeof groupCampusFilter)}
+                          aria-label="Filtrar por sede"
+                        >
+                          <option value="ALL">Todas</option>
+                          {campuses.map((c) => (
+                            <option key={c.id} value={String(c.id)}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Jornada:</span>
+                        <select
+                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[140px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          value={groupShiftFilter}
+                          onChange={(e) => setGroupShiftFilter(e.target.value as typeof groupShiftFilter)}
+                          aria-label="Filtrar por jornada"
+                        >
+                          <option value="ALL">Todas</option>
+                          <option value="MORNING">Mañana</option>
+                          <option value="AFTERNOON">Tarde</option>
+                          <option value="NIGHT">Noche</option>
+                          <option value="FULL">Única</option>
+                          <option value="WEEKEND">Fin de semana</option>
+                        </select>
+
+                        <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Por pág:</span>
+                        <select
+                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[100px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          value={groupsPerPage}
+                          onChange={(e) => setGroupsPerPage(parseInt(e.target.value) || 8)}
+                          aria-label="Grupos por página"
+                        >
+                          <option value={8}>8</option>
+                          <option value={12}>12</option>
+                          <option value={24}>24</option>
+                        </select>
+                      </div>
+
+                      <input
+                        value={groupSearch}
+                        onChange={(e) => setGroupSearch(e.target.value)}
+                        placeholder="Buscar (grado, grupo, sede, director, salón)…"
+                        className="w-full md:w-96 h-9 rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      />
+                    </div>
+
+                    {/* Mobile filters */}
+                    <div className="md:hidden space-y-2">
+                      <div className="grid grid-cols-1 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Año</label>
+                            <select
+                              className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              value={groupInput.academic_year}
+                              onChange={(e) => setGroupInput({ ...groupInput, academic_year: e.target.value })}
+                              aria-label="Filtrar por año"
+                            >
+                              {years.map((y) => (
+                                <option key={y.id} value={y.id}>
+                                  {y.year}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Sede</label>
+                            <select
+                              className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              value={groupCampusFilter}
+                              onChange={(e) => setGroupCampusFilter(e.target.value as typeof groupCampusFilter)}
+                              aria-label="Filtrar por sede"
+                            >
+                              <option value="ALL">Todas</option>
+                              {campuses.map((c) => (
+                                <option key={c.id} value={String(c.id)}>
+                                  {c.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        <input
+                          value={groupSearch}
+                          onChange={(e) => setGroupSearch(e.target.value)}
+                          placeholder="Buscar grupos…"
+                          className="w-full h-9 rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        />
+
+                        <div className="flex items-center justify-between gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-9"
+                            onClick={() => setShowGroupFiltersMobile((v) => !v)}
+                            aria-expanded={showGroupFiltersMobile}
+                          >
+                            {showGroupFiltersMobile ? 'Ocultar filtros' : 'Filtros'}
+                            {activeGroupFilterCount > 0 ? ` (${activeGroupFilterCount})` : ''}
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-9"
+                            onClick={() => {
+                              setGroupSearch('')
+                              setGroupCampusFilter('ALL')
+                              setGroupShiftFilter('ALL')
+                              setGroupsPerPage(8)
+                            }}
+                          >
+                            Limpiar
+                          </Button>
+                        </div>
+
+                        {showGroupFiltersMobile && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Jornada</label>
+                              <select
+                                className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                value={groupShiftFilter}
+                                onChange={(e) => setGroupShiftFilter(e.target.value as typeof groupShiftFilter)}
+                                aria-label="Filtrar por jornada"
+                              >
+                                <option value="ALL">Todas</option>
+                                <option value="MORNING">Mañana</option>
+                                <option value="AFTERNOON">Tarde</option>
+                                <option value="NIGHT">Noche</option>
+                                <option value="FULL">Única</option>
+                                <option value="WEEKEND">Fin de semana</option>
+                              </select>
+                            </div>
+
+                            <div>
+                              <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Por página</label>
+                              <select
+                                className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                value={groupsPerPage}
+                                onChange={(e) => setGroupsPerPage(parseInt(e.target.value) || 8)}
+                                aria-label="Grupos por página"
+                              >
+                                <option value={8}>8</option>
+                                <option value={12}>12</option>
+                                <option value={24}>24</option>
+                              </select>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
                 {years.filter(y => y.status === 'ACTIVE').length === 0 ? (
@@ -2450,17 +2763,6 @@ export default function AcademicConfigPanel() {
                   </div>
                 ) : (
                   <>
-                    <div className="flex items-center justify-between bg-cyan-50 p-3 rounded-lg border border-cyan-100 mb-4 dark:bg-cyan-950/25 dark:border-cyan-500/20">
-                      <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Filtrar por Año:</span>
-                      <select
-                        className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                        value={groupInput.academic_year}
-                        onChange={(e) => setGroupInput({...groupInput, academic_year: e.target.value})}
-                      >
-                        {years.map(y => <option key={y.id} value={y.id}>{y.year}</option>)}
-                      </select>
-                    </div>
-
                     {(() => {
                       const yearId = groupInput.academic_year
                       const gradeById = new Map(grades.map(gr => [gr.id, gr]))
@@ -2482,8 +2784,27 @@ export default function AcademicConfigPanel() {
                         return { levelId, levelName: levelName || 'Sin Nivel', levelIndex }
                       }
 
+                      const q = (groupSearch || '').trim().toLowerCase()
+                      const campusId = groupCampusFilter !== 'ALL' ? parseInt(groupCampusFilter) : null
+
                       const filteredGroups = groups
                         .filter(g => yearId && g.academic_year.toString() === yearId)
+                        .filter(g => (groupShiftFilter === 'ALL' ? true : g.shift === groupShiftFilter))
+                        .filter(g => (campusId ? g.campus === campusId : true))
+                        .filter(g => {
+                          if (!q) return true
+                          const hay = [
+                            g.grade_name,
+                            g.name,
+                            g.campus_name,
+                            g.director_name,
+                            g.classroom,
+                          ]
+                            .filter(Boolean)
+                            .join(' ')
+                            .toLowerCase()
+                          return hay.includes(q)
+                        })
                         .slice()
                         .sort((a, b) => {
                           const am = getLevelMetaForGroup(a)
@@ -2496,11 +2817,11 @@ export default function AcademicConfigPanel() {
                           return (a.name || '').localeCompare(b.name || '')
                         })
 
-                      const totalPages = Math.max(1, Math.ceil(filteredGroups.length / GROUPS_PER_PAGE))
+                      const totalPages = Math.max(1, Math.ceil(filteredGroups.length / Math.max(1, groupsPerPage)))
                       const currentPage = Math.min(groupsPage, totalPages)
                       const pageItems = filteredGroups.slice(
-                        (currentPage - 1) * GROUPS_PER_PAGE,
-                        currentPage * GROUPS_PER_PAGE
+                        (currentPage - 1) * groupsPerPage,
+                        currentPage * groupsPerPage
                       )
 
                       if (filteredGroups.length === 0) {
@@ -2515,12 +2836,33 @@ export default function AcademicConfigPanel() {
                       const groupCard = (g: Group) => (
                         (() => {
                           const meta = getLevelMetaForGroup(g)
+                          const actionsOpen = openGroupActionsId === g.id
                           return (
-                        <div key={g.id} className="p-4 bg-white border border-slate-200 rounded-lg shadow-sm hover:shadow-md transition-all hover:border-cyan-300 group dark:bg-slate-900 dark:border-slate-800 dark:hover:border-cyan-500/40">
+                        <div
+                          key={g.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => navigate(`/groups/${g.id}/students`, { state: { group: g } })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              navigate(`/groups/${g.id}/students`, { state: { group: g } })
+                            }
+                          }}
+                          className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-cyan-300 group cursor-pointer dark:bg-slate-900 dark:border-slate-800 dark:hover:border-cyan-500/40"
+                        >
+                          <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-cyan-500 via-sky-500 to-indigo-500 opacity-80" />
                           <div className="flex justify-between items-start mb-2 gap-3">
                             <div>
-                              <div className="text-lg font-bold text-slate-800 flex items-center gap-2 dark:text-slate-100">
-                                {g.grade_name} - {g.name}
+                              <div className="text-lg font-bold text-slate-800 flex flex-wrap items-center gap-2 dark:text-slate-100">
+                                <span className="inline-flex items-center gap-2">
+                                  <span className="h-7 w-7 rounded-lg bg-cyan-50 text-cyan-700 border border-cyan-100 flex items-center justify-center text-xs font-extrabold dark:bg-cyan-950/25 dark:text-cyan-200 dark:border-cyan-500/20">
+                                    G
+                                  </span>
+                                  <span>{g.grade_name}</span>
+                                </span>
+                                <span className="text-slate-300 dark:text-slate-700">•</span>
+                                <span className="text-slate-700 dark:text-slate-100">Grupo {g.name}</span>
                                 <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
                                   g.shift === 'MORNING' ? 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-500/30' :
                                   g.shift === 'AFTERNOON' ? 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/35 dark:text-orange-200 dark:border-orange-500/30' :
@@ -2532,22 +2874,124 @@ export default function AcademicConfigPanel() {
                                    g.shift === 'NIGHT' ? 'Noche' :
                                    g.shift === 'FULL' ? 'Única' : 'Fin de Semana'}
                                 </span>
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
-                                  Nivel: {meta.levelName}
-                                </span>
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">Nivel: {meta.levelName}</span>
                               </div>
-                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-2 dark:text-slate-400">
-                                <span className="flex items-center gap-1"><span className="text-slate-400 dark:text-slate-500">🏢</span> {g.campus_name || 'Sin Sede'}</span>
-                                {g.classroom && <span className="flex items-center gap-1"><span className="text-slate-400 dark:text-slate-500">🚪</span> Salón {g.classroom}</span>}
+                              <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2 dark:text-slate-400">
+                                <span
+                                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 border ${getCampusBadgeClasses(
+                                    typeof g.campus === 'number' ? g.campus : null
+                                  )}`}
+                                >
+                                  <span className="font-semibold">Sede:</span> {g.campus_name || 'Sin Sede'}
+                                </span>
+                                {g.classroom && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 border border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200">
+                                    <span className="font-semibold">Salón:</span> {g.classroom}
+                                  </span>
+                                )}
                               </div>
                             </div>
-                            <div className="flex items-start gap-1">
+                            <div className="flex items-start gap-2" data-group-actions-root="true" onClick={(e) => e.stopPropagation()}>
                               <div className="text-xs font-bold bg-cyan-50 text-cyan-700 px-2 py-1 rounded border border-cyan-100 dark:bg-cyan-950/25 dark:text-cyan-200 dark:border-cyan-500/20">
                                 {years.find(y => y.id === g.academic_year)?.year}
                               </div>
-                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-cyan-600 hover:bg-cyan-100 cursor-pointer dark:text-cyan-300 dark:hover:bg-slate-800" onClick={() => onEditGroup(g)}>✎</Button>
-                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-red-500 hover:bg-red-100 cursor-pointer dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeleteGroup(g.id)}>×</Button>
+
+                              <div className="relative" data-group-actions-root="true">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 w-7 p-0"
+                                  aria-haspopup="menu"
+                                  aria-expanded={actionsOpen}
+                                  onClick={() => setOpenGroupActionsId((prev) => (prev === g.id ? null : g.id))}
+                                  title="Acciones"
+                                >
+                                  ⋮
+                                </Button>
+
+                                {actionsOpen && (
+                                  <div
+                                    className="absolute right-0 mt-2 w-48 rounded-md border border-slate-200 bg-white shadow-lg z-30 overflow-hidden dark:border-slate-800 dark:bg-slate-900"
+                                    role="menu"
+                                    aria-label="Acciones del grupo"
+                                    data-group-actions-root="true"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        onEditGroup(g)
+                                      }}
+                                    >
+                                      Editar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        printManualAttendanceSheet(g.id)
+                                      }}
+                                    >
+                                      Imprimir planilla
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        openGradeSheetModal(g)
+                                      }}
+                                    >
+                                      Imprimir planilla de notas
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        const params = new URLSearchParams()
+                                        params.set('group', String(g.id))
+                                        params.set('returnTo', `/groups/${g.id}/students`)
+                                        navigate(`/enrollments/new?${params.toString()}`)
+                                      }}
+                                    >
+                                      Matricular (nuevo)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        const params = new URLSearchParams()
+                                        params.set('group', String(g.id))
+                                        params.set('returnTo', `/groups/${g.id}/students`)
+                                        navigate(`/enrollments/existing?${params.toString()}`)
+                                      }}
+                                    >
+                                      Matricular (antiguo)
+                                    </button>
+                                    <div className="h-px bg-slate-100 dark:bg-slate-800" />
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        onDeleteGroup(g.id)
+                                      }}
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -2564,6 +3008,31 @@ export default function AcademicConfigPanel() {
                                 {g.director_name || 'Sin asignar'}
                               </div>
                             </div>
+                            <div className="ml-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="h-9 sm:h-8 w-full sm:w-auto"
+                                disabled={printingManualSheetGroupId === g.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  printManualAttendanceSheet(g.id)
+                                }}
+                              >
+                                {printingManualSheetGroupId === g.id ? 'Generando…' : 'Imprimir planilla'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-9 sm:h-8 w-full sm:w-auto"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  navigate(`/groups/${g.id}/students`, { state: { group: g } })
+                                }}
+                              >
+                                Ver estudiantes
+                              </Button>
+                            </div>
                           </div>
                         </div>
                           )
@@ -2577,7 +3046,31 @@ export default function AcademicConfigPanel() {
                               <div className="text-xs text-slate-500 dark:text-slate-400">
                                 Página {currentPage} de {totalPages} • {filteredGroups.length} grupos
                               </div>
-                              <div className="flex flex-wrap gap-1 justify-end">
+
+                              {/* Mobile pagination (no overflow) */}
+                              <div className="flex items-center gap-2 md:hidden">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={currentPage <= 1}
+                                  onClick={() => setGroupsPage(Math.max(1, currentPage - 1))}
+                                >
+                                  ◀
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8"
+                                  disabled={currentPage >= totalPages}
+                                  onClick={() => setGroupsPage(Math.min(totalPages, currentPage + 1))}
+                                >
+                                  ▶
+                                </Button>
+                              </div>
+
+                              {/* Desktop pagination */}
+                              <div className="hidden md:flex flex-wrap gap-1 justify-end">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                                   <Button
                                     key={p}
@@ -2593,7 +3086,7 @@ export default function AcademicConfigPanel() {
                               </div>
                             </div>
                           )}
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {pageItems.map(groupCard)}
                           </div>
                         </div>
@@ -2874,12 +3367,312 @@ export default function AcademicConfigPanel() {
         </div>
       )}
 
+      {isGroupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={closeGroupModal} />
+          <div className="relative w-full max-w-2xl">
+            <Card className="border border-slate-200 shadow-xl dark:border-slate-800">
+              <CardHeader className="bg-white border-b dark:bg-slate-900 dark:border-slate-800">
+                <div className="flex items-center justify-between gap-3">
+                  <CardTitle className="text-slate-900 dark:text-slate-100">
+                    {editingGroupId ? 'Editar grupo' : 'Nuevo grupo'}
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={closeGroupModal} aria-label="Cerrar">
+                    ×
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent className="pt-4">
+                <form onSubmit={onAddGroup} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Año lectivo</label>
+                      <select
+                        className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        value={groupInput.academic_year}
+                        onChange={(e) => setGroupInput({ ...groupInput, academic_year: e.target.value })}
+                        required
+                      >
+                        <option value="">Seleccionar año...</option>
+                        {years.map((y) => (
+                          <option key={y.id} value={y.id}>
+                            {y.year}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Sede (campus)</label>
+                      <select
+                        className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        value={groupInput.campus}
+                        onChange={(e) => setGroupInput({ ...groupInput, campus: e.target.value })}
+                        required
+                      >
+                        <option value="">Seleccionar sede...</option>
+                        {campuses.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grado</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      value={groupInput.grade}
+                      onChange={(e) => setGroupInput({ ...groupInput, grade: e.target.value })}
+                      required
+                    >
+                      <option value="">Seleccionar grado...</option>
+                      {levels.map((level) => {
+                        const levelGrades = grades
+                          .filter((g) => g.level === level.id)
+                          .slice()
+                          .sort((a, b) => {
+                            const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                            const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                            if (ao !== bo) return bo - ao
+                            return (a.name || '').localeCompare(b.name || '')
+                          })
+                        if (levelGrades.length === 0) return null
+                        return (
+                          <optgroup key={level.id} label={level.name}>
+                            {levelGrades.map((g) => (
+                              <option key={g.id} value={g.id}>
+                                {g.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )
+                      })}
+                      {grades.filter((g) => !g.level).length > 0 && (
+                        <optgroup label="Sin Nivel">
+                          {grades
+                            .filter((g) => !g.level)
+                            .slice()
+                            .sort((a, b) => {
+                              const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                              const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                              if (ao !== bo) return bo - ao
+                              return (a.name || '').localeCompare(b.name || '')
+                            })
+                            .map((g) => (
+                              <option key={g.id} value={g.id}>
+                                {g.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grupo</label>
+                      <Input
+                        placeholder="Ej: A, 01"
+                        value={groupInput.name}
+                        onChange={(e) => setGroupInput({ ...groupInput, name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Salón</label>
+                      <Input
+                        placeholder="Ej: 101"
+                        value={groupInput.classroom}
+                        onChange={(e) => setGroupInput({ ...groupInput, classroom: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Jornada</label>
+                      <select
+                        className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        value={groupInput.shift}
+                        onChange={(e) => setGroupInput({ ...groupInput, shift: e.target.value })}
+                      >
+                        <option value="MORNING">Mañana</option>
+                        <option value="AFTERNOON">Tarde</option>
+                        <option value="NIGHT">Noche</option>
+                        <option value="FULL">Jornada Única</option>
+                        <option value="WEEKEND">Fin de Semana</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Director de grupo</label>
+                    <select
+                      className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      value={groupInput.director}
+                      onChange={(e) => setGroupInput({ ...groupInput, director: e.target.value })}
+                    >
+                      <option value="">Seleccionar docente...</option>
+                      {users
+                        .filter((u) => u.role === 'TEACHER')
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.first_name} {u.last_name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {groupInput.director && (
+                    <div className="flex items-start space-x-2 bg-amber-50 p-3 rounded border border-amber-200 dark:bg-amber-950/25 dark:border-amber-500/30">
+                      <input
+                        type="checkbox"
+                        id="multigrade"
+                        className="mt-1 rounded border-amber-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
+                        checked={isMultigrade}
+                        onChange={(e) => setIsMultigrade(e.target.checked)}
+                      />
+                      <label htmlFor="multigrade" className="text-xs text-amber-800 dark:text-amber-200 cursor-pointer select-none leading-tight">
+                        <strong>Grupo multigrado</strong>
+                        <br />
+                        Permitir que este docente dirija múltiples grupos.
+                      </label>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col-reverse md:flex-row md:justify-end gap-2 pt-2">
+                    <Button type="button" variant="outline" onClick={closeGroupModal}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit" className="bg-cyan-600 hover:bg-cyan-700 text-white">
+                      {editingGroupId ? 'Guardar cambios' : 'Crear grupo'}
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
       <Toast
         message={toast.message}
         type={toast.type}
         isVisible={toast.isVisible}
         onClose={() => setToast({ ...toast, isVisible: false })}
       />
+
+      {isGradeSheetModalOpen && gradeSheetModalGroup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm" onClick={closeGradeSheetModal} />
+          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">
+                Imprimir planilla de notas
+              </h3>
+              <button
+                onClick={closeGradeSheetModal}
+                className="rounded-full p-1 hover:bg-slate-100 transition-colors disabled:opacity-50 dark:hover:bg-slate-800"
+                disabled={printingGradeSheet}
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Grupo</label>
+                <div className="text-sm text-slate-700 dark:text-slate-200">
+                  {gradeSheetModalGroup.grade_name ? `${gradeSheetModalGroup.grade_name}-${gradeSheetModalGroup.name}` : `Grupo ${gradeSheetModalGroup.name}`}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Asignatura/Docente (del grupo)</label>
+                  <select
+                    className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    value={gradeSheetAssignmentId}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      setGradeSheetAssignmentId(next)
+                      const picked = gradeSheetAssignments.find((a) => String(a.id) === next)
+                      if (picked) {
+                        setGradeSheetTeacher(picked.teacher_name || '')
+                        const subj = [picked.area_name, picked.subject_name].filter(Boolean).join(' - ') || picked.academic_load_name || ''
+                        setGradeSheetSubject(subj)
+                      }
+                    }}
+                    disabled={gradeSheetAssignmentsLoading || gradeSheetAssignments.length === 0}
+                  >
+                    {gradeSheetAssignments.length === 0 ? (
+                      <option value="">
+                        {gradeSheetAssignmentsLoading ? 'Cargando asignaciones…' : 'Sin asignaciones (puedes escribir manual)'}
+                      </option>
+                    ) : (
+                      gradeSheetAssignments.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {([a.area_name, a.subject_name].filter(Boolean).join(' - ') || a.academic_load_name || 'Asignatura') +
+                            (a.teacher_name ? ` — ${a.teacher_name}` : '')}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Período</label>
+                  <select
+                    className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    value={gradeSheetPeriodId}
+                    onChange={(e) => setGradeSheetPeriodId(e.target.value)}
+                  >
+                    <option value="">(En blanco)</option>
+                    {periods
+                      .filter((p) => p.academic_year === gradeSheetModalGroup.academic_year)
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Docente</label>
+                  <Input
+                    placeholder="Nombre del docente (opcional)"
+                    value={gradeSheetTeacher}
+                    onChange={(e) => setGradeSheetTeacher(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Área/Asignatura</label>
+                <Input
+                  placeholder="Ej: Matemáticas"
+                  value={gradeSheetSubject}
+                  onChange={(e) => setGradeSheetSubject(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={closeGradeSheetModal} disabled={printingGradeSheet}>
+                Cancelar
+              </Button>
+              <Button
+                className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                onClick={confirmPrintGradeReportSheet}
+                disabled={printingGradeSheet}
+              >
+                {printingGradeSheet ? 'Generando…' : 'Imprimir'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

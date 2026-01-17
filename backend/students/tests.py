@@ -1,10 +1,12 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from students.models import Student, Enrollment
+from students.models import FamilyMember
 from students.serializers import StudentSerializer
 from rest_framework.test import APITestCase
 from rest_framework import status
 from academic.models import AcademicYear, Grade, Group
+from academic.models import TeacherAssignment
 
 User = get_user_model()
 
@@ -210,3 +212,194 @@ class EnrollmentReportExportAPITest(APITestCase):
         )
         # XLSX files start with PK (zip)
         self.assertTrue(res.content.startswith(b"PK"))
+
+
+class EnrollmentMyForTeacherAPITest(APITestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user(
+            username="t_my_enr",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Uno",
+            role=User.ROLE_TEACHER,
+        )
+        self.other_teacher = User.objects.create_user(
+            username="t_my_enr_2",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Dos",
+            role=User.ROLE_TEACHER,
+        )
+        self.admin = User.objects.create_superuser(
+            username="admin_my_enr",
+            password="admin123",
+            email="admin_my_enr@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+        self.group_assigned = Group.objects.create(name="A", grade=self.grade, academic_year=self.year, capacity=40)
+        self.group_other = Group.objects.create(name="B", grade=self.grade, academic_year=self.year, capacity=40)
+
+        # Teacher teaches group_assigned via TeacherAssignment
+        TeacherAssignment.objects.create(
+            teacher=self.teacher,
+            academic_load=None,
+            group=self.group_assigned,
+            academic_year=self.year,
+        )
+
+        u1 = User.objects.create_user(
+            username="student_my_1",
+            password="pw123456",
+            first_name="Juan",
+            last_name="Perez",
+            role=User.ROLE_STUDENT,
+        )
+        s1 = Student.objects.create(user=u1, document_number="DOC_MY_1")
+        self.enr_assigned = Enrollment.objects.create(
+            student=s1,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_assigned,
+            status="ACTIVE",
+        )
+
+        u2 = User.objects.create_user(
+            username="student_my_2",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Gomez",
+            role=User.ROLE_STUDENT,
+        )
+        s2 = Student.objects.create(user=u2, document_number="DOC_MY_2")
+        self.enr_other = Enrollment.objects.create(
+            student=s2,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_other,
+            status="ACTIVE",
+        )
+
+    def test_teacher_can_list_my_enrollments_for_assigned_group(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(f"/api/enrollments/my/?group_id={self.group_assigned.id}&page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        ids = [row.get("id") for row in results]
+        self.assertIn(self.enr_assigned.id, ids)
+        self.assertNotIn(self.enr_other.id, ids)
+
+    def test_teacher_cannot_see_enrollments_from_unassigned_group(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(f"/api/enrollments/my/?group_id={self.group_other.id}&page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        self.assertEqual(len(results), 0)
+
+    def test_non_teacher_forbidden(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get("/api/enrollments/my/?page=1&page_size=10")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class StudentDirectorEditAPITest(APITestCase):
+    def setUp(self):
+        self.director = User.objects.create_user(
+            username="t_director",
+            password="pw123456",
+            first_name="Dir",
+            last_name="One",
+            role=User.ROLE_TEACHER,
+        )
+        self.other_teacher = User.objects.create_user(
+            username="t_other",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Two",
+            role=User.ROLE_TEACHER,
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+        self.group = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.director,
+        )
+
+        u = User.objects.create_user(
+            username="student_dir",
+            password="pw123456",
+            first_name="Juan",
+            last_name="Perez",
+            role=User.ROLE_STUDENT,
+        )
+        self.student = Student.objects.create(user=u, document_number="DOC_DIR")
+        Enrollment.objects.create(
+            student=self.student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            status="ACTIVE",
+        )
+
+    def test_director_teacher_can_patch_student(self):
+        self.client.force_authenticate(user=self.director)
+        res = self.client.patch(
+            f"/api/students/{self.student.pk}/",
+            {"address": "Calle 1", "first_name": "Carlos"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.student.refresh_from_db()
+        self.student.user.refresh_from_db()
+        self.assertEqual(self.student.address, "Calle 1")
+        self.assertEqual(self.student.user.first_name, "Carlos")
+
+    def test_non_director_teacher_cannot_patch_student(self):
+        self.client.force_authenticate(user=self.other_teacher)
+        res = self.client.patch(
+            f"/api/students/{self.student.pk}/",
+            {"address": "Calle X"},
+            format="json",
+        )
+        # Teacher scope is filtered; for non-directed students it should behave as not found.
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_director_teacher_can_create_family_member(self):
+        self.client.force_authenticate(user=self.director)
+        res = self.client.post(
+            "/api/family-members/",
+            {
+                "student": self.student.pk,
+                "user": None,
+                "full_name": "Maria Perez",
+                "document_number": "CC123",
+                "relationship": "MADRE",
+                "phone": "3000000000",
+                "email": "maria@example.com",
+                "address": "Calle 1",
+                "is_main_guardian": True,
+                "is_head_of_household": True,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(FamilyMember.objects.filter(student=self.student, full_name="Maria Perez").exists())
+
+    def test_non_director_teacher_cannot_create_family_member(self):
+        self.client.force_authenticate(user=self.other_teacher)
+        res = self.client.post(
+            "/api/family-members/",
+            {
+                "student": self.student.pk,
+                "full_name": "Maria Perez",
+                "relationship": "MADRE",
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)

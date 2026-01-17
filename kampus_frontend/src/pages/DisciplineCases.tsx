@@ -1,9 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
+import { Label } from '../components/ui/Label'
 import { useAuthStore } from '../store/auth'
-import { disciplineApi, type DisciplineCaseListItem } from '../services/discipline'
+import { enrollmentsApi, type Enrollment } from '../services/enrollments'
+import {
+  disciplineApi,
+  type DisciplineCaseListItem,
+  type DisciplineLaw1620Type,
+  type DisciplineManualSeverity,
+} from '../services/discipline'
 
 const canAccess = (role?: string) =>
   role === 'TEACHER' || role === 'COORDINATOR' || role === 'ADMIN' || role === 'SUPERADMIN' || role === 'PARENT'
@@ -26,10 +34,166 @@ export default function DisciplineCases() {
   const user = useAuthStore((s) => s.user)
 
   const isParent = user?.role === 'PARENT'
+  const isTeacher = user?.role === 'TEACHER'
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+  const canCreate = isTeacher || isAdmin
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<DisciplineCaseListItem[]>([])
+
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [loadingEnrollments, setLoadingEnrollments] = useState(false)
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([])
+  const [enrollmentId, setEnrollmentId] = useState<number | ''>('')
+  const [search, setSearch] = useState('')
+
+  const [occurredAtLocal, setOccurredAtLocal] = useState('')
+  const [location, setLocation] = useState('')
+  const [narrative, setNarrative] = useState('')
+  const [severity, setSeverity] = useState<DisciplineManualSeverity>('MINOR')
+  const [lawType, setLawType] = useState<DisciplineLaw1620Type>('I')
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([])
+  const [evidenceUploadTotal, setEvidenceUploadTotal] = useState(0)
+  const [evidenceUploadDone, setEvidenceUploadDone] = useState(0)
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const fileKey = (f: File) => `${f.name}-${f.size}-${f.lastModified}`
+
+  const toDatetimeLocalValue = (d: Date) => {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  const enrollmentStudentLabel = useCallback((enr: Enrollment): string => {
+    const student = typeof enr.student === 'object' && enr.student ? enr.student : null
+    const fullName = (student && 'full_name' in student ? String(student.full_name || '') : '').trim()
+    const doc = (student && 'document_number' in student ? String(student.document_number || '') : '').trim()
+    const group = typeof enr.group === 'object' && enr.group ? (enr.group as { name?: string }).name : ''
+    const groupLabel = (group || '').trim()
+    const base = fullName || `Estudiante ${student && 'id' in student ? String(student.id) : ''}`.trim()
+    const meta = [doc ? `Doc: ${doc}` : null, groupLabel ? `Grupo: ${groupLabel}` : null].filter(Boolean).join(' · ')
+    return meta ? `${base} — ${meta}` : base
+  }, [])
+
+  const loadEnrollments = async (q?: string) => {
+    setLoadingEnrollments(true)
+    try {
+      if (isTeacher) {
+        const res = await enrollmentsApi.my({ page: 1, page_size: 200, ...(q ? { q } : {}) })
+        setEnrollments(res.data?.results ?? [])
+      } else if (isAdmin) {
+        const res = await enrollmentsApi.list({
+          page: 1,
+          page_size: 200,
+          status: 'ACTIVE',
+          ...(q ? { search: q } : {}),
+        })
+        setEnrollments(res.data?.results ?? [])
+      } else {
+        setEnrollments([])
+      }
+    } catch (e) {
+      console.error(e)
+      setEnrollments([])
+      setCreateError('No se pudieron cargar las matrículas permitidas para registrar el caso.')
+    } finally {
+      setLoadingEnrollments(false)
+    }
+  }
+
+  const openCreateModal = async () => {
+    setCreateError(null)
+    setEnrollmentId('')
+    setSearch('')
+    setOccurredAtLocal(toDatetimeLocalValue(new Date()))
+    setLocation('')
+    setNarrative('')
+    setSeverity('MINOR')
+    setLawType('I')
+    setEvidenceFiles([])
+    setEvidenceUploadTotal(0)
+    setEvidenceUploadDone(0)
+    setIsCreateOpen(true)
+    await loadEnrollments()
+  }
+
+  const filteredEnrollments = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return enrollments
+    return enrollments.filter((enr) => enrollmentStudentLabel(enr).toLowerCase().includes(q))
+  }, [enrollments, search, enrollmentStudentLabel])
+
+  const submitCreate = async () => {
+    if (enrollmentId === '') {
+      setCreateError('Selecciona un estudiante (matrícula).')
+      return
+    }
+    if (!occurredAtLocal) {
+      setCreateError('Selecciona la fecha y hora del hecho.')
+      return
+    }
+    if (!narrative.trim()) {
+      setCreateError('La descripción es obligatoria.')
+      return
+    }
+
+    try {
+      setCreating(true)
+      setCreateError(null)
+      setEvidenceUploadTotal(0)
+      setEvidenceUploadDone(0)
+      const res = await disciplineApi.create({
+        enrollment_id: Number(enrollmentId),
+        occurred_at: new Date(occurredAtLocal).toISOString(),
+        location: location.trim() || undefined,
+        narrative: narrative.trim(),
+        manual_severity: severity,
+        law_1620_type: lawType,
+      })
+      const id = res.data?.id
+      let uploadToast: { message: string; type: 'success' | 'error' | 'info' } | undefined
+      let uploadFailures: string[] | undefined
+      if (id && evidenceFiles.length > 0) {
+        const failures: string[] = []
+        setEvidenceUploadTotal(evidenceFiles.length)
+        setEvidenceUploadDone(0)
+        for (const file of evidenceFiles) {
+          try {
+            await disciplineApi.addAttachment(id, { file, kind: 'EVIDENCE' })
+          } catch (e) {
+            console.error(e)
+            failures.push(file.name)
+          } finally {
+            setEvidenceUploadDone((v) => v + 1)
+          }
+        }
+        if (failures.length > 0) {
+          uploadToast = {
+            type: 'error',
+            message: `El caso se creó, pero falló la carga de ${failures.length} evidencia(s): ${failures.slice(0, 3).join(', ')}${failures.length > 3 ? '…' : ''}`,
+          }
+          uploadFailures = failures
+        }
+      }
+      setIsCreateOpen(false)
+      if (id)
+        navigate(`/discipline/cases/${id}`, {
+          state: uploadToast
+            ? {
+                toast: uploadToast,
+                uploadFailures,
+              }
+            : undefined,
+        })
+    } catch (e) {
+      console.error(e)
+      setCreateError('No se pudo registrar el caso.')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   useEffect(() => {
     if (!canAccess(user?.role)) return
@@ -87,6 +251,14 @@ export default function DisciplineCases() {
             {isParent ? 'Casos asociados a tus acudidos.' : 'Casos registrados en el observador (MVP).'}
           </p>
         </div>
+
+        {canCreate && (
+          <div className="flex items-center gap-2">
+            <Button className="bg-cyan-600 hover:bg-cyan-700 text-white" onClick={openCreateModal}>
+              Registrar caso
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -95,7 +267,7 @@ export default function DisciplineCases() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm text-left text-slate-700 dark:text-slate-200">
               <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Fecha</th>
@@ -145,6 +317,223 @@ export default function DisciplineCases() {
           </div>
         </CardContent>
       </Card>
+
+      {isCreateOpen && canCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+          <div
+            className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
+            onClick={() => {
+              if (!creating) setIsCreateOpen(false)
+            }}
+          />
+          <div className="relative z-50 w-full max-w-xl transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">Registrar caso (Observador)</h3>
+              <button
+                onClick={() => {
+                  if (!creating) setIsCreateOpen(false)
+                }}
+                className="rounded-full p-1 text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                disabled={creating}
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {createError && (
+                <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-rose-950/30 dark:text-rose-200">{createError}</div>
+              )}
+
+              {creating && evidenceUploadTotal > 0 ? (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Subiendo evidencias: {Math.min(evidenceUploadDone, evidenceUploadTotal)}/{evidenceUploadTotal}
+                </div>
+              ) : null}
+
+              {isAdmin && (
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Vista administrativa: se cargan hasta 200 matrículas activas (usa el buscador para filtrar).
+                </div>
+              )}
+
+              <div>
+                <Label>Fecha y hora del hecho</Label>
+                <Input
+                  type="datetime-local"
+                  value={occurredAtLocal}
+                  onChange={(e) => setOccurredAtLocal(e.target.value)}
+                  disabled={creating}
+                />
+              </div>
+
+              <div>
+                <Label>Buscar estudiante (opcional)</Label>
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Nombre o documento…"
+                  disabled={creating}
+                />
+              </div>
+
+              <div>
+                <Label>Estudiante (matrícula)</Label>
+                <select
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                  value={enrollmentId}
+                  onChange={(e) => setEnrollmentId(e.target.value ? Number(e.target.value) : '')}
+                  disabled={loadingEnrollments || creating}
+                >
+                  <option value="">{loadingEnrollments ? 'Cargando…' : '— Selecciona —'}</option>
+                  {filteredEnrollments.map((enr) => (
+                    <option key={enr.id} value={enr.id}>
+                      {enrollmentStudentLabel(enr)}
+                    </option>
+                  ))}
+                </select>
+                {!loadingEnrollments && enrollments.length === 0 ? (
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    No hay matrículas activas disponibles (o no tienes acceso).
+                  </p>
+                ) : null}
+              </div>
+
+              <div>
+                <Label>Lugar (opcional)</Label>
+                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ej: Salón, Patio…" disabled={creating} />
+              </div>
+
+              <div>
+                <Label>Descripción (obligatoria)</Label>
+                <textarea
+                  className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  value={narrative}
+                  onChange={(e) => setNarrative(e.target.value)}
+                  placeholder="Describe lo ocurrido de forma objetiva…"
+                  disabled={creating}
+                />
+              </div>
+
+              <div>
+                <Label>Evidencias (opcional)</Label>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*,video/*,audio/*"
+                  className="mt-1 block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-slate-200 dark:text-slate-200 dark:file:bg-slate-800 dark:hover:file:bg-slate-700"
+                  disabled={creating}
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || [])
+                    if (files.length === 0) return
+                    setEvidenceFiles((prev) => {
+                      const merged = [...prev, ...files]
+                      const dedup = new Map<string, File>()
+                      for (const f of merged) dedup.set(fileKey(f), f)
+                      return Array.from(dedup.values())
+                    })
+                    // Allow selecting the same file again if the user wants.
+                    e.currentTarget.value = ''
+                  }}
+                />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  Puedes adjuntar fotos, audios o videos. Se subirán automáticamente después de crear el caso.
+                </p>
+                {evidenceFiles.length > 0 && (
+                  <div className="mt-2 rounded-md border border-slate-200 p-2 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                    <div className="flex items-center justify-between">
+                      <span>{evidenceFiles.length} archivo(s) seleccionados</span>
+                      <button
+                        type="button"
+                        className="text-blue-600 hover:underline dark:text-blue-300"
+                        onClick={() => setEvidenceFiles([])}
+                        disabled={creating}
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                    <ul className="mt-2 space-y-1">
+                      {evidenceFiles.slice(0, 8).map((f) => (
+                        <li key={fileKey(f)} className="flex items-center justify-between gap-3">
+                          <span className="truncate" title={f.name}>
+                            {f.name}
+                          </span>
+                          <button
+                            type="button"
+                            className="shrink-0 text-slate-500 hover:text-slate-900 hover:underline dark:text-slate-300 dark:hover:text-slate-100"
+                            onClick={() => setEvidenceFiles((prev) => prev.filter((x) => fileKey(x) !== fileKey(f)))}
+                            disabled={creating}
+                          >
+                            Quitar
+                          </button>
+                        </li>
+                      ))}
+                      {evidenceFiles.length > 8 ? <li className="text-slate-500 dark:text-slate-400">…</li> : null}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <Label>Severidad (manual)</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                    value={severity}
+                    onChange={(e) => setSeverity(e.target.value as DisciplineManualSeverity)}
+                    disabled={creating}
+                  >
+                    <option value="MINOR">Leve</option>
+                    <option value="MAJOR">Grave</option>
+                    <option value="VERY_MAJOR">Muy grave</option>
+                  </select>
+                </div>
+                <div>
+                  <Label>Tipo Ley 1620</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                    value={lawType}
+                    onChange={(e) => setLawType(e.target.value as DisciplineLaw1620Type)}
+                    disabled={creating}
+                  >
+                    <option value="I">Tipo I</option>
+                    <option value="II">Tipo II</option>
+                    <option value="III">Tipo III</option>
+                    <option value="UNKNOWN">No definido</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  onClick={() => loadEnrollments(search.trim() || undefined)}
+                  disabled={loadingEnrollments || creating}
+                >
+                  Recargar
+                </Button>
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  {loadingEnrollments ? 'Cargando…' : `${filteredEnrollments.length} opciones`}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={creating}>
+                Cancelar
+              </Button>
+              <Button className="bg-cyan-600 hover:bg-cyan-700 text-white" onClick={submitCreate} disabled={creating}>
+                {creating
+                  ? evidenceUploadTotal > 0
+                    ? `Registrando… (${Math.min(evidenceUploadDone, evidenceUploadTotal)}/${evidenceUploadTotal})`
+                    : 'Registrando…'
+                  : 'Registrar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

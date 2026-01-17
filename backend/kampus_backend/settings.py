@@ -169,6 +169,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Avoid clashes with our own endpoints that legitimately use ?format=...
+    # (DRF defaults to using ?format=... as a renderer override and returns 404
+    # for unknown formats like 'pdf' or 'html').
+    "URL_FORMAT_OVERRIDE": None,
     "DEFAULT_FILTER_BACKENDS": (
         "django_filters.rest_framework.DjangoFilterBackend",
     ),

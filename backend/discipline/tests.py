@@ -8,7 +8,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from academic.models import AcademicYear, Grade, Group
+from academic.models import AcademicLoad, AcademicYear, Area, Grade, Group, Subject, TeacherAssignment
 from core.models import Campus, Institution
 from notifications.models import Notification
 from students.models import Enrollment, FamilyMember, Student
@@ -41,6 +41,12 @@ class DisciplineCaseApiTests(TestCase):
 			role="TEACHER",
 			email="t2@example.com",
 		)
+		self.unrelated_teacher = User.objects.create_user(
+			username="t3",
+			password="pass",
+			role="TEACHER",
+			email="t3@example.com",
+		)
 
 		self.group = Group.objects.create(
 			name="A",
@@ -55,6 +61,24 @@ class DisciplineCaseApiTests(TestCase):
 			campus=self.campus,
 			academic_year=self.year,
 			director=self.other_teacher,
+		)
+		self.unrelated_group = Group.objects.create(
+			name="C",
+			grade=self.grade,
+			campus=self.campus,
+			academic_year=self.year,
+			director=self.unrelated_teacher,
+		)
+
+		# TeacherAssignment so self.teacher can act on other_group
+		area = Area.objects.create(name="Área 1")
+		subject = Subject.objects.create(name="Asignatura 1", area=area)
+		academic_load = AcademicLoad.objects.create(subject=subject, grade=self.grade, hours_per_week=1)
+		TeacherAssignment.objects.create(
+			teacher=self.teacher,
+			academic_load=academic_load,
+			group=self.other_group,
+			academic_year=self.year,
 		)
 
 		self.student_user = User.objects.create_user(
@@ -77,6 +101,16 @@ class DisciplineCaseApiTests(TestCase):
 		)
 		self.other_student = Student.objects.create(user=self.other_student_user, document_number="101")
 
+		self.unrelated_student_user = User.objects.create_user(
+			username="s3",
+			password="pass",
+			role="STUDENT",
+			email="s3@example.com",
+			first_name="Luis",
+			last_name="Díaz",
+		)
+		self.unrelated_student = Student.objects.create(user=self.unrelated_student_user, document_number="102")
+
 		self.enrollment = Enrollment.objects.create(
 			student=self.student,
 			academic_year=self.year,
@@ -90,6 +124,14 @@ class DisciplineCaseApiTests(TestCase):
 			academic_year=self.year,
 			grade=self.grade,
 			group=self.other_group,
+			campus=self.campus,
+			status="ACTIVE",
+		)
+		self.unrelated_enrollment = Enrollment.objects.create(
+			student=self.unrelated_student,
+			academic_year=self.year,
+			grade=self.grade,
+			group=self.unrelated_group,
 			campus=self.campus,
 			status="ACTIVE",
 		)
@@ -115,7 +157,7 @@ class DisciplineCaseApiTests(TestCase):
 		resp = self.client.post(
 			"/api/discipline/cases/",
 			data={
-				"enrollment_id": self.other_enrollment.id,
+				"enrollment_id": self.unrelated_enrollment.id,
 				"occurred_at": timezone.now().isoformat(),
 				"location": "Patio",
 				"narrative": "Descripción.",
@@ -125,6 +167,211 @@ class DisciplineCaseApiTests(TestCase):
 			format="json",
 		)
 		self.assertEqual(resp.status_code, 400, resp.data)
+
+	def test_teacher_can_create_case_for_assigned_group(self):
+		self.client.force_authenticate(user=self.teacher)
+		resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.other_enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción para grupo asignado.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(resp.status_code, 201, resp.data)
+
+	def test_teacher_can_list_cases_for_assigned_group(self):
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.other_enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Caso para grupo asignado.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		list_resp = self.client.get("/api/discipline/cases/")
+		self.assertEqual(list_resp.status_code, 200, list_resp.data)
+		payload = list_resp.data
+		items = payload
+		if isinstance(payload, dict):
+			items = payload.get("results") or []
+		self.assertTrue(any(item.get("id") == case_id for item in (items or [])))
+
+	def test_group_director_can_modify_case_created_by_other_teacher_in_group(self):
+		# self.teacher is assigned to other_group via TeacherAssignment; director is self.other_teacher
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.other_enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Caso creado por docente asignado.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		# Now authenticate as the group director and perform a mutation
+		self.client.force_authenticate(user=self.other_teacher)
+		note_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/add-note/",
+			data={"text": "Nota del director."},
+			format="json",
+		)
+		self.assertEqual(note_resp.status_code, 200, note_resp.data)
+		self.assertTrue(
+			DisciplineCaseEvent.objects.filter(
+				case_id=case_id,
+				event_type=DisciplineCaseEvent.Type.NOTE,
+				text__icontains="Nota del director",
+				created_by=self.other_teacher,
+			).exists()
+		)
+
+		# And update the case (PATCH) should be allowed for the director (when not sealed)
+		patch_resp = self.client.patch(
+			f"/api/discipline/cases/{case_id}/",
+			data={"location": "Patio"},
+			format="json",
+		)
+		self.assertEqual(patch_resp.status_code, 200, patch_resp.data)
+
+		# But closing is still admin-only (director is TEACHER)
+		close_resp = self.client.post(f"/api/discipline/cases/{case_id}/close/", data={}, format="json")
+		self.assertEqual(close_resp.status_code, 403, close_resp.data)
+
+	def test_acta_includes_institution_masthead(self):
+		# Configure institution header lines (no full-width letterhead image).
+		self.institution.pdf_header_line1 = "SECRETARÍA DE EDUCACIÓN"
+		self.institution.pdf_header_line2 = "Institución Educativa Demo"
+		self.institution.pdf_header_line3 = "Municipio / Departamento"
+		self.institution.save(update_fields=["pdf_header_line1", "pdf_header_line2", "pdf_header_line3"])
+
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Caso para probar acta.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		acta_resp = self.client.get(f"/api/discipline/cases/{case_id}/acta/")
+		self.assertEqual(acta_resp.status_code, 200)
+		html = acta_resp.content.decode("utf-8")
+		self.assertIn("SECRETARÍA DE EDUCACIÓN", html)
+		self.assertIn("Institución Educativa Demo", html)
+		self.assertIn("Acta / Registro de Convivencia", html)
+
+	def test_acta_can_be_downloaded_as_pdf(self):
+		self.institution.pdf_header_line1 = "Institución PDF"
+		self.institution.save(update_fields=["pdf_header_line1"])
+
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Caso para probar PDF.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		pdf_resp = self.client.get(
+			f"/api/discipline/cases/{case_id}/acta/?format=pdf",
+			HTTP_ACCEPT="application/pdf",
+		)
+		self.assertEqual(pdf_resp.status_code, 200)
+		self.assertEqual(pdf_resp["Content-Type"], "application/pdf")
+		self.assertTrue(pdf_resp.content.startswith(b"%PDF"), "Response does not look like a PDF")
+
+	def test_create_auto_notifies_director_and_admins_and_logs_audit(self):
+		User = get_user_model()
+		admin_user = User.objects.create_user(
+			username="a_notify",
+			password="pass",
+			role="ADMIN",
+			email="a_notify@example.com",
+		)
+		superadmin_user = User.objects.create_user(
+			username="sa_notify",
+			password="pass",
+			role="SUPERADMIN",
+			email="sa_notify@example.com",
+		)
+		coordinator_user = User.objects.create_user(
+			username="c_notify",
+			password="pass",
+			role="COORDINATOR",
+			email="c_notify@example.com",
+		)
+
+		self.client.force_authenticate(user=self.teacher)
+		resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.other_enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Caso con notificaciones.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(resp.status_code, 201, resp.data)
+		case_id = resp.data["id"]
+
+		# Director (other_teacher) gets notified
+		self.assertTrue(
+			Notification.objects.filter(
+				recipient=self.other_teacher,
+				type="DISCIPLINE_CASE",
+				url=f"/discipline/cases/{case_id}",
+			).exists()
+		)
+		# Admins get notified
+		self.assertTrue(Notification.objects.filter(recipient=admin_user, type="DISCIPLINE_CASE").exists())
+		self.assertTrue(Notification.objects.filter(recipient=superadmin_user, type="DISCIPLINE_CASE").exists())
+		# Coordinator does not count as admin for this workflow
+		self.assertFalse(Notification.objects.filter(recipient=coordinator_user, type="DISCIPLINE_CASE").exists())
+
+		self.assertTrue(
+			AuditLog.objects.filter(
+				event_type="DISCIPLINE_CASE_CREATE",
+				object_type="discipline_case",
+				object_id=case_id,
+			).exists()
+		)
 
 	def test_decide_requires_descargos(self):
 		self.client.force_authenticate(user=self.teacher)
@@ -429,13 +676,45 @@ class DisciplineCaseApiTests(TestCase):
 		self.assertEqual(create_resp.status_code, 201, create_resp.data)
 		case_id = create_resp.data["id"]
 
+		# Only admins can close cases
+		User = get_user_model()
+		admin_user = User.objects.create_user(
+			username="admin_close_1",
+			password="pass",
+			role="ADMIN",
+			email="admin_close_1@example.com",
+		)
+		self.client.force_authenticate(user=admin_user)
 		close_resp = self.client.post(f"/api/discipline/cases/{case_id}/close/", data={}, format="json")
 		self.assertEqual(close_resp.status_code, 200, close_resp.data)
 
 		case = DisciplineCase.objects.get(pk=case_id)
 		self.assertIsNotNone(case.sealed_at)
-		self.assertEqual(case.sealed_by_id, self.teacher.id)
+		self.assertEqual(case.sealed_by_id, admin_user.id)
 		self.assertTrue(isinstance(case.sealed_hash, str) and len(case.sealed_hash) == 64)
+
+	def test_teacher_cannot_close_case(self):
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción objetiva.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		close_resp = self.client.post(f"/api/discipline/cases/{case_id}/close/", data={}, format="json")
+		self.assertEqual(close_resp.status_code, 403, close_resp.data)
+		case = DisciplineCase.objects.get(pk=case_id)
+		self.assertIsNone(case.closed_at)
+		self.assertIsNone(case.sealed_at)
 
 	def test_sealed_case_blocks_mutations_but_allows_add_note(self):
 		self.client.force_authenticate(user=self.teacher)
@@ -454,8 +733,19 @@ class DisciplineCaseApiTests(TestCase):
 		self.assertEqual(create_resp.status_code, 201, create_resp.data)
 		case_id = create_resp.data["id"]
 
+		User = get_user_model()
+		admin_user = User.objects.create_user(
+			username="admin_close_2",
+			password="pass",
+			role="ADMIN",
+			email="admin_close_2@example.com",
+		)
+		self.client.force_authenticate(user=admin_user)
 		close_resp = self.client.post(f"/api/discipline/cases/{case_id}/close/", data={}, format="json")
 		self.assertEqual(close_resp.status_code, 200, close_resp.data)
+
+		# Teacher can still interact with allowed actions after the admin sealed the case
+		self.client.force_authenticate(user=self.teacher)
 
 		case = DisciplineCase.objects.get(pk=case_id)
 		sealed_hash_before = case.sealed_hash

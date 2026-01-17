@@ -23,6 +23,7 @@ from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
 
 from academic.models import Group, Period, TeacherAssignment
+from core.models import Institution
 from students.models import Enrollment
 
 from .models import AttendanceRecord, AttendanceSession
@@ -147,9 +148,39 @@ class AttendanceManualSheetView(APIView):
         except Exception:
             director_name = ""
 
+        institution = Institution.objects.first() or Institution(name="")
+        base_logo_height = int(getattr(institution, "pdf_logo_height_px", 60) or 60)
+        # 33% smaller than configured height.
+        logo_height_px = max(18, int(round(base_logo_height * 0.67)))
+
+        def _upper(s: str) -> str:
+            return (s or "").strip().upper()
+
+        printed_by_name = ""
+        teacher_name = ""
+        try:
+            if getattr(request.user, "is_authenticated", False):
+                printed_by_name = _upper(request.user.get_full_name())
+                if not printed_by_name:
+                    printed_by_name = _upper(getattr(request.user, "username", ""))
+
+            if getattr(request.user, "role", None) == "TEACHER":
+                teacher_name = printed_by_name
+                if not teacher_name:
+                    first = _upper(getattr(request.user, "first_name", ""))
+                    last = _upper(getattr(request.user, "last_name", ""))
+                    teacher_name = (last + " " + first).strip()
+        except Exception:
+            printed_by_name = ""
+            teacher_name = ""
+
         html_string = render_to_string(
             "attendance/reports/attendance_manual_sheet_pdf.html",
             {
+                "institution": institution,
+                "logo_height_px": logo_height_px,
+                "teacher_name": teacher_name,
+                "printed_by_name": printed_by_name,
                 "group_label": group_label,
                 "shift": group.get_shift_display(),
                 "printed_at": printed_at,

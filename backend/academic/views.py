@@ -812,6 +812,179 @@ class GroupViewSet(viewsets.ModelViewSet):
                 payload["traceback"] = _traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="grade-report-sheet",
+        permission_classes=[IsAuthenticated],
+    )
+    def grade_report_sheet(self, request, pk=None):
+        """Genera planilla imprimible de notas (en blanco) para un grupo.
+
+        GET /api/groups/{id}/grade-report-sheet/?format=pdf|html&period=<period_id>&subject=<text>&teacher=<text>&columns=<int>
+        """
+
+        def _to_int_or_none(value):
+            if value is None:
+                return None
+            raw = str(value).strip()
+            if raw == "":
+                return None
+            try:
+                return int(raw)
+            except Exception:
+                return None
+
+        def _upper(s: str) -> str:
+            return (s or "").strip().upper()
+
+        group: Group = self.get_object()
+
+        user = getattr(request, "user", None)
+        role = getattr(user, "role", None)
+        if role == "TEACHER":
+            if not (group.director_id == getattr(user, "id", None) or TeacherAssignment.objects.filter(teacher_id=user.id, group_id=group.id).exists()):
+                return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+        fmt = (request.query_params.get("format") or "pdf").strip().lower()
+
+        try:
+            note_cols = int(request.query_params.get("columns") or "3")
+        except Exception:
+            note_cols = 3
+        note_cols = max(1, min(note_cols, 12))
+        note_columns = [f"Nota {i}" for i in range(1, note_cols + 1)]
+
+        period_id = _to_int_or_none(request.query_params.get("period"))
+        period_name = ""
+        if period_id is not None:
+            try:
+                period = Period.objects.select_related("academic_year").get(id=period_id)
+                if period.academic_year_id == group.academic_year_id:
+                    period_name = (period.name or "").strip()
+            except Period.DoesNotExist:
+                period_name = ""
+
+        subject_name = (request.query_params.get("subject") or "").strip()
+
+        teacher_name = ""
+        teacher_param = (request.query_params.get("teacher") or "").strip()
+        if teacher_param:
+            teacher_name = teacher_param
+        else:
+            try:
+                if getattr(user, "is_authenticated", False) and getattr(user, "role", None) == "TEACHER":
+                    teacher_name = _upper(user.get_full_name())
+            except Exception:
+                teacher_name = ""
+
+        enrollments = (
+            Enrollment.objects.select_related("student", "student__user")
+            .filter(academic_year_id=group.academic_year_id, group_id=group.id, status="ACTIVE")
+            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
+        )
+
+        def _display_name(e: Enrollment) -> str:
+            last_name = (e.student.user.last_name or "").strip().upper()
+            first_name = (e.student.user.first_name or "").strip().upper()
+            full = (last_name + " " + first_name).strip()
+            return full or e.student.user.get_full_name().upper() or ""
+
+        students = [{"index": i + 1, "display_name": _display_name(e)} for i, e in enumerate(enrollments)]
+
+        grade_label = str(getattr(group.grade, "name", "")).strip() if getattr(group, "grade", None) else ""
+        group_label = f"{grade_label}-{group.name}" if grade_label else str(group.name)
+        d = timezone.localdate()
+        printed_at = f"{d.month}/{d.day}/{d.year}"
+
+        director_name = ""
+        try:
+            if group.director:
+                director_name = _upper(group.director.get_full_name())
+        except Exception:
+            director_name = ""
+
+        from core.models import Institution
+
+        institution = Institution.objects.first() or Institution(name="")
+
+        from django.template.loader import render_to_string
+
+        html_string = render_to_string(
+            "academic/reports/grade_report_sheet_pdf.html",
+            {
+                "institution": institution,
+                "teacher_name": teacher_name,
+                "group_label": group_label,
+                "shift": group.get_shift_display(),
+                "printed_at": printed_at,
+                "period_name": period_name,
+                "subject_name": subject_name,
+                "director_name": director_name,
+                "students": students,
+                "note_columns": note_columns,
+            },
+        )
+
+        if fmt == "html":
+            from django.http import HttpResponse
+
+            return HttpResponse(html_string, content_type="text/html; charset=utf-8")
+
+        try:
+            import io
+            import os
+            import traceback
+
+            from django.conf import settings
+            from django.http import HttpResponse
+            from xhtml2pdf import pisa
+
+            def _pisa_link_callback(uri: str, rel: str | None = None):
+                if uri.startswith("http://") or uri.startswith("https://"):
+                    return uri
+
+                media_url = getattr(settings, "MEDIA_URL", "") or ""
+                static_url = getattr(settings, "STATIC_URL", "") or ""
+
+                if media_url and uri.startswith(media_url):
+                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
+                    return os.path.normpath(path)
+
+                if static_url and uri.startswith(static_url):
+                    static_root = getattr(settings, "STATIC_ROOT", None)
+                    if static_root:
+                        path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
+                        return os.path.normpath(path)
+
+                return uri
+
+            result = io.BytesIO()
+            pdf = pisa.pisaDocument(
+                io.BytesIO(html_string.encode("UTF-8")),
+                result,
+                link_callback=_pisa_link_callback,
+                encoding="UTF-8",
+            )
+
+            if pdf.err:
+                return Response(
+                    {"detail": "Error generando PDF", "pisa_errors": getattr(pdf, "err", None)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            filename = f"planilla_notas_{group_label}.pdf".replace(" ", "_")
+            response = HttpResponse(result.getvalue(), content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+        except Exception as e:
+            from django.conf import settings as _settings
+
+            payload = {"detail": "Error generando PDF", "error": str(e)}
+            if getattr(_settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'], url_path='copy_from_year')
     def copy_from_year(self, request):
         source_year_id = request.data.get('source_year_id')
