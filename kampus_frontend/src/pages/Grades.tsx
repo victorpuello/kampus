@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GraduationCap, Save } from 'lucide-react'
+import { GraduationCap, Save, Trash2 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   academicApi,
@@ -15,6 +15,7 @@ import {
 import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Input } from '../components/ui/Input'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
@@ -25,6 +26,13 @@ const makeKey = (enrollmentId: number, achievementId: number): CellKey => `${enr
 const makeActivityKey = (enrollmentId: number, columnId: number): ActivityCellKey => `${enrollmentId}:${columnId}`
 
 type BlockedAny = { enrollment: number; reason: string; achievement?: number; column?: number }
+
+function isCurrentPeriod(period: Period): boolean {
+  const start = new Date(`${period.start_date}T00:00:00`)
+  const end = new Date(`${period.end_date}T23:59:59`)
+  const now = new Date()
+  return now.getTime() >= start.getTime() && now.getTime() <= end.getTime()
+}
 
 export default function Grades() {
   const user = useAuthStore((s) => s.user)
@@ -136,6 +144,9 @@ export default function Grades() {
   >(null)
   const [loadingGradeGrant, setLoadingGradeGrant] = useState(false)
   const [lastBlocked, setLastBlocked] = useState<BlockedAny[]>([])
+
+  const [resetModalOpen, setResetModalOpen] = useState(false)
+  const [resettingSheet, setResettingSheet] = useState(false)
 
   const gradeWindowClosed = useMemo(() => {
     if (user?.role !== 'TEACHER') return false
@@ -262,6 +273,9 @@ export default function Grades() {
   const SHEETS_PAGE_SIZE = 9
 
   const orderedAvailableSheets = useMemo(() => {
+    const gradeById = new Map<number, Grade>()
+    for (const g of grades) gradeById.set(g.id, g)
+
     const compareText = (a: string, b: string) =>
       a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true })
 
@@ -271,27 +285,28 @@ export default function Grades() {
       const subjectCmp = compareText(subjectA, subjectB)
       if (subjectCmp !== 0) return subjectCmp
 
+      const aOrdinal = gradeById.get(a.grade_id)?.ordinal
+      const bOrdinal = gradeById.get(b.grade_id)?.ordinal
+      const ao = aOrdinal === null || aOrdinal === undefined ? Number.POSITIVE_INFINITY : aOrdinal
+      const bo = bOrdinal === null || bOrdinal === undefined ? Number.POSITIVE_INFINITY : bOrdinal
+      if (ao !== bo) return ao - bo
+
       const gradeCmp = compareText((a.grade_name ?? '').trim(), (b.grade_name ?? '').trim())
       if (gradeCmp !== 0) return gradeCmp
 
       const groupCmp = compareText((a.group_name ?? '').trim(), (b.group_name ?? '').trim())
       if (groupCmp !== 0) return groupCmp
 
+      const completionCmp = Number(a.completion.is_complete) - Number(b.completion.is_complete)
+      if (completionCmp !== 0) return completionCmp
+
       return a.teacher_assignment_id - b.teacher_assignment_id
     }
 
-    const incomplete: GradebookAvailableSheet[] = []
-    const complete: GradebookAvailableSheet[] = []
-
-    for (const s of availableSheets) {
-      if (s.completion.is_complete) complete.push(s)
-      else incomplete.push(s)
-    }
-
-    incomplete.sort(bySubjectThenGrade)
-    complete.sort(bySubjectThenGrade)
-    return [...incomplete, ...complete]
-  }, [availableSheets])
+    const next = [...availableSheets]
+    next.sort(bySubjectThenGrade)
+    return next
+  }, [availableSheets, grades])
 
   const sheetsTotalPages = useMemo(
     () => Math.max(1, Math.ceil(orderedAvailableSheets.length / SHEETS_PAGE_SIZE)),
@@ -310,6 +325,24 @@ export default function Grades() {
     const start = (sheetsPage - 1) * SHEETS_PAGE_SIZE
     return orderedAvailableSheets.slice(start, start + SHEETS_PAGE_SIZE)
   }, [orderedAvailableSheets, sheetsPage])
+
+  const pagedSheetsGroupedBySubject = useMemo(() => {
+    const groups: { subject: string; sheets: GradebookAvailableSheet[] }[] = []
+    const subjectIndex = new Map<string, number>()
+
+    for (const s of pagedAvailableSheets) {
+      const subject = (s.subject_name ?? 'Sin asignatura').trim() || 'Sin asignatura'
+      const idx = subjectIndex.get(subject)
+      if (idx === undefined) {
+        subjectIndex.set(subject, groups.length)
+        groups.push({ subject, sheets: [s] })
+      } else {
+        groups[idx].sheets.push(s)
+      }
+    }
+
+    return groups
+  }, [pagedAvailableSheets])
 
   const visibleAssignments = useMemo(() => {
     if (user?.role === 'TEACHER') return assignments.filter((a) => a.teacher === user.id)
@@ -448,7 +481,7 @@ export default function Grades() {
     const yearIds = new Set<number>()
     for (const a of visibleAssignments) yearIds.add(a.academic_year)
     return periods
-      .filter((p) => yearIds.has(p.academic_year))
+      .filter((p) => yearIds.has(p.academic_year) && isCurrentPeriod(p))
       .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
   }, [periods, user?.role, visibleAssignments])
 
@@ -917,7 +950,11 @@ export default function Grades() {
         setSelectedAcademicLoadId(firstAssignment.academic_load)
 
         const pForYear = periodsRes.data.filter((p) => p.academic_year === firstAssignment.academic_year)
-        if (pForYear.length > 0 && selectedPeriodId == null) setSelectedPeriodId(pForYear[0].id)
+        const current = pForYear.find((p) => isCurrentPeriod(p)) ?? null
+        if (selectedPeriodId == null) {
+          setSelectedPeriodId(current?.id ?? null)
+          if (!current) showToast('No hay un periodo actual activo para diligenciar planillas.', 'error')
+        }
 
         // Nota: no forzar selección en TEACHER; el flujo por defecto es cards.
       }
@@ -941,9 +978,26 @@ export default function Grades() {
     const periodId = parsedPeriod && Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null
     const teacherAssignmentId = parsedTa && Number.isFinite(parsedTa) && parsedTa > 0 ? parsedTa : null
 
-    if (periodId && periodId !== selectedPeriodId) setSelectedPeriodId(periodId)
+    if (periodId && periodId !== selectedPeriodId) {
+      const candidate = periods.find((p) => p.id === periodId)
+      if (candidate && isCurrentPeriod(candidate)) {
+        setSelectedPeriodId(periodId)
+      }
+    }
     if (teacherAssignmentId !== selectedTeacherAssignmentId) setSelectedTeacherAssignmentId(teacherAssignmentId)
-  }, [location.search, selectedPeriodId, selectedTeacherAssignmentId, user?.role])
+  }, [location.search, periods, selectedPeriodId, selectedTeacherAssignmentId, user?.role])
+
+  const teacherMode = user?.role === 'TEACHER'
+  const showingCards = teacherMode && !selectedTeacherAssignmentId
+
+  const canResetSheet = useMemo(() => {
+    if (user?.role !== 'TEACHER') return false
+    if (!gradebook) return false
+    if (periodIsClosed) return false
+    if (showingCards) return false
+    if (!gradeWindowClosed) return true
+    return !!activeGradeGrant?.hasFull
+  }, [activeGradeGrant?.hasFull, gradeWindowClosed, gradebook, periodIsClosed, showingCards, user?.role])
 
   const loadAvailableSheets = useCallback(
     async (periodId: number) => {
@@ -1005,6 +1059,26 @@ export default function Grades() {
       setLoadingGradebook(false)
     }
   }, [showToast])
+
+  const handleResetSheet = useCallback(async () => {
+    if (!gradebook?.gradesheet?.id) return
+    const taId = gradebook?.teacher_assignment?.id
+    const pId = gradebook?.period?.id
+    if (!taId || !pId) return
+
+    setResettingSheet(true)
+    try {
+      await academicApi.resetGradeSheet(gradebook.gradesheet.id)
+      showToast('Planilla restablecida.', 'success')
+      await loadGradebook(taId, pId)
+    } catch (e) {
+      console.error(e)
+      showToast('No se pudo restablecer la planilla.', 'error')
+    } finally {
+      setResettingSheet(false)
+      setResetModalOpen(false)
+    }
+  }, [gradebook, loadGradebook, showToast])
 
   const setGradingMode = useCallback(
     async (mode: GradeSheetGradingMode) => {
@@ -1783,9 +1857,6 @@ export default function Grades() {
 
   if (loadingInit) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
 
-  const teacherMode = user?.role === 'TEACHER'
-  const showingCards = teacherMode && !selectedTeacherAssignmentId
-
   return (
     <div className="space-y-6">
       <Toast
@@ -1947,9 +2018,35 @@ export default function Grades() {
               <Save className="mr-2 h-4 w-4" />
               Guardar
             </Button>
+
+            {canResetSheet ? (
+              <Button
+                variant="destructive"
+                onClick={() => setResetModalOpen(true)}
+                disabled={resettingSheet}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                {resettingSheet ? 'Restableciendo…' : 'Restablecer'}
+              </Button>
+            ) : null}
           </div>
         )}
       </div>
+
+      <ConfirmationModal
+        isOpen={resetModalOpen}
+        onClose={() => {
+          if (resettingSheet) return
+          setResetModalOpen(false)
+        }}
+        onConfirm={handleResetSheet}
+        title="Restablecer planilla"
+        description="Esto borrará todas las calificaciones y actividades de la planilla y la dejará con valores por defecto."
+        confirmText="Restablecer"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={resettingSheet}
+      />
 
       {user?.role === 'TEACHER' && gradeWindowClosed && (
         <Card className="border border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/30">
@@ -2060,60 +2157,69 @@ export default function Grades() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {pagedAvailableSheets.map((s) => {
-              const complete = s.completion.is_complete
-              const badgeClass = complete
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
-                : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
+          <div className="space-y-6">
+            {pagedSheetsGroupedBySubject.map((group) => (
+              <div key={group.subject} className="space-y-3">
+                <div className="px-1 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  {group.subject}
+                </div>
 
-              return (
-                <Card key={s.teacher_assignment_id} className="border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
-                  <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <CardTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                          {s.grade_name} • {s.group_name}
-                        </CardTitle>
-                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">{s.subject_name ?? 'Asignatura'}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">{s.period.name}{s.period.is_closed ? ' (Cerrado)' : ''}</div>
-                      </div>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
-                        {complete ? 'Completa' : 'Incompleta'}
-                      </span>
-                    </div>
-                  </CardHeader>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.sheets.map((s) => {
+                    const complete = s.completion.is_complete
+                    const badgeClass = complete
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
+                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
 
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                      <span>
-                        Diligenciamiento: {s.completion.filled}/{s.completion.total}
-                      </span>
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{s.completion.percent}%</span>
-                    </div>
-                    <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.completion.percent}>
-                      <div className="h-2 rounded-full bg-blue-600" style={{ width: `${s.completion.percent}%` }} />
-                    </div>
+                    return (
+                      <Card key={s.teacher_assignment_id} className="border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
+                        <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <CardTitle className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                                {s.grade_name} • {s.group_name}
+                              </CardTitle>
+                              <div className="text-xs text-slate-400 mt-0.5">{s.period.name}{s.period.is_closed ? ' (Cerrado)' : ''}</div>
+                            </div>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                              {complete ? 'Completa' : 'Incompleta'}
+                            </span>
+                          </div>
+                        </CardHeader>
 
-                    <div className="mt-4 flex items-center justify-between">
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {s.students_count} estudiantes • {s.achievements_count} logros
-                      </div>
-                      <Button
-                        className="bg-blue-600 hover:bg-blue-700"
-                        onClick={() => {
-                          setSelectedTeacherAssignmentId(s.teacher_assignment_id)
-                          replaceTeacherSearch(selectedPeriodId, s.teacher_assignment_id)
-                        }}
-                        disabled={!selectedPeriodId}
-                      >
-                        Ingresar
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
+                        <CardContent className="pt-4">
+                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                            <span>
+                              Diligenciamiento: {s.completion.filled}/{s.completion.total}
+                            </span>
+                            <span className="font-medium text-slate-700 dark:text-slate-200">{s.completion.percent}%</span>
+                          </div>
+                          <div className="mt-2 h-2 w-full rounded-full bg-slate-200 dark:bg-slate-700" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.completion.percent}>
+                            <div className="h-2 rounded-full bg-blue-600" style={{ width: `${s.completion.percent}%` }} />
+                          </div>
+
+                          <div className="mt-4 flex items-center justify-between">
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              {s.students_count} estudiantes • {s.achievements_count} logros
+                            </div>
+                            <Button
+                              className="bg-blue-600 hover:bg-blue-700"
+                              onClick={() => {
+                                setSelectedTeacherAssignmentId(s.teacher_assignment_id)
+                                replaceTeacherSearch(selectedPeriodId, s.teacher_assignment_id)
+                              }}
+                              disabled={!selectedPeriodId}
+                            >
+                              Ingresar
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

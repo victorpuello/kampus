@@ -470,6 +470,7 @@ export const academicApi = {
     api.get<{ results: GradebookAvailableSheet[] }>('/api/grade-sheets/available/', {
       params: { period: periodId },
     }),
+  resetGradeSheet: (gradeSheetId: number) => api.post<{ detail: string }>(`/api/grade-sheets/${gradeSheetId}/reset/`),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
     api.post<GradebookBulkUpsertResponse>('/api/grade-sheets/bulk-upsert/', data),
 

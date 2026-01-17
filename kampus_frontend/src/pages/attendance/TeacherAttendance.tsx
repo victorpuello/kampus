@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 import { Input } from '../../components/ui/Input'
 import { Pill } from '../../components/ui/Pill'
 import { Toast, type ToastType } from '../../components/ui/Toast'
@@ -115,6 +116,8 @@ export default function TeacherAttendance() {
   const [sessionsCount, setSessionsCount] = useState(0)
 
   const [deletingSessionId, setDeletingSessionId] = useState<number | null>(null)
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteModalSessionId, setDeleteModalSessionId] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize] = useState(10)
   const [ordering, setOrdering] = useState('-starts_at')
@@ -292,16 +295,18 @@ export default function TeacherAttendance() {
 
   const totalPages = Math.max(1, Math.ceil(sessionsCount / pageSize))
 
-  const handleRequestDelete = async (sessionId: number) => {
-    const ok = window.confirm(
-      'Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti. ¿Continuar?'
-    )
-    if (!ok) return
+  const openRequestDeleteModal = (sessionId: number) => {
+    setDeleteModalSessionId(sessionId)
+    setDeleteModalOpen(true)
+  }
 
-    setDeletingSessionId(sessionId)
+  const handleRequestDeleteConfirmed = async () => {
+    if (!deleteModalSessionId) return
+
+    setDeletingSessionId(deleteModalSessionId)
     setError(null)
     try {
-      const res = await deleteAttendanceSession(sessionId)
+      const res = await deleteAttendanceSession(deleteModalSessionId)
       const msg = (res && typeof res.detail === 'string' && res.detail) ? res.detail : 'Solicitud enviada al administrador.'
       showToast(msg, 'success')
       await loadSessions()
@@ -312,6 +317,8 @@ export default function TeacherAttendance() {
       showToast(msg, 'error')
     } finally {
       setDeletingSessionId(null)
+      setDeleteModalOpen(false)
+      setDeleteModalSessionId(null)
     }
   }
 
@@ -533,10 +540,10 @@ export default function TeacherAttendance() {
                                 </Button>
                                 <Button
                                   variant="destructive"
-                                  onClick={() => handleRequestDelete(s.id)}
+                                  onClick={() => openRequestDeleteModal(s.id)}
                                   disabled={deletingSessionId === s.id}
                                 >
-                                  {deletingSessionId === s.id ? 'Enviando…' : 'Solicitar eliminación'}
+                                  {deletingSessionId === s.id ? 'Enviando…' : 'Eliminar'}
                                 </Button>
                               </div>
                             </td>
@@ -570,6 +577,22 @@ export default function TeacherAttendance() {
           type={toast.type}
           isVisible={toast.isVisible}
           onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
+        />
+
+        <ConfirmationModal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            if (deletingSessionId) return
+            setDeleteModalOpen(false)
+            setDeleteModalSessionId(null)
+          }}
+          onConfirm={handleRequestDeleteConfirmed}
+          title="Eliminar planilla"
+          description="Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          variant="destructive"
+          loading={Boolean(deletingSessionId) && deletingSessionId === deleteModalSessionId}
         />
       </CardContent>
     </Card>

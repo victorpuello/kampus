@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, CloudOff, RotateCcw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 import { Input } from '../../components/ui/Input'
 import {
   bulkMarkAttendance,
@@ -176,6 +177,9 @@ export default function AttendanceSession() {
   const [info, setInfo] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast>(null)
   const [offlinePendingTick, setOfflinePendingTick] = useState(0)
+
+  const [requestDeleteModalOpen, setRequestDeleteModalOpen] = useState(false)
+  const [deleteDefinitiveModalOpen, setDeleteDefinitiveModalOpen] = useState(false)
 
   const [undo, setUndo] = useState<{
     enrollmentId: number
@@ -744,11 +748,6 @@ export default function AttendanceSession() {
 
   const handleRequestDelete = async () => {
     if (!sessionId) return
-    const ok = window.confirm(
-      'Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti. ¿Continuar?'
-    )
-    if (!ok) return
-
     setError(null)
     setInfo(null)
     try {
@@ -759,14 +758,13 @@ export default function AttendanceSession() {
     } catch (err) {
       console.error(err)
       setError('No se pudo enviar la solicitud de eliminación.')
+    } finally {
+      setRequestDeleteModalOpen(false)
     }
   }
 
   const handleDeleteDefinitive = async () => {
     if (!sessionId) return
-    const ok = window.confirm(`Esto eliminará definitivamente la planilla #${sessionId}. ¿Deseas continuar?`)
-    if (!ok) return
-
     setError(null)
     setInfo(null)
     try {
@@ -776,6 +774,8 @@ export default function AttendanceSession() {
     } catch (err) {
       console.error(err)
       setError('No se pudo eliminar definitivamente la planilla.')
+    } finally {
+      setDeleteDefinitiveModalOpen(false)
     }
   }
 
@@ -843,6 +843,28 @@ export default function AttendanceSession() {
           </div>
         ) : null}
 
+        <ConfirmationModal
+          isOpen={requestDeleteModalOpen}
+          onClose={() => setRequestDeleteModalOpen(false)}
+          onConfirm={handleRequestDelete}
+          title="Eliminar planilla"
+          description="Esto enviará una solicitud de eliminación al administrador y desactivará la planilla para ti."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          variant="destructive"
+        />
+
+        <ConfirmationModal
+          isOpen={deleteDefinitiveModalOpen}
+          onClose={() => setDeleteDefinitiveModalOpen(false)}
+          onConfirm={handleDeleteDefinitive}
+          title="Eliminar definitivamente"
+          description={sessionId ? `Esto eliminará definitivamente la planilla #${sessionId}.` : 'Esto eliminará definitivamente la planilla.'}
+          confirmText="Eliminar definitivo"
+          cancelText="Cancelar"
+          variant="destructive"
+        />
+
         {loading ? (
           <p className="text-slate-600 dark:text-slate-300">Cargando…</p>
         ) : (
@@ -895,12 +917,12 @@ export default function AttendanceSession() {
                       Cerrar clase
                     </Button>
                     {isTeacher && !deletionRequestedAt ? (
-                      <Button variant="destructive" onClick={handleRequestDelete}>
-                        Solicitar eliminación
+                      <Button variant="destructive" onClick={() => setRequestDeleteModalOpen(true)}>
+                        Eliminar
                       </Button>
                     ) : null}
                     {isAdmin && deletionRequestedAt ? (
-                      <Button variant="destructive" onClick={handleDeleteDefinitive}>
+                      <Button variant="destructive" onClick={() => setDeleteDefinitiveModalOpen(true)}>
                         Eliminar definitivamente
                       </Button>
                     ) : null}

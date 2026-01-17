@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 import { Pill } from '../../components/ui/Pill'
 import { Toast, type ToastType } from '../../components/ui/Toast'
 import {
@@ -45,6 +46,9 @@ export default function AttendanceDeletionRequests() {
   const [pageSize] = useState(20)
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deleteModalSessionId, setDeleteModalSessionId] = useState<number | null>(null)
+
   const totalPages = Math.max(1, Math.ceil((count || 0) / pageSize))
 
   const load = async () => {
@@ -74,15 +78,17 @@ export default function AttendanceDeletionRequests() {
 
   const rows = useMemo(() => items, [items])
 
-  const handleDeleteDefinitive = async (sessionId: number) => {
-    const ok = window.confirm(
-      `Esto eliminará definitivamente la planilla #${sessionId}. ¿Deseas continuar?`
-    )
-    if (!ok) return
+  const openDeleteDefinitiveModal = (sessionId: number) => {
+    setDeleteModalSessionId(sessionId)
+    setDeleteModalOpen(true)
+  }
 
-    setDeletingId(sessionId)
+  const handleDeleteDefinitiveConfirmed = async () => {
+    if (!deleteModalSessionId) return
+
+    setDeletingId(deleteModalSessionId)
     try {
-      await deleteAttendanceSession(sessionId)
+      await deleteAttendanceSession(deleteModalSessionId)
       showToast('Planilla eliminada definitivamente.', 'success')
       await load()
     } catch (err) {
@@ -90,6 +96,8 @@ export default function AttendanceDeletionRequests() {
       showToast('No se pudo eliminar la planilla. Verifica permisos o que exista solicitud.', 'error')
     } finally {
       setDeletingId(null)
+      setDeleteModalOpen(false)
+      setDeleteModalSessionId(null)
     }
   }
 
@@ -104,6 +112,22 @@ export default function AttendanceDeletionRequests() {
           type={toast.type}
           isVisible={toast.isVisible}
           onClose={() => setToast((t) => ({ ...t, isVisible: false }))}
+        />
+
+        <ConfirmationModal
+          isOpen={deleteModalOpen}
+          onClose={() => {
+            if (deletingId) return
+            setDeleteModalOpen(false)
+            setDeleteModalSessionId(null)
+          }}
+          onConfirm={handleDeleteDefinitiveConfirmed}
+          title="Eliminar definitivamente"
+          description={deleteModalSessionId ? `Esto eliminará definitivamente la planilla #${deleteModalSessionId}.` : 'Esto eliminará definitivamente la planilla.'}
+          confirmText="Eliminar definitivo"
+          cancelText="Cancelar"
+          variant="destructive"
+          loading={Boolean(deletingId) && deletingId === deleteModalSessionId}
         />
 
         {loading ? (
@@ -175,7 +199,7 @@ export default function AttendanceDeletionRequests() {
                               </Button>
                               <Button
                                 variant="destructive"
-                                onClick={() => handleDeleteDefinitive(s.id)}
+                                onClick={() => openDeleteDefinitiveModal(s.id)}
                                 disabled={deletingId === s.id}
                               >
                                 {deletingId === s.id ? 'Eliminando…' : 'Eliminar definitivo'}

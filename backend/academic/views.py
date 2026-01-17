@@ -1538,6 +1538,29 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
     serializer_class = GradeSheetSerializer
     permission_classes = [KampusModelPermissions]
 
+    def _enforce_teacher_current_period(self, *, user, period: Period):
+        """Teachers can only work with the *current* period.
+
+        Current period means: today's date is within [start_date, end_date].
+        This prevents exposing future-period grade sheets to teachers.
+        """
+
+        is_teacher = user is not None and getattr(user, "role", None) == "TEACHER"
+        if not is_teacher:
+            return None
+
+        today = timezone.localdate()
+        if today < period.start_date or today > period.end_date:
+            return Response(
+                {
+                    "error": "Solo se pueden diligenciar planillas del periodo actual.",
+                    "code": "PERIOD_NOT_CURRENT",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return None
+
     def get_queryset(self):
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
@@ -1546,6 +1569,71 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         if getattr(user, "role", None) == "TEACHER":
             return qs.filter(teacher_assignment__teacher=user)
         return qs
+
+    @action(detail=True, methods=["post"], url_path="reset")
+    def reset(self, request, pk=None):
+        """Teacher can reset (clear) all grades/activities for a grade sheet.
+
+        - Only allowed for the current period.
+        - Respects the edit window: after deadline, requires FULL grant.
+        - Resets grading_mode back to ACHIEVEMENT.
+        """
+
+        gradesheet: GradeSheet = self.get_object()
+        period: Period = gradesheet.period
+        teacher_assignment: TeacherAssignment = gradesheet.teacher_assignment
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se puede restablecer la planilla."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not self._teacher_can_edit_structure_after_deadline(
+            user=request.user,
+            period=period,
+            teacher_assignment=teacher_assignment,
+        ):
+            return Response(
+                {"detail": "La edición está cerrada y no tienes permiso para restablecer la planilla."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        with transaction.atomic():
+            col_ids = list(
+                AchievementActivityColumn.objects.filter(gradesheet=gradesheet)
+                .values_list("id", flat=True)
+            )
+
+            deleted_activity_grades = 0
+            if col_ids:
+                deleted_activity_grades = AchievementActivityGrade.objects.filter(column_id__in=col_ids).delete()[0]
+
+            deleted_activity_columns = AchievementActivityColumn.objects.filter(gradesheet=gradesheet).delete()[0]
+            deleted_achievement_grades = AchievementGrade.objects.filter(gradesheet=gradesheet).delete()[0]
+
+            reset_mode = False
+            if getattr(gradesheet, "grading_mode", None) != GradeSheet.GRADING_MODE_ACHIEVEMENT:
+                gradesheet.grading_mode = GradeSheet.GRADING_MODE_ACHIEVEMENT
+                gradesheet.save(update_fields=["grading_mode"])
+                reset_mode = True
+
+        return Response(
+            {
+                "detail": "Planilla restablecida.",
+                "deleted": {
+                    "achievement_grades": deleted_achievement_grades,
+                    "activity_columns": deleted_activity_columns,
+                    "activity_grades": deleted_activity_grades,
+                },
+                "reset_grading_mode": reset_mode,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def _get_teacher_assignment(self, teacher_assignment_id: int):
         qs = TeacherAssignment.objects.all()
@@ -1713,6 +1801,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         except Period.DoesNotExist:
             return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
         tas = TeacherAssignment.objects.filter(academic_year_id=period.academic_year_id)
         if getattr(request.user, "role", None) == "TEACHER":
             tas = tas.filter(teacher=request.user)
@@ -1820,6 +1912,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 {"error": "El periodo no corresponde al año lectivo de la asignación"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
 
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,
@@ -2002,6 +2098,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
         if period.is_closed:
             return Response(
                 {"error": "El periodo está cerrado; no se puede modificar la planilla."},
@@ -2096,6 +2196,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,
             period=period,
@@ -2142,6 +2246,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 {"error": "El periodo no corresponde al año lectivo de la asignación"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
 
         if period.is_closed:
             return Response(
@@ -2299,6 +2407,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 {"error": "El periodo no corresponde al año lectivo de la asignación"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
 
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,
@@ -2514,6 +2626,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 {"error": "El periodo no corresponde al año lectivo de la asignación"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
 
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,

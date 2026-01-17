@@ -18,6 +18,7 @@ from academic.models import (
     EditGrant,
     EditGrantItem,
     EditRequest,
+    GradeSheet,
     Grade,
     Group,
     Period,
@@ -50,12 +51,22 @@ class GradebookApiTests(APITestCase):
             last_name="Dos",
         )
 
-        self.year = AcademicYear.objects.create(year=2025, status=AcademicYear.STATUS_ACTIVE)
+        self.year = AcademicYear.objects.create(year=2026, status=AcademicYear.STATUS_ACTIVE)
+
+        today = timezone.localdate()
         self.period = Period.objects.create(
             academic_year=self.year,
             name="P1",
-            start_date="2025-01-01",
-            end_date="2025-03-31",
+            start_date=today - timedelta(days=7),
+            end_date=today + timedelta(days=30),
+            is_closed=False,
+        )
+
+        self.future_period = Period.objects.create(
+            academic_year=self.year,
+            name="P2",
+            start_date=today + timedelta(days=31),
+            end_date=today + timedelta(days=60),
             is_closed=False,
         )
 
@@ -212,6 +223,94 @@ class GradebookApiTests(APITestCase):
             {"teacher_assignment": self.assignment_other.id, "period": self.period.id},
         )
         self.assertEqual(resp.status_code, 404)
+
+    def test_teacher_cannot_access_future_period_gradebook(self):
+        resp = self.client.get(
+            "/api/grade-sheets/gradebook/",
+            {"teacher_assignment": self.assignment.id, "period": self.future_period.id},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data.get("code"), "PERIOD_NOT_CURRENT")
+
+    def test_teacher_cannot_list_available_sheets_for_future_period(self):
+        resp = self.client.get(
+            "/api/grade-sheets/available/",
+            {"period": self.future_period.id},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data.get("code"), "PERIOD_NOT_CURRENT")
+
+    def test_teacher_can_reset_gradesheet(self):
+        # Seed a score and activities, then reset and ensure everything is cleared.
+        self.client.post(
+            "/api/grade-sheets/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {
+                        "enrollment": self.enrollment.id,
+                        "achievement": self.achievement.id,
+                        "score": "4.00",
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        self.client.post(
+            "/api/grade-sheets/set-grading-mode/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grading_mode": "ACTIVITIES",
+                "default_columns": 1,
+            },
+            format="json",
+        )
+
+        gradesheet_id = GradeSheet.objects.get(
+            teacher_assignment=self.assignment,
+            period=self.period,
+        ).id
+
+        cols = list(
+            AchievementActivityColumn.objects.filter(
+                gradesheet_id=gradesheet_id,
+                is_active=True,
+            )
+        )
+        self.assertTrue(cols)
+
+        self.client.post(
+            "/api/grade-sheets/activity-grades/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {"enrollment": self.enrollment.id, "column": cols[0].id, "score": "5.00"}
+                ],
+            },
+            format="json",
+        )
+
+        self.assertTrue(AchievementGrade.objects.filter(gradesheet_id=gradesheet_id).exists())
+        self.assertTrue(AchievementActivityColumn.objects.filter(gradesheet_id=gradesheet_id).exists())
+        self.assertTrue(AchievementActivityGrade.objects.filter(column_id__in=[c.id for c in cols]).exists())
+
+        reset_resp = self.client.post(f"/api/grade-sheets/{gradesheet_id}/reset/")
+        self.assertEqual(reset_resp.status_code, 200)
+
+        self.assertFalse(AchievementGrade.objects.filter(gradesheet_id=gradesheet_id).exists())
+        self.assertFalse(AchievementActivityColumn.objects.filter(gradesheet_id=gradesheet_id).exists())
+        self.assertFalse(AchievementActivityGrade.objects.filter(column_id__in=[c.id for c in cols]).exists())
+
+        gb = self.client.get(
+            "/api/grade-sheets/gradebook/",
+            {"teacher_assignment": self.assignment.id, "period": self.period.id},
+        )
+        self.assertEqual(gb.status_code, 200)
+        self.assertEqual(gb.data["gradesheet"]["grading_mode"], "ACHIEVEMENT")
 
     def test_set_grading_mode_activities_creates_default_columns_and_payload(self):
         resp = self.client.post(
