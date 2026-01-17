@@ -41,7 +41,10 @@
 
 ### 📝 Calificaciones (Planilla)
 - Planilla de notas con modo híbrido: **Tradicional** (nota por logro) y **Actividades** (subcolumnas por logro con promedio automático; vacíos=1.0).
-- Guía: `docs/modo_actividades_notas.md`.
+- En modo **Actividades**: columnas por logro (agregar, renombrar inline, desactivar) + navegación tipo planilla con teclado.
+- UX móvil: vista por tarjetas y **Captura rápida** para reducir scroll.
+- Reportes: descarga de **informe académico del grupo** en PDF (según permisos/rol del usuario).
+- Guías: `docs/modo_actividades_notas.md` y `docs/plan_modo_actividades_notas.md`.
 
 ### 🤖 Informe IA (Oficial)
 - Formato oficial del **Informe IA (Estado del grupo)** en PDF: ver `docs/formato_oficial_informe_ia.md`.
