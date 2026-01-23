@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.conf import settings
 from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
@@ -753,6 +754,9 @@ class GroupViewSet(viewsets.ModelViewSet):
         GET /api/groups/{id}/academic-report/?period=<period_id>
         """
 
+        async_raw = (request.query_params.get("async") or "").strip().lower()
+        async_requested = async_raw in {"1", "true", "yes"}
+
         def _to_int_or_none(value):
             if value is None:
                 return None
@@ -803,6 +807,27 @@ class GroupViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if async_requested:
+            from reports.models import ReportJob
+            from reports.serializers import ReportJobSerializer
+            from reports.tasks import generate_report_job_pdf
+
+            from django.utils import timezone
+            from datetime import timedelta
+
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.ACADEMIC_PERIOD_GROUP,
+                params={"group_id": group.id, "period_id": period.id},
+                expires_at=expires_at,
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
+
         enrollments = (
             Enrollment.objects.select_related(
                 "student",
@@ -827,6 +852,12 @@ class GroupViewSet(viewsets.ModelViewSet):
             filename = f"informe-academico-grupo-{group.id}-period-{period.id}.pdf"
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'
+
+            # Sync PDF is kept for backward compatibility, but jobs are preferred.
+            response["Deprecation"] = "true"
+            sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+            response["Sunset"] = str(sunset)
+            response["Link"] = '</api/reports/jobs/>; rel="alternate"'
             return response
         except Exception as e:
             payload = {"detail": "Error generating PDF", "error": str(e)}
@@ -864,6 +895,8 @@ class GroupViewSet(viewsets.ModelViewSet):
             return (s or "").strip().upper()
 
         group: Group = self.get_object()
+        async_raw = (request.query_params.get("async") or "").strip().lower()
+        async_requested = async_raw in {"1", "true", "yes"}
 
         user = getattr(request, "user", None)
         role = getattr(user, "role", None)
@@ -878,17 +911,8 @@ class GroupViewSet(viewsets.ModelViewSet):
         except Exception:
             note_cols = 3
         note_cols = max(1, min(note_cols, 12))
-        note_columns = [f"Nota {i}" for i in range(1, note_cols + 1)]
 
         period_id = _to_int_or_none(request.query_params.get("period"))
-        period_name = ""
-        if period_id is not None:
-            try:
-                period = Period.objects.select_related("academic_year").get(id=period_id)
-                if period.academic_year_id == group.academic_year_id:
-                    period_name = (period.name or "").strip()
-            except Period.DoesNotExist:
-                period_name = ""
 
         subject_name = (request.query_params.get("subject") or "").strip()
 
@@ -903,110 +927,83 @@ class GroupViewSet(viewsets.ModelViewSet):
             except Exception:
                 teacher_name = ""
 
-        enrollments = (
-            Enrollment.objects.select_related("student", "student__user")
-            .filter(academic_year_id=group.academic_year_id, group_id=group.id, status="ACTIVE")
-            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
-        )
-
-        def _display_name(e: Enrollment) -> str:
-            last_name = (e.student.user.last_name or "").strip().upper()
-            first_name = (e.student.user.first_name or "").strip().upper()
-            full = (last_name + " " + first_name).strip()
-            return full or e.student.user.get_full_name().upper() or ""
-
-        students = [{"index": i + 1, "display_name": _display_name(e)} for i, e in enumerate(enrollments)]
-
-        grade_label = str(getattr(group.grade, "name", "")).strip() if getattr(group, "grade", None) else ""
-        group_label = f"{grade_label}-{group.name}" if grade_label else str(group.name)
-        d = timezone.localdate()
-        printed_at = f"{d.month}/{d.day}/{d.year}"
-
-        director_name = ""
-        try:
-            if group.director:
-                director_name = _upper(group.director.get_full_name())
-        except Exception:
-            director_name = ""
-
-        from core.models import Institution
-
-        institution = Institution.objects.first() or Institution(name="")
-
         from django.template.loader import render_to_string
+
+        from academic.reports import build_grade_report_sheet_context  # noqa: PLC0415
+
+        ctx = build_grade_report_sheet_context(
+            group=group,
+            user=user,
+            columns=note_cols,
+            period_id=period_id,
+            subject_name=subject_name,
+            teacher_name=teacher_name,
+        )
 
         html_string = render_to_string(
             "academic/reports/grade_report_sheet_pdf.html",
-            {
-                "institution": institution,
-                "teacher_name": teacher_name,
-                "group_label": group_label,
-                "shift": group.get_shift_display(),
-                "printed_at": printed_at,
-                "period_name": period_name,
-                "subject_name": subject_name,
-                "director_name": director_name,
-                "students": students,
-                "note_columns": note_columns,
-            },
+            ctx,
         )
 
         if fmt == "html":
-            from django.http import HttpResponse
-
             return HttpResponse(html_string, content_type="text/html; charset=utf-8")
 
-        try:
-            import io
-            import os
-            import traceback
+        if async_requested:
+            from datetime import timedelta  # noqa: PLC0415
+            from reports.models import ReportJob  # noqa: PLC0415
+            from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+            from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
 
-            from django.conf import settings
-            from django.http import HttpResponse
-            from xhtml2pdf import pisa
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
 
-            def _pisa_link_callback(uri: str, rel: str | None = None):
-                if uri.startswith("http://") or uri.startswith("https://"):
-                    return uri
-
-                media_url = getattr(settings, "MEDIA_URL", "") or ""
-                static_url = getattr(settings, "STATIC_URL", "") or ""
-
-                if media_url and uri.startswith(media_url):
-                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
-                    return os.path.normpath(path)
-
-                if static_url and uri.startswith(static_url):
-                    static_root = getattr(settings, "STATIC_ROOT", None)
-                    if static_root:
-                        path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
-                        return os.path.normpath(path)
-
-                return uri
-
-            result = io.BytesIO()
-            pdf = pisa.pisaDocument(
-                io.BytesIO(html_string.encode("UTF-8")),
-                result,
-                link_callback=_pisa_link_callback,
-                encoding="UTF-8",
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.GRADE_REPORT_SHEET,
+                params={
+                    "group_id": group.id,
+                    "period_id": period_id,
+                    "subject_name": subject_name,
+                    "teacher_name": teacher_name,
+                    "columns": note_cols,
+                },
+                expires_at=expires_at,
             )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
 
-            if pdf.err:
-                return Response(
-                    {"detail": "Error generando PDF", "pisa_errors": getattr(pdf, "err", None)},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+        from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
 
+        try:
+            group_label = str(ctx.get("group_label") or "grupo")
             filename = f"planilla_notas_{group_label}.pdf".replace(" ", "_")
-            response = HttpResponse(result.getvalue(), content_type="application/pdf")
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'
+            response["Deprecation"] = "true"
+            sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+            response["Sunset"] = str(sunset)
+            response["Link"] = '</api/reports/jobs/>; rel="alternate"'
             return response
+        except WeasyPrintUnavailableError as e:
+            from django.conf import settings as _settings
+
+            payload = {"detail": str(e)}
+            if getattr(_settings, "DEBUG", False):
+                import traceback  # noqa: PLC0415
+
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
             from django.conf import settings as _settings
 
             payload = {"detail": "Error generando PDF", "error": str(e)}
             if getattr(_settings, "DEBUG", False):
+                import traceback  # noqa: PLC0415
+
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

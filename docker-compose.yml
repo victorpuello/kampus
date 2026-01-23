@@ -10,10 +10,16 @@ services:
     ports:
       - "5432:5432"
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   backend:
     build: ./backend
     volumes:
       - ./backend:/app
+      - kampus_private_data:/data/kampus_private
     ports:
       - "8000:8000"
     environment:
@@ -27,16 +33,22 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
+      - KAMPUS_PRIVATE_REPORTS_DIR=reports
       - KAMPUS_RUN_MIGRATIONS=true
       - KAMPUS_CREATE_SUPERUSER=true
     depends_on:
       - db
+      - redis
     command: python manage.py runserver 0.0.0.0:8000
 
-  backend_scheduler:
+  backend_worker:
     build: ./backend
     volumes:
       - ./backend:/app
+      - kampus_private_data:/data/kampus_private
     environment:
       - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
       - DJANGO_DEBUG=true
@@ -48,6 +60,39 @@ services:
       - POSTGRES_HOST=db
       - POSTGRES_PORT=5432
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
+      - KAMPUS_PRIVATE_REPORTS_DIR=reports
+      - KAMPUS_RUN_MIGRATIONS=false
+      - KAMPUS_CREATE_SUPERUSER=false
+    depends_on:
+      - db
+      - redis
+    command: celery -A kampus_backend worker -l INFO
+
+  backend_scheduler:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+      - kampus_private_data:/data/kampus_private
+    environment:
+      - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
+      - DJANGO_DEBUG=true
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173
+      - POSTGRES_DB=kampus
+      - POSTGRES_USER=kampus
+      - POSTGRES_PASSWORD=kampus
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
+      - KAMPUS_PRIVATE_REPORTS_DIR=reports
+      - KAMPUS_REPORT_JOBS_TTL_HOURS=24
+      - KAMPUS_REPORT_JOBS_CLEANUP_INTERVAL_SECONDS=3600
       - KAMPUS_RUN_MIGRATIONS=false
       - KAMPUS_CREATE_SUPERUSER=false
       - DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE=24
@@ -56,6 +101,7 @@ services:
       - ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS=60
     depends_on:
       - db
+      - redis
     command: >
       sh -c "
         echo 'Starting backend scheduler (descargos + attendance auto-close)';
@@ -68,6 +114,11 @@ services:
         ( while true; do
             python manage.py close_expired_attendance_sessions --hours ${ATTENDANCE_AUTO_CLOSE_HOURS:-1};
             sleep ${ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS:-60};
+          done ) &
+
+        ( while true; do
+            python manage.py cleanup_report_jobs;
+            sleep ${KAMPUS_REPORT_JOBS_CLEANUP_INTERVAL_SECONDS:-3600};
           done ) &
 
         wait
@@ -95,3 +146,4 @@ services:
 
 volumes:
   postgres_data:
+  kampus_private_data:

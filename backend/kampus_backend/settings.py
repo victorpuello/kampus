@@ -159,6 +159,15 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+# Storage privado (fuera de MEDIA)
+#
+# IMPORTANT: Los archivos en este storage NO deben exponerse por URL pública.
+# La descarga se hará únicamente vía endpoints autenticados (FileResponse).
+PRIVATE_STORAGE_ROOT = Path(
+    os.getenv("KAMPUS_PRIVATE_STORAGE_ROOT", str(BASE_DIR / "private_storage"))
+)
+PRIVATE_REPORTS_DIR = os.getenv("KAMPUS_PRIVATE_REPORTS_DIR", "reports")
+
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # Django REST Framework
@@ -193,4 +202,13 @@ AUTH_USER_MODEL = "users.User"
 
 # Google Gemini API Key
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+
+# Celery (async jobs)
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
+CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
+
+# Reports (async PDF jobs)
+REPORT_JOBS_TTL_HOURS = int(os.getenv("KAMPUS_REPORT_JOBS_TTL_HOURS", "24"))
 

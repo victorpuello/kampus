@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import io
-import os
-
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
@@ -28,6 +25,8 @@ from audit.services import log_event
 
 from .sealing import compute_case_seal_hash
 
+from .reports import build_case_acta_context
+
 from .models import (
 	DisciplineCase,
 	DisciplineCaseAttachment,
@@ -47,44 +46,6 @@ from .serializers import (
 	DisciplineCaseDetailSerializer,
 	DisciplineCaseListSerializer,
 )
-
-
-def _pisa_link_callback_for_pdf(uri: str, rel: str | None = None):
-	# Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
-	if uri is None:
-		return uri
-	uri = str(uri)
-
-	# Allow absolute URLs
-	if uri.startswith("http://") or uri.startswith("https://"):
-		return uri
-
-	media_url = getattr(settings, "MEDIA_URL", "") or ""
-	static_url = getattr(settings, "STATIC_URL", "") or ""
-
-	if media_url and uri.startswith(media_url):
-		path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
-		return os.path.normpath(path)
-
-	if static_url and uri.startswith(static_url):
-		static_root = getattr(settings, "STATIC_ROOT", None)
-		if static_root:
-			path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
-			return os.path.normpath(path)
-
-	# If template provided an absolute filesystem path already
-	if os.path.isabs(uri) and os.path.exists(uri):
-		return os.path.normpath(uri)
-
-	# Best effort relative resolution
-	if rel:
-		candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
-		if os.path.exists(candidate):
-			return candidate
-
-	return uri
-
-
 class PDFRenderer(renderers.BaseRenderer):
 	media_type = "application/pdf"
 	format = "pdf"
@@ -565,40 +526,8 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 	)
 	def acta(self, request, pk=None):
 		case: DisciplineCase = self.get_object()
-		enrollment = case.enrollment
-		campus = getattr(enrollment, "campus", None) if enrollment else None
-		institution = getattr(campus, "institution", None) if campus else Institution.objects.first()
-		group = getattr(enrollment, "group", None) if enrollment else None
-		group_director = getattr(group, "director", None) if group else None
-		guardian = (
-			FamilyMember.objects.filter(student=case.student)
-			.select_related("user")
-			.order_by("-is_main_guardian", "id")
-			.first()
-		)
 		want_pdf = (request.query_params.get("format") or "").lower() == "pdf"
-		events = list(case.events.all())
-		action_event_types = {
-			DisciplineCaseEvent.Type.NOTIFIED_GUARDIAN,
-			DisciplineCaseEvent.Type.DESCARGOS,
-			DisciplineCaseEvent.Type.DECISION,
-			DisciplineCaseEvent.Type.CLOSED,
-		}
-		action_note_markers = (
-			"Fecha límite",
-			"Fecha limite",
-			"Acuse/enterado",
-			"Notificación automática",
-			"Notificacion automática",
-		)
-		actions_taken = []
-		for e in events:
-			if e.event_type in action_event_types:
-				actions_taken.append(e)
-			elif e.event_type == DisciplineCaseEvent.Type.NOTE and (e.text or "").strip():
-				text = (e.text or "").strip()
-				if any(marker in text for marker in action_note_markers):
-					actions_taken.append(e)
+		want_async = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
 		log_event(
 			request,
 			event_type="DISCIPLINE_CASE_ACTA_DOWNLOAD",
@@ -606,43 +535,50 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 			object_id=case.id,
 			status_code=200,
 		)
-		html = render_to_string(
-			"discipline/case_acta.html",
-			{
-				"case": case,
-				"student": case.student,
-				"enrollment": enrollment,
-				"group": group,
-				"group_director": group_director,
-				"guardian": guardian,
-				"campus": campus,
-				"institution": institution,
-				"participants": list(case.participants.all()),
-				"attachments": list(case.attachments.all()),
-				"events": events,
-				"actions_taken": actions_taken,
-				"generated_at": timezone.now(),
-				"generated_by": request.user,
-			},
-		)
+		ctx = build_case_acta_context(case=case, generated_by=request.user)
+		html = render_to_string("discipline/case_acta.html", ctx)
 
 		if not want_pdf:
 			response = HttpResponse(html, content_type="text/html; charset=utf-8")
 			response["Content-Disposition"] = f'inline; filename="caso-{case.id}-acta.html"'
 			return response
+		if want_async:
+			from datetime import timedelta  # noqa: PLC0415
+			from reports.models import ReportJob  # noqa: PLC0415
+			from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+			from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
+
+			ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+			expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+			job = ReportJob.objects.create(
+				created_by=request.user,
+				report_type=ReportJob.ReportType.DISCIPLINE_CASE_ACTA,
+				params={"case_id": case.id},
+				expires_at=expires_at,
+			)
+			generate_report_job_pdf.delay(job.id)
+			out = ReportJobSerializer(job, context={"request": request}).data
+			return Response(out, status=status.HTTP_202_ACCEPTED)
 
 		try:
-			from xhtml2pdf import pisa  # type: ignore[import-not-found]
-		except Exception:
-			return Response({"detail": "PDF no disponible (xhtml2pdf no instalado)."}, status=status.HTTP_400_BAD_REQUEST)
+			from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
 
-		out = io.BytesIO()
-		pdf = pisa.CreatePDF(html, dest=out, encoding="utf-8", link_callback=_pisa_link_callback_for_pdf)
-		if getattr(pdf, "err", False):
-			return Response({"detail": "No se pudo generar el PDF del acta."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+			pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+		except WeasyPrintUnavailableError as e:
+			payload = {"detail": str(e)}
+			if getattr(settings, "DEBUG", False):
+				import traceback  # noqa: PLC0415
 
-		response = HttpResponse(out.getvalue(), content_type="application/pdf")
+				payload["traceback"] = traceback.format_exc()
+			return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+		response = HttpResponse(pdf_bytes, content_type="application/pdf")
 		response["Content-Disposition"] = f'inline; filename="caso-{case.id}-acta.pdf"'
+		response["Deprecation"] = "true"
+		sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+		response["Sunset"] = str(sunset)
+		response["Link"] = '</api/reports/jobs/>; rel="alternate"'
 		return response
 
 	@transaction.atomic

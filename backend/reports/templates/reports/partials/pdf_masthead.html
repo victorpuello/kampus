@@ -1,0 +1,53 @@
+{# Reusable PDF masthead (membrete) #}
+{% if institution %}
+  {% if institution.pdf_letterhead_image %}
+    <div style="width: 100%; margin: 10px; padding: 0; line-height: 0;">
+      <img
+        src="{{ institution.pdf_letterhead_image.url }}"
+        alt="Membrete"
+        style="display: block; width: 100%; max-height: 90px; height: auto; object-fit: contain; margin: 0; padding: 0;"
+      />
+    </div>
+  {% else %}
+    <table style="width: 100%; border-collapse: collapse; margin: 0 0 10px 0;">
+      <tr>
+        <td style="width: 90px; vertical-align: middle;">
+          {% if institution.pdf_show_logo and institution.logo %}
+            <img
+              src="{{ institution.logo.url }}"
+              alt="Logo"
+              style="height: {{ institution.pdf_logo_height_px|default:60 }}px; width: auto; object-fit: contain;"
+            />
+          {% endif %}
+        </td>
+        <td style="text-align: center; vertical-align: middle;">
+          <div style="font-size: 11px; font-weight: 700; text-transform: uppercase;">
+            {% if institution.pdf_header_line1 %}
+              {{ institution.pdf_header_line1 }}
+            {% else %}
+              {{ institution.name }}
+            {% endif %}
+          </div>
+          {% if institution.pdf_header_line1 and institution.name %}
+            <div style="font-size: 10px; font-weight: 700; text-transform: uppercase; margin-top: 1px;">
+              {{ institution.name }}
+            </div>
+          {% endif %}
+          {% if institution.pdf_header_line2 %}
+            <div style="font-size: 9px; margin-top: 1px;">{{ institution.pdf_header_line2 }}</div>
+          {% endif %}
+          {% if institution.pdf_header_line3 %}
+            <div style="font-size: 9px;">{{ institution.pdf_header_line3 }}</div>
+          {% endif %}
+        </td>
+        <td style="width: 90px;"></td>
+      </tr>
+    </table>
+  {% endif %}
+
+  {% if institution.pdf_footer_text and not hide_pdf_footer %}
+    <div style="text-align: center; font-size: 9px; color: #64748b; margin-top: 10px;">
+      {{ institution.pdf_footer_text }}
+    </div>
+  {% endif %}
+{% endif %}

@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
 from django.conf import settings
 from django.urls import reverse
+from urllib.parse import urlsplit, urlunsplit
 import csv
 import base64
 import io
@@ -24,8 +25,8 @@ import tempfile
 import re
 import unicodedata
 import uuid as py_uuid
-from datetime import date, datetime
 from decimal import Decimal
+from datetime import date, datetime
 from academic.models import AcademicLoad, AcademicYear, Grade, Group
 from academic.models import (
     Achievement,
@@ -53,10 +54,6 @@ from .models import (
     StudentDocument,
     StudentNovelty,
 )
-try:
-    from xhtml2pdf import pisa
-except ImportError:
-    pisa = None
 from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 
 from users.permissions import IsAdministrativeStaff
@@ -80,6 +77,9 @@ from core.permissions import HasDjangoPermission, KampusModelPermissions
 import traceback
 
 from .academic_period_report import compute_certificate_studies_rows, generate_academic_period_report_pdf
+
+from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
+from students.reports import sort_enrollments_for_enrollment_list
 
 User = get_user_model()
 
@@ -887,8 +887,12 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             or 'csv'
         )
         report_format = str(report_format).strip().lower()
+        want_async = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
         
-        enrollments = Enrollment.objects.select_related('student', 'student__user', 'grade', 'group', 'academic_year').all().order_by('student__user__last_name', 'student__user__first_name')
+        enrollments_qs = (
+            Enrollment.objects.select_related("student", "student__user", "grade", "group", "academic_year")
+            .all()
+        )
         
         # Filter logic
         year_name = "Todos"
@@ -896,7 +900,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         group_name = ""
 
         if year_id is not None:
-            enrollments = enrollments.filter(academic_year_id=year_id)
+            enrollments_qs = enrollments_qs.filter(academic_year_id=year_id)
             try:
                 year_name = AcademicYear.objects.get(pk=year_id).year
             except: pass
@@ -904,60 +908,44 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             # Default to active year
             active_year = AcademicYear.objects.filter(status='ACTIVE').first()
             if active_year:
-                enrollments = enrollments.filter(academic_year=active_year)
+                enrollments_qs = enrollments_qs.filter(academic_year=active_year)
                 year_name = active_year.year
         
         if grade_id is not None:
-            enrollments = enrollments.filter(grade_id=grade_id)
+            enrollments_qs = enrollments_qs.filter(grade_id=grade_id)
             try:
                 grade_name = Grade.objects.get(pk=grade_id).name
             except: pass
 
         if group_id is not None:
-            enrollments = enrollments.filter(group_id=group_id)
+            enrollments_qs = enrollments_qs.filter(group_id=group_id)
             try:
                 group_name = Group.objects.get(pk=group_id).name
             except: pass
+
+        enrollments = sort_enrollments_for_enrollment_list(list(enrollments_qs))
             
         # PDF Generation
         if report_format == 'pdf':
-            if not pisa:
-                return Response({"error": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if want_async:
+                from datetime import timedelta  # noqa: PLC0415
+                from django.utils import timezone  # noqa: PLC0415
+                from reports.models import ReportJob  # noqa: PLC0415
+                from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+                from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
 
-            def _pisa_link_callback(uri: str, rel: str):
-                # Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
-                if uri is None:
-                    return uri
-                uri = str(uri)
+                ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+                expires_at = timezone.now() + timedelta(hours=ttl_hours)
 
-                # Allow absolute URLs
-                if uri.startswith('http://') or uri.startswith('https://'):
-                    return uri
-
-                media_url = getattr(settings, 'MEDIA_URL', '') or ''
-                static_url = getattr(settings, 'STATIC_URL', '') or ''
-
-                if media_url and uri.startswith(media_url):
-                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url):].lstrip('/\\'))
-                    return os.path.normpath(path)
-
-                if static_url and uri.startswith(static_url):
-                    static_root = getattr(settings, 'STATIC_ROOT', None)
-                    if static_root:
-                        path = os.path.join(static_root, uri[len(static_url):].lstrip('/\\'))
-                        return os.path.normpath(path)
-
-                # If template provided an absolute filesystem path already
-                if os.path.isabs(uri) and os.path.exists(uri):
-                    return os.path.normpath(uri)
-
-                # Best effort relative resolution
-                if rel:
-                    candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
-                    if os.path.exists(candidate):
-                        return candidate
-
-                return uri
+                job = ReportJob.objects.create(
+                    created_by=request.user,
+                    report_type=ReportJob.ReportType.ENROLLMENT_LIST,
+                    params={"year_id": year_id, "grade_id": grade_id, "group_id": group_id},
+                    expires_at=expires_at,
+                )
+                generate_report_job_pdf.delay(job.id)
+                out = ReportJobSerializer(job, context={"request": request}).data
+                return Response(out, status=status.HTTP_202_ACCEPTED)
 
             try:
                 institution = Institution.objects.first() or Institution()
@@ -970,26 +958,22 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
                     'group_name': group_name,
                 })
 
-                result = io.BytesIO()
-                pdf = pisa.pisaDocument(
-                    io.BytesIO(html_string.encode('UTF-8')),
-                    result,
-                    link_callback=_pisa_link_callback,
-                    encoding='UTF-8',
-                )
+                from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
 
-                if not pdf.err:
-                    response = HttpResponse(result.getvalue(), content_type='application/pdf')
-                    response['Content-Disposition'] = 'inline; filename="reporte_matriculados.pdf"'
-                    return response
+                pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
 
-                return Response(
-                    {
-                        "error": "Error generating PDF",
-                        "pisa_errors": getattr(pdf, "err", None),
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
+                response = HttpResponse(pdf_bytes, content_type='application/pdf')
+                response['Content-Disposition'] = 'inline; filename="reporte_matriculados.pdf"'
+                response["Deprecation"] = "true"
+                sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+                response["Sunset"] = str(sunset)
+                response["Link"] = '</api/reports/jobs/>; rel="alternate"'
+                return response
+            except WeasyPrintUnavailableError as e:
+                payload = {"error": str(e)}
+                if getattr(settings, 'DEBUG', False):
+                    payload["traceback"] = traceback.format_exc()
+                return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
             except Exception as e:
                 payload = {"error": "Error generating PDF", "detail": str(e)}
                 if getattr(settings, 'DEBUG', False):
@@ -1080,9 +1064,8 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
 
         GET /api/enrollments/{id}/academic-report/?period=<period_id>
         """
-
-        if not pisa:
-            return Response({"detail": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        async_raw = (request.query_params.get("async") or "").strip().lower()
+        async_requested = async_raw in {"1", "true", "yes"}
 
         def _to_int_or_none(value):
             if value is None:
@@ -1133,11 +1116,38 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if async_requested:
+            from reports.models import ReportJob
+            from reports.serializers import ReportJobSerializer
+            from reports.tasks import generate_report_job_pdf
+
+            from django.utils import timezone
+            from datetime import timedelta
+
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.ACADEMIC_PERIOD_ENROLLMENT,
+                params={"enrollment_id": enrollment.id, "period_id": period.id},
+                expires_at=expires_at,
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
+
         try:
             pdf_bytes = generate_academic_period_report_pdf(enrollment=enrollment, period=period)
             filename = f"informe-academico-enrollment-{enrollment.id}-period-{period.id}.pdf"
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'
+
+            # Sync PDF is kept for backward compatibility, but jobs are preferred.
+            response["Deprecation"] = "true"
+            sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+            response["Sunset"] = str(sunset)
+            response["Link"] = '</api/reports/jobs/>; rel="alternate"'
             return response
         except Exception as e:
             payload = {"detail": "Error generating PDF", "error": str(e)}
@@ -1501,42 +1511,6 @@ class BulkEnrollmentView(APIView):
         return Response(results)
 
 
-def _pisa_link_callback_for_pdf(uri: str, rel: str):
-    # Map /media/... and /static/... to absolute filesystem paths for xhtml2pdf.
-    if uri is None:
-        return uri
-    uri = str(uri)
-
-    # Allow absolute URLs
-    if uri.startswith('http://') or uri.startswith('https://'):
-        return uri
-
-    media_url = getattr(settings, 'MEDIA_URL', '') or ''
-    static_url = getattr(settings, 'STATIC_URL', '') or ''
-
-    if media_url and uri.startswith(media_url):
-        path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url):].lstrip('/\\'))
-        return os.path.normpath(path)
-
-    if static_url and uri.startswith(static_url):
-        static_root = getattr(settings, 'STATIC_ROOT', None)
-        if static_root:
-            path = os.path.join(static_root, uri[len(static_url):].lstrip('/\\'))
-            return os.path.normpath(path)
-
-    # If template provided an absolute filesystem path already
-    if os.path.isabs(uri) and os.path.exists(uri):
-        return os.path.normpath(uri)
-
-    # Best effort relative resolution
-    if rel:
-        candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
-        if os.path.exists(candidate):
-            return candidate
-
-    return uri
-
-
 def _format_decimal_score(value: float) -> str:
     try:
         return f"{float(value):.2f}"
@@ -1562,7 +1536,7 @@ def _qr_data_uri(text: str) -> str:
 def _qr_temp_png_path(text: str) -> str:
     """Generate a QR image as a temporary PNG file and return its absolute path.
 
-    xhtml2pdf is more reliable with file paths than with data URIs.
+    PDFs are generated server-side; file paths are reliable for PDF renderers.
     Caller is responsible for deleting the file.
     """
 
@@ -1642,6 +1616,100 @@ def _format_certificate_subject_label(
     return subject, False
 
 
+def _parse_score_decimal(value) -> Decimal | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    try:
+        return Decimal(s)
+    except Exception:
+        try:
+            return Decimal(str(float(s)))
+        except Exception:
+            return None
+
+
+def _certificate_area_rows_from_plan(
+    *,
+    loads,
+    subject_score_by_load_id: dict[int, Decimal],
+    academic_year_id: int | None,
+) -> list[dict[str, object]]:
+    """Build area rows using the grade's study plan.
+
+    - Area definitive score: weighted average of subject scores using AcademicLoad.weight_percentage.
+    - Area intensity: sum of AcademicLoad.hours_per_week.
+    """
+
+    areas: dict[str, dict[str, object]] = {}
+
+    for load in loads:
+        if not load or not getattr(load, "subject", None) or not getattr(load.subject, "area", None):
+            continue
+
+        area_name = str(load.subject.area.name or "").strip()
+        if not area_name:
+            continue
+
+        hours = int(getattr(load, "hours_per_week", 0) or 0)
+        weight_pct = int(getattr(load, "weight_percentage", 100) or 100)
+
+        bucket = areas.setdefault(
+            area_name,
+            {
+                "area_subject": area_name,
+                "hours_per_week": 0,
+                "_weighted_sum": Decimal("0"),
+                "_weight_sum": Decimal("0"),
+            },
+        )
+
+        bucket["hours_per_week"] = int(bucket.get("hours_per_week") or 0) + hours
+
+        score = subject_score_by_load_id.get(int(load.id))
+        if score is None:
+            continue
+
+        w = Decimal(max(weight_pct, 0))
+        bucket["_weighted_sum"] = Decimal(bucket.get("_weighted_sum") or Decimal("0")) + (score * w)
+        bucket["_weight_sum"] = Decimal(bucket.get("_weight_sum") or Decimal("0")) + w
+
+    out: list[dict[str, object]] = []
+    for area_name in sorted(areas.keys(), key=lambda x: (x or "").lower()):
+        b = areas[area_name]
+        weight_sum: Decimal = Decimal(b.get("_weight_sum") or Decimal("0"))
+        weighted_sum: Decimal = Decimal(b.get("_weighted_sum") or Decimal("0"))
+
+        if weight_sum > 0:
+            avg = (weighted_sum / weight_sum).quantize(Decimal("0.01"))
+            try:
+                perf = match_scale(int(academic_year_id), avg).name if academic_year_id else _performance_from_score(float(avg))
+            except Exception:
+                perf = _performance_from_score(float(avg))
+
+            out.append(
+                {
+                    "area_subject": area_name,
+                    "hours_per_week": int(b.get("hours_per_week") or 0),
+                    "score": f"{avg:.2f}",
+                    "performance": perf or "",
+                }
+            )
+        else:
+            out.append(
+                {
+                    "area_subject": area_name,
+                    "hours_per_week": int(b.get("hours_per_week") or 0),
+                    "score": "—",
+                    "performance": "—",
+                }
+            )
+
+    return out
+
+
 def _certificate_studies_build_context(request, data: dict, institution: Institution):
     """Build context for the certificate HTML/PDF.
 
@@ -1712,51 +1780,40 @@ def _certificate_studies_build_context(request, data: dict, institution: Institu
             academic_year = active.year if active else date.today().year
 
     loads = _subjects_for_grade(grade.id)
-    rows = []
-    grade_level_type = getattr(getattr(grade, "level", None), "level_type", None)
 
+    subject_score_by_load_id: dict[int, Decimal] = {}
     if enrollment is not None:
         try:
             computed = compute_certificate_studies_rows(enrollment)
-            if computed:
-                rows = computed
         except Exception:
-            rows = []
+            computed = []
 
-    if not rows:
+        for r in computed or []:
+            if not isinstance(r, dict):
+                continue
+            load_id = r.get("academic_load_id")
+            if not load_id:
+                continue
+            score = _parse_score_decimal(r.get("score"))
+            if score is None:
+                continue
+            try:
+                subject_score_by_load_id[int(load_id)] = score
+            except Exception:
+                continue
+    else:
+        # Manual/preview: generate plausible subject scores and aggregate using plan weights.
         for load in loads:
-            score = round(random.uniform(3.0, 4.5), 2)
-
-            area_subject = ""
-            if load.subject and getattr(load.subject, "area", None):
-                area_subject = f"{(load.subject.area.name or '').strip()} - {(load.subject.name or '').strip()}"
-            else:
-                area_subject = (getattr(load.subject, "name", "") or "").strip()
-
-            label, skip = _format_certificate_subject_label(area_subject, grade_level_type=grade_level_type)
-            if skip:
+            try:
+                subject_score_by_load_id[int(load.id)] = Decimal(str(round(random.uniform(3.0, 4.5), 2)))
+            except Exception:
                 continue
 
-            rows.append(
-                {
-                    "area_subject": label,
-                    "score": _format_decimal_score(score),
-                    "performance": _performance_from_score(score),
-                }
-            )
-
-    # Normalize/format labels for computed rows too.
-    if rows:
-        normalized_rows = []
-        for r in rows:
-            title = (r.get("area_subject") or "").strip()
-            label, skip = _format_certificate_subject_label(title, grade_level_type=grade_level_type)
-            if skip:
-                continue
-            rr = dict(r)
-            rr["area_subject"] = label
-            normalized_rows.append(rr)
-        rows = normalized_rows
+    rows = _certificate_area_rows_from_plan(
+        loads=loads,
+        subject_score_by_load_id=subject_score_by_load_id,
+        academic_year_id=getattr(enrollment, "academic_year_id", None) if enrollment is not None else None,
+    )
 
     place = ""
     if campus and (campus.municipality or campus.department):
@@ -1829,8 +1886,7 @@ class CertificateStudiesIssueView(APIView):
         - Archivo student: { student_full_name, document_type, document_number, grade_id, academic_year? , campus_id? }
         """
 
-        if not pisa:
-            return Response({"error": "PDF generation library not installed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        want_async = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
 
         institution = Institution.objects.first() or Institution()
 
@@ -1870,6 +1926,7 @@ class CertificateStudiesIssueView(APIView):
         try:
             issue = CertificateIssue.objects.create(
                 certificate_type=CertificateIssue.TYPE_STUDIES,
+                status=CertificateIssue.STATUS_PENDING,
                 enrollment=enrollment,
                 issued_by=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
                 amount_cop=amount_cop,
@@ -1880,18 +1937,47 @@ class CertificateStudiesIssueView(APIView):
                     "academic_year": academic_year,
                     "grade_id": grade.id,
                     "grade_name": grade.name,
+                    "academic_level": getattr(getattr(grade, "level", None), "name", "") or "",
                     "rows": rows,
+                    "conduct": "BUENA",
+                    "final_status": getattr(enrollment, "final_status", "") or "APROBADO",
+                    "place": place,
+                    "issue_date": date.today().isoformat(),
+                    "signer_name": signer_name,
+                    "signer_role": signer_role,
                 },
             )
 
-            verify_url = request.build_absolute_uri(
-                reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+            verify_url = _sanitize_url_path(
+                request.build_absolute_uri(
+                    reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+                )
             )
         except Exception as e:
             payload = {"error": "Error preparing certificate", "detail": str(e)}
             if getattr(settings, 'DEBUG', False):
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if want_async:
+            from datetime import timedelta  # noqa: PLC0415
+            from django.utils import timezone  # noqa: PLC0415
+            from reports.models import ReportJob  # noqa: PLC0415
+            from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+            from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
+
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
+                params={"certificate_uuid": str(issue.uuid), "verify_url": verify_url},
+                expires_at=expires_at,
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
 
         qr_image_src = ""
         qr_tmp_path = ""
@@ -1925,15 +2011,11 @@ class CertificateStudiesIssueView(APIView):
         try:
             html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
 
-            result = io.BytesIO()
-            pdf = pisa.pisaDocument(
-                io.BytesIO(html_string.encode("UTF-8")),
-                result,
-                link_callback=_pisa_link_callback_for_pdf,
-                encoding="UTF-8",
-            )
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
 
-            if pdf.err:
+            pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+
+            if not pdf_bytes:
                 try:
                     issue.delete()
                 except Exception:
@@ -1941,29 +2023,33 @@ class CertificateStudiesIssueView(APIView):
                 return Response(
                     {
                         "error": "Error generating PDF",
-                        "pisa_errors": getattr(pdf, "err", None),
+                        "detail": "Empty PDF output",
                     },
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-            pdf_bytes = result.getvalue()
-            try:
-                issue.pdf_file.save(
-                    "certificado_estudios.pdf",
-                    ContentFile(pdf_bytes),
-                    save=True,
-                )
-            except Exception:
-                try:
-                    if issue.pdf_file:
-                        issue.pdf_file.delete(save=False)
-                except Exception:
-                    pass
-                try:
-                    issue.delete()
-                except Exception:
-                    pass
-                raise
+            # Store in private storage (outside MEDIA).
+            from pathlib import Path  # noqa: PLC0415
+
+            def _safe_join_private(root: Path, relpath: str) -> Path:
+                rel = Path(relpath)
+                if rel.is_absolute():
+                    raise ValueError("Absolute paths are not allowed")
+                final = (root / rel).resolve()
+                root_resolved = root.resolve()
+                if root_resolved not in final.parents and final != root_resolved:
+                    raise ValueError("Invalid path")
+                return final
+
+            relpath = f"{settings.PRIVATE_REPORTS_DIR}/certificates/studies/{issue.uuid}.pdf".strip("/")
+            out_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), relpath)
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(pdf_bytes)
+
+            issue.pdf_private_relpath = relpath
+            issue.pdf_private_filename = f"certificado_estudios_{issue.uuid}.pdf"
+            issue.status = CertificateIssue.STATUS_ISSUED
+            issue.save(update_fields=["pdf_private_relpath", "pdf_private_filename", "status"])
 
             try:
                 log_event(
@@ -1987,7 +2073,20 @@ class CertificateStudiesIssueView(APIView):
 
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = 'inline; filename="certificado_estudios.pdf"'
+            response["Deprecation"] = "true"
+            sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+            response["Sunset"] = str(sunset)
+            response["Link"] = '</api/reports/jobs/>; rel="alternate"'
             return response
+        except WeasyPrintUnavailableError as e:
+            try:
+                issue.delete()
+            except Exception:
+                pass
+            payload = {"error": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
             try:
                 issue.delete()
@@ -2065,6 +2164,7 @@ class CertificateIssuesListView(APIView):
             "issued_at",
             "amount_cop",
             "payload",
+            "pdf_private_relpath",
             "issued_by__id",
             "issued_by__first_name",
             "issued_by__last_name",
@@ -2090,7 +2190,7 @@ class CertificateIssuesListView(APIView):
                         if issued_by
                         else None
                     ),
-                    "has_pdf": bool(getattr(issue, "pdf_file", None)),
+                    "has_pdf": bool(getattr(issue, "pdf_private_relpath", None) or getattr(issue, "pdf_file", None)),
                 }
             )
 
@@ -2107,10 +2207,32 @@ class CertificateIssueDownloadPDFView(APIView):
         if not issue:
             return Response({"detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if not issue.pdf_file:
-            return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
-
         try:
+            from pathlib import Path  # noqa: PLC0415
+
+            def _safe_join_private(root: Path, relpath: str) -> Path:
+                rel = Path(relpath)
+                if rel.is_absolute():
+                    raise ValueError("Absolute paths are not allowed")
+                final = (root / rel).resolve()
+                root_resolved = root.resolve()
+                if root_resolved not in final.parents and final != root_resolved:
+                    raise ValueError("Invalid path")
+                return final
+
+            if getattr(issue, "pdf_private_relpath", None):
+                abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), issue.pdf_private_relpath)
+                if not abs_path.exists():
+                    return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
+
+                filename = issue.pdf_private_filename or f"certificado_{issue.uuid}.pdf"
+                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+                response["Content-Disposition"] = f'inline; filename="{filename}"'
+                return response
+
+            if not issue.pdf_file:
+                return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
+
             issue.pdf_file.open("rb")
             response = FileResponse(issue.pdf_file, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="certificado_{issue.uuid}.pdf"'
@@ -2185,12 +2307,14 @@ class CertificateStudiesPreviewView(APIView):
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         preview_uuid = py_uuid.uuid4()
-        verify_url = request.build_absolute_uri(
-            reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(preview_uuid)})
+        verify_url = _sanitize_url_path(
+            request.build_absolute_uri(
+                reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(preview_uuid)})
+            )
         )
 
         # For HTML preview, use a data URI so the browser can render it.
-        # (Temp file paths are only resolvable by xhtml2pdf, not by the browser.)
+        # (Temp file paths are only resolvable on the server, not by the browser.)
         try:
             qr_image_src = _qr_data_uri(verify_url)
         except Exception:
@@ -2257,7 +2381,16 @@ class PublicCertificateVerifyView(APIView):
                 "enrollment__academic_year",
             ).get(uuid=uuid)
         except CertificateIssue.DoesNotExist:
+            _audit_certificate_verification_failed(
+                request=request,
+                attempted_id=str(uuid),
+                via="api",
+                reason="not_found",
+            )
             return Response({"valid": False, "detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        _notify_admins_certificate_verification(request=request, issue=issue, via="api")
+        _audit_certificate_verification(request=request, issue=issue, via="api")
 
         payload = issue.payload or {}
 
@@ -2294,11 +2427,273 @@ class PublicCertificateVerifyView(APIView):
         )
 
 
+def _normalize_uuid_like(value: str) -> py_uuid.UUID:
+    """Parse a UUID from common/legacy formats.
+
+    Accepts canonical UUIDs (with hyphens) and also hex-ish strings that may be
+    missing separators. We normalize by stripping any non-hex characters and
+    parsing the resulting 32-hex UUID.
+    """
+
+    raw = str(value or "").strip().lower()
+    hex32 = re.sub(r"[^0-9a-f]", "", raw)
+    if len(hex32) != 32:
+        raise ValueError("Invalid UUID")
+    return py_uuid.UUID(hex=hex32)
+
+
+def _sanitize_url_path(url: str) -> str:
+    """Remove accidental whitespace after slashes in a URL path.
+
+    Fixes legacy QR URLs like `/public/  certificates/<id>/`.
+    """
+
+    raw = str(url or "").strip()
+    if not raw:
+        return raw
+
+    try:
+        parts = urlsplit(raw)
+        clean_path = re.sub(r"/\s+", "/", parts.path)
+        return urlunsplit((parts.scheme, parts.netloc, clean_path, parts.query, parts.fragment))
+    except Exception:
+        return re.sub(r"/\s+", "/", raw)
+
+
+def _promoted_from_final_status(final_status: str | None) -> bool | None:
+    """Infer promotion from Enrollment.final_status-like strings.
+
+    Returns:
+    - True / False when it can be inferred confidently
+    - None when unknown/ambiguous
+    """
+
+    s = (final_status or "").strip().upper()
+    if not s:
+        return None
+
+    negative_markers = ["NO APROB", "REPROB", "RETEN", "FAILED"]
+    if any(m in s for m in negative_markers):
+        return False
+
+    positive_markers = ["APROB", "PROMOV"]
+    if any(m in s for m in positive_markers):
+        return True
+
+    return None
+
+
+def _get_request_ip_for_public(request) -> str:
+    xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    return (request.META.get("REMOTE_ADDR") or "").strip()
+
+
+def _notify_admins_certificate_verification(*, request, issue: "CertificateIssue", via: str) -> None:
+    """Notify admin-like users that a certificate verification was accessed.
+
+    Best-effort: must never break the public endpoint.
+    """
+
+    status_labels = {
+        CertificateIssue.STATUS_PENDING: "Pendiente",
+        CertificateIssue.STATUS_ISSUED: "Emitido",
+        CertificateIssue.STATUS_REVOKED: "Revocado",
+    }
+    type_labels = {
+        CertificateIssue.TYPE_STUDIES: "Certificado de estudios",
+    }
+
+    type_label = type_labels.get(issue.certificate_type, issue.certificate_type)
+    status_label = status_labels.get(issue.status, issue.status)
+    ip = _get_request_ip_for_public(request)
+
+    user_agent = (request.META.get("HTTP_USER_AGENT") or "").strip()
+    if len(user_agent) > 200:
+        user_agent = user_agent[:200] + "…"
+
+    try:
+        verify_url = reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+    except Exception:
+        verify_url = ""
+
+    body = (
+        f"{type_label} | Estado: {status_label}\n"
+        f"UUID: {issue.uuid}\n"
+        f"Vía: {via}\n"
+        f"IP: {ip}\n"
+        f"User-Agent: {user_agent}"
+    )
+    dedupe_key = f"CERT_VERIFY:{issue.uuid}"
+    dedupe_within_seconds = 15 * 60
+
+    # Preferred path: use centralized notification service.
+    try:
+        from notifications.services import admin_like_users_qs, notify_users
+
+        notify_users(
+            recipients=admin_like_users_qs(),
+            type="CERTIFICATE_VERIFY",
+            title="Verificación de certificado consultada",
+            body=body,
+            url=verify_url,
+            dedupe_key=dedupe_key,
+            dedupe_within_seconds=dedupe_within_seconds,
+        )
+        return
+    except Exception:
+        # Best-effort fallback: create Notification rows directly.
+        pass
+
+    try:
+        from datetime import timedelta
+
+        from django.utils import timezone
+        from notifications.models import Notification
+
+        UserModel = get_user_model()
+        recipients = UserModel.objects.filter(
+            role__in=[
+                getattr(UserModel, "ROLE_SUPERADMIN", "SUPERADMIN"),
+                getattr(UserModel, "ROLE_ADMIN", "ADMIN"),
+                getattr(UserModel, "ROLE_COORDINATOR", "COORDINATOR"),
+            ],
+            is_active=True,
+        )
+
+        since = timezone.now() - timedelta(seconds=int(dedupe_within_seconds))
+        existing_ids = set(
+            Notification.objects.filter(
+                recipient__in=recipients,
+                dedupe_key=dedupe_key,
+                created_at__gte=since,
+            ).values_list("recipient_id", flat=True)
+        )
+
+        to_create = []
+        for u in recipients:
+            if u.id in existing_ids:
+                continue
+            to_create.append(
+                Notification(
+                    recipient=u,
+                    type="CERTIFICATE_VERIFY",
+                    title="Verificación de certificado consultada",
+                    body=body,
+                    url=verify_url,
+                    dedupe_key=dedupe_key,
+                )
+            )
+
+        if to_create:
+            Notification.objects.bulk_create(to_create)
+    except Exception:
+        return
+
+
+def _audit_certificate_verification(*, request, issue: "CertificateIssue", via: str) -> None:
+    """Persist an audit record for a public certificate verification access."""
+
+    try:
+        from audit.services import log_public_event
+    except Exception:
+        return
+
+    try:
+        log_public_event(
+            request,
+            event_type="PUBLIC_CERTIFICATE_VERIFY",
+            object_type="CertificateIssue",
+            object_id=str(issue.uuid),
+            status_code=200,
+            metadata={
+                "certificate_type": getattr(issue, "certificate_type", ""),
+                "certificate_status": getattr(issue, "status", ""),
+                "via": via,
+            },
+        )
+    except Exception:
+        return
+
+
+def _audit_certificate_verification_failed(*, request, attempted_id: str, via: str, reason: str) -> None:
+    """Audit public verification failures (404/invalid id).
+
+    This helps detect scans of non-existent or malformed QR codes.
+    """
+
+    try:
+        from audit.services import log_public_event
+    except Exception:
+        return
+
+    try:
+        log_public_event(
+            request,
+            event_type="PUBLIC_CERTIFICATE_VERIFY",
+            object_type="CertificateIssue",
+            object_id=str(attempted_id or ""),
+            status_code=404,
+            metadata={
+                "via": via,
+                "reason": reason,
+            },
+        )
+    except Exception:
+        return
+
+
+class PublicCertificateVerifyLegacyUIView(View):
+    """Redirect legacy certificate URLs to the canonical UUID route."""
+
+    def get(self, request, uuid_str):
+        try:
+            u = _normalize_uuid_like(uuid_str)
+        except Exception:
+            _audit_certificate_verification_failed(
+                request=request,
+                attempted_id=str(uuid_str),
+                via="ui",
+                reason="invalid_id",
+            )
+            return render(
+                request,
+                "students/public/certificate_verify.html",
+                {
+                    "institution": Institution.objects.first() or Institution(),
+                    "found": False,
+                    "uuid": str(uuid_str),
+                },
+                status=404,
+            )
+        return redirect(reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(u)}))
+
+
+class PublicCertificateVerifyLegacyView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, uuid_str, format=None):
+        try:
+            u = _normalize_uuid_like(uuid_str)
+        except Exception:
+            _audit_certificate_verification_failed(
+                request=request,
+                attempted_id=str(uuid_str),
+                via="api",
+                reason="invalid_id",
+            )
+            return Response({"valid": False, "detail": "Invalid certificate id"}, status=status.HTTP_404_NOT_FOUND)
+        return redirect(reverse("public-site-certificate-verify", kwargs={"uuid": str(u)}))
+
+
 class PublicCertificateVerifyUIView(View):
     def get(self, request, uuid):
         institution = Institution.objects.first() or Institution()
 
         status_labels = {
+            CertificateIssue.STATUS_PENDING: "Pendiente",
             CertificateIssue.STATUS_ISSUED: "Emitido",
             CertificateIssue.STATUS_REVOKED: "Revocado",
         }
@@ -2319,6 +2714,12 @@ class PublicCertificateVerifyUIView(View):
         )
 
         if not issue:
+            _audit_certificate_verification_failed(
+                request=request,
+                attempted_id=str(uuid),
+                via="ui",
+                reason="not_found",
+            )
             return render(
                 request,
                 "students/public/certificate_verify.html",
@@ -2329,6 +2730,9 @@ class PublicCertificateVerifyUIView(View):
                 },
                 status=404,
             )
+
+        _notify_admins_certificate_verification(request=request, issue=issue, via="ui")
+        _audit_certificate_verification(request=request, issue=issue, via="ui")
 
         payload = issue.payload or {}
 
@@ -2345,6 +2749,84 @@ class PublicCertificateVerifyUIView(View):
                 grade_name = grade_name or (issue.enrollment.grade.name if issue.enrollment.grade else "")
             except Exception:
                 pass
+
+        final_status = payload.get("final_status")
+        if not final_status and issue.enrollment:
+            final_status = getattr(issue.enrollment, "final_status", "")
+
+        rows = payload.get("rows")
+        if not rows and issue.enrollment:
+            # Recompute current area rows from the study plan (includes hours/weights).
+            try:
+                loads = _subjects_for_grade(issue.enrollment.grade_id)
+                computed = compute_certificate_studies_rows(issue.enrollment)
+            except Exception:
+                loads = []
+                computed = []
+
+            subject_score_by_load_id: dict[int, Decimal] = {}
+            for r in computed or []:
+                if not isinstance(r, dict):
+                    continue
+                load_id = r.get("academic_load_id")
+                if not load_id:
+                    continue
+                score = _parse_score_decimal(r.get("score"))
+                if score is None:
+                    continue
+                try:
+                    subject_score_by_load_id[int(load_id)] = score
+                except Exception:
+                    continue
+
+            rows = _certificate_area_rows_from_plan(
+                loads=loads,
+                subject_score_by_load_id=subject_score_by_load_id,
+                academic_year_id=getattr(issue.enrollment, "academic_year_id", None),
+            )
+
+        # If payload rows exist but lack hours, enrich from the current study plan.
+        if isinstance(rows, list) and issue.enrollment:
+            try:
+                loads_for_hours = _subjects_for_grade(issue.enrollment.grade_id)
+            except Exception:
+                loads_for_hours = []
+            area_hours: dict[str, int] = {}
+            for load in loads_for_hours:
+                try:
+                    area_name = str(load.subject.area.name or "").strip()
+                    if not area_name:
+                        continue
+                    area_hours[area_name] = area_hours.get(area_name, 0) + int(getattr(load, "hours_per_week", 0) or 0)
+                except Exception:
+                    continue
+
+            enriched = []
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                area_name = str(r.get("area_subject") or "").strip()
+                rr = dict(r)
+                if rr.get("hours_per_week") in [None, "", 0]:
+                    if area_name in area_hours:
+                        rr["hours_per_week"] = area_hours[area_name]
+                enriched.append(rr)
+            rows = enriched
+
+        # Normalize rows for template safety.
+        safe_rows = []
+        if isinstance(rows, list):
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                safe_rows.append(
+                    {
+                        "area_subject": str(r.get("area_subject") or "").strip(),
+                        "hours_per_week": r.get("hours_per_week") or "",
+                        "score": str(r.get("score") or "").strip(),
+                        "performance": str(r.get("performance") or "").strip(),
+                    }
+                )
 
         api_json_url = request.build_absolute_uri(
             reverse("public-certificate-verify", kwargs={"uuid": str(issue.uuid)})
@@ -2368,6 +2850,9 @@ class PublicCertificateVerifyUIView(View):
             "academic_year": academic_year or "",
             "grade": grade_name or "",
             "grade_id": payload.get("grade_id"),
+            "final_status": final_status or "",
+            "promoted": _promoted_from_final_status(final_status),
+            "rows": safe_rows,
             "api_json_url": f"{api_json_url}?format=json",
         }
 

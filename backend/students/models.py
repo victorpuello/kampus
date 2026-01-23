@@ -214,9 +214,11 @@ class CertificateIssue(models.Model):
         (TYPE_STUDIES, "Certificado de estudios"),
     )
 
+    STATUS_PENDING = "PENDING"
     STATUS_ISSUED = "ISSUED"
     STATUS_REVOKED = "REVOKED"
     STATUS_CHOICES = (
+        (STATUS_PENDING, "Pendiente"),
         (STATUS_ISSUED, "Emitido"),
         (STATUS_REVOKED, "Revocado"),
     )
@@ -252,6 +254,10 @@ class CertificateIssue(models.Model):
         null=True,
         help_text="Copia del PDF generado para auditoría y re-descarga.",
     )
+
+    # Storage privado (fuera de MEDIA). Si está presente, debe preferirse sobre pdf_file.
+    pdf_private_relpath = models.CharField(max_length=512, blank=True, null=True)
+    pdf_private_filename = models.CharField(max_length=255, blank=True, null=True)
 
     # Snapshot of data used to render the certificate (manual student details, year, grade, rows, etc.).
     payload = models.JSONField(default=dict, blank=True)

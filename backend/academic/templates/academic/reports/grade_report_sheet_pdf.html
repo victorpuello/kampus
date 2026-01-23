@@ -4,51 +4,29 @@
     <meta charset="utf-8" />
     <style>
       @page {
-        size: A4 landscape;
-        margin: 5mm 20mm 10mm 20mm;
-      }
+            size: A4;
+            margin: 1.5cm;
+            @frame footer {
+                -pdf-frame-content: footerContent;
+                bottom: 0.4cm;
+                margin-left: 1.4cm;
+                margin-right: 1.4cm;
+                height: 0.5cm;
+            }
+          }
 
       body {
         font-family: Arial, Helvetica, sans-serif;
         font-size: 16px;
         color: #000;
         line-height: 1;
+        margin: 0;
+        padding: 0;
       }
 
       .masthead {
         width: 100%;
         border-collapse: collapse;
-        margin: 0 0 6px 0;
-      }
-      .masthead td {
-        vertical-align: middle;
-      }
-      .masthead-left {
-        width: 170px;
-        text-align: right;
-        padding-right: 0;
-      }
-      .masthead-center {
-        text-align: center;
-        padding: 0 6px;
-      }
-      .masthead-right {
-        width: 170px;
-        text-align: left;
-        padding-left: 0;
-      }
-
-      .masthead-logo {
-        height: 80px;
-        width: auto;
-      }
-      .inst-line1 {
-        font-size: 11px;
-        font-weight: bold;
-        text-transform: uppercase;
-      }
-      .inst-line2,
-      .inst-line3 {
         font-size: 9px;
       }
 
@@ -91,18 +69,20 @@
       }
 
       .num {
-        width: 32px;
+        width: {{ num_width_px|default:32 }}px;
         text-align: center;
         font-size: 9px;
       }
 
       .name {
-        width: auto;
-        font-size: 9px;
+        width: {{ name_width_px|default:260 }}px;
+        font-size: {{ name_font_size_px|default:9 }}px;
+        white-space: nowrap;
+        overflow: hidden;
       }
 
       .cell {
-        width: 44px;
+        width: {{ cell_width_px|default:44 }}px;
         text-align: center;
         font-size: 9px;
       }
@@ -121,37 +101,7 @@
   </head>
 
   <body>
-    <table class="masthead">
-      <tr>
-        <td class="masthead-left">
-          {% if institution.pdf_show_logo and institution.logo %}
-            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Logo" class="masthead-logo" />
-          {% endif %}
-        </td>
-        <td class="masthead-center">
-          <div class="inst-line1">
-            {% if institution.pdf_header_line1 %}
-              {{ institution.pdf_header_line1 }}<br />
-              {{ institution.name }}
-            {% else %}
-              {{ institution.name }}
-            {% endif %}
-          </div>
-          {% if institution.pdf_header_line2 %}
-            <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
-          {% endif %}
-          {% if institution.pdf_header_line3 %}
-            <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
-          {% endif %}
-        </td>
-        <td class="masthead-right">
-          {% if institution.pdf_show_logo and institution.logo %}
-            <img src="{{ institution.logo.url }}" alt="Logo" class="masthead-logo" />
-          {% endif %}
-        </td>
-      </tr>
-    </table>
-
+    {% include "reports/partials/pdf_masthead.html" %}
     <table class="outer">
       <tr>
         <td class="title" style="padding-bottom:10px">PLANILLA DE REPORTE DE NOTAS DE ESTUDIANTES</td>

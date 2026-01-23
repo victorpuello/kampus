@@ -1,7 +1,4 @@
 from __future__ import annotations
-
-import io
-import os
 import traceback
 from datetime import timedelta
 
@@ -38,6 +35,8 @@ from .serializers import (
 
 from notifications.services import admin_like_users_qs, notify_users
 from users.models import User
+
+from .reports import build_attendance_manual_sheet_context, user_can_access_group
 
 
 def _is_admin_user(user) -> bool:
@@ -113,6 +112,7 @@ class AttendanceManualSheetView(APIView):
             return Response({"detail": "group_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
 
         fmt = (request.query_params.get("format") or "pdf").strip().lower()
+        want_async = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
         try:
             cols = int(request.query_params.get("columns") or "24")
         except Exception:
@@ -127,75 +127,32 @@ class AttendanceManualSheetView(APIView):
         if not group:
             return Response({"detail": "Grupo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
-        if not _user_can_access_group(request.user, group):
+        if not user_can_access_group(request.user, group):
             return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
 
-        enrollments = (
-            Enrollment.objects.select_related("student", "student__user")
-            .filter(academic_year_id=group.academic_year_id, group_id=group.id, status="ACTIVE")
-            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
-        )
+        if want_async and fmt == "pdf":
+            from datetime import timedelta  # noqa: PLC0415
+            from reports.models import ReportJob  # noqa: PLC0415
+            from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+            from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
 
-        def _display_name(e: Enrollment) -> str:
-            last_name = (e.student.user.last_name or "").strip().upper()
-            first_name = (e.student.user.first_name or "").strip().upper()
-            full = (last_name + " " + first_name).strip()
-            return full or e.student.user.get_full_name().upper() or ""
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
 
-        students = [{"index": i + 1, "display_name": _display_name(e)} for i, e in enumerate(enrollments)]
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET,
+                params={"group_id": group.id, "columns": cols},
+                expires_at=expires_at,
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
 
-        grade_label = str(getattr(group.grade, "name", "")).strip()
-        group_label = f"{grade_label}-{group.name}" if grade_label else str(group.name)
-        d = timezone.localdate()
-        printed_at = f"{d.month}/{d.day}/{d.year}"
-
-        director_name = ""
-        try:
-            if group.director:
-                director_name = group.director.get_full_name().upper()
-        except Exception:
-            director_name = ""
-
-        institution = Institution.objects.first() or Institution(name="")
-        base_logo_height = int(getattr(institution, "pdf_logo_height_px", 60) or 60)
-        # 33% smaller than configured height.
-        logo_height_px = max(18, int(round(base_logo_height * 0.67)))
-
-        def _upper(s: str) -> str:
-            return (s or "").strip().upper()
-
-        printed_by_name = ""
-        teacher_name = ""
-        try:
-            if getattr(request.user, "is_authenticated", False):
-                printed_by_name = _upper(request.user.get_full_name())
-                if not printed_by_name:
-                    printed_by_name = _upper(getattr(request.user, "username", ""))
-
-            if getattr(request.user, "role", None) == "TEACHER":
-                teacher_name = printed_by_name
-                if not teacher_name:
-                    first = _upper(getattr(request.user, "first_name", ""))
-                    last = _upper(getattr(request.user, "last_name", ""))
-                    teacher_name = (last + " " + first).strip()
-        except Exception:
-            printed_by_name = ""
-            teacher_name = ""
-
+        ctx = build_attendance_manual_sheet_context(group=group, user=request.user, columns=cols)
         html_string = render_to_string(
             "attendance/reports/attendance_manual_sheet_pdf.html",
-            {
-                "institution": institution,
-                "logo_height_px": logo_height_px,
-                "teacher_name": teacher_name,
-                "printed_by_name": printed_by_name,
-                "group_label": group_label,
-                "shift": group.get_shift_display(),
-                "printed_at": printed_at,
-                "director_name": director_name,
-                "students": students,
-                "columns": list(range(cols)),
-            },
+            ctx,
         )
 
         if fmt == "html":
@@ -203,46 +160,23 @@ class AttendanceManualSheetView(APIView):
 
         # PDF by default.
         try:
-            from xhtml2pdf import pisa
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
 
-            def _pisa_link_callback(uri: str, rel: str | None = None):
-                # Allow absolute URLs
-                if uri.startswith("http://") or uri.startswith("https://"):
-                    return uri
+            pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
 
-                media_url = getattr(settings, "MEDIA_URL", "") or ""
-                static_url = getattr(settings, "STATIC_URL", "") or ""
-
-                if media_url and uri.startswith(media_url):
-                    path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
-                    return os.path.normpath(path)
-
-                if static_url and uri.startswith(static_url):
-                    static_root = getattr(settings, "STATIC_ROOT", None)
-                    if static_root:
-                        path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
-                        return os.path.normpath(path)
-
-                return uri
-
-            result = io.BytesIO()
-            pdf = pisa.pisaDocument(
-                io.BytesIO(html_string.encode("UTF-8")),
-                result,
-                link_callback=_pisa_link_callback,
-                encoding="UTF-8",
-            )
-
-            if pdf.err:
-                return Response(
-                    {"detail": "Error generando PDF", "pisa_errors": getattr(pdf, "err", None)},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-            filename = f"planilla_asistencia_{group_label}.pdf".replace(" ", "_")
-            response = HttpResponse(result.getvalue(), content_type="application/pdf")
+            filename = f"planilla_asistencia_{ctx.get('group_label') or group.id}.pdf".replace(" ", "_")
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'
+            response["Deprecation"] = "true"
+            sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+            response["Sunset"] = str(sunset)
+            response["Link"] = '</api/reports/jobs/>; rel="alternate"'
             return response
+        except WeasyPrintUnavailableError as e:
+            payload = {"detail": str(e)}
+            if getattr(settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except Exception as e:
             payload = {"detail": "Error generando PDF", "error": str(e)}
             if getattr(settings, "DEBUG", False):

@@ -6,7 +6,7 @@
       @page {
         size: A4;
         /* APA-style margins ~ 1 inch */
-        margin: 25.4mm 25.4mm 25.4mm 25.4mm;
+        margin: 0 25.4mm 25.4mm 25.4mm;
 
         @frame footer_frame {
           /* Bottom-left footer */
@@ -26,7 +26,7 @@
         margin: 0;
         padding: 0;
       }
-      .masthead { width: 100%; border-collapse: collapse; margin-top: -4mm; }
+      .masthead { width: 100%; border-collapse: collapse; margin-top: 0; }
       .masthead td { vertical-align: middle; }
       .masthead-left { width: 140px; }
       .masthead-center { text-align: center; }
@@ -63,41 +63,7 @@
     </style>
   </head>
   <body>
-    <div id="footerContent">
-      Página <pdf:pagenumber> de <pdf:pagecount>
-    </div>
-
-    <table class="masthead">
-      <tr>
-        <td class="masthead-left">
-          {% if institution.pdf_letterhead_image %}
-            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Membrete" style="height: {{ institution.pdf_logo_height_px|default:80 }}px; width: auto;" />
-          {% endif %}
-        </td>
-        <td class="masthead-center">
-          <div class="inst-line1">
-            {% if institution.pdf_header_line1 %}
-              {{ institution.pdf_header_line1 }}
-              <br />
-              {{ institution.name }}
-            {% else %}
-              {{ institution.name }}
-            {% endif %}
-          </div>
-          {% if institution.pdf_header_line2 %}
-            <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
-          {% endif %}
-          {% if institution.pdf_header_line3 %}
-            <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
-          {% endif %}
-        </td>
-        <td class="masthead-right">
-          {% if institution.pdf_show_logo and institution.logo %}
-            <img src="{{ institution.logo.url }}" alt="Logo" style="height: {{ institution.pdf_logo_height_px|default:80 }}px; width: auto;" />
-          {% endif %}
-        </td>
-      </tr>
-    </table>
+    {% include "reports/partials/pdf_masthead.html" %}
 
     <div class="title">Análisis  — Estado del grupo</div>
 
@@ -115,10 +81,5 @@
       {{ analysis_html|safe }}
     </div>
 
-    {% if institution.pdf_footer_text %}
-      <div style="margin-top: 12px; text-align: center; font-size: 9px; color: #666;">
-        {{ institution.pdf_footer_text }}
-      </div>
-    {% endif %}
   </body>
 </html>

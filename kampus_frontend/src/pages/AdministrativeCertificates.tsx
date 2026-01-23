@@ -9,6 +9,7 @@ import { useAuthStore } from '../store/auth'
 import { certificatesApi, type CertificateStudiesIssuePayload } from '../services/certificates'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../services/academic'
 import { enrollmentsApi } from '../services/enrollments'
+import { reportsApi, type ReportJob } from '../services/reports'
 
 type EnrollmentOption = {
   id: number
@@ -85,6 +86,26 @@ export default function AdministrativeCertificates() {
     }
 
     showToast(`${fallbackMessage}${statusText}`, 'error')
+  }
+
+  const pollJobUntilFinished = async (
+    jobId: number,
+    onUpdate?: (job: ReportJob) => void
+  ): Promise<ReportJob> => {
+    let attempt = 0
+    // ~0.8s to ~4s
+    const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
+
+    for (;;) {
+      const res = await reportsApi.getJob(jobId)
+      const job = res.data
+      onUpdate?.(job)
+
+      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
+
+      attempt += 1
+      await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
+    }
   }
 
   const loadInlinePreview = async (payload: CertificateStudiesIssuePayload) => {
@@ -255,9 +276,17 @@ export default function AdministrativeCertificates() {
 
     setLoading(true)
     try {
-      const res = await certificatesApi.issueStudies({
+      const created = await certificatesApi.issueStudies({
         enrollment_id: Number(selectedEnrollmentId),
       })
+
+      const job = await pollJobUntilFinished(created.data.id)
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(job.id)
 
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
       const enrollment = enrollments.find((e) => String(e.id) === selectedEnrollmentId)
@@ -308,13 +337,21 @@ export default function AdministrativeCertificates() {
 
     setLoading(true)
     try {
-      const res = await certificatesApi.issueStudies({
+      const created = await certificatesApi.issueStudies({
         student_full_name: archiveName.trim(),
         document_type: effectiveDocType,
         document_number: archiveDocNumber.trim(),
         grade_id: Number(archiveGradeId),
         academic_year: archiveYear.trim(),
       })
+
+      const job = await pollJobUntilFinished(created.data.id)
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(job.id)
 
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
       downloadBlob(blob, `certificado-estudios-${archiveDocNumber.trim()}.pdf`)

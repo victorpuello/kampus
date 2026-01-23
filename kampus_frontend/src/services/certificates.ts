@@ -1,4 +1,5 @@
 import { api } from './api'
+import type { ReportJob } from './reports'
 
 export type CertificateStudiesIssueRegisteredPayload = {
   enrollment_id: number
@@ -71,9 +72,7 @@ export type CertificateRevenueSummaryResponse = {
 
 export const certificatesApi = {
   issueStudies: (payload: CertificateStudiesIssuePayload) =>
-    api.post('/api/certificates/studies/issue/', payload, {
-      responseType: 'blob',
-    }),
+    api.post<ReportJob>('/api/certificates/studies/issue/?async=1', payload),
 
   previewStudies: (payload: CertificateStudiesIssuePayload) =>
     api.post('/api/certificates/studies/preview/', payload, {

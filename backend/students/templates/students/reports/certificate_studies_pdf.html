@@ -5,7 +5,7 @@
   <style>
     @page {
       size: A4;
-      margin: 1.4cm;
+      margin: 1.5cm;
       @frame footer {
         -pdf-frame-content: footerContent;
         bottom: 0.4cm;
@@ -16,7 +16,7 @@
     }
 
     /* Keep everything on one A4 page where possible */
-    body { font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; line-height: 1.25; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #111827; line-height: 1.25; margin: 0; padding: 0; }
     .page { -pdf-keep-in-frame-mode: shrink; }
 
     .masthead { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
@@ -42,9 +42,10 @@
     .grades-table th, .grades-table td { border: 1px solid #d1d5db; padding: 3px; }
     .grades-table th { background: #f3f4f6; font-weight: bold; text-transform: uppercase; font-size: 10px; }
     .grades-table tr { page-break-inside: avoid; }
-    .col-area { width: 56%; }
+    .col-area { width: 48%; }
+    .col-hours { width: 14%; text-align: center; white-space: nowrap; }
     .col-score { width: 18%; text-align: center; white-space: nowrap; }
-    .col-perf { width: 26%; text-align: center; white-space: nowrap; }
+    .col-perf { width: 20%; text-align: center; white-space: nowrap; }
 
     .meta-row { margin-top: 5px; }
     .meta-row strong { display: inline-block; width: 240px; }
@@ -62,48 +63,9 @@
 </head>
 <body>
   <div class="page">
-  <table class="masthead">
-    <tr>
-      <td class="masthead-left">
-        {% if institution.pdf_letterhead_image %}
-          <div class="masthead-logo-wrap">
-            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Membrete" class="masthead-logo" />
-          </div>
-        {% endif %}
-      </td>
-      <td class="masthead-center">
-        <div class="inst-line1">
-          {% if institution.pdf_header_line1 %}
-            {{ institution.pdf_header_line1 }}
-            <p style="margin: 1px;">{{ institution.name }}</p>
-          {% else %}
-            {{ institution.name }}
-          {% endif %}
-        </div>
-        {% if institution.pdf_header_line2 %}
-          <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
-        {% endif %}
-        {% if institution.pdf_header_line3 %}
-          <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
-        {% endif %}
-      </td>
-      <td class="masthead-right">
-        {% if institution.pdf_show_logo and institution.logo %}
-          <div class="masthead-logo-wrap" style="margin-left: auto;">
-            <img src="{{ institution.logo.url }}" alt="Logo" class="masthead-logo" />
-          </div>
-        {% endif %}
-      </td>
-    </tr>
-  </table>
-
-  <div class="title">CERTIFICADO DE ESTUDIOS</div>
-
-  <div class="block">
-   <p style="text-align: center;"> EL RECTOR(A) DE ESTE ESTABLECIMIENTO EDUCATIVO DE CARÁCTER OFICIAL APROBADO MEDIANTE RESOLUCIÓN 334 DEL 28 DE JULIO DE 2011 EMANADA DE LA SECRETARIA DE EDUCACIÓN DEPARTAMENTAL DE CORDOBA.</p>
+    {% include "reports/partials/pdf_masthead.html" %}
     <div class="subtitle" style="margin-top: 6px; font-weight: bold;">CERTIFICA</div>
   </div>
-
   <div class="block">
     Que <strong>{{ student_full_name|upper }}</strong>
     identificado(a) con <strong>{{ document_type }}</strong> No. <strong>{{ document_number }}</strong>
@@ -117,7 +79,8 @@
   <table class="grades-table">
     <thead>
       <tr>
-        <th class="col-area">ÁREA / ASIGNATURA</th>
+        <th class="col-area">ÁREA</th>
+        <th class="col-hours">INT. HORARIA</th>
         <th class="col-score">NOTA</th>
         <th class="col-perf">DESEMPEÑO</th>
       </tr>
@@ -126,12 +89,13 @@
       {% for row in rows %}
         <tr>
           <td class="col-area">{{ row.area_subject }}</td>
+          <td class="col-hours">{% if row.hours_per_week %}{{ row.hours_per_week }} h/sem{% else %}—{% endif %}</td>
           <td class="col-score">{{ row.score }}</td>
           <td class="col-perf">{{ row.performance }}</td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="3" style="text-align:center; padding: 14px;">No hay asignaturas configuradas para este grado.</td>
+          <td colspan="4" style="text-align:center; padding: 14px;">No hay áreas configuradas o no hay notas registradas para este grado.</td>
         </tr>
       {% endfor %}
     </tbody>
@@ -174,11 +138,7 @@
     </tr>
   </table>
 
-  {% if institution.pdf_footer_text %}
-    <div style="margin-top: 8px; text-align: center; font-size: 9px; color: #666;">
-      {{ institution.pdf_footer_text }}
-    </div>
-  {% endif %}
+  {# Footer text is rendered by reports/partials/pdf_masthead.html to keep it consistent. #}
   </div>
 </body>
 </html>

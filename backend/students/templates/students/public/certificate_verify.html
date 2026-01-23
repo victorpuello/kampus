@@ -6,26 +6,28 @@
     <title>Verificación de certificado</title>
     <style>
       :root {
-        --bg: #0b1220;
-        --card: #0f1b33;
-        --text: #eaf0ff;
-        --muted: rgba(234, 240, 255, 0.75);
-        --border: rgba(234, 240, 255, 0.12);
+        --bg: #f6f7fb;
+        --card: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --border: rgba(15, 23, 42, 0.12);
         --ok: #16a34a;
-        --warn: #f59e0b;
-        --bad: #ef4444;
-        --pill: rgba(255, 255, 255, 0.08);
+        --warn: #d97706;
+        --bad: #dc2626;
+        --pill: rgba(15, 23, 42, 0.04);
+        --shadow: 0 18px 60px rgba(15, 23, 42, 0.12);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-        background: radial-gradient(1200px 600px at 20% 0%, rgba(56, 189, 248, 0.18), transparent 55%),
-          radial-gradient(900px 500px at 90% 10%, rgba(99, 102, 241, 0.18), transparent 50%),
+        background:
+          radial-gradient(1200px 600px at 20% 0%, rgba(56, 189, 248, 0.16), transparent 55%),
+          radial-gradient(900px 500px at 90% 10%, rgba(99, 102, 241, 0.12), transparent 50%),
           var(--bg);
         color: var(--text);
       }
-      a { color: #93c5fd; text-decoration: none; }
+      a { color: #1d4ed8; text-decoration: none; }
       a:hover { text-decoration: underline; }
       .wrap {
         max-width: 980px;
@@ -43,7 +45,7 @@
         height: 56px;
         border-radius: 12px;
         overflow: hidden;
-        background: rgba(255, 255, 255, 0.06);
+        background: rgba(15, 23, 42, 0.03);
         border: 1px solid var(--border);
         display: grid;
         place-items: center;
@@ -68,11 +70,11 @@
         font-size: 13px;
       }
       .card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+        background: var(--card);
         border: 1px solid var(--border);
         border-radius: 16px;
         padding: 18px;
-        box-shadow: 0 18px 60px rgba(0,0,0,0.45);
+        box-shadow: var(--shadow);
       }
       .grid {
         display: grid;
@@ -87,7 +89,7 @@
         grid-template-columns: 180px 1fr;
         gap: 10px;
         padding: 10px 0;
-        border-top: 1px solid rgba(234, 240, 255, 0.08);
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
       }
       .row:first-child { border-top: 0; padding-top: 0; }
       .k { color: var(--muted); font-size: 13px; }
@@ -98,7 +100,7 @@
         gap: 8px;
         padding: 6px 10px;
         border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(15, 23, 42, 0.12);
         background: var(--pill);
         font-size: 13px;
         width: fit-content;
@@ -112,8 +114,8 @@
         margin-top: 12px;
         padding: 12px 14px;
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(0, 0, 0, 0.18);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(15, 23, 42, 0.03);
         font-size: 13px;
         color: var(--muted);
       }
@@ -130,20 +132,50 @@
         gap: 8px;
         padding: 9px 12px;
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: rgba(15, 23, 42, 0.03);
         color: var(--text);
         font-size: 13px;
         cursor: pointer;
       }
-      .btn:hover { background: rgba(255, 255, 255, 0.09); text-decoration: none; }
+      .btn:hover { background: rgba(15, 23, 42, 0.06); text-decoration: none; }
       .small { font-size: 12px; }
       .footer {
         margin-top: 16px;
         text-align: center;
-        color: rgba(234, 240, 255, 0.55);
+        color: rgba(15, 23, 42, 0.55);
         font-size: 12px;
       }
+
+      .section-title {
+        margin: 16px 0 8px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid rgba(15, 23, 42, 0.10);
+        border-radius: 12px;
+        overflow: hidden;
+        background: rgba(255,255,255,0.7);
+      }
+      th, td {
+        padding: 10px 10px;
+        font-size: 13px;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        font-weight: 700;
+        color: rgba(15, 23, 42, 0.78);
+        background: rgba(15, 23, 42, 0.03);
+      }
+      tr:last-child td { border-bottom: 0; }
+      .num { text-align: right; white-space: nowrap; }
+      .nowrap { white-space: nowrap; }
     </style>
   </head>
 
@@ -223,6 +255,22 @@
                   {% endif %}
                 </div>
               </div>
+
+              <div class="row">
+                <div class="k">Promoción</div>
+                <div class="v">
+                  {% if promoted is True %}
+                    <span class="pill"><span class="dot ok"></span><strong>Promovido</strong></span>
+                  {% elif promoted is False %}
+                    <span class="pill"><span class="dot bad"></span><strong>No promovido</strong></span>
+                  {% else %}
+                    —
+                  {% endif %}
+                  {% if final_status %}
+                    <div class="muted small" style="margin-top: 6px;">Estado registrado: {{ final_status }}</div>
+                  {% endif %}
+                </div>
+              </div>
             </div>
 
             <div>
@@ -246,6 +294,30 @@
               {% endif %}
             </div>
           </div>
+
+          {% if rows %}
+            <div class="section-title">Notas obtenidas</div>
+            <table aria-label="Notas obtenidas">
+              <thead>
+                <tr>
+                  <th>Área</th>
+                  <th class="num">Int. horaria</th>
+                  <th class="num">Nota</th>
+                  <th class="nowrap">Desempeño</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in rows %}
+                  <tr>
+                    <td>{{ r.area_subject }}</td>
+                    <td class="num">{% if r.hours_per_week %}{{ r.hours_per_week }} h/sem{% else %}—{% endif %}</td>
+                    <td class="num">{{ r.score }}</td>
+                    <td class="nowrap">{{ r.performance }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% endif %}
 
           <div class="notice">
             Este resultado confirma si el certificado fue <strong>emitido</strong> por el sistema.

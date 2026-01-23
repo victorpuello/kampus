@@ -4,7 +4,7 @@ Este repositorio incluye un **formato oficial** para el PDF del informe de IA �
 
 ## Dónde vive el formato
 
-- Template (HTML → PDF con xhtml2pdf):
+- Template (HTML → PDF con WeasyPrint):
   - `backend/teachers/templates/teachers/reports/teacher_statistics_ai_pdf.html`
 - Endpoint que lo genera:
   - `GET /api/teachers/me/statistics/ai/pdf`

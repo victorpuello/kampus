@@ -1,12 +1,18 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from unittest.mock import patch
+import uuid as py_uuid
 from students.models import Student, Enrollment
 from students.models import FamilyMember
+from students.models import CertificateIssue
 from students.serializers import StudentSerializer
 from rest_framework.test import APITestCase
 from rest_framework import status
 from academic.models import AcademicYear, Grade, Group
 from academic.models import TeacherAssignment
+from reports.models import ReportJob
+from notifications.models import Notification
+from audit.models import AuditLog
 
 User = get_user_model()
 
@@ -258,6 +264,7 @@ class EnrollmentMyForTeacherAPITest(APITestCase):
             role=User.ROLE_STUDENT,
         )
         s1 = Student.objects.create(user=u1, document_number="DOC_MY_1")
+
         self.enr_assigned = Enrollment.objects.create(
             student=s1,
             academic_year=self.year,
@@ -302,6 +309,85 @@ class EnrollmentMyForTeacherAPITest(APITestCase):
         self.client.force_authenticate(user=self.admin)
         res = self.client.get("/api/enrollments/my/?page=1&page_size=10")
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class CertificateStudiesIssueAsyncAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_cert",
+            password="admin123",
+            email="admin_cert@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+        self.group = Group.objects.create(name="A", grade=self.grade, academic_year=self.year, capacity=40)
+
+        u = User.objects.create_user(
+            username="student_cert",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Diaz",
+            role=User.ROLE_STUDENT,
+        )
+        self.student = Student.objects.create(user=u, document_number="DOC_CERT")
+        self.enrollment = Enrollment.objects.create(
+            student=self.student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            status="ACTIVE",
+        )
+
+    @patch("reports.tasks.generate_report_job_pdf.delay")
+    def test_issue_certificate_async_creates_pending_issue_and_job(self, mock_delay):
+        res = self.client.post(
+            "/api/certificates/studies/issue/?async=1",
+            {"enrollment_id": self.enrollment.id, "academic_year_id": self.year.id},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_202_ACCEPTED)
+        mock_delay.assert_called_once()
+
+        issue = CertificateIssue.objects.latest("issued_at")
+        self.assertEqual(issue.status, CertificateIssue.STATUS_PENDING)
+
+        job = ReportJob.objects.latest("created_at")
+        self.assertEqual(job.report_type, ReportJob.ReportType.CERTIFICATE_STUDIES)
+        self.assertEqual(job.params.get("certificate_uuid"), str(issue.uuid))
+
+
+class PublicCertificateVerifyLegacyURLTests(TestCase):
+    def test_legacy_uuid_redirects_to_canonical_public_url(self):
+        issue = CertificateIssue.objects.create(
+            uuid=py_uuid.UUID("c145af62-7293-41fc-b9ea-97898b80d383"),
+            status=CertificateIssue.STATUS_ISSUED,
+        )
+
+        # Missing hyphen between 41fc and b9ea (common copy/paste issue)
+        legacy = "c145af62-7293-41fcb9ea-97898b80d383"
+        res = self.client.get(f"/public/certificates/{legacy}/", follow=False)
+        self.assertEqual(res.status_code, 302)
+        self.assertIn(str(issue.uuid), res["Location"])
+
+    def test_spacey_certificates_prefix_redirects_to_canonical_public_url(self):
+        issue = CertificateIssue.objects.create(
+            uuid=py_uuid.UUID("c145af62-7293-41fc-b9ea-97898b80d383"),
+            status=CertificateIssue.STATUS_ISSUED,
+        )
+
+        legacy = "c145af62-7293-41fcb9ea-97898b80d383"
+
+        # Some legacy QR codes ended up with leading spaces after /public/.
+        res = self.client.get(f"/public/  certificates/{legacy}", follow=False)
+        self.assertEqual(res.status_code, 302)
+        self.assertIn(str(issue.uuid), res["Location"])
+
+        res2 = self.client.get(f"/public/  certificates/{legacy}/verify", follow=False)
+        self.assertEqual(res2.status_code, 302)
+        self.assertIn(str(issue.uuid), res2["Location"])
 
 
 class StudentDirectorEditAPITest(APITestCase):
@@ -403,3 +489,120 @@ class StudentDirectorEditAPITest(APITestCase):
             format="json",
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class PublicCertificateVerificationNotificationTest(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            username="admin_verify",
+            password="pw123456",
+            first_name="Admin",
+            last_name="Verify",
+            email="admin_verify@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+            is_active=True,
+        )
+
+        self.issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={"student_full_name": "Estudiante X"},
+        )
+
+    def test_public_verify_ui_creates_notification_and_dedupes(self):
+        url = f"/public/certificates/{self.issue.uuid}/"
+
+        res1 = self.client.get(url, HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                event_type="PUBLIC_CERTIFICATE_VERIFY",
+                object_type="CertificateIssue",
+                object_id=str(self.issue.uuid),
+            ).count(),
+            1,
+        )
+        self.assertEqual(Notification.objects.filter(recipient=self.admin).count(), 1)
+
+        res2 = self.client.get(url, HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(Notification.objects.filter(recipient=self.admin).count(), 1)
+
+    def test_public_verify_api_uses_same_dedupe_key(self):
+        ui_url = f"/public/certificates/{self.issue.uuid}/"
+        api_url = f"/api/public/certificates/{self.issue.uuid}/verify/"
+
+        res1 = self.client.get(ui_url, HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res1.status_code, 200)
+        self.assertEqual(Notification.objects.filter(recipient=self.admin).count(), 1)
+
+        res2 = self.client.get(
+            api_url,
+            HTTP_ACCEPT="application/json",
+            HTTP_USER_AGENT="pytest-agent",
+            REMOTE_ADDR="1.2.3.4",
+        )
+        self.assertEqual(res2.status_code, 200)
+        self.assertEqual(Notification.objects.filter(recipient=self.admin).count(), 1)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                event_type="PUBLIC_CERTIFICATE_VERIFY",
+                object_type="CertificateIssue",
+                object_id=str(self.issue.uuid),
+            ).count(),
+            2,
+        )
+
+    def test_public_verify_ui_not_found_is_audited(self):
+        missing_uuid = py_uuid.uuid4()
+        url = f"/public/certificates/{missing_uuid}/"
+
+        res = self.client.get(url, HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res.status_code, 404)
+
+        self.assertEqual(
+            AuditLog.objects.filter(
+                event_type="PUBLIC_CERTIFICATE_VERIFY",
+                object_type="CertificateIssue",
+                object_id=str(missing_uuid),
+                status_code=404,
+            ).count(),
+            1,
+        )
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_public_verify_api_not_found_is_audited(self):
+        missing_uuid = py_uuid.uuid4()
+        url = f"/api/public/certificates/{missing_uuid}/verify/"
+
+        res = self.client.get(url, HTTP_ACCEPT="application/json", HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res.status_code, 404)
+
+        self.assertEqual(
+            AuditLog.objects.filter(
+                event_type="PUBLIC_CERTIFICATE_VERIFY",
+                object_type="CertificateIssue",
+                object_id=str(missing_uuid),
+                status_code=404,
+            ).count(),
+            1,
+        )
+        self.assertEqual(Notification.objects.count(), 0)
+
+    def test_public_verify_legacy_invalid_id_is_audited(self):
+        bad = "not-a-uuid"
+        url = f"/public/certificates/{bad}/"
+
+        res = self.client.get(url, HTTP_USER_AGENT="pytest-agent", REMOTE_ADDR="1.2.3.4")
+        self.assertEqual(res.status_code, 404)
+
+        self.assertEqual(
+            AuditLog.objects.filter(
+                event_type="PUBLIC_CERTIFICATE_VERIFY",
+                object_type="CertificateIssue",
+                object_id=bad,
+                status_code=404,
+            ).count(),
+            1,
+        )
+        self.assertEqual(Notification.objects.count(), 0)

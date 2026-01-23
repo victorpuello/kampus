@@ -2,35 +2,7 @@
   <table border="0" width="753" cellpadding="0" cellspacing="0" align="center">
     <tr>
       <td colspan="4">
-        <div align="center">
-          <table border="0" cellpadding="0" cellspacing="0">
-            <tr>
-              <td rowspan="6" align="center" valign="middle">
-                {% if institution.pdf_logo %}
-                  <img src="{{ institution.pdf_logo.url }}" border="0" width="80" height="86" />
-                {% endif %}
-              </td>
-              <td align="center">
-                <b><font face="Tahoma" size="3" color="#000000">{{ institution.pdf_name|default:institution.name|default:"INSTITUCIÓN EDUCATIVA" }}</font></b>
-              </td>
-            </tr>
-            <tr>
-              <td align="center"><b><font face="Arial" size="2">{{ institution.pdf_headquarter|default:"" }}</font></b></td>
-            </tr>
-            <tr>
-              <td align="center"><font size="1" face="Arial"><b>{{ institution.pdf_dane|default:"" }}</b></font></td>
-            </tr>
-            <tr>
-              <td align="center"><font face="Arial" size="1"><b>{{ institution.pdf_resolution|default:"" }}</b></font></td>
-            </tr>
-            <tr>
-              <td align="center"><font size="1" face="Arial"><b>{{ institution.pdf_nit|default:"" }}</b></font></td>
-            </tr>
-            <tr>
-              <td align="center"><font face="Arial" size="1"><b>{{ institution.pdf_city|default:"" }}</b></font></td>
-            </tr>
-          </table>
-        </div>
+        {% include "reports/partials/pdf_masthead.html" %}
       </td>
     </tr>
 

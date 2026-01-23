@@ -12,5 +12,8 @@ python-dotenv==1.2.1
 django-filter
 openpyxl==3.1.5
 xlrd==1.2.0
-xhtml2pdf==0.2.15
 qrcode==7.4.2
+
+# Async PDF generation (Gold Standard)
+weasyprint==67.0
+celery[redis]==5.4.0

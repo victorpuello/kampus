@@ -7,10 +7,10 @@
     <style>
       @page {
         size: A4 portrait;
-        margin: 5mm 20mm;
+        margin: 0 20mm 5mm 20mm;
       }
 
-      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; line-height: 1.35; }
+      body { font-family: Arial, sans-serif; font-size: 12px; color: #111; line-height: 1.35; margin: 0; padding: 0; }
       h1, h2 { margin: 0 0 8px 0; }
       h1 { font-size: 18px; }
       h2 { font-size: 14px; margin-top: 16px; }
@@ -52,8 +52,8 @@
         margin: 0 0 6px 0;
       }
       .letterhead img {
-        /* xhtml2pdf has limited support for percentage widths; use page-width in mm.
-           A4 portrait width is 210mm, minus 10mm margins on each side => 190mm content. */
+        /* Use explicit page width in mm for predictable PDF output.
+          A4 portrait width is 210mm, minus 10mm margins on each side => 190mm content. */
         width: 190mm;
         height: auto;
       }
@@ -108,36 +108,7 @@
     </style>
   </head>
   <body>
- <table class="masthead">
-      <tr>
-        <td class="masthead-left">
-          {% if institution.pdf_show_logo and institution.logo %}
-            <img src="{{ institution.pdf_letterhead_image.url }}" alt="Logo" class="masthead-logo" />
-          {% endif %}
-        </td>
-        <td class="masthead-center">
-          <div class="inst-line1">
-            {% if institution.pdf_header_line1 %}
-              {{ institution.pdf_header_line1 }}<br />
-              {{ institution.name }}
-            {% else %}
-              {{ institution.name }}
-            {% endif %}
-          </div>
-          {% if institution.pdf_header_line2 %}
-            <div class="inst-line2">{{ institution.pdf_header_line2 }}</div>
-          {% endif %}
-          {% if institution.pdf_header_line3 %}
-            <div class="inst-line3">{{ institution.pdf_header_line3 }}</div>
-          {% endif %}
-        </td>
-        <td class="masthead-right">
-          {% if institution.pdf_show_logo and institution.logo %}
-            <img src="{{ institution.logo.url }}" alt="Logo" class="masthead-logo" />
-          {% endif %}
-        </td>
-      </tr>
-    </table>
+    {% include "reports/partials/pdf_masthead.html" %}
 
     <h1 style="text-align: center;">Acta / Registro de Convivencia - Caso #{{ case.id }}</h1>
     <div class="muted" style="text-align: center;">Generado: {{ generated_at|date:"Y-m-d H:i" }}{% if generated_by %} por {{ generated_by.get_full_name|default:generated_by.username }}{% endif %}</div>

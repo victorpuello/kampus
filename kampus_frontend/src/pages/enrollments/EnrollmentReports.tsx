@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group, type Period } from '../../services/academic'
+import { reportsApi, type ReportJob } from '../../services/reports'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Label } from '../../components/ui/Label'
@@ -47,6 +48,9 @@ export default function EnrollmentReports() {
   const [bulletinEnrollments, setBulletinEnrollments] = useState<EnrollmentOption[]>([])
   const [loadingBulletinEnrollments, setLoadingBulletinEnrollments] = useState(false)
 
+  const [bulletinJob, setBulletinJob] = useState<ReportJob | null>(null)
+  const [enrollmentListJob, setEnrollmentListJob] = useState<ReportJob | null>(null)
+
   const getFilenameFromContentDisposition = (value?: string) => {
     if (!value) return null
     const match = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;]+)/i.exec(value)
@@ -70,6 +74,27 @@ export default function EnrollmentReports() {
     window.URL.revokeObjectURL(url)
   }
 
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const pollJobUntilFinished = async (
+    jobId: number,
+    onUpdate?: (job: ReportJob) => void
+  ): Promise<ReportJob> => {
+    // ~2 min worst-case with backoff.
+    const delaysMs = [400, 700, 1000, 1500, 2000, 2500, 3000, 3500]
+    for (let i = 0; i < 60; i++) {
+      const res = await reportsApi.getJob(jobId)
+      const job = res.data
+      onUpdate?.(job)
+      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') {
+        return job
+      }
+      const delay = delaysMs[Math.min(i, delaysMs.length - 1)]
+      await sleep(delay)
+    }
+    throw new Error('Timeout esperando la generación del PDF')
+  }
+
   useEffect(() => {
     if (isTeacher) return
     Promise.all([
@@ -90,42 +115,46 @@ export default function EnrollmentReports() {
     }).catch(console.error)
   }, [isTeacher])
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-slate-100">Reportes de Matrículas</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a reportes de matrículas.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const handleDownloadReport = async (format: 'csv' | 'pdf' | 'xlsx' = 'csv') => {
     setLoading(true)
     try {
+      if (format === 'pdf') {
+        showToast('Generando PDF…', 'info')
+
+        const created = await reportsApi.createJob({
+          report_type: 'ENROLLMENT_LIST',
+          params: {
+            year_id: filters.year ? Number(filters.year) : null,
+            grade_id: filters.grade ? Number(filters.grade) : null,
+            group_id: filters.group ? Number(filters.group) : null,
+          },
+        })
+
+        setEnrollmentListJob(created.data)
+        const job = await pollJobUntilFinished(created.data.id, setEnrollmentListJob)
+
+        if (job.status !== 'SUCCEEDED') {
+          showToast(job.error_message || 'No se pudo generar el PDF', 'error')
+          return
+        }
+
+        const res = await reportsApi.downloadJob(job.id)
+        const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+        const headers = res.headers as Record<string, string | undefined>
+        const filename =
+          getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+          job.output_filename ||
+          'reporte_matriculados.pdf'
+
+        downloadBlob(blob, filename)
+        showToast('PDF listo.', 'success')
+        return
+      }
+
       const response = await enrollmentsApi.downloadReport({ ...filters, export: format })
-
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-
-      const filename =
-        format === 'csv' ? 'matriculados.csv' :
-        format === 'xlsx' ? 'matriculados.xlsx' :
-        'reporte_matriculados.pdf'
-
-      link.setAttribute('download', filename)
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.URL.revokeObjectURL(url)
+      const filename = format === 'csv' ? 'matriculados.csv' : 'matriculados.xlsx'
+      downloadBlob(blob, filename)
     } catch (error) {
       console.error(error)
       showToast('Error al descargar reporte', 'error')
@@ -157,6 +186,7 @@ export default function EnrollmentReports() {
     // When changing group/year or switching mode, reset student selection.
     setBulletinEnrollmentId('')
     setBulletinEnrollments([])
+    setBulletinJob(null)
   }, [filters.group, filters.year, bulletinMode])
 
   useEffect(() => {
@@ -211,13 +241,28 @@ export default function EnrollmentReports() {
       const periodId = Number(bulletinPeriodId)
 
       if (bulletinMode === 'GROUP') {
-        const res = await academicApi.downloadAcademicPeriodReportByGroup(groupId, periodId)
+        showToast('Generando PDF…', 'info')
+
+        const created = await reportsApi.createAcademicPeriodGroupJob(groupId, periodId)
+        const jobId = created.data.id
+
+        setBulletinJob(created.data)
+
+        const job = await pollJobUntilFinished(jobId, setBulletinJob)
+        if (job.status !== 'SUCCEEDED') {
+          showToast(job.error_message || 'No se pudo generar el PDF', 'error')
+          return
+        }
+
+        const res = await reportsApi.downloadJob(jobId)
         const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
         const headers = res.headers as Record<string, string | undefined>
         const filename =
           getFilenameFromContentDisposition(headers?.['content-disposition']) ||
-          `boletines-grupo-${groupId}-periodo-${periodId}.pdf`
+          job.output_filename ||
+          `informe-academico-grupo-${groupId}-periodo-${periodId}.pdf`
         downloadBlob(blob, filename)
+        showToast('PDF listo.', 'success')
         return
       }
 
@@ -227,13 +272,28 @@ export default function EnrollmentReports() {
       }
 
       const enrollmentId = Number(bulletinEnrollmentId)
-      const res = await academicApi.downloadAcademicPeriodReportByEnrollment(enrollmentId, periodId)
+      showToast('Generando PDF…', 'info')
+
+      const created = await reportsApi.createAcademicPeriodEnrollmentJob(enrollmentId, periodId)
+      const jobId = created.data.id
+
+      setBulletinJob(created.data)
+
+      const job = await pollJobUntilFinished(jobId, setBulletinJob)
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el PDF', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(jobId)
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
       const headers = res.headers as Record<string, string | undefined>
       const filename =
         getFilenameFromContentDisposition(headers?.['content-disposition']) ||
-        `boletin-enrollment-${enrollmentId}-periodo-${periodId}.pdf`
+        job.output_filename ||
+        `informe-academico-enrollment-${enrollmentId}-periodo-${periodId}.pdf`
       downloadBlob(blob, filename)
+      showToast('PDF listo.', 'success')
     } catch (err) {
       console.error(err)
       showToast('Error al generar el boletín', 'error')
@@ -264,6 +324,22 @@ export default function EnrollmentReports() {
         if (aOrd !== bOrd) return bOrd - aOrd
         return (a.name || '').localeCompare(b.name || '')
       })
+  }
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Reportes de Matrículas</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a reportes de matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
@@ -351,6 +427,28 @@ export default function EnrollmentReports() {
                 PDF
               </Button>
             </div>
+
+            {enrollmentListJob && (
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                PDF: <span className="font-medium">{enrollmentListJob.status}</span>
+                {typeof enrollmentListJob.progress === 'number' ? ` (${enrollmentListJob.progress}%)` : ''}
+                {enrollmentListJob.status === 'FAILED' && enrollmentListJob.error_message
+                  ? ` — ${enrollmentListJob.error_message}`
+                  : ''}
+              </div>
+            )}
+
+            {enrollmentListJob?.status === 'FAILED' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => handleDownloadReport('pdf')}
+                disabled={loading}
+                className="w-full"
+              >
+                Reintentar PDF
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -437,6 +535,26 @@ export default function EnrollmentReports() {
             >
               Generar PDF
             </Button>
+
+            {bulletinJob && (
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                Estado: <span className="font-medium">{bulletinJob.status}</span>
+                {typeof bulletinJob.progress === 'number' ? ` (${bulletinJob.progress}%)` : ''}
+                {bulletinJob.status === 'FAILED' && bulletinJob.error_message ? ` — ${bulletinJob.error_message}` : ''}
+              </div>
+            )}
+
+            {bulletinJob?.status === 'FAILED' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleDownloadBulletin}
+                disabled={loading || !filters.group || !filters.year || !bulletinPeriodId || (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)}
+                className="w-full"
+              >
+                Reintentar
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

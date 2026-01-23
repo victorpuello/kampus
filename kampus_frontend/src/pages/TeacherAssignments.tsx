@@ -470,12 +470,12 @@ export default function TeacherAssignments() {
                     <Label>Número de columnas (notas)</Label>
                     <Input
                       type="number"
-                      min={1}
-                      max={12}
+                      min={3}
+                      max={7}
                       value={gradeNoteColumns}
-                      onChange={(e) => setGradeNoteColumns(Math.max(1, Math.min(12, Number(e.target.value || 3))))}
+                      onChange={(e) => setGradeNoteColumns(Math.max(3, Math.min(7, Number(e.target.value || 3))))}
                     />
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Esto controla cuántas columnas “Nota 1…Nota N” aparecen antes de “Def.”</p>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Mínimo 3 y máximo 7. Esto controla cuántas columnas “Nota 1…Nota N” aparecen antes de “Def.”</p>
                   </div>
                 </>
               )}

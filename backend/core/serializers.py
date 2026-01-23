@@ -10,11 +10,33 @@ class InstitutionSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def to_internal_value(self, data):
+        data = data.copy() if hasattr(data, 'copy') else dict(data)
+
         # Handle empty string for secretary field (set to None)
-        if 'secretary' in data and data['secretary'] == '':
-            data = data.copy()
+        if data.get('secretary') == '':
             data['secretary'] = None
+
+        # Allow clearing file/image fields via PATCH with empty string.
+        for field in ['logo', 'pdf_letterhead_image', 'pdf_rector_signature_image']:
+            if data.get(field) in ('', 'null'):
+                data[field] = None
         return super().to_internal_value(data)
+
+    def update(self, instance, validated_data):
+        # If an image is replaced or cleared, delete the previous file to avoid orphan media.
+        for field in ['logo', 'pdf_letterhead_image', 'pdf_rector_signature_image']:
+            if field not in validated_data:
+                continue
+
+            incoming = validated_data.get(field)
+            current = getattr(instance, field, None)
+            if current and (incoming is None or incoming != current):
+                try:
+                    current.delete(save=False)
+                except Exception:
+                    pass
+
+        return super().update(instance, validated_data)
 
 
 class CampusSerializer(serializers.ModelSerializer):

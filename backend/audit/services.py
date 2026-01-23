@@ -41,3 +41,36 @@ def log_event(
 		user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:4000],
 		metadata=metadata or {},
 	)
+
+
+def log_public_event(
+	request: HttpRequest,
+	*,
+	event_type: str,
+	object_type: str = "",
+	object_id: str | int = "",
+	status_code: Optional[int] = None,
+	metadata: Optional[dict[str, Any]] = None,
+) -> AuditLog:
+	"""Log an event even when the request is anonymous.
+
+	Used for public verification endpoints where `request.user` is usually not
+	authenticated.
+	"""
+
+	user = getattr(request, "user", None)
+	actor = user if getattr(user, "is_authenticated", False) else None
+
+	obj_id_str = str(object_id) if object_id is not None else ""
+	return AuditLog.objects.create(
+		actor=actor,
+		event_type=event_type,
+		object_type=object_type or "",
+		object_id=obj_id_str,
+		path=(getattr(request, "path", "") or ""),
+		method=(getattr(request, "method", "") or ""),
+		status_code=status_code,
+		ip_address=_get_ip(request),
+		user_agent=(request.META.get("HTTP_USER_AGENT") or "")[:4000],
+		metadata=metadata or {},
+	)

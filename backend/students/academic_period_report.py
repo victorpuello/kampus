@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import io
-import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from django.conf import settings
-from django.http import HttpResponse
 from django.template.loader import render_to_string
 
 from academic.grading import DEFAULT_EMPTY_SCORE, final_grade_from_dimensions, match_scale, weighted_average
@@ -15,42 +12,7 @@ from academic.models import Achievement, AchievementGrade, Dimension, Evaluation
 from core.models import Institution
 from students.models import Enrollment
 
-try:
-    from xhtml2pdf import pisa  # type: ignore[import-not-found]
-except Exception:  # pragma: no cover
-    pisa = None
-
-
-def _pisa_link_callback(uri: str, rel: str):
-    if uri is None:
-        return uri
-    uri = str(uri)
-
-    if uri.startswith("http://") or uri.startswith("https://"):
-        return uri
-
-    media_url = getattr(settings, "MEDIA_URL", "") or ""
-    static_url = getattr(settings, "STATIC_URL", "") or ""
-
-    if media_url and uri.startswith(media_url):
-        path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
-        return os.path.normpath(path)
-
-    if static_url and uri.startswith(static_url):
-        static_root = getattr(settings, "STATIC_ROOT", None)
-        if static_root:
-            path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
-            return os.path.normpath(path)
-
-    if os.path.isabs(uri) and os.path.exists(uri):
-        return os.path.normpath(uri)
-
-    if rel:
-        candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
-        if os.path.exists(candidate):
-            return candidate
-
-    return uri
+from reports.weasyprint_utils import render_pdf_bytes_from_html
 
 
 def _format_score(score: Optional[Decimal]) -> str:
@@ -98,6 +60,48 @@ def _teacher_assignments(group_id: int, academic_year_id: int) -> List[TeacherAs
         .select_related("academic_load__subject", "academic_load__subject__area")
         .order_by("academic_load__subject__area__name", "academic_load__subject__name", "id")
     )
+
+
+def build_academic_period_report_context(enrollment: Enrollment, period: Period) -> Dict[str, Any]:
+    year_periods = _year_periods(enrollment.academic_year_id)
+    assignments = _teacher_assignments(enrollment.group_id, enrollment.academic_year_id) if enrollment.group_id else []
+
+    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods) if assignments else {}
+    achievements_by_ta_period, dim_percentage_by_id = (
+        _precompute_achievements(assignments, year_periods, enrollment.group_id)
+        if assignments and enrollment.group_id
+        else ({}, {})
+    )
+
+    rows = _build_rows_for_enrollment(
+        enrollment=enrollment,
+        selected_period=period,
+        year_periods=year_periods,
+        assignments=assignments,
+        gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
+        achievements_by_ta_period=achievements_by_ta_period,
+        dim_percentage_by_id=dim_percentage_by_id,
+    )
+
+    institution = Institution.objects.first() or Institution()
+    director_name = ""
+    if enrollment.group and getattr(enrollment.group, "director", None):
+        director_name = enrollment.group.director.get_full_name()
+
+    return {
+        "institution": institution,
+        "student_name": enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else "",
+        "student_code": getattr(enrollment.student, "document_number", "") or "",
+        "group_name": getattr(enrollment.group, "name", "") or "",
+        "shift_name": getattr(enrollment.group, "shift", "") or "",
+        "period_name": getattr(period, "name", "") or str(period.id),
+        "year_name": getattr(enrollment.academic_year, "year", ""),
+        "director_name": director_name,
+        "report_date": datetime.now().strftime("%m/%d/%Y"),
+        "rows": rows,
+        "observations": "",
+        "scale_equivalences": _scale_equivalences(enrollment.academic_year_id),
+    }
 
 
 def _precompute_achievements(
@@ -312,69 +316,50 @@ def _build_rows_for_enrollment(
 
 
 def generate_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
-    if not pisa:
-        raise RuntimeError("PDF generation library not installed")
-
-    year_periods = _year_periods(enrollment.academic_year_id)
-    assignments = _teacher_assignments(enrollment.group_id, enrollment.academic_year_id) if enrollment.group_id else []
-
-    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods) if assignments else {}
-    achievements_by_ta_period, dim_percentage_by_id = (
-        _precompute_achievements(assignments, year_periods, enrollment.group_id) if assignments and enrollment.group_id else ({}, {})
-    )
-
-    rows = _build_rows_for_enrollment(
-        enrollment=enrollment,
-        selected_period=period,
-        year_periods=year_periods,
-        assignments=assignments,
-        gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
-        achievements_by_ta_period=achievements_by_ta_period,
-        dim_percentage_by_id=dim_percentage_by_id,
-    )
-
-    institution = Institution.objects.first() or Institution()
-    director_name = ""
-    if enrollment.group and getattr(enrollment.group, "director", None):
-        director_name = enrollment.group.director.get_full_name()
-
-    ctx = {
-        "institution": institution,
-        "student_name": enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else "",
-        "student_code": getattr(enrollment.student, "document_number", "") or "",
-        "group_name": getattr(enrollment.group, "name", "") or "",
-        "shift_name": getattr(enrollment.group, "shift", "") or "",
-        "period_name": getattr(period, "name", "") or str(period.id),
-        "year_name": getattr(enrollment.academic_year, "year", ""),
-        "director_name": director_name,
-        "report_date": datetime.now().strftime("%m/%d/%Y"),
-        "rows": rows,
-        "observations": "",
-        "scale_equivalences": _scale_equivalences(enrollment.academic_year_id),
-    }
+    ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
 
     html_string = render_to_string("students/reports/academic_period_report_pdf.html", ctx)
-
-    result = io.BytesIO()
-    pdf = pisa.pisaDocument(
-        io.BytesIO(html_string.encode("UTF-8")),
-        result,
-        link_callback=_pisa_link_callback,
-        encoding="UTF-8",
-    )
-    if pdf.err:
-        raise RuntimeError("Error generating PDF")
-
-    return result.getvalue()
+    try:
+        return render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Error generating PDF") from exc
 
 
 def generate_academic_period_group_report_pdf(
     enrollments: Iterable[Enrollment],
     period: Period,
 ) -> bytes:
-    if not pisa:
-        raise RuntimeError("PDF generation library not installed")
+    enrollments = list(enrollments)
+    if not enrollments:
+        raise ValueError("No enrollments")
 
+    academic_year_id = enrollments[0].academic_year_id
+    group = enrollments[0].group
+
+    year_periods = _year_periods(academic_year_id)
+    assignments = _teacher_assignments(group.id, academic_year_id) if group else []
+
+    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods) if assignments else {}
+    achievements_by_ta_period, dim_percentage_by_id = (
+        _precompute_achievements(assignments, year_periods, group.id) if assignments and group else ({}, {})
+    )
+
+    institution = Institution.objects.first() or Institution()
+    scale_equivalences = _scale_equivalences(academic_year_id)
+
+    ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
+    html_string = render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
+
+    try:
+        return render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Error generating PDF") from exc
+
+
+def build_academic_period_group_report_context(
+    enrollments: Iterable[Enrollment],
+    period: Period,
+) -> Dict[str, Any]:
     enrollments = list(enrollments)
     if not enrollments:
         raise ValueError("No enrollments")
@@ -412,7 +397,9 @@ def generate_academic_period_group_report_pdf(
         pages.append(
             {
                 "institution": institution,
-                "student_name": enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else "",
+                "student_name": enrollment.student.user.get_full_name()
+                if enrollment.student and enrollment.student.user
+                else "",
                 "student_code": getattr(enrollment.student, "document_number", "") or "",
                 "group_name": getattr(enrollment.group, "name", "") or "",
                 "shift_name": getattr(enrollment.group, "shift", "") or "",
@@ -426,26 +413,18 @@ def generate_academic_period_group_report_pdf(
             }
         )
 
-    html_string = render_to_string("students/reports/academic_period_report_group_pdf.html", {"pages": pages})
-
-    result = io.BytesIO()
-    pdf = pisa.pisaDocument(
-        io.BytesIO(html_string.encode("UTF-8")),
-        result,
-        link_callback=_pisa_link_callback,
-        encoding="UTF-8",
-    )
-    if pdf.err:
-        raise RuntimeError("Error generating PDF")
-
-    return result.getvalue()
+    return {"pages": pages}
 
 
-def compute_certificate_studies_rows(enrollment: Enrollment) -> List[Dict[str, str]]:
+def compute_certificate_studies_rows(enrollment: Enrollment) -> List[Dict[str, Any]]:
     """Compute final subject rows for a 'certificado de estudios'.
 
     Uses the same gradebook computation logic as the academic period report.
-    Returns items with keys: area_subject, score, performance.
+    Returns subject-level items with keys:
+    - academic_load_id, subject_id
+    - area_name, subject_name
+    - weight_percentage, hours_per_week
+    - area_subject (legacy display), score, performance
     """
 
     if not enrollment.group_id:
@@ -475,15 +454,28 @@ def compute_certificate_studies_rows(enrollment: Enrollment) -> List[Dict[str, s
         dim_percentage_by_id=dim_percentage_by_id,
     )
 
-    out: List[Dict[str, str]] = []
-    for r in report_rows:
+    out: List[Dict[str, Any]] = []
+    # report_rows are built by iterating `assignments` in order.
+    for ta, r in zip(assignments, report_rows):
         title = (r.get("title") or "").strip()
         final_score = (r.get("final_score") or "").strip()
         final_scale = (r.get("final_scale") or "").strip()
-        if not title:
-            continue
+
+        academic_load = getattr(ta, "academic_load", None)
+        subject = getattr(academic_load, "subject", None) if academic_load else None
+        area = getattr(subject, "area", None) if subject else None
+
         out.append(
             {
+                "academic_load_id": getattr(ta, "academic_load_id", None),
+                "subject_id": getattr(subject, "id", None),
+                "area_name": getattr(area, "name", "") or "",
+                "subject_name": getattr(subject, "name", "") or "",
+                "weight_percentage": int(getattr(academic_load, "weight_percentage", 100) or 100)
+                if academic_load
+                else 100,
+                "hours_per_week": int(getattr(academic_load, "hours_per_week", 0) or 0) if academic_load else 0,
+                # Keep the legacy combined label for compatibility.
                 "area_subject": title,
                 "score": final_score,
                 "performance": final_scale,

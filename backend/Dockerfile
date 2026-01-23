@@ -4,12 +4,20 @@ FROM python:3.11-slim
 # Establecer directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias para psycopg2, netcat y xhtml2pdf (pycairo)
+# Instalar dependencias del sistema necesarias para psycopg2, netcat y renderizado PDF.
+# Incluye dependencias para WeasyPrint (Pango/GDK-Pixbuf/Cairo) y fuentes básicas.
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
     pkg-config \
     libcairo2-dev \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libffi-dev \
+    shared-mime-info \
+    fonts-dejavu-core \
     netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 

@@ -1,7 +1,5 @@
 from decimal import Decimal
-from io import BytesIO
 import html as html_lib
-import os
 import re
 from datetime import date
 
@@ -35,46 +33,11 @@ from academic.ai import AIService, AIConfigError, AIProviderError
 from discipline.models import DisciplineCase
 from students.models import Enrollment
 
-try:
-    from xhtml2pdf import pisa
-except Exception:  # optional
-    pisa = None
-
-
-def _pisa_link_callback(uri: str, rel: str):
-    if uri is None:
-        return uri
-    uri = str(uri)
-
-    if uri.startswith("http://") or uri.startswith("https://"):
-        return uri
-
-    media_url = getattr(settings, "MEDIA_URL", "") or ""
-    static_url = getattr(settings, "STATIC_URL", "") or ""
-
-    if media_url and uri.startswith(media_url):
-        path = os.path.join(settings.MEDIA_ROOT, uri[len(media_url) :].lstrip("/\\"))
-        return os.path.normpath(path)
-
-    if static_url and uri.startswith(static_url):
-        static_root = getattr(settings, "STATIC_ROOT", None)
-        if static_root:
-            path = os.path.join(static_root, uri[len(static_url) :].lstrip("/\\"))
-            return os.path.normpath(path)
-
-    if os.path.isabs(uri) and os.path.exists(uri):
-        return os.path.normpath(uri)
-
-    if rel:
-        candidate = os.path.normpath(os.path.join(os.path.dirname(rel), uri))
-        if os.path.exists(candidate):
-            return candidate
-
-    return uri
+from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 
 
 def _ai_analysis_to_pdf_html(text: str) -> str:
-    """Render markdown-ish AI output into simple HTML compatible with xhtml2pdf.
+    """Render markdown-ish AI output into simple HTML.
 
     Supported:
     - **bold** -> <strong>
@@ -377,8 +340,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
         if getattr(user, "role", None) != "TEACHER":
             return Response({"detail": "Solo disponible para docentes."}, status=status.HTTP_403_FORBIDDEN)
 
-        if pisa is None:
-            return Response({"detail": "PDF no disponible (xhtml2pdf no instalado)."}, status=status.HTTP_400_BAD_REQUEST)
+        async_requested = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
 
         base_resp = self.me_statistics(request)
         if getattr(base_resp, "status_code", 500) != 200:
@@ -424,6 +386,34 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         analysis_html = _ai_analysis_to_pdf_html(analysis or "")
 
+        if async_requested:
+            from datetime import timedelta  # noqa: PLC0415
+            from django.utils import timezone  # noqa: PLC0415
+            from reports.models import ReportJob  # noqa: PLC0415
+            from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+            from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
+
+            ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+            expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.TEACHER_STATISTICS_AI,
+                params={
+                    "year_name": year_label,
+                    "period_name": period_label,
+                    "grade_name": grade_name,
+                    "group_name": group_name,
+                    "report_date": date.today().isoformat(),
+                    "teacher_name": teacher_name,
+                    "analysis_html": analysis_html,
+                },
+                expires_at=expires_at,
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
+
         html = render_to_string(
             "teachers/reports/teacher_statistics_ai_pdf.html",
             {
@@ -438,14 +428,30 @@ class TeacherViewSet(viewsets.ModelViewSet):
             },
         )
 
-        out = BytesIO()
-        pdf = pisa.CreatePDF(html, dest=out, encoding="utf-8", link_callback=_pisa_link_callback)
-        if getattr(pdf, "err", 0):
+        try:
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+        except WeasyPrintUnavailableError as e:
+            payload = {"detail": str(e)}
+            if getattr(settings, "DEBUG", False):
+                import traceback  # noqa: PLC0415
+
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception:
+            return Response({"detail": "No se pudo generar el PDF."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not pdf_bytes:
             return Response({"detail": "No se pudo generar el PDF."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         filename = f"analisis_ia_{year_label}_{period_label}.pdf".replace(" ", "_")
-        resp = HttpResponse(out.getvalue(), content_type="application/pdf")
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+        resp["Deprecation"] = "true"
+        sunset = getattr(settings, "REPORTS_SYNC_SUNSET_DATE", "2026-06-30")
+        resp["Sunset"] = str(sunset)
+        resp["Link"] = '</api/reports/jobs/>; rel="alternate"'
         return resp
 
     def get_serializer_context(self):

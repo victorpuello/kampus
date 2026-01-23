@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { coreApi, type ConfigImportResult, type Institution, type User } from '../services/core'
+import { reportsApi, type ReportJob } from '../services/reports'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -19,14 +20,17 @@ export default function InstitutionSettings() {
   const [institution, setInstitution] = useState<Institution | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
+  const [clearLogo, setClearLogo] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [letterheadPreview, setLetterheadPreview] = useState<string | null>(null)
   const [letterheadFile, setLetterheadFile] = useState<File | null>(null)
+  const [clearLetterhead, setClearLetterhead] = useState(false)
   const letterheadInputRef = useRef<HTMLInputElement>(null)
 
   const [rectorSignaturePreview, setRectorSignaturePreview] = useState<string | null>(null)
   const [rectorSignatureFile, setRectorSignatureFile] = useState<File | null>(null)
+  const [clearRectorSignature, setClearRectorSignature] = useState(false)
   const rectorSignatureInputRef = useRef<HTMLInputElement>(null)
   const [rectorsList, setRectorsList] = useState<User[]>([])
   const [secretariesList, setSecretariesList] = useState<User[]>([])
@@ -47,8 +51,39 @@ export default function InstitutionSettings() {
   const [confirmOverwrite, setConfirmOverwrite] = useState(false)
   const [lastImportResult, setLastImportResult] = useState<ConfigImportResult | null>(null)
 
-  const showToast = (message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }, [])
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  const pollJobUntilFinished = async (
+    jobId: number,
+    onUpdate?: (job: ReportJob) => void
+  ): Promise<ReportJob> => {
+    const delaysMs = [400, 700, 1000, 1500, 2000, 2500, 3000, 3500]
+    for (let i = 0; i < 60; i++) {
+      const res = await reportsApi.getJob(jobId)
+      const job = res.data
+      onUpdate?.(job)
+      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') {
+        return job
+      }
+      const delay = delaysMs[Math.min(i, delaysMs.length - 1)]
+      await sleep(delay)
+    }
+    throw new Error('Timeout esperando la generación del PDF')
   }
 
   const getFilenameFromContentDisposition = (value?: string) => {
@@ -146,29 +181,7 @@ export default function InstitutionSettings() {
     pdf_footer_text: '',
   })
 
-  useEffect(() => {
-    if (isTeacher) return
-    loadInstitution()
-    loadUsersLists()
-  }, [isTeacher])
-
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-slate-100">Institución</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la configuración de la institución.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  const loadUsersLists = async () => {
+  const loadUsersLists = useCallback(async () => {
     try {
       const [rectorsRes, secretariesRes] = await Promise.all([
         coreApi.listRectors(),
@@ -179,9 +192,9 @@ export default function InstitutionSettings() {
     } catch (err) {
       console.error('Error loading users lists:', err)
     }
-  }
+  }, [])
 
-  const loadInstitution = async () => {
+  const loadInstitution = useCallback(async () => {
     try {
       const res = await coreApi.listInstitutions()
       if (res.data.length > 0) {
@@ -205,6 +218,7 @@ export default function InstitutionSettings() {
           pdf_header_line3: inst.pdf_header_line3 || '',
           pdf_footer_text: inst.pdf_footer_text || '',
         })
+
         if (inst.logo) {
           setLogoPreview(inst.logo)
         }
@@ -216,6 +230,11 @@ export default function InstitutionSettings() {
         if (inst.pdf_rector_signature_image) {
           setRectorSignaturePreview(inst.pdf_rector_signature_image)
         }
+
+        // Reset clear flags to avoid unintended clears after reloading data
+        setClearLogo(false)
+        setClearLetterhead(false)
+        setClearRectorSignature(false)
       }
     } catch (err) {
       console.error(err)
@@ -223,6 +242,28 @@ export default function InstitutionSettings() {
     } finally {
       setLoading(false)
     }
+  }, [showToast])
+
+  useEffect(() => {
+    if (isTeacher) return
+    void loadInstitution()
+    void loadUsersLists()
+  }, [isTeacher, loadInstitution, loadUsersLists])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Institución</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la configuración de la institución.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -233,6 +274,7 @@ export default function InstitutionSettings() {
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      setClearLogo(false)
       setLogoFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -242,9 +284,17 @@ export default function InstitutionSettings() {
     }
   }
 
+  const handleClearLogo = () => {
+    setClearLogo(true)
+    setLogoFile(null)
+    setLogoPreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const handleLetterheadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      setClearLetterhead(false)
       setLetterheadFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
@@ -252,6 +302,13 @@ export default function InstitutionSettings() {
       }
       reader.readAsDataURL(file)
     }
+  }
+
+  const handleClearLetterhead = () => {
+    setClearLetterhead(true)
+    setLetterheadFile(null)
+    setLetterheadPreview(null)
+    if (letterheadInputRef.current) letterheadInputRef.current.value = ''
   }
 
   const handleRectorSignatureChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,12 +322,20 @@ export default function InstitutionSettings() {
       return
     }
 
+    setClearRectorSignature(false)
     setRectorSignatureFile(file)
     const reader = new FileReader()
     reader.onloadend = () => {
       setRectorSignaturePreview(reader.result as string)
     }
     reader.readAsDataURL(file)
+  }
+
+  const handleClearRectorSignature = () => {
+    setClearRectorSignature(true)
+    setRectorSignatureFile(null)
+    setRectorSignaturePreview(null)
+    if (rectorSignatureInputRef.current) rectorSignatureInputRef.current.value = ''
   }
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,17 +373,14 @@ export default function InstitutionSettings() {
         data.append('secretary', '')
       }
       
-      if (logoFile) {
-        data.append('logo', logoFile)
-      }
+      if (clearLogo) data.append('logo', '')
+      else if (logoFile) data.append('logo', logoFile)
 
-      if (letterheadFile) {
-        data.append('pdf_letterhead_image', letterheadFile)
-      }
+      if (clearLetterhead) data.append('pdf_letterhead_image', '')
+      else if (letterheadFile) data.append('pdf_letterhead_image', letterheadFile)
 
-      if (rectorSignatureFile) {
-        data.append('pdf_rector_signature_image', rectorSignatureFile)
-      }
+      if (clearRectorSignature) data.append('pdf_rector_signature_image', '')
+      else if (rectorSignatureFile) data.append('pdf_rector_signature_image', rectorSignatureFile)
 
       if (institution) {
         await coreApi.updateInstitution(institution.id, data)
@@ -338,6 +400,84 @@ export default function InstitutionSettings() {
   }
 
   if (loading) return <div className="p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
+
+  const handlePreviewLetterheadPdf = async () => {
+    setSaving(true)
+    try {
+      showToast('Generando PDF de prueba…', 'info')
+
+      const created = await reportsApi.createJob({
+        report_type: 'DUMMY',
+        params: {
+          note: 'Preview membrete institucional',
+          generated_at: new Date().toISOString(),
+        },
+      })
+
+      const job = await pollJobUntilFinished(created.data.id)
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el PDF de prueba', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(job.id)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+      const headers = res.headers as Record<string, string | undefined>
+      const filename =
+        getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+        job.output_filename ||
+        'preview_membrete.pdf'
+
+      downloadBlob(blob, filename)
+      showToast('PDF de prueba listo.', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('Error generando el PDF de prueba', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handlePreviewLetterheadHtml = async () => {
+    setSaving(true)
+    try {
+      showToast('Generando preview HTML…', 'info')
+
+      const created = await reportsApi.createJob({
+        report_type: 'DUMMY',
+        params: {
+          note: 'Preview HTML membrete institucional',
+          generated_at: new Date().toISOString(),
+        },
+      })
+
+      const res = await reportsApi.previewJobHtml(created.data.id)
+      let html = typeof res.data === 'string' ? res.data : String(res.data)
+
+      // When opening HTML as a Blob URL, relative URLs like /media/... won't resolve.
+      // Inject a <base> tag pointing to the API origin so images/styles load correctly.
+      const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/$/, '')
+      const baseTag = `<base href="${apiBase}/">`
+      if (/<head\b[^>]*>/i.test(html)) {
+        html = html.replace(/<head\b([^>]*)>/i, `<head$1>${baseTag}`)
+      } else {
+        html = `${baseTag}\n${html}`
+      }
+
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+
+      window.open(url, '_blank', 'noopener,noreferrer')
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000)
+
+      showToast('Preview HTML abierto.', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('Error generando el preview HTML', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -482,6 +622,16 @@ export default function InstitutionSettings() {
               <div className="text-sm text-slate-500 dark:text-slate-400">
                 <p>Haz clic en el recuadro para subir el escudo o logo de la institución.</p>
                 <p className="mt-1">Formatos: PNG, JPG, GIF. Tamaño máximo: 2MB</p>
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleClearLogo}
+                    disabled={!logoPreview}
+                  >
+                    Eliminar logo
+                  </Button>
+                </div>
               </div>
             </div>
           </CardContent>
@@ -520,6 +670,16 @@ export default function InstitutionSettings() {
                 <div className="text-sm text-slate-500 dark:text-slate-400">
                   <p>Si subes una imagen, se usará como encabezado (ancho completo) en los PDFs.</p>
                   <p className="mt-1">Recomendado: PNG/JPG horizontal.</p>
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleClearLetterhead}
+                      disabled={!letterheadPreview}
+                    >
+                      Eliminar membrete
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -593,6 +753,31 @@ export default function InstitutionSettings() {
               </div>
             </div>
 
+            <div className="flex flex-col gap-2">
+              <div className="text-sm text-slate-500 dark:text-slate-400">
+                Para ver el resultado real, guarda cambios y genera un PDF de prueba.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePreviewLetterheadPdf}
+                  disabled={saving}
+                >
+                  Generar PDF de prueba
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handlePreviewLetterheadHtml}
+                  disabled={saving}
+                >
+                  Ver preview HTML
+                </Button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>Firma del rector (PNG) — certificados</Label>
               <div className="flex items-center gap-6">
@@ -620,6 +805,16 @@ export default function InstitutionSettings() {
 
                 <div className="text-sm text-slate-500 dark:text-slate-400">
                   <p>Se usa en certificados/reportes. Debe ser PNG (ideal: fondo transparente).</p>
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleClearRectorSignature}
+                      disabled={!rectorSignaturePreview}
+                    >
+                      Eliminar firma
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
