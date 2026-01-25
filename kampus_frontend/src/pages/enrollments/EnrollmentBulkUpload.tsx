@@ -104,11 +104,11 @@ export default function EnrollmentBulkUpload() {
             <Input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </div>
 
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => navigate('/enrollments')} className="flex-1">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => navigate('/enrollments')} className="w-full sm:flex-1">
               Volver a Matrículas
             </Button>
-            <Button onClick={handleBulkUpload} disabled={loading || !file} className="flex-1">
+            <Button onClick={handleBulkUpload} disabled={loading || !file} className="w-full sm:flex-1">
               {loading ? 'Procesando...' : 'Cargar Matrículas'}
             </Button>
           </div>

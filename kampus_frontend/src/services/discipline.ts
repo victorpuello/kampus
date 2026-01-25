@@ -1,5 +1,12 @@
 import { api } from './api'
 
+export interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
 export type DisciplineCaseStatus = 'OPEN' | 'DECIDED' | 'CLOSED'
 export type DisciplineManualSeverity = 'MINOR' | 'MAJOR' | 'VERY_MAJOR'
 export type DisciplineLaw1620Type = 'I' | 'II' | 'III' | 'UNKNOWN'
@@ -68,6 +75,46 @@ export type DisciplineCaseNotificationLog = {
   acknowledged_by: number | null
 }
 
+export type ConvivenciaManual = {
+  id: number
+  institution: number
+  title: string
+  version: string
+  is_active: boolean
+  file: string
+  uploaded_by: number | null
+  uploaded_at: string
+  extraction_status: 'PENDING' | 'DONE' | 'FAILED'
+  extraction_error: string
+  extracted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type DisciplineDecisionSuggestionStatus = 'DRAFT' | 'APPROVED' | 'APPLIED' | 'REJECTED'
+
+export type DisciplineDecisionCitation = {
+  chunk_id: number
+  quote: string
+  label: string
+}
+
+export type DisciplineDecisionSuggestion = {
+  id: number
+  case: number
+  manual: number
+  status: DisciplineDecisionSuggestionStatus
+  suggested_decision_text: string
+  reasoning: string
+  citations: DisciplineDecisionCitation[]
+  created_by: number | null
+  created_at: string
+  approved_by: number | null
+  approved_at: string | null
+  applied_by: number | null
+  applied_at: string | null
+}
+
 export type DisciplineCaseDetail = {
   id: number
   student_id: number
@@ -100,11 +147,12 @@ export type DisciplineCaseDetail = {
   attachments: DisciplineCaseAttachment[]
   events: DisciplineCaseEvent[]
   notification_logs?: DisciplineCaseNotificationLog[]
+  decision_suggestions?: DisciplineDecisionSuggestion[]
 }
 
 export const disciplineApi = {
   list: (params?: Record<string, unknown>) =>
-    api.get<DisciplineCaseListItem[]>('/api/discipline/cases/', { params }),
+    api.get<PaginatedResponse<DisciplineCaseListItem>>('/api/discipline/cases/', { params }),
   get: (id: number) => api.get<DisciplineCaseDetail>(`/api/discipline/cases/${id}/`),
 
   create: (data: {
@@ -154,6 +202,13 @@ export const disciplineApi = {
 
   addNote: (id: number, data: { text: string }) => api.post(`/api/discipline/cases/${id}/add-note/`, data),
 
+  updateEvent: (caseId: number, eventId: number, data: { text: string }) =>
+    api.patch(`/api/discipline/cases/${caseId}/events/${eventId}/`, data),
+  deleteEvent: (caseId: number, eventId: number) => api.delete(`/api/discipline/cases/${caseId}/events/${eventId}/`),
+
+  updateDecision: (id: number, data: { decision_text: string }) => api.patch(`/api/discipline/cases/${id}/decision/`, data),
+  clearDecision: (id: number) => api.delete(`/api/discipline/cases/${id}/decision/`),
+
   downloadActa: async (id: number): Promise<Blob> => {
     const res = await api.get(`/api/discipline/cases/${id}/acta/?format=pdf`, {
       responseType: 'blob',
@@ -161,4 +216,35 @@ export const disciplineApi = {
     })
     return res.data as Blob
   },
+
+  listManuals: () => api.get<ConvivenciaManual[]>('/api/discipline/manual/'),
+
+  getActiveManual: () => api.get<ConvivenciaManual | null>('/api/discipline/manual/active/'),
+
+  uploadManual: (data: { file?: File; text?: string; title?: string; version?: string; activate?: boolean }) => {
+    const formData = new FormData()
+    if (data.file) formData.append('file', data.file)
+    if (data.text) formData.append('text', data.text)
+    if (data.title) formData.append('title', data.title)
+    if (data.version) formData.append('version', data.version)
+    if (data.activate !== undefined) formData.append('activate', String(data.activate))
+    return api.post<ConvivenciaManual>('/api/discipline/manual/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  activateManual: (id: number) => api.post(`/api/discipline/manual/${id}/activate/`, {}),
+  processManual: (id: number) => api.post<ConvivenciaManual>(`/api/discipline/manual/${id}/process/`, {}),
+
+  suggestDecisionAi: (id: number) =>
+    api.post<DisciplineDecisionSuggestion>(`/api/discipline/cases/${id}/ai/suggest-decision/`, {}),
+
+  listDecisionSuggestionsAi: (id: number) =>
+    api.get<DisciplineDecisionSuggestion[]>(`/api/discipline/cases/${id}/ai/suggestions/`),
+
+  approveDecisionSuggestionAi: (caseId: number, suggestion_id: number) =>
+    api.post<DisciplineDecisionSuggestion>(`/api/discipline/cases/${caseId}/ai/approve-suggestion/`, { suggestion_id }),
+
+  applyDecisionSuggestionAi: (caseId: number, suggestion_id: number) =>
+    api.post(`/api/discipline/cases/${caseId}/ai/apply-suggestion/`, { suggestion_id }),
 }

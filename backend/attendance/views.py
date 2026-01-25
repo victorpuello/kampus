@@ -666,6 +666,7 @@ class AttendanceStudentStatsView(APIView):
                     "id": ta.id,
                     "group_id": ta.group_id,
                     "group_name": getattr(ta.group, "name", ""),
+                    "grade_name": getattr(getattr(getattr(ta, "group", None), "grade", None), "name", ""),
                     "subject_name": getattr(getattr(getattr(ta, "academic_load", None), "subject", None), "name", "") or "",
                 },
                 "period": {"id": period.id, "name": period.name},

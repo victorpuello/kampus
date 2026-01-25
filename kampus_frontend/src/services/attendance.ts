@@ -51,6 +51,7 @@ export interface AttendanceStudentStatsResponse {
     id: number;
     group_id: number;
     group_name: string;
+    grade_name?: string;
     subject_name: string;
   };
   period: { id: number; name: string };

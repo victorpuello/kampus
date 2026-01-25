@@ -413,16 +413,16 @@ export default function EnrollmentReports() {
               </select>
             </div>
 
-            <div className="flex gap-2">
-              <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="flex-1">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="w-full sm:flex-1">
                 <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
                 CSV
               </Button>
-              <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="flex-1">
+              <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="w-full sm:flex-1">
                 <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
                 XLSX
               </Button>
-              <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="flex-1">
+              <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="w-full sm:flex-1">
                 <FileText className="w-4 h-4 mr-2 text-red-600" />
                 PDF
               </Button>

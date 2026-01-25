@@ -41,6 +41,11 @@ export default function DisciplineCases() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<DisciplineCaseListItem[]>([])
+  const [count, setCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [hasNext, setHasNext] = useState(false)
+  const [hasPrevious, setHasPrevious] = useState(false)
 
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [loadingEnrollments, setLoadingEnrollments] = useState(false)
@@ -203,10 +208,13 @@ export default function DisciplineCases() {
     setError(null)
 
     disciplineApi
-      .list()
+      .list({ page, page_size: pageSize })
       .then((res) => {
         if (!mounted) return
-        setItems(res.data || [])
+        setItems(res.data?.results || [])
+        setCount(typeof res.data?.count === 'number' ? res.data.count : 0)
+        setHasNext(Boolean(res.data?.next))
+        setHasPrevious(Boolean(res.data?.previous))
       })
       .catch((e) => {
         if (!mounted) return
@@ -221,7 +229,30 @@ export default function DisciplineCases() {
     return () => {
       mounted = false
     }
-  }, [user?.role])
+  }, [page, pageSize, user?.role])
+
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(count / pageSize)), [count, pageSize])
+
+  const pageNumbers = useMemo(() => {
+    const pages: Array<number | 'ellipsis'> = []
+    if (totalPages <= 7) {
+      for (let p = 1; p <= totalPages; p++) pages.push(p)
+      return pages
+    }
+
+    pages.push(1)
+    const start = Math.max(2, page - 1)
+    const end = Math.min(totalPages - 1, page + 1)
+
+    if (start > 2) pages.push('ellipsis')
+    for (let p = start; p <= end; p++) pages.push(p)
+    if (end < totalPages - 1) pages.push('ellipsis')
+    pages.push(totalPages)
+    return pages
+  }, [page, totalPages])
+
+  const startIndex = useMemo(() => (count === 0 ? 0 : (page - 1) * pageSize + 1), [count, page, pageSize])
+  const endIndex = useMemo(() => Math.min(page * pageSize, count), [count, page, pageSize])
 
   if (!canAccess(user?.role)) {
     return (
@@ -244,7 +275,7 @@ export default function DisciplineCases() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Convivencia</h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
@@ -254,7 +285,7 @@ export default function DisciplineCases() {
 
         {canCreate && (
           <div className="flex items-center gap-2">
-            <Button className="bg-cyan-600 hover:bg-cyan-700 text-white" onClick={openCreateModal}>
+            <Button className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white" onClick={openCreateModal}>
               Registrar caso
             </Button>
           </div>
@@ -266,7 +297,117 @@ export default function DisciplineCases() {
           <CardTitle>Casos</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <div className="text-sm text-slate-500 dark:text-slate-400">
+              {count === 0 ? 'Sin casos.' : `Mostrando ${startIndex}-${endIndex} de ${count} • Página ${page} de ${totalPages}`}
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
+                <select
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(1)
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={!hasPrevious || page <= 1}
+              >
+                Anterior
+              </Button>
+
+              <div className="hidden md:flex items-center gap-1">
+                {pageNumbers.map((p, idx) =>
+                  p === 'ellipsis' ? (
+                    <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
+                      …
+                    </span>
+                  ) : (
+                    <Button
+                      key={p}
+                      variant={p === page ? 'secondary' : 'outline'}
+                      size="sm"
+                      onClick={() => setPage(p)}
+                      aria-current={p === page ? 'page' : undefined}
+                    >
+                      {p}
+                    </Button>
+                  )
+                )}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={!hasNext}
+              >
+                Siguiente
+              </Button>
+            </div>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {items.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                No hay casos.
+              </div>
+            ) : (
+              items.map((c) => (
+                <div
+                  key={c.id}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {c.student_full_name || `#${c.student_id}`}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {(c.grade_name || '-') + ' / ' + (c.group_name || '-')}
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        {new Date(c.occurred_at).toLocaleString()}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 flex flex-col items-end gap-2">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200">
+                        {statusLabel(c.status)}
+                      </span>
+                      {c.sealed_at ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200">
+                          Sellado
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                    <span>Ley 1620: {c.law_1620_type}</span>
+                    <Link to={`/discipline/cases/${c.id}`} className="text-blue-600 dark:text-blue-300 hover:underline">
+                      Ver
+                    </Link>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left text-slate-700 dark:text-slate-200">
               <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
@@ -326,7 +467,7 @@ export default function DisciplineCases() {
               if (!creating) setIsCreateOpen(false)
             }}
           />
-          <div className="relative z-50 w-full max-w-xl transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+          <div className="relative z-50 w-full max-w-xl transform overflow-hidden rounded-lg bg-white p-5 sm:p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">Registrar caso (Observador)</h3>
               <button
@@ -381,7 +522,7 @@ export default function DisciplineCases() {
               <div>
                 <Label>Estudiante (matrícula)</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={enrollmentId}
                   onChange={(e) => setEnrollmentId(e.target.value ? Number(e.target.value) : '')}
                   disabled={loadingEnrollments || creating}
@@ -479,7 +620,7 @@ export default function DisciplineCases() {
                 <div>
                   <Label>Severidad (manual)</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                     value={severity}
                     onChange={(e) => setSeverity(e.target.value as DisciplineManualSeverity)}
                     disabled={creating}
@@ -492,7 +633,7 @@ export default function DisciplineCases() {
                 <div>
                   <Label>Tipo Ley 1620</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark]"
+                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                     value={lawType}
                     onChange={(e) => setLawType(e.target.value as DisciplineLaw1620Type)}
                     disabled={creating}
@@ -519,11 +660,11 @@ export default function DisciplineCases() {
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsCreateOpen(false)} disabled={creating}>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsCreateOpen(false)} disabled={creating}>
                 Cancelar
               </Button>
-              <Button className="bg-cyan-600 hover:bg-cyan-700 text-white" onClick={submitCreate} disabled={creating}>
+              <Button className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white" onClick={submitCreate} disabled={creating}>
                 {creating
                   ? evidenceUploadTotal > 0
                     ? `Registrando… (${Math.min(evidenceUploadDone, evidenceUploadTotal)}/${evidenceUploadTotal})`

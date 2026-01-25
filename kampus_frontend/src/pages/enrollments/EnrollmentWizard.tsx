@@ -276,14 +276,18 @@ export default function EnrollmentWizard() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate(prefill.returnTo || '/enrollments')}>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto justify-start">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
         <h2 className="text-3xl font-bold tracking-tight text-slate-900">
           Nueva Matrícula
         </h2>
+      </div>
+
+      <div className="sm:hidden text-sm text-slate-600">
+        Paso {currentStep} de {STEPS.length} — {STEPS[Math.min(Math.max(currentStep - 1, 0), STEPS.length - 1)].title}
       </div>
 
       <Toast
@@ -294,22 +298,24 @@ export default function EnrollmentWizard() {
       />
 
       {/* Steps Indicator */}
-      <div className="flex justify-between items-center px-10 py-4 bg-white rounded-lg shadow-sm">
-        {STEPS.map((step, index) => (
-          <div key={step.id} className="flex items-center">
+      <div className="bg-white rounded-lg shadow-sm overflow-x-auto">
+        <div className="flex items-center gap-6 px-4 sm:px-10 py-4 min-w-max">
+          {STEPS.map((step, index) => (
+            <div key={step.id} className="flex items-center">
             <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
               currentStep >= step.id ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-slate-300 text-slate-300'
             }`}>
               {currentStep > step.id ? <Check className="w-6 h-6" /> : <step.icon className="w-5 h-5" />}
             </div>
-            <span className={`ml-3 font-medium ${currentStep >= step.id ? 'text-blue-900' : 'text-slate-400'}`}>
+            <span className={`ml-3 font-medium hidden sm:inline ${currentStep >= step.id ? 'text-blue-900' : 'text-slate-400'}`}>
               {step.title}
             </span>
             {index < STEPS.length - 1 && (
-              <div className={`w-24 h-0.5 mx-4 ${currentStep > step.id ? 'bg-blue-600' : 'bg-slate-200'}`} />
+              <div className={`w-10 sm:w-24 h-0.5 mx-3 sm:mx-4 ${currentStep > step.id ? 'bg-blue-600' : 'bg-slate-200'}`} />
             )}
-          </div>
-        ))}
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Step 1: Student Data */}
@@ -394,8 +400,8 @@ export default function EnrollmentWizard() {
                     />
                 </div>
               </div>
-              <div className="flex justify-end pt-4">
-                <Button type="submit" disabled={loading}>
+              <div className="flex flex-col sm:flex-row sm:justify-end pt-4">
+                <Button type="submit" disabled={loading} className="w-full sm:w-auto">
                   {loading ? 'Guardando...' : 'Siguiente'}
                 </Button>
               </div>
@@ -473,9 +479,9 @@ export default function EnrollmentWizard() {
                 </div>
               ))}
             </div>
-            <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(1)}>Atrás</Button>
-              <Button onClick={handleDocumentUpload} disabled={loading}>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-4">
+              <Button variant="outline" onClick={() => setCurrentStep(1)} className="w-full sm:w-auto">Atrás</Button>
+              <Button onClick={handleDocumentUpload} disabled={loading} className="w-full sm:w-auto">
                 {loading ? 'Procesando...' : 'Siguiente'}
               </Button>
             </div>
@@ -542,9 +548,9 @@ export default function EnrollmentWizard() {
                 </select>
               </div>
             </div>
-            <div className="flex justify-between pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(2)}>Atrás</Button>
-              <Button onClick={handleEnrollmentSubmit} disabled={loading}>
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-4">
+              <Button variant="outline" onClick={() => setCurrentStep(2)} className="w-full sm:w-auto">Atrás</Button>
+              <Button onClick={handleEnrollmentSubmit} disabled={loading} className="w-full sm:w-auto">
                 {loading ? 'Matricular' : 'Finalizar Matrícula'}
               </Button>
             </div>

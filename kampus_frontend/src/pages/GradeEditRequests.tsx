@@ -69,6 +69,21 @@ export default function GradeEditRequests() {
     setToast({ message, type, isVisible: true })
   }
 
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '—'
+    const d = new Date(value)
+    if (!Number.isFinite(d.getTime())) return '—'
+    return d.toLocaleString()
+  }
+
+  const statusBadgeClass = (status: EditRequest['status']) => {
+    return status === 'APPROVED'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
+      : status === 'REJECTED'
+      ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
+      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
+  }
+
   const periodNameById = useMemo(() => {
     const map = new Map<number, string>()
     periods.forEach((p) => map.set(p.id, p.name))
@@ -348,12 +363,12 @@ export default function GradeEditRequests() {
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Crea solicitudes y consulta su estado.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/grades')}>Ir a Calificaciones</Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/grades')}>Ir a Calificaciones</Button>
           {isTeacher ? (
-            <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests}>Recargar</Button>
+            <Button className="w-full sm:w-auto" variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests}>Recargar</Button>
           ) : (
-            <Button variant="outline" onClick={refreshPendingRequests} disabled={loadingPending}>Recargar</Button>
+            <Button className="w-full sm:w-auto" variant="outline" onClick={refreshPendingRequests} disabled={loadingPending}>Recargar</Button>
           )}
         </div>
       </div>
@@ -488,7 +503,77 @@ export default function GradeEditRequests() {
             <CardTitle>Mis solicitudes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            <div className="md:hidden space-y-3">
+              {loadingMyRequests ? (
+                <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  Cargando…
+                </div>
+              ) : myRequests.length === 0 ? (
+                <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  No has creado solicitudes.
+                </div>
+              ) : (
+                myRequests.map((r) => {
+                  const detail =
+                    r.status === 'APPROVED'
+                      ? `Aprobada${r.decided_at ? ` (${formatDateTime(r.decided_at)})` : ''}`
+                      : r.status === 'REJECTED'
+                      ? `Rechazada${r.decided_at ? ` (${formatDateTime(r.decided_at)})` : ''}`
+                      : 'Pendiente'
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {periodNameById.get(r.period) || `Periodo ${r.period}`}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                            {r.teacher_assignment
+                              ? assignmentLabelById.get(r.teacher_assignment) || `Asignación ${r.teacher_assignment}`
+                              : '—'}
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusBadgeClass(r.status)}`}
+                        >
+                          {r.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div className="text-slate-500 dark:text-slate-400">Tipo</div>
+                        <div className="text-slate-800 dark:text-slate-200 text-right">{r.request_type === 'FULL' ? 'Completa' : 'Parcial'}</div>
+
+                        <div className="text-slate-500 dark:text-slate-400">Creada</div>
+                        <div className="text-slate-800 dark:text-slate-200 text-right">{formatDateTime(r.created_at)}</div>
+                      </div>
+
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+                        {detail}
+                      </div>
+
+                      {r.decision_note ? (
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 whitespace-pre-wrap">
+                          {r.decision_note}
+                        </div>
+                      ) : null}
+
+                      {r.request_type === 'PARTIAL' ? (
+                        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                          Estudiantes: {(r.items ?? []).length}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
@@ -511,12 +596,7 @@ export default function GradeEditRequests() {
                     </tr>
                   ) : (
                     myRequests.map((r) => {
-                      const statusClass =
-                        r.status === 'APPROVED'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
-                          : r.status === 'REJECTED'
-                          ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
-                          : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
+                      const statusClass = statusBadgeClass(r.status)
 
                       const detail =
                         r.status === 'APPROVED'
@@ -540,7 +620,7 @@ export default function GradeEditRequests() {
                             {r.decision_note ? <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{r.decision_note}</div> : null}
                             {r.request_type === 'PARTIAL' ? <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Estudiantes: {(r.items ?? []).length}</div> : null}
                           </td>
-                          <td className="px-6 py-4">{new Date(r.created_at).toLocaleString()}</td>
+                          <td className="px-6 py-4">{formatDateTime(r.created_at)}</td>
                         </tr>
                       )
                     })
@@ -576,7 +656,85 @@ export default function GradeEditRequests() {
                 </select>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="md:hidden space-y-3">
+              {loadingPending ? (
+                <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  Cargando…
+                </div>
+              ) : pendingRequests.length === 0 ? (
+                <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  No hay solicitudes pendientes.
+                </div>
+              ) : (
+                pendingRequests.map((r) => {
+                  const decision = decisionById[r.id] || { valid_until: '', decision_note: '', submitting: false }
+                  const disabled = !!decision.submitting
+                  const periodName = periodNameById.get(r.period) || `Periodo ${r.period}`
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {r.requested_by_name || r.requested_by}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                            {periodName} • {r.request_type === 'FULL' ? 'Completa' : `Parcial (${(r.items ?? []).length})`}
+                          </div>
+                        </div>
+                        <span className="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40">
+                          PENDING
+                        </span>
+                      </div>
+
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">
+                        {r.reason}
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Válida hasta</label>
+                          <div className="mt-1">
+                            <Input
+                              type="datetime-local"
+                              value={decision.valid_until}
+                              onChange={(e) => setDecision(r.id, { valid_until: e.target.value })}
+                              disabled={disabled}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Nota</label>
+                          <div className="mt-1">
+                            <Input
+                              value={decision.decision_note}
+                              onChange={(e) => setDecision(r.id, { decision_note: e.target.value })}
+                              disabled={disabled}
+                              placeholder="Opcional"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Button onClick={() => approve(r)} disabled={disabled} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
+                            Aprobar
+                          </Button>
+                          <Button variant="outline" onClick={() => reject(r)} disabled={disabled} className="w-full sm:w-auto">
+                            Rechazar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>

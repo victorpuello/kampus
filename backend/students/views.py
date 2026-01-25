@@ -2659,6 +2659,133 @@ class CertificateIssuesListView(APIView):
         return Response({"results": items, "count": qs.count(), "limit": limit})
 
 
+class CertificateIssueDetailView(APIView):
+    """Edit (PATCH) and delete/revoke (DELETE) a certificate issue.
+
+    Rules:
+    - Only PENDING certificates can be edited.
+    - DELETE on ISSUED will revoke (soft-delete) instead of hard delete.
+    - DELETE on PENDING/REVOKED will hard delete.
+    """
+
+    permission_classes = [IsAdministrativeStaff]
+
+    def _serialize(self, issue: CertificateIssue):
+        payload = issue.payload or {}
+        issued_by = getattr(issue, "issued_by", None)
+        return {
+            "uuid": str(issue.uuid),
+            "certificate_type": issue.certificate_type,
+            "status": issue.status,
+            "issued_at": issue.issued_at,
+            "amount_cop": issue.amount_cop,
+            "student_full_name": payload.get("student_full_name") or "",
+            "document_number": payload.get("document_number") or "",
+            "academic_year": payload.get("academic_year") or "",
+            "grade_name": payload.get("grade_name") or "",
+            "issued_by": (
+                {
+                    "id": issued_by.id,
+                    "name": issued_by.get_full_name(),
+                }
+                if issued_by
+                else None
+            ),
+            "has_pdf": bool(getattr(issue, "pdf_private_relpath", None) or getattr(issue, "pdf_file", None)),
+        }
+
+    def patch(self, request, uuid, format=None):
+        issue = CertificateIssue.objects.filter(uuid=uuid).select_related("issued_by").first()
+        if not issue:
+            return Response({"detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if issue.status != CertificateIssue.STATUS_PENDING:
+            return Response(
+                {"detail": "Solo certificados en estado PENDIENTE pueden editarse."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = request.data or {}
+
+        payload = dict(issue.payload or {})
+        for key in ["student_full_name", "document_type", "document_number", "academic_year", "grade_name"]:
+            if key in data:
+                val = data.get(key)
+                if val is None:
+                    continue
+                payload[key] = val
+
+        update_fields = []
+        if payload != (issue.payload or {}):
+            issue.payload = payload
+            update_fields.append("payload")
+
+        if "amount_cop" in data:
+            try:
+                amount_cop = int(data.get("amount_cop") or 0)
+            except Exception:
+                return Response({"detail": "amount_cop inválido"}, status=status.HTTP_400_BAD_REQUEST)
+            if amount_cop < 0:
+                amount_cop = 0
+            if issue.amount_cop != amount_cop:
+                issue.amount_cop = amount_cop
+                update_fields.append("amount_cop")
+
+        if not update_fields:
+            return Response(self._serialize(issue))
+
+        # Keep seal consistent with payload snapshot.
+        try:
+            issue.seal_hash = issue._compute_seal_hash()
+            update_fields.append("seal_hash")
+        except Exception:
+            # Never block editing for seal issues.
+            pass
+
+        issue.save(update_fields=list(dict.fromkeys(update_fields)))
+        return Response(self._serialize(issue))
+
+    def delete(self, request, uuid, format=None):
+        issue = CertificateIssue.objects.filter(uuid=uuid).select_related("issued_by").first()
+        if not issue:
+            return Response({"detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # If already revoked or pending: allow hard delete.
+        if issue.status in {CertificateIssue.STATUS_PENDING, CertificateIssue.STATUS_REVOKED}:
+            try:
+                issue.delete()
+            except Exception as e:
+                payload = {"error": "Error deleting certificate", "detail": str(e)}
+                if getattr(settings, 'DEBUG', False):
+                    payload["traceback"] = traceback.format_exc()
+                return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        # For ISSUED: revoke instead of hard delete.
+        reason = ""
+        try:
+            reason = str((request.data or {}).get("reason") or "").strip()
+        except Exception:
+            reason = ""
+
+        try:
+            from django.utils import timezone  # noqa: PLC0415
+
+            issue.status = CertificateIssue.STATUS_REVOKED
+            issue.revoked_at = timezone.now()
+            issue.revoke_reason = reason
+            issue.save(update_fields=["status", "revoked_at", "revoke_reason"])
+        except Exception as e:
+            payload = {"error": "Error revoking certificate", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        out = self._serialize(issue)
+        out["revoked"] = True
+        return Response(out)
+
+
 class CertificateIssueDownloadPDFView(APIView):
     """Download the stored PDF for an issued certificate."""
 

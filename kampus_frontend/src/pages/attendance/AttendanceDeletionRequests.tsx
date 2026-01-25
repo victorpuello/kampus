@@ -140,21 +140,80 @@ export default function AttendanceDeletionRequests() {
               </div>
             ) : null}
 
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div className="text-sm text-slate-500 dark:text-slate-400">
                 Pendientes: {count}
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={load} disabled={loading}>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button className="w-full sm:w-auto" variant="outline" onClick={load} disabled={loading}>
                   Actualizar
                 </Button>
-                <Button variant="outline" onClick={() => navigate('/attendance')}>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance')}>
                   Volver
                 </Button>
               </div>
             </div>
 
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {rows.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                  No hay solicitudes pendientes.
+                </div>
+              ) : (
+                rows.map((s) => (
+                  <div
+                    key={s.id}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Planilla #{s.id}</div>
+                        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                          {s.subject_name || 'Materia'} · {s.group_display || s.group_name || 'Grupo'}
+                        </div>
+                      </div>
+                      <div className="shrink-0">
+                        {s.locked_at ? (
+                          <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200" />
+                        ) : (
+                          <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200" />
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400">Fecha:</span> {s.class_date}
+                      </div>
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400">Solicitada:</span> {formatDateTime(s.deletion_requested_at ?? null)}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="text-slate-500 dark:text-slate-400">Docente:</span> {s.teacher_name || `ID ${s.teacher_id ?? ''}`}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2">
+                      <Button className="w-full" variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
+                        Ver
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="destructive"
+                        onClick={() => openDeleteDefinitiveModal(s.id)}
+                        disabled={deletingId === s.id}
+                      >
+                        {deletingId === s.id ? 'Eliminando…' : 'Eliminar definitivo'}
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
@@ -214,15 +273,15 @@ export default function AttendanceDeletionRequests() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
               <div className="text-slate-500 dark:text-slate-400">
                 Página {page} de {totalPages}
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
                   Anterior
                 </Button>
-                <Button variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
                   Siguiente
                 </Button>
               </div>

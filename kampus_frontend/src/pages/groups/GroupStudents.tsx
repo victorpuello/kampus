@@ -567,7 +567,49 @@ export default function GroupStudents() {
         </CardHeader>
 
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Mobile list */}
+          <div className="md:hidden p-4 space-y-3">
+            {!loading && rows.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                No hay matrículas activas en este grupo.
+              </div>
+            ) : (
+              rows.map((r) => (
+                <div
+                  key={r.enrollment.id}
+                  className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{r.fullName || '-'}</div>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Matrícula #{r.enrollment.id}</div>
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold px-2 py-1 rounded border bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/25 dark:text-emerald-200 dark:border-emerald-500/20">
+                      {r.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Documento: </span>
+                    <span className="font-mono">{r.document || '-'}</span>
+                  </div>
+
+                  <div className="mt-3">
+                    {r.studentId ? (
+                      <Link to={`/students/${r.studentId}`}>
+                        <Button size="sm" variant="outline" className="w-full">Ver ficha</Button>
+                      </Link>
+                    ) : (
+                      <div className="text-xs text-slate-400 text-center">Sin ficha vinculada</div>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>

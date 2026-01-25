@@ -354,7 +354,91 @@ export default function StudentList() {
           )}
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
+          {/* Mobile list */}
+          <div className="md:hidden space-y-3">
+            {loading && data.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+                Cargando…
+              </div>
+            ) : data.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
+                  <GraduationCap className="h-6 w-6 text-slate-400" />
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">No se encontraron estudiantes</p>
+              </div>
+            ) : (
+              data.map((s, index) => (
+                <div
+                  key={s.user?.id || s.document_number || index}
+                  className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/students/${s.user?.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') navigate(`/students/${s.user?.id}`)
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="shrink-0 h-12 w-12 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
+                      <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
+                        {((s.photo ?? '').trim() ? (
+                          <img
+                            src={s.photo}
+                            alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="text-slate-900/80 dark:text-white font-semibold text-sm">
+                            {(s.user?.last_name?.[0] || '')}
+                            {(s.user?.first_name?.[0] || '')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-slate-900 uppercase dark:text-slate-100 truncate">
+                        {s.user?.last_name} {s.user?.first_name}
+                      </div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate">@{s.user?.username}</div>
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-sm">
+                        <div className="text-slate-700 dark:text-slate-200">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Documento: </span>
+                          <span className="font-mono">{s.document_number || '-'}</span>
+                        </div>
+                        <div className="text-slate-700 dark:text-slate-200">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Tel: </span>
+                          {s.phone || '-'}
+                        </div>
+                        <div className="text-slate-700 dark:text-slate-200 truncate">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Email: </span>
+                          {s.user?.email || '-'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigate(`/students/${s.user?.id}`)
+                      }}
+                    >
+                      Ver ficha
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -399,10 +483,21 @@ export default function StudentList() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="shrink-0 h-10 w-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
-                            <span className="text-white font-semibold text-sm">
-                              {(s.user?.last_name?.[0] || '')}{(s.user?.first_name?.[0] || '')}
-                            </span>
+                          <div className="shrink-0 h-14 w-14 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
+                            <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
+                              {((s.photo ?? '').trim() ? (
+                                <img
+                                  src={s.photo}
+                                  alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span className="text-slate-900/80 dark:text-white font-semibold text-sm">
+                                  {(s.user?.last_name?.[0] || '')}{(s.user?.first_name?.[0] || '')}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                           <div className="ml-4">
                             <div className="font-semibold text-slate-900 uppercase dark:text-slate-100">

@@ -35,6 +35,12 @@ class DisciplineCaseApiTests(TestCase):
 			role="TEACHER",
 			email="t1@example.com",
 		)
+		self.admin = User.objects.create_user(
+			username="admin",
+			password="pass",
+			role="ADMIN",
+			email="admin@example.com",
+		)
 		self.other_teacher = User.objects.create_user(
 			username="t2",
 			password="pass",
@@ -372,6 +378,186 @@ class DisciplineCaseApiTests(TestCase):
 				object_id=case_id,
 			).exists()
 		)
+
+	def test_teacher_can_edit_and_delete_own_note(self):
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción objetiva.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		note_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/add-note/",
+			data={"text": "Nota 1"},
+			format="json",
+		)
+		self.assertEqual(note_resp.status_code, 200, note_resp.data)
+
+		detail = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail.status_code, 200, detail.data)
+		note_events = [e for e in detail.data.get("events", []) if e.get("event_type") == DisciplineCaseEvent.Type.NOTE]
+		self.assertTrue(note_events)
+		event_id = note_events[0]["id"]
+
+		upd = self.client.patch(
+			f"/api/discipline/cases/{case_id}/events/{event_id}/",
+			data={"text": "Nota editada"},
+			format="json",
+		)
+		self.assertEqual(upd.status_code, 200, upd.data)
+
+		detail2 = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail2.status_code, 200, detail2.data)
+		updated_event = next(e for e in detail2.data.get("events", []) if e.get("id") == event_id)
+		self.assertEqual(updated_event["text"], "Nota editada")
+
+		del_resp = self.client.delete(f"/api/discipline/cases/{case_id}/events/{event_id}/")
+		self.assertEqual(del_resp.status_code, 200, del_resp.data)
+
+		detail3 = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail3.status_code, 200, detail3.data)
+		remaining_ids = {e["id"] for e in detail3.data.get("events", [])}
+		self.assertNotIn(event_id, remaining_ids)
+
+	def test_teacher_cannot_edit_note_created_by_admin(self):
+		# Create case + note as admin
+		self.client.force_authenticate(user=self.admin)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción objetiva.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+		note_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/add-note/",
+			data={"text": "Nota admin"},
+			format="json",
+		)
+		self.assertEqual(note_resp.status_code, 200, note_resp.data)
+
+		detail = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail.status_code, 200, detail.data)
+		note_events = [e for e in detail.data.get("events", []) if e.get("event_type") == DisciplineCaseEvent.Type.NOTE]
+		self.assertTrue(note_events)
+		event_id = note_events[0]["id"]
+
+		# Attempt edit as teacher
+		self.client.force_authenticate(user=self.teacher)
+		upd = self.client.patch(
+			f"/api/discipline/cases/{case_id}/events/{event_id}/",
+			data={"text": "Intento"},
+			format="json",
+		)
+		self.assertEqual(upd.status_code, 403, upd.data)
+
+	def test_teacher_can_edit_and_delete_own_descargos(self):
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción objetiva.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		desc_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/record_descargos/",
+			data={"text": "Versión libre."},
+			format="multipart",
+		)
+		self.assertEqual(desc_resp.status_code, 200, desc_resp.data)
+
+		detail = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail.status_code, 200, detail.data)
+		desc_events = [e for e in detail.data.get("events", []) if e.get("event_type") == DisciplineCaseEvent.Type.DESCARGOS]
+		self.assertTrue(desc_events)
+		event_id = desc_events[0]["id"]
+
+		upd = self.client.patch(
+			f"/api/discipline/cases/{case_id}/events/{event_id}/",
+			data={"text": "Versión libre (editada)."},
+			format="json",
+		)
+		self.assertEqual(upd.status_code, 200, upd.data)
+
+		del_resp = self.client.delete(f"/api/discipline/cases/{case_id}/events/{event_id}/")
+		self.assertEqual(del_resp.status_code, 200, del_resp.data)
+
+	def test_update_and_clear_decision(self):
+		self.client.force_authenticate(user=self.teacher)
+		create_resp = self.client.post(
+			"/api/discipline/cases/",
+			data={
+				"enrollment_id": self.enrollment.id,
+				"occurred_at": timezone.now().isoformat(),
+				"location": "Salón",
+				"narrative": "Descripción objetiva.",
+				"manual_severity": "MINOR",
+				"law_1620_type": "I",
+			},
+			format="json",
+		)
+		self.assertEqual(create_resp.status_code, 201, create_resp.data)
+		case_id = create_resp.data["id"]
+
+		desc_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/record_descargos/",
+			data={"text": "Versión libre."},
+			format="multipart",
+		)
+		self.assertEqual(desc_resp.status_code, 200, desc_resp.data)
+
+		decide_resp = self.client.post(
+			f"/api/discipline/cases/{case_id}/decide/",
+			data={"decision_text": "Medida pedagógica."},
+			format="json",
+		)
+		self.assertEqual(decide_resp.status_code, 200, decide_resp.data)
+
+		upd = self.client.patch(
+			f"/api/discipline/cases/{case_id}/decision/",
+			data={"decision_text": "Medida (editada)."},
+			format="json",
+		)
+		self.assertEqual(upd.status_code, 200, upd.data)
+
+		detail = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail.status_code, 200, detail.data)
+		self.assertEqual(detail.data.get("decision_text"), "Medida (editada).")
+		self.assertEqual(detail.data.get("status"), DisciplineCase.Status.DECIDED)
+
+		clear = self.client.delete(f"/api/discipline/cases/{case_id}/decision/")
+		self.assertEqual(clear.status_code, 200, clear.data)
+
+		detail2 = self.client.get(f"/api/discipline/cases/{case_id}/")
+		self.assertEqual(detail2.status_code, 200, detail2.data)
+		self.assertEqual((detail2.data.get("decision_text") or ""), "")
+		self.assertEqual(detail2.data.get("status"), DisciplineCase.Status.OPEN)
 
 	def test_decide_requires_descargos(self):
 		self.client.force_authenticate(user=self.teacher)
@@ -832,7 +1018,7 @@ class DisciplineCaseApiTests(TestCase):
 		self.assertEqual(create_resp2.status_code, 201, create_resp2.data)
 
 		# Parent should only see their child's case
-		self.client.force_authenticate(user=parent)
+		case_id = create_resp.data["id"]
 		list_resp = self.client.get("/api/discipline/cases/")
 		self.assertEqual(list_resp.status_code, 200)
 		ids = [c["id"] for c in list_resp.data]

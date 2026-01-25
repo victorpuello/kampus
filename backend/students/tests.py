@@ -408,6 +408,87 @@ class CertificateStudiesIssueAsyncAPITest(APITestCase):
         self.assertEqual(job.params.get("certificate_uuid"), str(issue.uuid))
 
 
+class CertificateIssueEditDeleteAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_cert_edit",
+            password="admin123",
+            email="admin_cert_edit@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    def test_can_patch_pending_issue(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_PENDING,
+            amount_cop=10000,
+            payload={
+                "student_full_name": "Ana Diaz",
+                "document_number": "DOC1",
+                "academic_year": "2025",
+                "grade_name": "1",
+            },
+        )
+
+        res = self.client.patch(
+            f"/api/certificates/issues/{issue.uuid}/",
+            {"student_full_name": "Ana Maria Diaz", "amount_cop": 12000},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, CertificateIssue.STATUS_PENDING)
+        self.assertEqual(issue.amount_cop, 12000)
+        self.assertEqual((issue.payload or {}).get("student_full_name"), "Ana Maria Diaz")
+
+    def test_cannot_patch_issued_issue(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            amount_cop=10000,
+            payload={"student_full_name": "Ana Diaz", "document_number": "DOC1"},
+        )
+
+        res = self.client.patch(
+            f"/api/certificates/issues/{issue.uuid}/",
+            {"student_full_name": "Cambio"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, CertificateIssue.STATUS_ISSUED)
+
+    def test_delete_pending_issue_hard_deletes(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_PENDING,
+            payload={"student_full_name": "Ana"},
+        )
+
+        res = self.client.delete(f"/api/certificates/issues/{issue.uuid}/")
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(CertificateIssue.objects.filter(uuid=issue.uuid).exists())
+
+    def test_delete_issued_issue_revokes(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={"student_full_name": "Ana"},
+        )
+
+        res = self.client.delete(
+            f"/api/certificates/issues/{issue.uuid}/",
+            {"reason": "Duplicado"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, CertificateIssue.STATUS_REVOKED)
+        self.assertTrue(bool(issue.revoked_at))
+        self.assertEqual(issue.revoke_reason, "Duplicado")
+
+
 class PublicCertificateVerifyLegacyURLTests(TestCase):
     def test_legacy_uuid_redirects_to_canonical_public_url(self):
         issue = CertificateIssue.objects.create(

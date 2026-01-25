@@ -193,6 +193,16 @@ export default function StudentObserverPrint() {
           print-color-adjust: exact;
         }
 
+        @media screen and (max-width: 640px) {
+          .page {
+            width: 100%;
+            min-height: auto;
+            padding: 12px;
+            margin: 0;
+            box-shadow: none;
+          }
+        }
+
         .page {
           width: 210mm;
           min-height: 297mm;
@@ -246,16 +256,16 @@ export default function StudentObserverPrint() {
       `}</style>
 
       {/* Toolbar */}
-      <div className="no-print fixed top-0 left-0 w-full bg-white shadow z-50 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="no-print fixed top-0 left-0 w-full bg-white shadow z-50 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => navigate(-1)}
             className="inline-flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900"
           >
             <ChevronLeft className="h-4 w-4" /> Volver
           </button>
-          <div className="h-5 w-px bg-slate-200" />
-          <span className="text-sm font-semibold text-slate-700">Vista previa del Observador</span>
+          <div className="hidden sm:block h-5 w-px bg-slate-200" />
+          <span className="text-sm font-semibold text-slate-700 truncate">Vista previa del Observador</span>
         </div>
 
         <button
@@ -272,8 +282,8 @@ export default function StudentObserverPrint() {
       <div className="page">
         {/* Header */}
         <header className="border-b-2 border-slate-900 pb-3 mb-4">
-          <div className="grid grid-cols-12 gap-3 items-stretch">
-            <div className="col-span-8 flex items-center gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
+            <div className="col-span-1 md:col-span-8 flex items-center gap-3">
               <div className="w-16 h-16 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
                 {data.institution.logo_url ? (
                   <img src={data.institution.logo_url} alt="Escudo" className="w-full h-full object-contain" />
@@ -300,7 +310,7 @@ export default function StudentObserverPrint() {
               </div>
             </div>
 
-            <div className="col-span-4 grid grid-cols-[auto,1fr] gap-3 items-stretch justify-items-end">
+            <div className="col-span-1 md:col-span-4 grid grid-cols-[auto,1fr] gap-3 items-stretch md:justify-items-end">
               <div className="inline-flex items-stretch">
                 <div className="w-24 h-28 rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm ring-1 ring-slate-900/5">
                   {data.student.photo_url ? (

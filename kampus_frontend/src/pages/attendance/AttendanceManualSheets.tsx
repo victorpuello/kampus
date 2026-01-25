@@ -188,12 +188,12 @@ export default function AttendanceManualSheets() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={handleDownload} disabled={downloading || !selectedGroupId}>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
+              <Button className="w-full sm:w-auto" onClick={handleDownload} disabled={downloading || !selectedGroupId}>
                 {downloading ? 'Generando…' : 'Descargar PDF'}
               </Button>
               {isAdmin ? (
-                <Button variant="outline" onClick={() => navigate('/attendance/deletion-requests')}>
+                <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance/deletion-requests')}>
                   Solicitudes de eliminación
                 </Button>
               ) : null}

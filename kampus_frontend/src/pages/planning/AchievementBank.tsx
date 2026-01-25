@@ -24,6 +24,9 @@ export default function AchievementBank() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [improving, setImproving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   
   const [formData, setFormData] = useState<Partial<AchievementDefinition>>({
     code: '',
@@ -220,12 +223,51 @@ export default function AchievementBank() {
     (def.subject_name && def.subject_name.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  const totalItems = filteredDefinitions.length
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize))
+
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, pageSize, definitions.length])
+
+  useEffect(() => {
+    setPage((p) => Math.min(Math.max(1, p), totalPages))
+  }, [totalPages])
+
+  const pagedDefinitions = useMemo(() => {
+    const start = (page - 1) * pageSize
+    return filteredDefinitions.slice(start, start + pageSize)
+  }, [filteredDefinitions, page, pageSize])
+
+  const pageInfo = useMemo(() => {
+    if (totalItems === 0) return { from: 0, to: 0 }
+    const from = (page - 1) * pageSize + 1
+    const to = Math.min(page * pageSize, totalItems)
+    return { from, to }
+  }, [page, pageSize, totalItems])
+
+  const pageButtons = useMemo(() => {
+    const maxButtons = 5
+    if (totalPages <= maxButtons) return Array.from({ length: totalPages }, (_, i) => i + 1)
+
+    const buttons = new Set<number>()
+    buttons.add(1)
+    buttons.add(totalPages)
+    buttons.add(page)
+
+    if (page - 1 > 1) buttons.add(page - 1)
+    if (page + 1 < totalPages) buttons.add(page + 1)
+
+    const ordered = Array.from(buttons).sort((a, b) => a - b)
+    return ordered
+  }, [page, totalPages])
+
   const totalAchievements = definitions.length;
   const activeAchievements = definitions.filter(d => d.is_active).length;
   const inactiveAchievements = totalAchievements - activeAchievements;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Banco de Logros</h1>
@@ -233,7 +275,7 @@ export default function AchievementBank() {
         </div>
         <button 
           onClick={() => { setShowForm(true); setEditingId(null); setFormData({ code: '', description: '', is_active: true }); }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
+          className="w-full md:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
         >
           <Plus size={20} /> Nuevo Logro
         </button>
@@ -274,10 +316,10 @@ export default function AchievementBank() {
 
       {showForm && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all">
-          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-6 rounded-xl w-full max-w-2xl shadow-2xl border border-white/20 dark:border-slate-700/50">
+          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 sm:p-6 rounded-xl w-full max-w-2xl shadow-2xl border border-white/20 dark:border-slate-700/50 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-slate-100">{editingId ? 'Editar Logro' : 'Nuevo Logro'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {editingId && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Código</label>
@@ -325,7 +367,7 @@ export default function AchievementBank() {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Área <span className="text-red-500">*</span></label>
                   <select 
@@ -403,7 +445,7 @@ export default function AchievementBank() {
               </div>
 
 
-              <div className="flex justify-end gap-2 mt-6">
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-2 mt-6">
                 <button 
                   type="button"
                   onClick={() => setShowForm(false)}
@@ -437,69 +479,206 @@ export default function AchievementBank() {
               />
             </div>
           </div>
+
+          <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {totalItems > 0 ? (
+                <span>
+                  Mostrando {pageInfo.from}–{pageInfo.to} de {totalItems}
+                </span>
+              ) : (
+                <span>0 resultados</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-500 dark:text-slate-400">Por página</label>
+              <select
+                className="rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs px-2 py-1"
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                {[10, 20, 50].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
-                <tr>
-                  <th className="px-6 py-4 font-semibold">Código</th>
-                  <th className="px-6 py-4 font-semibold">Descripción</th>
-                  <th className="px-6 py-4 font-semibold">Área / Grado / Asignatura</th>
-                  <th className="px-6 py-4 font-semibold">Dimensión</th>
-                  <th className="px-6 py-4 font-semibold">Estado</th>
-                  <th className="px-6 py-4 font-semibold text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {loading ? (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">Cargando...</td></tr>
-                ) : filteredDefinitions.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-slate-500">
-                      <div className="flex flex-col items-center justify-center py-4">
-                        <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
-                          <Search className="h-6 w-6 text-slate-400" />
+          {loading ? (
+            <div className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">Cargando...</div>
+          ) : filteredDefinitions.length === 0 ? (
+            <div className="px-6 py-8 text-center text-slate-500">
+              <div className="flex flex-col items-center justify-center py-4">
+                <div className="h-12 w-12 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-3">
+                  <Search className="h-6 w-6 text-slate-400" />
+                </div>
+                <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron logros</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Mobile cards */}
+              <div className="md:hidden p-4 space-y-3">
+                {pagedDefinitions.map((def) => {
+                  const meta = [def.area_name, def.grade_name, def.subject_name].filter(Boolean).join(' / ') || 'General'
+                  const statusClass = def.is_active
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
+                    : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40'
+
+                  return (
+                    <div
+                      key={def.id}
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm dark:shadow-none"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{def.code}</div>
+                          <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}`}>
+                            {def.is_active ? 'Activo' : 'Inactivo'}
+                          </div>
                         </div>
-                        <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron logros</p>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(def)}
+                            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            aria-label="Editar"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(def.id)}
+                            className="px-3 py-2 rounded-lg border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/30"
+                            aria-label="Eliminar"
+                          >
+                            <Trash size={16} />
+                          </button>
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ) : filteredDefinitions.map((def) => (
-                  <tr key={def.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
-                    <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{def.code}</td>
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300 max-w-md truncate">{def.description}</td>
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                      {[
-                        def.area_name,
-                        def.grade_name,
-                        def.subject_name
-                      ].filter(Boolean).join(' / ') || 'General'}
-                    </td>
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
-                      {def.dimension_name ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-200">
-                          {def.dimension_name}
+
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-line line-clamp-3">
+                        {def.description}
+                      </div>
+
+                      <div className="mt-3 text-xs text-slate-500 dark:text-slate-400">{meta}</div>
+
+                      <div className="mt-2">
+                        {def.dimension_name ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-200">
+                            {def.dimension_name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">Sin dimensión</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-6 py-4 font-semibold">Código</th>
+                      <th className="px-6 py-4 font-semibold">Descripción</th>
+                      <th className="px-6 py-4 font-semibold">Área / Grado / Asignatura</th>
+                      <th className="px-6 py-4 font-semibold">Dimensión</th>
+                      <th className="px-6 py-4 font-semibold">Estado</th>
+                      <th className="px-6 py-4 font-semibold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {pagedDefinitions.map((def) => (
+                      <tr key={def.id} className="bg-white dark:bg-slate-900 hover:bg-slate-50/80 dark:hover:bg-slate-800/60 transition-colors">
+                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{def.code}</td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300 max-w-md truncate">{def.description}</td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                          {[def.area_name, def.grade_name, def.subject_name].filter(Boolean).join(' / ') || 'General'}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                          {def.dimension_name ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-200">
+                              {def.dimension_name}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${def.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40'}`}>
+                            {def.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => handleEdit(def)} className="p-1 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 rounded transition-colors"><Edit size={16} /></button>
+                            <button onClick={() => handleDelete(def.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-300 rounded transition-colors"><Trash size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="border-t border-slate-100 dark:border-slate-800 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  Página {page} de {totalPages}
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-2">
+                  <button
+                    type="button"
+                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                  >
+                    Anterior
+                  </button>
+
+                  <div className="flex items-center gap-1">
+                    {pageButtons.map((p, idx) => {
+                      const prev = idx > 0 ? pageButtons[idx - 1] : null
+                      const showEllipsis = prev != null && p - prev > 1
+
+                      return (
+                        <span key={p} className="flex items-center gap-1">
+                          {showEllipsis ? <span className="px-1 text-slate-400">…</span> : null}
+                          <button
+                            type="button"
+                            className={`h-9 w-9 text-xs rounded-lg border ${
+                              p === page
+                                ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/25 dark:text-blue-200'
+                                : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                            }`}
+                            onClick={() => setPage(p)}
+                          >
+                            {p}
+                          </button>
                         </span>
-                      ) : '-'}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${def.is_active ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40' : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40'}`}>
-                        {def.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button onClick={() => handleEdit(def)} className="p-1 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 rounded transition-colors"><Edit size={16} /></button>
-                        <button onClick={() => handleDelete(def.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-300 rounded transition-colors"><Trash size={16} /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      )
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={page >= totalPages}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

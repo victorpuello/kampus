@@ -23,11 +23,31 @@ def build_case_acta_context(*, case: DisciplineCase, generated_by) -> dict[str, 
 		.first()
 	)
 
-	events = list(case.events.all())
+	# For the PDF acta, we show the decision in its own section (near signatures),
+	# so we avoid duplicating it in the event listings.
+	events = list(case.events.exclude(event_type=DisciplineCaseEvent.Type.DECISION))
+
+	attachments = list(case.attachments.all())
+	image_exts = (".png", ".jpg", ".jpeg", ".webp")
+	attachments_for_acta = []
+	for a in attachments:
+		file_name = getattr(getattr(a, "file", None), "name", "") or ""
+		file_url = getattr(getattr(a, "file", None), "url", "") or ""
+		lower_name = file_name.lower()
+		is_image = bool(file_url) and any(lower_name.endswith(ext) for ext in image_exts)
+		attachments_for_acta.append(
+			{
+				"kind_display": a.get_kind_display(),
+				"uploaded_at": getattr(a, "uploaded_at", None),
+				"file_name": file_name,
+				"file_url": file_url,
+				"description": getattr(a, "description", "") or "",
+				"is_image": is_image,
+			}
+		)
 	action_event_types = {
 		DisciplineCaseEvent.Type.NOTIFIED_GUARDIAN,
 		DisciplineCaseEvent.Type.DESCARGOS,
-		DisciplineCaseEvent.Type.DECISION,
 		DisciplineCaseEvent.Type.CLOSED,
 	}
 	action_note_markers = (
@@ -57,7 +77,8 @@ def build_case_acta_context(*, case: DisciplineCase, generated_by) -> dict[str, 
 		"campus": campus,
 		"institution": institution,
 		"participants": list(case.participants.all()),
-		"attachments": list(case.attachments.all()),
+		"attachments": attachments,
+		"attachments_for_acta": attachments_for_acta,
 		"events": events,
 		"actions_taken": actions_taken,
 		"generated_at": timezone.now(),

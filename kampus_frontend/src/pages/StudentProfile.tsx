@@ -91,8 +91,8 @@ export default function StudentProfile() {
     )
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-6xl mx-auto space-y-6 px-3 py-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Perfil de Estudiante</h2>
           <div className="flex items-center gap-2 mt-1">
@@ -113,29 +113,29 @@ export default function StudentProfile() {
             <Link to={`/students/${studentId}`} className="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded text-slate-700">Editar</Link>
           </div>
           <div className="space-y-2 text-sm">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">Usuario:</span>
-              <span className="col-span-2 font-medium">{data.user.username}</span>
+              <span className="font-medium sm:col-span-2">{data.user.username}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">Nombre:</span>
-              <span className="col-span-2 font-medium">{data.user.first_name} {data.user.last_name}</span>
+              <span className="font-medium sm:col-span-2">{data.user.first_name} {data.user.last_name}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">Documento:</span>
-              <span className="col-span-2">{data.document_type} {data.document_number}</span>
+              <span className="sm:col-span-2">{data.document_type} {data.document_number}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">Dirección:</span>
-              <span className="col-span-2">{data.address}</span>
+              <span className="sm:col-span-2">{data.address}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">EPS:</span>
-              <span className="col-span-2">{data.eps}</span>
+              <span className="sm:col-span-2">{data.eps}</span>
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1 sm:gap-2">
               <span className="text-slate-500">RH:</span>
-              <span className="col-span-2">{data.blood_type}</span>
+              <span className="sm:col-span-2">{data.blood_type}</span>
             </div>
           </div>
         </section>
@@ -148,7 +148,7 @@ export default function StudentProfile() {
               <span className="block text-slate-500 text-xs">Alergias / Restricciones</span>
               <p className="font-medium">{data.allergies || 'Ninguna registrada'}</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div>
                 <span className="block text-slate-500 text-xs">Contacto Emergencia</span>
                 <p className="font-medium">{data.emergency_contact_name || 'No registrado'}</p>
@@ -316,7 +316,7 @@ export default function StudentProfile() {
           <div className="space-y-2">
             {data.documents && data.documents.length > 0 ? (
               data.documents.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between p-2 border-b last:border-0">
+                <div key={doc.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-2 border-b last:border-0">
                   <div className="flex items-center gap-3">
                     <div className="bg-slate-100 p-2 rounded text-slate-500">
                       📄
@@ -330,7 +330,7 @@ export default function StudentProfile() {
                     href={doc.file} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline"
+                    className="text-xs text-blue-600 hover:underline whitespace-nowrap"
                   >
                     Ver / Descargar
                   </a>

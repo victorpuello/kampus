@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -23,6 +24,10 @@ from django.contrib.auth import get_user_model
 
 from audit.services import log_event
 
+from users.permissions import IsAdmin
+
+from academic.ai import AIConfigError, AIParseError, AIProviderError
+
 from .sealing import compute_case_seal_hash
 
 from .reports import build_case_acta_context
@@ -30,9 +35,11 @@ from .reports import build_case_acta_context
 from .models import (
 	DisciplineCase,
 	DisciplineCaseAttachment,
+	DisciplineCaseDecisionSuggestion,
 	DisciplineCaseEvent,
 	DisciplineCaseNotificationLog,
 	DisciplineCaseParticipant,
+	ManualConvivencia,
 )
 from .serializers import (
 	CaseAddAttachmentSerializer,
@@ -42,10 +49,18 @@ from .serializers import (
 	CaseNotifyGuardianSerializer,
 	CaseRecordDescargosSerializer,
 	CaseSetDescargosDeadlineSerializer,
+	CaseUpdateEventSerializer,
 	DisciplineCaseCreateSerializer,
 	DisciplineCaseDetailSerializer,
 	DisciplineCaseListSerializer,
+	DisciplineCaseDecisionSuggestionSerializer,
+	ManualConvivenciaSerializer,
+	ManualConvivenciaUploadSerializer,
 )
+
+from .ai_decision import apply_suggestion, approve_suggestion, suggest_decision_for_case
+from .manual_processing import process_manual
+from .pagination import DisciplineCasePagination
 class PDFRenderer(renderers.BaseRenderer):
 	media_type = "application/pdf"
 	format = "pdf"
@@ -78,11 +93,22 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 		.order_by("-occurred_at", "-id")
 	)
 	permission_classes = [KampusModelPermissions]
+	pagination_class = DisciplineCasePagination
 
 	def get_permissions(self):
 		# Portal acudiente (P0): permitir endpoints de lectura y enterado autenticado
 		# y controlar acceso real vía get_queryset() + validaciones en la acción.
-		if self.action in {"list", "retrieve", "acta", "acknowledge_guardian", "close"}:
+		if self.action in {
+			"list",
+			"retrieve",
+			"acta",
+			"acknowledge_guardian",
+			"close",
+			"create",
+			"add_note",
+			"event_detail",
+			"decision",
+		}:
 			return [IsAuthenticated()]
 		return super().get_permissions()
 
@@ -222,6 +248,131 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 				},
 			)
 
+	def _get_institution(self) -> Institution:
+		inst = Institution.objects.first()
+		if not inst:
+			raise PermissionDenied("No hay institución configurada.")
+		return inst
+
+	def _get_active_manual(self) -> ManualConvivencia:
+		inst = self._get_institution()
+		manual = ManualConvivencia.objects.filter(institution=inst, is_active=True).order_by("-id").first()
+		if not manual:
+			raise PermissionDenied("No hay un Manual de Convivencia activo.")
+		return manual
+
+	@transaction.atomic
+	@action(detail=True, methods=["post"], url_path="ai/suggest-decision")
+	def ai_suggest_decision(self, request, pk=None):
+		case: DisciplineCase = self.get_object()
+		role = getattr(getattr(request, "user", None), "role", None)
+		if role == "PARENT":
+			raise PermissionDenied("No tienes permisos para generar sugerencias.")
+		manual = self._get_active_manual()
+		try:
+			suggestion = suggest_decision_for_case(case, manual, request.user)
+		except ValueError as e:
+			return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+		except AIConfigError as e:
+			# Missing/invalid AI configuration (e.g. GOOGLE_API_KEY)
+			return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+		except (AIProviderError, AIParseError) as e:
+			# Provider errors or unexpected/invalid model output
+			return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+		DisciplineCaseEvent.objects.create(
+			case=case,
+			event_type=DisciplineCaseEvent.Type.NOTE,
+			text=f"Sugerencia IA generada (Manual {manual.id}{' v' + manual.version if manual.version else ''}).",
+			created_by=request.user,
+		)
+		log_event(
+			request,
+			event_type="DISCIPLINE_CASE_AI_SUGGEST_DECISION",
+			object_type="discipline_case",
+			object_id=case.id,
+			status_code=200,
+			metadata={"suggestion_id": suggestion.id, "manual_id": manual.id},
+		)
+		return Response(DisciplineCaseDecisionSuggestionSerializer(suggestion).data, status=status.HTTP_200_OK)
+
+	@transaction.atomic
+	@action(detail=True, methods=["post"], url_path="ai/approve-suggestion")
+	def ai_approve_suggestion(self, request, pk=None):
+		case: DisciplineCase = self.get_object()
+		role = getattr(getattr(request, "user", None), "role", None)
+		if role not in {"ADMIN", "SUPERADMIN"}:
+			raise PermissionDenied("Solo administradores pueden aprobar una sugerencia.")
+		suggestion_id = request.data.get("suggestion_id")
+		try:
+			suggestion_id = int(suggestion_id)
+		except Exception:
+			return Response({"detail": "suggestion_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+		suggestion = DisciplineCaseDecisionSuggestion.objects.filter(case=case, id=suggestion_id).first()
+		if not suggestion:
+			return Response({"detail": "Sugerencia no encontrada"}, status=status.HTTP_404_NOT_FOUND)
+		approve_suggestion(suggestion, request.user)
+		DisciplineCaseEvent.objects.create(
+			case=case,
+			event_type=DisciplineCaseEvent.Type.NOTE,
+			text=f"Sugerencia IA aprobada (ID {suggestion.id}).",
+			created_by=request.user,
+		)
+		log_event(
+			request,
+			event_type="DISCIPLINE_CASE_AI_APPROVE_SUGGESTION",
+			object_type="discipline_case",
+			object_id=case.id,
+			status_code=200,
+			metadata={"suggestion_id": suggestion.id},
+		)
+		return Response(DisciplineCaseDecisionSuggestionSerializer(suggestion).data, status=status.HTTP_200_OK)
+
+	@transaction.atomic
+	@action(detail=True, methods=["post"], url_path="ai/apply-suggestion")
+	def ai_apply_suggestion(self, request, pk=None):
+		case: DisciplineCase = self.get_object()
+		role = getattr(getattr(request, "user", None), "role", None)
+		if role not in {"ADMIN", "SUPERADMIN"}:
+			raise PermissionDenied("Solo administradores pueden aplicar una sugerencia.")
+		self._ensure_can_mutate(request, case)
+		self._ensure_not_sealed(case)
+
+		suggestion_id = request.data.get("suggestion_id")
+		try:
+			suggestion_id = int(suggestion_id)
+		except Exception:
+			return Response({"detail": "suggestion_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+		suggestion = DisciplineCaseDecisionSuggestion.objects.filter(case=case, id=suggestion_id).first()
+		if not suggestion:
+			return Response({"detail": "Sugerencia no encontrada"}, status=status.HTTP_404_NOT_FOUND)
+		try:
+			apply_suggestion(case, suggestion, request.user)
+		except ValueError as e:
+			return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+		DisciplineCaseEvent.objects.create(
+			case=case,
+			event_type=DisciplineCaseEvent.Type.NOTE,
+			text=f"Decisión aplicada desde sugerencia IA (ID {suggestion.id}).",
+			created_by=request.user,
+		)
+		log_event(
+			request,
+			event_type="DISCIPLINE_CASE_AI_APPLY_SUGGESTION",
+			object_type="discipline_case",
+			object_id=case.id,
+			status_code=200,
+			metadata={"suggestion_id": suggestion.id},
+		)
+		return Response({"detail": "OK"}, status=status.HTTP_200_OK)
+
+	@action(detail=True, methods=["get"], url_path="ai/suggestions")
+	def ai_suggestions(self, request, pk=None):
+		case: DisciplineCase = self.get_object()
+		qs = DisciplineCaseDecisionSuggestion.objects.filter(case=case).order_by("-created_at", "-id")
+		return Response(DisciplineCaseDecisionSuggestionSerializer(qs, many=True).data, status=status.HTTP_200_OK)
+
+
 	def destroy(self, request, *args, **kwargs):
 		case: DisciplineCase = self.get_object()
 		user = getattr(request, "user", None)
@@ -286,6 +437,132 @@ class DisciplineCaseViewSet(viewsets.ModelViewSet):
 		role = getattr(user, "role", None)
 		if role == "PARENT":
 			raise PermissionDenied("No tienes permisos para modificar este caso.")
+
+	def _ensure_can_edit_event(self, request, event: DisciplineCaseEvent):
+		user = getattr(request, "user", None)
+		role = getattr(user, "role", None)
+		if role in {"ADMIN", "SUPERADMIN", "COORDINATOR", "SECRETARY"}:
+			return
+		if role == "TEACHER":
+			if event.created_by_id != getattr(user, "id", None):
+				raise PermissionDenied("Solo puedes editar/eliminar tus propios registros.")
+			return
+		raise PermissionDenied("No tienes permisos para editar/eliminar este registro.")
+
+	@transaction.atomic
+	@action(detail=True, methods=["patch", "delete"], url_path=r"events/(?P<event_id>\d+)")
+	def event_detail(self, request, pk=None, event_id: str | None = None):
+		case: DisciplineCase = self.get_object()
+		self._ensure_can_mutate(request, case)
+		self._ensure_not_sealed(case)
+
+		event = get_object_or_404(DisciplineCaseEvent, pk=event_id, case=case)
+		if event.event_type not in {DisciplineCaseEvent.Type.NOTE, DisciplineCaseEvent.Type.DESCARGOS}:
+			return Response(
+				{"detail": "Solo se pueden editar/eliminar notas o descargos."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		self._ensure_can_edit_event(request, event)
+
+		if request.method.upper() == "PATCH":
+			serializer = CaseUpdateEventSerializer(data=request.data)
+			serializer.is_valid(raise_exception=True)
+			event.text = serializer.validated_data["text"]
+			event.save(update_fields=["text"])
+			case.save(update_fields=["updated_at"])
+			log_event(
+				request,
+				event_type="DISCIPLINE_CASE_EVENT_UPDATE",
+				object_type="discipline_case",
+				object_id=case.id,
+				status_code=200,
+				metadata={"event_id": event.id, "event_type": event.event_type},
+			)
+			return Response({"detail": "OK"}, status=status.HTTP_200_OK)
+
+		# DELETE
+		deleted_id = event.id
+		deleted_type = event.event_type
+		event.delete()
+		case.save(update_fields=["updated_at"])
+		log_event(
+			request,
+			event_type="DISCIPLINE_CASE_EVENT_DELETE",
+			object_type="discipline_case",
+			object_id=case.id,
+			status_code=200,
+			metadata={"event_id": deleted_id, "event_type": deleted_type},
+		)
+		return Response({"detail": "OK"}, status=status.HTTP_200_OK)
+
+	@transaction.atomic
+	@action(detail=True, methods=["patch", "delete"], url_path="decision")
+	def decision(self, request, pk=None):
+		case: DisciplineCase = self.get_object()
+		self._ensure_can_mutate(request, case)
+		self._ensure_not_sealed(case)
+
+		if request.method.upper() == "PATCH":
+			serializer = CaseDecideSerializer(data=request.data)
+			serializer.is_valid(raise_exception=True)
+
+			if case.status not in {DisciplineCase.Status.OPEN, DisciplineCase.Status.DECIDED}:
+				return Response(
+					{"detail": "El caso no se puede decidir/editar en el estado actual."},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+			# Mantener la regla MVP: descargos obligatorios antes de decidir/editar decisión
+			has_descargos = case.events.filter(event_type=DisciplineCaseEvent.Type.DESCARGOS).exists()
+			if not has_descargos:
+				return Response(
+					{"detail": "No se puede decidir sin registrar descargos."},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
+
+			now = timezone.now()
+			case.decision_text = serializer.validated_data["decision_text"].strip()
+			case.decided_at = now
+			case.decided_by = request.user
+			case.status = DisciplineCase.Status.DECIDED
+			case.save(update_fields=["decision_text", "decided_at", "decided_by", "status", "updated_at"])
+
+			DisciplineCaseEvent.objects.create(
+				case=case,
+				event_type=DisciplineCaseEvent.Type.DECISION,
+				text=case.decision_text,
+				created_by=request.user,
+			)
+			log_event(
+				request,
+				event_type="DISCIPLINE_CASE_DECISION_UPDATE",
+				object_type="discipline_case",
+				object_id=case.id,
+				status_code=200,
+			)
+			return Response({"detail": "OK"}, status=status.HTTP_200_OK)
+
+		# DELETE (limpiar decisión)
+		if case.status != DisciplineCase.Status.DECIDED:
+			return Response(
+				{"detail": "El caso no tiene una decisión para eliminar."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		case.decision_text = ""
+		case.decided_at = None
+		case.decided_by = None
+		case.status = DisciplineCase.Status.OPEN
+		case.save(update_fields=["decision_text", "decided_at", "decided_by", "status", "updated_at"])
+		log_event(
+			request,
+			event_type="DISCIPLINE_CASE_DECISION_CLEAR",
+			object_type="discipline_case",
+			object_id=case.id,
+			status_code=200,
+		)
+		return Response({"detail": "OK"}, status=status.HTTP_200_OK)
 		if (
 			role == "TEACHER"
 			and case is not None

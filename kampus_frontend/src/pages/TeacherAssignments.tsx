@@ -287,11 +287,11 @@ export default function TeacherAssignments() {
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Asignación Académica</h2>
           <p className="text-sm text-slate-600 dark:text-slate-300">Tus grupos y asignaturas asignadas.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
             <select
-              className="h-9 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 text-sm"
+              className="h-9 w-full sm:w-auto rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 text-sm"
               value={yearId}
               disabled={loadingYears || years.length === 0}
               onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
@@ -304,7 +304,7 @@ export default function TeacherAssignments() {
               ))}
             </select>
           </div>
-          <Button variant="outline" onClick={() => navigate('/')}>Ir al Dashboard</Button>
+          <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>Ir al Dashboard</Button>
         </div>
       </div>
 
@@ -323,7 +323,55 @@ export default function TeacherAssignments() {
             <div className="py-8 text-center text-slate-500">No tienes asignaciones registradas.</div>
           ) : (
             <div>
-              <div className="overflow-x-auto">
+              {/* Mobile cards */}
+              <div className="md:hidden space-y-3">
+                {paginated.items.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {r.subjectLabel}
+                    </div>
+                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                      {(r.grade ? `${r.grade} · ` : '') + (r.group || '—')}
+                      {r.year ? ` · ${r.year}` : ''}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                        <div className="text-slate-500 dark:text-slate-400">Área</div>
+                        <div className="mt-0.5 font-semibold">{r.area ?? '—'}</div>
+                      </div>
+                      <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                        <div className="text-slate-500 dark:text-slate-400">Horas/semana</div>
+                        <div className="mt-0.5 font-semibold">{r.hours ?? '—'}</div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-2">
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => handleOpenPlanilla('attendance', r.raw)}
+                        disabled={downloading}
+                      >
+                        Imprimible: Asistencia
+                      </Button>
+                      <Button
+                        className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"
+                        onClick={() => handleOpenPlanilla('grades', r.raw)}
+                        disabled={downloading}
+                      >
+                        Imprimible: Notas
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                     <tr>
@@ -373,8 +421,9 @@ export default function TeacherAssignments() {
                 <div className="text-sm text-slate-600 dark:text-slate-300">
                   Mostrando {paginated.startIdx + 1}–{paginated.endIdx} de {paginated.total}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                   <Button
+                    className="w-full sm:w-auto"
                     variant="outline"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={paginated.page <= 1}
@@ -385,6 +434,7 @@ export default function TeacherAssignments() {
                     Página {paginated.page} de {paginated.totalPages}
                   </div>
                   <Button
+                    className="w-full sm:w-auto"
                     variant="outline"
                     onClick={() => setPage((p) => Math.min(paginated.totalPages, p + 1))}
                     disabled={paginated.page >= paginated.totalPages}
@@ -406,7 +456,7 @@ export default function TeacherAssignments() {
               if (!downloading) setIsPlanillaModalOpen(false)
             }}
           />
-          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-5 sm:p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">
                 {planillaType === 'attendance' ? 'Descargar planilla de asistencia' : 'Descargar planilla de notas'}
@@ -481,12 +531,12 @@ export default function TeacherAssignments() {
               )}
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsPlanillaModalOpen(false)} disabled={downloading}>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsPlanillaModalOpen(false)} disabled={downloading}>
                 Cancelar
               </Button>
               <Button
-                className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white"
                 onClick={handleDownloadPlanilla}
                 disabled={downloading || (planillaType === 'grades' && periodsForYear.length > 0 && gradePeriodId === '')}
               >

@@ -12,10 +12,85 @@ from students.models import Enrollment, Student
 from .models import (
     DisciplineCase,
     DisciplineCaseAttachment,
+    DisciplineCaseDecisionSuggestion,
     DisciplineCaseEvent,
     DisciplineCaseParticipant,
     DisciplineCaseNotificationLog,
+    ManualConvivencia,
+    ManualConvivenciaChunk,
 )
+
+
+class ManualConvivenciaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ManualConvivencia
+        fields = [
+            "id",
+            "institution",
+            "title",
+            "version",
+            "is_active",
+            "file",
+            "uploaded_by",
+            "uploaded_at",
+            "extraction_status",
+            "extraction_error",
+            "extracted_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ManualConvivenciaUploadSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    version = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    file = serializers.FileField(required=False, allow_null=True)
+    text = serializers.CharField(required=False, allow_blank=True)
+    activate = serializers.BooleanField(required=False, default=True)
+
+    def validate_file(self, value):
+        if value is None:
+            return value
+        name = (getattr(value, "name", "") or "").lower()
+        if not name.endswith((".pdf", ".md", ".markdown", ".txt")):
+            raise serializers.ValidationError("Formato no soportado. Sube PDF o Markdown (.md) o TXT (.txt).")
+        return value
+
+    def validate(self, attrs):
+        file = attrs.get("file")
+        text = (attrs.get("text") or "").strip()
+        if not file and not text:
+            raise serializers.ValidationError({"non_field_errors": ["Debes subir un archivo o pegar el texto del manual."]})
+        return attrs
+
+
+class ManualConvivenciaChunkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ManualConvivenciaChunk
+        fields = ["id", "index", "label", "start_char", "end_char", "text"]
+        read_only_fields = fields
+
+
+class DisciplineCaseDecisionSuggestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DisciplineCaseDecisionSuggestion
+        fields = [
+            "id",
+            "case",
+            "manual",
+            "status",
+            "suggested_decision_text",
+            "reasoning",
+            "citations",
+            "created_by",
+            "created_at",
+            "approved_by",
+            "approved_at",
+            "applied_by",
+            "applied_at",
+        ]
+        read_only_fields = fields
 
 
 class DisciplineCaseParticipantSerializer(serializers.ModelSerializer):
@@ -185,6 +260,7 @@ class DisciplineCaseDetailSerializer(serializers.ModelSerializer):
     attachments = DisciplineCaseAttachmentSerializer(many=True, read_only=True)
     events = DisciplineCaseEventSerializer(many=True, read_only=True)
     notification_logs = DisciplineCaseNotificationLogSerializer(many=True, read_only=True)
+    decision_suggestions = DisciplineCaseDecisionSuggestionSerializer(many=True, read_only=True)
 
     class Meta:
         model = DisciplineCase
@@ -220,6 +296,7 @@ class DisciplineCaseDetailSerializer(serializers.ModelSerializer):
             "attachments",
             "events",
             "notification_logs",
+            "decision_suggestions",
         ]
 
 
@@ -341,6 +418,16 @@ class CaseDecideSerializer(serializers.Serializer):
 
 
 class CaseAddNoteSerializer(serializers.Serializer):
+    text = serializers.CharField()
+
+    def validate(self, attrs):
+        text = (attrs.get("text") or "").strip()
+        if not text:
+            raise serializers.ValidationError({"text": "El texto es obligatorio."})
+        return {"text": text}
+
+
+class CaseUpdateEventSerializer(serializers.Serializer):
     text = serializers.CharField()
 
     def validate(self, attrs):

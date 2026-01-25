@@ -22,6 +22,8 @@ export default function TeacherList() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(20)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -74,6 +76,10 @@ export default function TeacherList() {
       window.clearTimeout(timeoutId)
     }
   }, [searchTerm])
+
+  useEffect(() => {
+    setPage(1)
+  }, [selectedYear, debouncedSearchTerm])
 
   const handleDelete = async (id: number) => {
     try {
@@ -142,6 +148,42 @@ export default function TeacherList() {
     })
   }, [filteredData])
 
+  const totalPages = useMemo(() => {
+    const safePerPage = Math.max(1, perPage)
+    return Math.max(1, Math.ceil(sortedData.length / safePerPage))
+  }, [perPage, sortedData.length])
+
+  const currentPage = Math.min(Math.max(1, page), totalPages)
+
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage)
+  }, [currentPage, page])
+
+  const pageItems = useMemo(() => {
+    const safePerPage = Math.max(1, perPage)
+    const start = (currentPage - 1) * safePerPage
+    return sortedData.slice(start, start + safePerPage)
+  }, [currentPage, perPage, sortedData])
+
+  const desktopPages = useMemo(() => {
+    if (totalPages <= 9) return Array.from({ length: totalPages }, (_, i) => i + 1)
+    const pages = new Set<number>()
+    pages.add(1)
+    pages.add(totalPages)
+    for (let p = currentPage - 2; p <= currentPage + 2; p += 1) {
+      if (p >= 1 && p <= totalPages) pages.add(p)
+    }
+    const sorted = Array.from(pages).sort((a, b) => a - b)
+    const out: Array<number | '…'> = []
+    for (let i = 0; i < sorted.length; i += 1) {
+      const v = sorted[i]
+      const prev = i > 0 ? sorted[i - 1] : null
+      if (prev !== null && v - prev > 1) out.push('…')
+      out.push(v)
+    }
+    return out
+  }, [currentPage, totalPages])
+
   // Stats
   const totalTeachers = data.length
   const fullLoadTeachers = data.filter(t => (t.assigned_hours || 0) >= getTargetHours(t.teaching_level)).length
@@ -207,8 +249,8 @@ export default function TeacherList() {
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona la planta docente de la institución.</p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="w-40">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 w-full md:w-auto">
+          <div className="w-full sm:w-56 md:w-40">
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
@@ -219,8 +261,8 @@ export default function TeacherList() {
               ))}
             </select>
           </div>
-          <Link to="/teachers/new">
-            <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
+          <Link to="/teachers/new" className="w-full sm:w-auto">
+            <Button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
               <Plus className="mr-2 h-4 w-4" /> Nuevo Docente
             </Button>
           </Link>
@@ -281,6 +323,30 @@ export default function TeacherList() {
               />
             </div>
           </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Mostrando {pageItems.length} de {sortedData.length} docentes
+              {sortedData.length > 0 ? ` • Página ${currentPage} de ${totalPages}` : ''}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Por página:</span>
+              <select
+                value={perPage}
+                onChange={(e) => {
+                  setPerPage(parseInt(e.target.value) || 20)
+                  setPage(1)
+                }}
+                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                aria-label="Docentes por página"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+          </div>
+
           {loading && data.length > 0 && (
             <p className="mt-2 text-sm text-slate-500">Actualizando resultados…</p>
           )}
@@ -291,7 +357,145 @@ export default function TeacherList() {
           )}
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Mobile: cards */}
+          <div className="md:hidden p-4">
+            {loading && data.length === 0 ? (
+              <div className="py-8 text-center text-slate-500 dark:text-slate-400">Cargando…</div>
+            ) : pageItems.length === 0 ? (
+              <div className="py-8 text-center">
+                <div className="mx-auto h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 dark:bg-slate-800">
+                  <Search className="h-6 w-6 text-slate-400" />
+                </div>
+                <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron docentes</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pageItems.map((t) => (
+                  <div
+                    key={t.id}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900 dark:border-slate-800"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="h-11 w-11 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm shadow-sm border border-blue-200 shrink-0 dark:from-blue-950/40 dark:to-blue-900/30 dark:text-blue-200 dark:border-blue-900/40">
+                        {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-slate-900 uppercase truncate dark:text-slate-100">
+                          {t.user.last_name} {t.user.first_name}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
+                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                            {t.user.username}
+                          </span>
+                          {t.user.email ? <span className="ml-2">• {t.user.email}</span> : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <div className="text-sm">
+                        <div className="text-[11px] font-bold text-slate-400 uppercase">Título / Especialidad</div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{t.title || '-'}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{t.specialty || '-'}</div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
+                          <span
+                            className={
+                              (t.assigned_hours || 0) > getTargetHours(t.teaching_level)
+                                ? 'text-amber-600 font-bold'
+                                : (t.assigned_hours || 0) === getTargetHours(t.teaching_level)
+                                  ? 'text-emerald-600 font-bold'
+                                  : 'text-slate-700 dark:text-slate-200'
+                            }
+                          >
+                            Carga: {t.assigned_hours || 0} / {getTargetHours(t.teaching_level)}h
+                          </span>
+                          <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
+                            {getLevelLabel(t.teaching_level)}
+                          </span>
+                        </div>
+                        <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              (t.assigned_hours || 0) > getTargetHours(t.teaching_level)
+                                ? 'bg-amber-500'
+                                : (t.assigned_hours || 0) === getTargetHours(t.teaching_level)
+                                  ? 'bg-emerald-500'
+                                  : 'bg-blue-500'
+                            }`}
+                            style={{ width: `${Math.min(((t.assigned_hours || 0) / getTargetHours(t.teaching_level)) * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-[11px] font-bold text-slate-400 uppercase">Escalafón</div>
+                          <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-700">
+                            {t.salary_scale}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            {t.regime === '2277' ? 'Estatuto 2277' : t.regime === '1278' ? 'Estatuto 1278' : ''}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9"
+                            onClick={() => navigate(`/teachers/${t.id}`)}
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="h-9"
+                            onClick={() => setDeleteConfirm(t.id)}
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {totalPages > 1 && (
+                  <div className="pt-2 flex items-center justify-between">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={currentPage <= 1}
+                      onClick={() => setPage(Math.max(1, currentPage - 1))}
+                    >
+                      Anterior
+                    </Button>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      Página {currentPage} de {totalPages}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      disabled={currentPage >= totalPages}
+                      onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -309,7 +513,7 @@ export default function TeacherList() {
                       Cargando…
                     </td>
                   </tr>
-                ) : sortedData.length === 0 ? (
+                ) : pageItems.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="px-6 py-8 text-center text-slate-500 dark:text-slate-400">
                       <div className="flex flex-col items-center justify-center py-4">
@@ -322,7 +526,7 @@ export default function TeacherList() {
                     </td>
                   </tr>
                 ) : (
-                  sortedData.map((t) => (
+                  pageItems.map((t) => (
                     <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
@@ -405,6 +609,53 @@ export default function TeacherList() {
                 )}
               </tbody>
             </table>
+
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage(Math.max(1, currentPage - 1))}
+                  >
+                    ◀
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                  >
+                    ▶
+                  </Button>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 ml-2">
+                    Página {currentPage} de {totalPages}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1 justify-end">
+                  {desktopPages.map((p, idx) =>
+                    p === '…' ? (
+                      <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">…</span>
+                    ) : (
+                      <Button
+                        key={p}
+                        variant={p === currentPage ? 'secondary' : 'outline'}
+                        size="sm"
+                        className="h-8 px-2"
+                        onClick={() => setPage(p)}
+                        aria-current={p === currentPage ? 'page' : undefined}
+                      >
+                        {p}
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

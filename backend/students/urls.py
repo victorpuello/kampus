@@ -8,6 +8,7 @@ from .views import (
     CertificateStudiesPreviewView,
     CertificateStudiesIssueView,
     CertificateIssuesListView,
+    CertificateIssueDetailView,
     CertificateIssueDownloadPDFView,
     CertificateRevenueSummaryView,
     BulkEnrollmentView
@@ -29,6 +30,7 @@ urlpatterns = [
     path("certificates/studies/preview/", CertificateStudiesPreviewView.as_view(), name="certificate-studies-preview"),
     path("certificates/studies/issue/", CertificateStudiesIssueView.as_view(), name="certificate-studies-issue"),
     path("certificates/issues/", CertificateIssuesListView.as_view(), name="certificate-issues-list"),
+    path("certificates/issues/<uuid:uuid>/", CertificateIssueDetailView.as_view(), name="certificate-issue-detail"),
     path("certificates/issues/<uuid:uuid>/pdf/", CertificateIssueDownloadPDFView.as_view(), name="certificate-issue-pdf"),
     path("certificates/revenue/summary/", CertificateRevenueSummaryView.as_view(), name="certificate-revenue-summary"),
 ]

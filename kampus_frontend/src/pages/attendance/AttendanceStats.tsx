@@ -131,15 +131,15 @@ export default function AttendanceStats() {
                   <option value="">Selecciona…</option>
                   {filteredAssignments.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.subject_name ?? 'Materia'} — {a.group_name ?? 'Grupo'}
+                      {a.subject_name ?? 'Materia'} — {(a.grade_name || 'Grado') + ' / ' + (a.group_name ?? 'Grupo')}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button onClick={handleFetch} disabled={fetching}>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <Button className="w-full sm:w-auto" onClick={handleFetch} disabled={fetching}>
                 {fetching ? 'Generando…' : 'Generar reporte'}
               </Button>
             </div>
@@ -148,14 +148,45 @@ export default function AttendanceStats() {
               <div className="space-y-3">
                 <div className="rounded-md border border-slate-200 bg-white p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
                   <div className="font-medium text-slate-900 dark:text-slate-100">
-                    {data.teacher_assignment.subject_name} — {data.teacher_assignment.group_name}
+                    {data.teacher_assignment.subject_name} — {(data.teacher_assignment.grade_name ? `${data.teacher_assignment.grade_name} / ` : '') + data.teacher_assignment.group_name}
                   </div>
                   <div>
                     Periodo: {data.period.name} · Clases registradas: {data.sessions_count}
                   </div>
                 </div>
 
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                {/* Mobile cards */}
+                <div className="md:hidden space-y-3">
+                  {data.students.map((s) => (
+                    <div
+                      key={s.enrollment_id}
+                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                    >
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{s.student_full_name}</div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                          <div className="text-slate-500 dark:text-slate-400">Ausencias</div>
+                          <div className="text-sm font-semibold">{s.absences}</div>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                          <div className="text-slate-500 dark:text-slate-400">Tardes</div>
+                          <div className="text-sm font-semibold">{s.tardies}</div>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                          <div className="text-slate-500 dark:text-slate-400">Excusas</div>
+                          <div className="text-sm font-semibold">{s.excused}</div>
+                        </div>
+                        <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                          <div className="text-slate-500 dark:text-slate-400">Presentes</div>
+                          <div className="text-sm font-semibold">{s.present}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-900">
                       <tr>

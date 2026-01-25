@@ -280,7 +280,85 @@ export default function UserList() {
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Mobile list */}
+          <div className="md:hidden p-4">
+            {isInitialLoading ? (
+              <div className="py-10 text-center text-slate-500 dark:text-slate-400">Cargando usuarios…</div>
+            ) : data.length === 0 ? (
+              <div className="py-10 text-center text-slate-500 dark:text-slate-400">
+                <div className="flex flex-col items-center justify-center">
+                  <div className="h-12 w-12 rounded-full bg-slate-100 flex items-center justify-center mb-3 dark:bg-slate-800">
+                    <Search className="h-6 w-6 text-slate-400" />
+                  </div>
+                  <p className="font-medium text-slate-900 dark:text-slate-100">No se encontraron usuarios</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {data.map((u) => (
+                  <div
+                    key={u.id}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900 dark:border-slate-800"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-600 shadow-sm border border-slate-200 shrink-0 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200 dark:border-slate-700">
+                        <span className="font-bold text-sm">
+                          {(u.first_name?.[0] || 'U') + (u.last_name?.[0] || 'S')}
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 dark:text-slate-100 wrap-break-word">
+                              {u.first_name} {u.last_name}
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit dark:text-slate-300 dark:bg-slate-800">
+                              @{u.username}
+                            </div>
+                          </div>
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${getActiveBadgeClasses(u.is_active)}`}>
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full mr-1.5 ${u.is_active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-400 dark:bg-slate-500'}`}
+                            ></span>
+                            {u.is_active ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${getRoleBadgeClasses(u.role)}`}>
+                            {getRoleLabel(u.role)}
+                          </span>
+                        </div>
+
+                        <div className="mt-2 text-xs text-slate-600 dark:text-slate-300 wrap-break-word">
+                          {u.email || '—'}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <Link to={`/users/${u.id}`} className="w-full">
+                            <Button variant="outline" className="w-full">
+                              Editar
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="outline"
+                            className="w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
+                            onClick={() => openDeleteModal(u.id)}
+                          >
+                            Eliminar
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -311,36 +389,36 @@ export default function UserList() {
                     </td>
                   </tr>
                 ) : (
-                  data.map((user) => (
-                    <tr key={user.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
+                  data.map((u) => (
+                    <tr key={u.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center mr-3 text-slate-600 shadow-sm border border-slate-200 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200 dark:border-slate-700">
-                            <span className="font-bold text-sm">{user.first_name[0]}{user.last_name[0]}</span>
+                            <span className="font-bold text-sm">{(u.first_name?.[0] || 'U') + (u.last_name?.[0] || 'S')}</span>
                           </div>
                           <div>
                             <div className="font-medium text-slate-900 uppercase dark:text-slate-100">
-                              {user.first_name} {user.last_name}
+                              {u.first_name} {u.last_name}
                             </div>
-                            <div className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit mt-0.5 dark:text-slate-300 dark:bg-slate-800">@{user.username}</div>
+                            <div className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit mt-0.5 dark:text-slate-300 dark:bg-slate-800">@{u.username}</div>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeClasses(user.role)}`}>
-                          {getRoleLabel(user.role)}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getRoleBadgeClasses(u.role)}`}>
+                          {getRoleLabel(u.role)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{user.email}</td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{u.email}</td>
                       <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getActiveBadgeClasses(user.is_active)}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${user.is_active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-400 dark:bg-slate-500'}`}></span>
-                          {user.is_active ? 'Activo' : 'Inactivo'}
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getActiveBadgeClasses(u.is_active)}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${u.is_active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-slate-400 dark:bg-slate-500'}`}></span>
+                          {u.is_active ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <Link to={`/users/${user.id}`}>
+                          <Link to={`/users/${u.id}`}>
                             <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-sky-300">
                               <span className="sr-only">Editar</span>
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
@@ -350,7 +428,7 @@ export default function UserList() {
                             variant="ghost" 
                             size="sm" 
                             className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:text-slate-500 dark:hover:bg-red-950/30 dark:hover:text-red-300"
-                            onClick={() => openDeleteModal(user.id)}
+                            onClick={() => openDeleteModal(u.id)}
                           >
                             <span className="sr-only">Eliminar</span>
                             <Trash2 className="h-4 w-4" />
@@ -364,12 +442,12 @@ export default function UserList() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-6 pb-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-4 md:px-6 pb-6">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <div className="flex items-center gap-2 justify-between sm:justify-start">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
                   className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
@@ -385,16 +463,18 @@ export default function UserList() {
                 </select>
               </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={!hasPrevious || page <= 1}
-              >
-                Anterior
-              </Button>
+              <div className="flex items-center gap-2 justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={!hasPrevious || page <= 1}
+                >
+                  Anterior
+                </Button>
 
-              <div className="hidden md:flex items-center gap-1">
+                <div className="hidden md:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
                     <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
@@ -412,16 +492,18 @@ export default function UserList() {
                     </Button>
                   )
                 )}
-              </div>
+                </div>
 
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((p) => p + 1)}
-                disabled={!hasNext}
-              >
-                Siguiente
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1 sm:flex-none"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!hasNext}
+                >
+                  Siguiente
+                </Button>
+              </div>
             </div>
           </div>
         </CardContent>

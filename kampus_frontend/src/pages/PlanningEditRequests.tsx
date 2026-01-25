@@ -21,6 +21,18 @@ function textareaClassName() {
   return 'mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
 }
 
+function formatDateTimeShort(iso: string) {
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return iso
+  return d.toLocaleString('es-CO', {
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export default function PlanningEditRequests() {
   const navigate = useNavigate()
   const query = useQuery()
@@ -264,12 +276,12 @@ export default function PlanningEditRequests() {
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Crea solicitudes y consulta su estado.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/planning')}>Ir a Planeación</Button>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <Button variant="outline" onClick={() => navigate('/planning')} className="w-full sm:w-auto">Ir a Planeación</Button>
           {isTeacher ? (
-            <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests}>Recargar</Button>
+            <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests} className="w-full sm:w-auto">Recargar</Button>
           ) : (
-            <Button variant="outline" onClick={refreshPendingRequests} disabled={loadingPending}>Recargar</Button>
+            <Button variant="outline" onClick={refreshPendingRequests} disabled={loadingPending} className="w-full sm:w-auto">Recargar</Button>
           )}
         </div>
       </div>
@@ -332,7 +344,68 @@ export default function PlanningEditRequests() {
             <CardTitle>Mis solicitudes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {loadingMyRequests ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  Cargando…
+                </div>
+              ) : myRequests.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  No has creado solicitudes.
+                </div>
+              ) : (
+                myRequests.map((r) => {
+                  const statusClass =
+                    r.status === 'APPROVED'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40'
+                      : r.status === 'REJECTED'
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
+                      : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
+
+                  const decidedAtMobile = r.decided_at ? formatDateTimeShort(r.decided_at) : ''
+
+                  const detailMobile =
+                    r.status === 'APPROVED'
+                      ? `Aprobada${decidedAtMobile ? ` (${decidedAtMobile})` : ''}`
+                      : r.status === 'REJECTED'
+                      ? `Rechazada${decidedAtMobile ? ` (${decidedAtMobile})` : ''}`
+                      : 'Pendiente'
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {periodNameById.get(r.period) || `Periodo ${r.period}`}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{formatDateTimeShort(r.created_at)}</div>
+                        </div>
+                        <span className={`shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}`}>
+                          {r.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200">{detailMobile}</div>
+                      {r.requested_until ? (
+                        <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Solicitada hasta:</span> {formatDateTimeShort(r.requested_until)}
+                        </div>
+                      ) : null}
+                      {r.decision_note ? (
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400 whitespace-pre-wrap">{r.decision_note}</div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
@@ -360,11 +433,13 @@ export default function PlanningEditRequests() {
                           ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/40'
                           : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40'
 
+                      const decidedAtDesktop = r.decided_at ? new Date(r.decided_at).toLocaleString() : ''
+
                       const detail =
                         r.status === 'APPROVED'
-                          ? `Aprobada${r.decided_at ? ` (${new Date(r.decided_at).toLocaleString()})` : ''}`
+                          ? `Aprobada${decidedAtDesktop ? ` (${decidedAtDesktop})` : ''}`
                           : r.status === 'REJECTED'
-                          ? `Rechazada${r.decided_at ? ` (${new Date(r.decided_at).toLocaleString()})` : ''}`
+                          ? `Rechazada${decidedAtDesktop ? ` (${decidedAtDesktop})` : ''}`
                           : 'Pendiente'
 
                       return (
@@ -416,7 +491,81 @@ export default function PlanningEditRequests() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Mobile cards */}
+            <div className="md:hidden space-y-3">
+              {loadingPending ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  Cargando…
+                </div>
+              ) : pendingRequests.length === 0 ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
+                  No hay solicitudes pendientes.
+                </div>
+              ) : (
+                pendingRequests.map((r) => {
+                  const decision = decisionById[r.id] || { valid_until: '', decision_note: '', submitting: false }
+                  const disabled = !!decision.submitting
+                  const periodName = periodNameById.get(r.period) || `Periodo ${r.period}`
+
+                  return (
+                    <div
+                      key={r.id}
+                      className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {r.requested_by_name || r.requested_by}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{periodName}</div>
+                        </div>
+                        <div className="shrink-0 text-xs text-slate-500 dark:text-slate-400">PENDIENTE</div>
+                      </div>
+
+                      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold">Creada:</span> {formatDateTimeShort(r.created_at)}
+                      </div>
+                      {r.requested_until ? (
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          <span className="font-semibold">Solicitada hasta:</span> {formatDateTimeShort(r.requested_until)}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.reason}</div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Válida hasta</label>
+                          <Input
+                            type="datetime-local"
+                            value={decision.valid_until}
+                            onChange={(e) => setDecision(r.id, { valid_until: e.target.value })}
+                            disabled={disabled}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Nota (opcional)</label>
+                          <Input
+                            value={decision.decision_note}
+                            onChange={(e) => setDecision(r.id, { decision_note: e.target.value })}
+                            disabled={disabled}
+                            placeholder="Opcional"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                        <Button onClick={() => approve(r)} disabled={disabled} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">Aprobar</Button>
+                        <Button variant="outline" onClick={() => reject(r)} disabled={disabled} className="w-full sm:w-auto">Rechazar</Button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>

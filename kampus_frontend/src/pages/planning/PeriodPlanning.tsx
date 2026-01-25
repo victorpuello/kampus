@@ -459,7 +459,7 @@ export default function PeriodPlanning() {
   });
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <ConfirmationModal
         isOpen={deleteConfirmId !== null}
         onClose={() => (!deletingAchievement ? setDeleteConfirmId(null) : null)}
@@ -472,9 +472,9 @@ export default function PeriodPlanning() {
         loading={deletingAchievement}
       />
 
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-slate-100 mb-6">Planeación de Periodo</h1>
+      <h1 className="text-2xl sm:text-2xl font-bold text-gray-800 dark:text-slate-100 mb-4 sm:mb-6">Planeación de Periodo</h1>
       
-      <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 mb-6 space-y-4">
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 mb-6 space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Año Lectivo</label>
@@ -571,7 +571,7 @@ export default function PeriodPlanning() {
               type="button"
               onClick={refreshPlanningGrants}
               disabled={loadingPlanningGrant || !selectedPeriod}
-              className="px-3 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium disabled:opacity-50"
+              className="w-full sm:w-auto px-3 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium disabled:opacity-50"
             >
               {loadingPlanningGrant ? 'Revisando…' : 'Revisar permisos'}
             </button>
@@ -629,12 +629,12 @@ export default function PeriodPlanning() {
             </div>
           </div>
 
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
             <h2 className="text-xl font-semibold text-slate-800 dark:text-slate-100">Logros Planificados</h2>
             <button 
               onClick={() => setShowForm(true)}
               disabled={user?.role === 'TEACHER' && !planningCanEdit}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
+              className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
             >
               <Plus size={20} /> Agregar Logro
             </button>
@@ -642,13 +642,13 @@ export default function PeriodPlanning() {
 
           {showForm && (
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-3xl my-8">
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-3xl my-8 max-h-[90vh] overflow-y-auto">
+                <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800">
                   <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Nuevo Logro</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Define el logro y sus indicadores de desempeño</p>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
+                <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Dimensión <span className="text-red-500">*</span></label>
@@ -722,13 +722,13 @@ export default function PeriodPlanning() {
                   </div>
 
                   <div className="bg-slate-50 dark:bg-slate-800/60 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
-                    <div className="flex justify-between items-center mb-4">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 mb-4">
                       <label className="block text-sm font-bold text-slate-700 dark:text-slate-200">Indicadores de Desempeño</label>
                       <button 
                         type="button"
                         onClick={() => generateIndicators(formData.description)}
                         disabled={generatingAI || !formData.description}
-                        className="text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full flex items-center gap-1.5 hover:bg-purple-200 font-medium transition-colors disabled:opacity-50"
+                        className="w-full sm:w-auto text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full flex items-center justify-center gap-1.5 hover:bg-purple-200 font-medium transition-colors disabled:opacity-50"
                       >
                         <Wand2 size={14} /> {generatingAI ? 'Generando...' : 'Regenerar con IA'}
                       </button>
@@ -736,8 +736,8 @@ export default function PeriodPlanning() {
                     
                     <div className="space-y-3">
                       {formData.indicators.map((ind, idx) => (
-                        <div key={ind.level} className="flex gap-3 items-start">
-                          <div className={`w-24 shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
+                        <div key={ind.level} className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start">
+                          <div className={`w-full sm:w-24 shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
                             ind.level === 'LOW' ? 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40' :
                             ind.level === 'BASIC' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/25 dark:text-amber-200 dark:border-amber-900/40' :
                             ind.level === 'HIGH' ? 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40' :
@@ -761,18 +761,18 @@ export default function PeriodPlanning() {
                     </div>
                   </div>
 
-                  <div className="flex justify-end gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <button 
                       type="button"
                       onClick={() => setShowForm(false)}
-                      className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
+                      className="w-full sm:w-auto px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
                     >
                       Cancelar
                     </button>
                     <button 
                       type="submit"
                       disabled={user?.role === 'TEACHER' && !planningCanEdit}
-                      className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2 font-medium shadow-sm"
+                      className="w-full sm:w-auto px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium shadow-sm"
                     >
                       <Save size={18} /> Guardar Planeación
                     </button>
@@ -785,7 +785,7 @@ export default function PeriodPlanning() {
           <div className="space-y-4">
             {achievements.map(ach => (
               <div key={ach.id} className="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 border-l-4 border-blue-500">
-                <div className="flex justify-between items-start">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       {ach.dimension_name && (
@@ -805,7 +805,7 @@ export default function PeriodPlanning() {
                     type="button"
                     onClick={() => handleDeleteAchievement(ach.id)}
                     disabled={user?.role === 'TEACHER' && !planningCanEdit}
-                    className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                    className="self-end sm:self-auto text-red-500 hover:text-red-700 disabled:opacity-50"
                     title={user?.role === 'TEACHER' && !planningCanEdit ? 'Edición cerrada' : 'Eliminar'}
                   >
                     <Trash size={18} />

@@ -95,14 +95,13 @@ export default function EnrollmentExisting() {
     try {
       const [yearsRes, gradesRes] = await Promise.all([
         academicApi.listYears(),
-        academicApi.listGrades()
+        academicApi.listGrades(),
       ])
 
       const years = yearsRes.data
       const currentYear = years.find(y => y.status === 'ACTIVE')
       let resolvedActiveYear: AcademicYear | null = currentYear ?? null
       let prefillGroup: Group | null = null
-
       if (prefill.groupId) {
         try {
           prefillGroup = (await academicApi.getGroup(prefill.groupId)).data
@@ -270,7 +269,14 @@ export default function EnrollmentExisting() {
         <CardContent>
           <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto">
+                Volver
+              </Button>
+              <Button variant="outline" onClick={() => navigate('/')} className="w-full sm:w-auto">
+                Volver al Dashboard
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -278,21 +284,37 @@ export default function EnrollmentExisting() {
   }
 
   if (!activeYear && !error) {
-    return <div className="p-8 text-center">Cargando configuración académica...</div>
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Matricular Estudiante Antiguo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 text-center text-slate-600">Cargando configuración académica...</div>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto">
+              Volver
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-start sm:justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matricular Estudiante Antiguo</h2>
           <p className="text-slate-500">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
         </div>
-        {prefill.returnTo ? (
-          <Button variant="outline" onClick={() => navigate(prefill.returnTo)}>
-            Volver
-          </Button>
-        ) : null}
+        <Button
+          variant="outline"
+          onClick={() => navigate(prefill.returnTo || '/enrollments')}
+          className="w-full sm:w-auto shrink-0"
+        >
+          Volver
+        </Button>
       </div>
 
       {error && (
@@ -307,7 +329,7 @@ export default function EnrollmentExisting() {
           <CardTitle>Buscar Estudiante</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSearch} className="flex gap-4">
+          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1">
               <Input
                 placeholder="Nombre o número de documento..."
@@ -315,7 +337,7 @@ export default function EnrollmentExisting() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={searching}>
+            <Button type="submit" disabled={searching} className="w-full sm:w-auto">
               <Search className="mr-2 h-4 w-4" />
               {searching ? 'Buscando...' : 'Buscar'}
             </Button>
@@ -338,7 +360,7 @@ export default function EnrollmentExisting() {
                 return (
                   <label
                     key={student.id}
-                    className="p-4 flex items-center justify-between hover:bg-slate-50 cursor-pointer"
+                    className="p-4 flex items-start sm:items-center justify-between gap-3 hover:bg-slate-50 cursor-pointer"
                   >
                     <div className="flex items-center gap-3">
                       <input
@@ -355,7 +377,7 @@ export default function EnrollmentExisting() {
                         </p>
                       </div>
                     </div>
-                    <span className="text-sm text-slate-500">{checked ? 'Seleccionado' : ''}</span>
+                    <span className="text-sm text-slate-500 shrink-0">{checked ? 'Seleccionado' : ''}</span>
                   </label>
                 )
               })}
@@ -373,18 +395,18 @@ export default function EnrollmentExisting() {
       {selectedIds.length > 0 && (
         <Card className="border-blue-200 ring-1 ring-blue-100">
           <CardHeader>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
               <div>
                 <CardTitle>Seleccionados: {selectedIds.length}</CardTitle>
                 {selectedStudents.length > 0 ? (
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-slate-500 break-words">
                     {selectedStudents
                       .map((s) => `${s.user.last_name} ${s.user.first_name}`)
                       .join(', ')}
                   </p>
                 ) : null}
               </div>
-              <Button variant="ghost" className="ml-auto" onClick={clearSelection}>
+              <Button variant="ghost" className="w-full sm:w-auto sm:ml-auto" onClick={clearSelection}>
                 Limpiar
               </Button>
             </div>
@@ -434,8 +456,8 @@ export default function EnrollmentExisting() {
               </div>
             </div>
 
-            <div className="flex justify-end pt-4">
-              <Button onClick={handleEnrollSelected} disabled={loading || !selectedGrade || selectedIds.length === 0}>
+            <div className="flex flex-col sm:flex-row sm:justify-end pt-4">
+              <Button onClick={handleEnrollSelected} disabled={loading || !selectedGrade || selectedIds.length === 0} className="w-full sm:w-auto">
                 <UserCheck className="mr-2 h-4 w-4" />
                 {loading ? 'Procesando...' : `Confirmar Matrículas (${selectedIds.length})`}
               </Button>

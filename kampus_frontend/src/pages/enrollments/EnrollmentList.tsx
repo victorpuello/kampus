@@ -225,20 +225,20 @@ export default function EnrollmentList() {
           </div>
           <p className="text-slate-500 dark:text-slate-400">Gestión de matrículas académicas</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/enrollments/reports')}>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <Button variant="outline" onClick={() => navigate('/enrollments/reports')} className="w-full sm:w-auto">
             <FileText className="mr-2 h-4 w-4" />
             Reportes
           </Button>
-          <Button variant="outline" onClick={() => navigate('/enrollments/bulk-upload')}>
+          <Button variant="outline" onClick={() => navigate('/enrollments/bulk-upload')} className="w-full sm:w-auto">
             <Upload className="mr-2 h-4 w-4" />
             Carga masiva
           </Button>
-          <Button variant="outline" onClick={() => navigate('/enrollments/existing')}>
+          <Button variant="outline" onClick={() => navigate('/enrollments/existing')} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Matricular Antiguo
           </Button>
-          <Button onClick={() => navigate('/enrollments/new')}>
+          <Button onClick={() => navigate('/enrollments/new')} className="w-full sm:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Nueva Matrícula
           </Button>
@@ -321,7 +321,228 @@ export default function EnrollmentList() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-3">
+            {loading ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                Cargando matrículas…
+              </div>
+            ) : enrollments.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                No se encontraron matrículas.
+              </div>
+            ) : (
+              enrollments.map((enrollment) => {
+                const student = typeof enrollment.student === 'number' ? null : enrollment.student
+                const grade = typeof enrollment.grade === 'number' ? null : enrollment.grade
+                const group = typeof enrollment.group === 'number' ? null : enrollment.group
+
+                if (!student || !grade) return null
+                const isEditing = editingId === enrollment.id
+
+                const statusBadge = isEditing ? null : (
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold shadow-sm ${
+                      enrollment.status === 'ACTIVE'
+                        ? 'bg-green-100 text-green-800 ring-1 ring-green-600/20 dark:bg-green-950/40 dark:text-green-200 dark:ring-green-500/30'
+                        : enrollment.status === 'RETIRED'
+                          ? 'bg-red-100 text-red-800 ring-1 ring-red-600/20 dark:bg-red-950/40 dark:text-red-200 dark:ring-red-500/30'
+                          : 'bg-blue-100 text-blue-800 ring-1 ring-blue-600/20 dark:bg-blue-950/40 dark:text-blue-200 dark:ring-blue-500/30'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full mr-2 ${
+                        enrollment.status === 'ACTIVE'
+                          ? 'bg-green-600 dark:bg-green-400'
+                          : enrollment.status === 'RETIRED'
+                            ? 'bg-red-600 dark:bg-red-400'
+                            : 'bg-blue-600 dark:bg-blue-400'
+                      }`}
+                    ></span>
+                    {enrollment.status === 'ACTIVE' ? 'Activo' : enrollment.status === 'RETIRED' ? 'Retirado' : 'Graduado'}
+                  </span>
+                )
+
+                return (
+                  <div
+                    key={enrollment.id}
+                    className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                    onClick={() => {
+                      if (isEditing) return
+                      navigate(`/students/${student.id}`)
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      if (isEditing) return
+                      navigate(`/students/${student.id}`)
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="shrink-0 h-10 w-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
+                          <span className="text-white font-semibold text-sm">
+                            {student.full_name
+                              .split(' ')
+                              .filter(Boolean)
+                              .map((n) => n[0])
+                              .join('')
+                              .substring(0, 2)
+                              .toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{student.full_name}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                            {student.document_type ? `${student.document_type}: ` : ''}{student.document_number}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="shrink-0">{statusBadge}</div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="mt-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grado</label>
+                          <select
+                            value={editGradeId}
+                            onChange={async (e) => {
+                              const v = e.target.value ? Number(e.target.value) : ''
+                              if (typeof v === 'number') {
+                                setEditGradeId(v)
+                                setEditGroupId('')
+                                await loadGroupsForEdit(v)
+                              } else {
+                                setEditGradeId('')
+                                setEditGroupId('')
+                                setGroups([])
+                              }
+                            }}
+                            className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          >
+                            {grades
+                              .slice()
+                              .sort((a, b) => {
+                                const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                                const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                                if (ao !== bo) return bo - ao
+                                return String(a.name || '').localeCompare(String(b.name || ''))
+                              })
+                              .map((g) => (
+                                <option key={g.id} value={g.id}>
+                                  {g.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grupo</label>
+                          <select
+                            value={editGroupId}
+                            onChange={(e) => setEditGroupId(e.target.value ? Number(e.target.value) : '')}
+                            className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          >
+                            <option value="">Sin grupo</option>
+                            {groups
+                              .slice()
+                              .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                              .map((g) => (
+                                <option key={g.id} value={g.id}>
+                                  {g.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Estado</label>
+                          <select
+                            value={editStatus}
+                            onChange={(e) => setEditStatus(e.target.value as Enrollment['status'])}
+                            className="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          >
+                            <option value="ACTIVE">Activo</option>
+                            <option value="RETIRED">Retirado</option>
+                            <option value="GRADUATED">Graduado</option>
+                          </select>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => cancelEdit()}
+                            disabled={rowBusyId === enrollment.id}
+                            className="w-full sm:w-auto"
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => saveEdit(enrollment.id)}
+                            disabled={rowBusyId === enrollment.id}
+                            className="w-full sm:w-auto"
+                          >
+                            Guardar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid grid-cols-1 gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center px-3 py-1 rounded-md bg-purple-100 text-purple-800 text-sm font-medium dark:bg-purple-950/40 dark:text-purple-200">
+                            {grade.name}
+                          </span>
+                          {group ? (
+                            <span className="inline-flex items-center px-3 py-1 rounded-md bg-indigo-100 text-indigo-800 text-sm font-medium dark:bg-indigo-950/40 dark:text-indigo-200">
+                              {group.name}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 dark:text-slate-500 text-sm">Sin grupo</span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => startEdit(enrollment)}
+                            disabled={rowBusyId === enrollment.id}
+                            className="w-full sm:w-auto"
+                          >
+                            Editar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => requestDeleteEnrollment(enrollment)}
+                            disabled={rowBusyId === enrollment.id}
+                            className="w-full sm:w-auto text-red-600 hover:text-red-700 dark:text-red-300"
+                          >
+                            Eliminar
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => navigate(`/students/${student.id}`)}
+                            disabled={rowBusyId === enrollment.id}
+                            className="w-full sm:w-auto"
+                          >
+                            Ver ficha
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -588,7 +809,7 @@ export default function EnrollmentList() {
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select

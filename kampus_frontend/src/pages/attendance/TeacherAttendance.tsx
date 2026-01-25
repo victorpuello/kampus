@@ -377,17 +377,22 @@ export default function TeacherAttendance() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button onClick={handleCreate} disabled={submitting}>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
+              <Button className="w-full sm:w-auto" onClick={handleCreate} disabled={submitting}>
                 {submitting ? 'Creando…' : 'Crear clase y tomar asistencia'}
               </Button>
-              <Button variant="outline" onClick={() => navigate('/attendance/stats')}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance/stats')}>
                 Ver reporte
               </Button>
-              <Button variant="outline" onClick={handleDownloadManualSheet} disabled={downloadingSheet || !selectedAssignment}>
+              <Button
+                className="w-full sm:w-auto"
+                variant="outline"
+                onClick={handleDownloadManualSheet}
+                disabled={downloadingSheet || !selectedAssignment}
+              >
                 {downloadingSheet ? 'Generando planilla…' : 'Descargar planilla (manual)'}
               </Button>
-              <Button variant="outline" onClick={handleFlushQueue}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={handleFlushQueue}>
                 Reintentar envíos offline
               </Button>
             </div>
@@ -424,9 +429,99 @@ export default function TeacherAttendance() {
 
               {sessionsError ? <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-200">{sessionsError}</div> : null}
 
-              <div className="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm text-left">
+              <div className="space-y-3">
+                {/* Mobile cards */}
+                <div className="md:hidden space-y-3">
+                  {sessionsLoading ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      Cargando clases…
+                    </div>
+                  ) : sessions.length === 0 ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      Aún no tienes clases registradas.
+                    </div>
+                  ) : (
+                    sessions.map((s) => (
+                      <div
+                        key={s.id}
+                        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                              {s.subject_name || 'Materia'}
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                              {s.group_display || ((s.grade_name ? `${s.grade_name} ` : '') + (s.group_name || 'Grupo'))}
+                            </div>
+                          </div>
+                          <div className="shrink-0">
+                            {s.locked_at ? (
+                              <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200" />
+                            ) : (
+                              <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200" />
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
+                          <div>
+                            <span className="text-slate-500 dark:text-slate-400">Fecha:</span> {s.class_date}
+                          </div>
+                          <div>
+                            <span className="text-slate-500 dark:text-slate-400">Inicio:</span> {formatDateTime(s.starts_at)}
+                          </div>
+                          <div>
+                            <span className="text-slate-500 dark:text-slate-400">Clase:</span> #{s.sequence}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-col gap-2">
+                          <Button className="w-full" variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
+                            Abrir
+                          </Button>
+                          <Button
+                            className="w-full"
+                            variant="destructive"
+                            onClick={() => openRequestDeleteModal(s.id)}
+                            disabled={deletingSessionId === s.id}
+                          >
+                            {deletingSessionId === s.id ? 'Enviando…' : 'Eliminar'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+
+                  <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                      Total: {sessionsCount} · Página {page} / {totalPages}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={page <= 1 || sessionsLoading}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={page >= totalPages || sessionsLoading}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                       <tr>
                         <th className="px-4 py-3">
@@ -551,20 +646,29 @@ export default function TeacherAttendance() {
                         ))
                       )}
                     </tbody>
-                  </table>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
-                  <div className="text-xs text-slate-600 dark:text-slate-300">
-                    Total: {sessionsCount} · Página {page} / {totalPages}
+                    </table>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1 || sessionsLoading}>
-                      Anterior
-                    </Button>
-                    <Button variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages || sessionsLoading}>
-                      Siguiente
-                    </Button>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
+                    <div className="text-xs text-slate-600 dark:text-slate-300">
+                      Total: {sessionsCount} · Página {page} / {totalPages}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={page <= 1 || sessionsLoading}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={page >= totalPages || sessionsLoading}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

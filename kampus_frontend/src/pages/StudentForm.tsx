@@ -421,14 +421,14 @@ export default function StudentForm() {
                     return enrollmentsApi.my({ student: studentId })
                 })
                 .catch(() => enrollmentsApi.my({ student: studentId })),
-            disciplineApi.list({ student: studentId }),
+            disciplineApi.list({ student: studentId, page: 1, page_size: 200 }),
         ])
             .then(([enRes, casesRes]) => {
                 if (!mounted) return
 
                 const results = enRes.data?.results || []
                 setEnrollments(results)
-                setDisciplineCases(casesRes.data || [])
+                setDisciplineCases(casesRes.data?.results || [])
 
                 if (!selectedEnrollmentId && results.length > 0) {
                     setSelectedEnrollmentId(results[0].id)
@@ -1602,8 +1602,8 @@ export default function StudentForm() {
                                                     setNewCaseManualSeverity('MINOR')
                                                     setNewCaseOccurredAt('')
 
-                                                    const listRes = await disciplineApi.list({ student: studentId })
-                                                    setDisciplineCases(listRes.data || [])
+                                                    const listRes = await disciplineApi.list({ student: studentId, page: 1, page_size: 200 })
+                                                    setDisciplineCases(listRes.data?.results || [])
                                                 } catch (e: unknown) {
                                                     console.error(e)
                                                     setDisciplineError(getErrorDetail(e) || 'No se pudo crear el caso')
@@ -1623,7 +1623,58 @@ export default function StudentForm() {
                                     <CardTitle>Casos del estudiante</CardTitle>
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="overflow-x-auto">
+                                    {/* Mobile cards */}
+                                    <div className="md:hidden space-y-3">
+                                        {disciplineCases.map((c) => (
+                                            <div
+                                                key={c.id}
+                                                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0">
+                                                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                                                            {new Date(c.occurred_at).toLocaleString()}
+                                                        </div>
+                                                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                                            {(c.grade_name || '-') + ' / ' + (c.group_name || '-')}
+                                                        </div>
+                                                    </div>
+                                                    <span className="shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                        {disciplineStatusLabel(c.status)}
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                        Ley 1620: {c.law_1620_type}
+                                                    </span>
+                                                    {c.sealed_at ? (
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                            Sellado
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+
+                                                <div className="mt-3">
+                                                    <Link
+                                                        to={`/discipline/cases/${c.id}`}
+                                                        className="inline-flex w-full items-center justify-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-blue-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-blue-300 dark:hover:bg-slate-800/60"
+                                                    >
+                                                        Ver
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {disciplineCases.length === 0 && (
+                                            <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
+                                                No hay casos.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Desktop table */}
+                                    <div className="hidden md:block overflow-x-auto">
                                         <table className="w-full text-sm text-left">
                                             <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                                 <tr>
@@ -1715,8 +1766,72 @@ export default function StudentForm() {
                             {annotationsLoading ? (
                                 <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
                             ) : (
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
+                                <>
+                                    {/* Mobile cards */}
+                                    <div className="md:hidden space-y-3">
+                                        {annotations.map((a) => (
+                                            <div
+                                                key={a.id}
+                                                className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                        {a.annotation_type}
+                                                        {a.is_automatic ? ' (Auto)' : ''}
+                                                    </span>
+                                                    <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                                        {new Date(a.created_at).toLocaleString()}
+                                                    </div>
+                                                </div>
+
+                                                <div className="mt-2">
+                                                    <div className="font-medium text-slate-900 dark:text-slate-100">{a.title || '—'}</div>
+                                                    <div className="text-sm text-slate-600 dark:text-slate-300 line-clamp-3">{a.text}</div>
+                                                    <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Autor: {a.created_by_name || '—'}</div>
+                                                </div>
+
+                                                <div className="mt-3">
+                                                    {!a.is_automatic ? (
+                                                        <div className="flex items-center gap-2">
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="w-full"
+                                                                onClick={() => {
+                                                                    setAnnotationEditing(a)
+                                                                    setAnnotationFormOpen(true)
+                                                                }}
+                                                            >
+                                                                Editar
+                                                            </Button>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="w-full"
+                                                                onClick={() => setAnnotationToDelete(a)}
+                                                            >
+                                                                Eliminar
+                                                            </Button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="text-xs text-slate-500 text-center">—</div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ))}
+
+                                        {annotations.length === 0 && (
+                                            <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-400">
+                                                No hay anotaciones.
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Desktop table */}
+                                    <div className="hidden md:block overflow-x-auto">
+                                        <table className="w-full text-sm text-left">
                                         <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                             <tr>
                                                 <th className="px-6 py-4 font-semibold">Tipo</th>
@@ -1781,7 +1896,8 @@ export default function StudentForm() {
                                             )}
                                         </tbody>
                                     </table>
-                                </div>
+                                    </div>
+                                </>
                             )}
                         </CardContent>
                     </Card>
@@ -1813,8 +1929,46 @@ export default function StudentForm() {
                         ) : academicHistory.length === 0 ? (
                             <div className="text-slate-600 dark:text-slate-300">No hay matrículas registradas para este estudiante.</div>
                         ) : (
-                            <div className="overflow-x-auto -mx-4 px-4">
-                                <table className="w-full text-sm text-left">
+                            <>
+                                {/* Mobile cards */}
+                                <div className="md:hidden space-y-3">
+                                    {academicHistory.map((en) => (
+                                        <div
+                                            key={en.id}
+                                            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                                                        {enrollmentYearLabel(en)}
+                                                        {enrollmentYearStatusLabel(en) ? ` (${enrollmentYearStatusLabel(en)})` : ''}
+                                                    </div>
+                                                    <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                                                        {enrollmentGradeLabel(en)} • {enrollmentGroupLabel(en)}
+                                                    </div>
+                                                </div>
+                                                <span className="shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                    {en.status}
+                                                </span>
+                                            </div>
+
+                                            <div className="mt-3 grid grid-cols-1 gap-1 text-sm">
+                                                <div className="text-slate-700 dark:text-slate-200">
+                                                    <span className="text-xs text-slate-500 dark:text-slate-400">Promoción: </span>
+                                                    {en.final_status || '-'}
+                                                </div>
+                                                <div className="text-slate-700 dark:text-slate-200">
+                                                    <span className="text-xs text-slate-500 dark:text-slate-400">Procedencia: </span>
+                                                    {en.origin_school || '-'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Desktop table */}
+                                <div className="hidden md:block overflow-x-auto -mx-4 px-4">
+                                    <table className="w-full text-sm text-left">
                                     <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                         <tr>
                                             <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Año</th>
@@ -1841,7 +1995,8 @@ export default function StudentForm() {
                                         ))}
                                     </tbody>
                                 </table>
-                            </div>
+                                </div>
+                            </>
                         )}
                     </CardContent>
                 </Card>
@@ -1871,8 +2026,62 @@ export default function StudentForm() {
                         <p>No hay familiares registrados.</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto -mx-4 px-4">
-                        <table className="w-full text-sm text-left">
+                    <>
+                        {/* Mobile cards */}
+                        <div className="md:hidden space-y-3">
+                            {familyMembers.map((member) => (
+                                <div
+                                    key={member.id}
+                                    className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{member.full_name}</div>
+                                            <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">{member.relationship}</div>
+                                            <div className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                                                <span className="text-xs text-slate-500 dark:text-slate-400">Tel: </span>
+                                                {member.phone}
+                                            </div>
+                                        </div>
+                                        {member.is_main_guardian ? (
+                                            <span className="shrink-0 px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">
+                                                Principal
+                                            </span>
+                                        ) : null}
+                                    </div>
+
+                                    {canEdit ? (
+                                        <div className="mt-3 flex items-center gap-2">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-full"
+                                                onClick={() => {
+                                                    setEditingMember(member)
+                                                    setShowFamilyModal(true)
+                                                }}
+                                                type="button"
+                                            >
+                                                Editar
+                                            </Button>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-full"
+                                                onClick={() => handleDeleteFamilyMember(member.id)}
+                                                type="button"
+                                            >
+                                                Eliminar
+                                            </Button>
+                                        </div>
+                                    ) : null}
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Desktop table */}
+                        <div className="hidden md:block overflow-x-auto -mx-4 px-4">
+                            <table className="w-full text-sm text-left">
                             <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                 <tr>
                                     <th className="px-3 py-3 font-semibold sm:px-6">Nombre</th>
@@ -1907,7 +2116,8 @@ export default function StudentForm() {
                                 ))}
                             </tbody>
                         </table>
-                    </div>
+                        </div>
+                    </>
                 )}
             </CardContent>
             <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">

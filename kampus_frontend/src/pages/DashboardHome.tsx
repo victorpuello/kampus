@@ -385,18 +385,18 @@ export default function DashboardHome() {
   ])
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-        <p className="text-slate-500">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
+        <p className="text-sm sm:text-base text-slate-500">
           Bienvenido de nuevo, {user?.first_name || user?.username}. Aquí tienes un resumen de hoy.
         </p>
       </div>
 
       {metricsError && (
-        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-center justify-between gap-3">
-          <div>{metricsError}</div>
-          <Button variant="outline" size="sm" onClick={loadMetrics}>
+        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">{metricsError}</div>
+          <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={loadMetrics}>
             Reintentar
           </Button>
         </div>
@@ -409,17 +409,17 @@ export default function DashboardHome() {
             className="cursor-pointer hover:border-slate-300 transition-colors"
             onClick={stat.onClick}
           >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6">
               <CardTitle className="text-sm font-medium">
                 {stat.title}
               </CardTitle>
               <div className={`p-2 rounded-full ${stat.bg}`}>
-                <stat.icon className={`h-4 w-4 ${stat.color}`} />
+                <stat.icon className={`h-4 w-4 sm:h-4 sm:w-4 ${stat.color}`} />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-slate-500">
+            <CardContent className="p-4 sm:p-6 pt-0">
+              <div className="text-xl sm:text-2xl font-bold">{stat.value}</div>
+              <p className="text-xs text-slate-500 leading-snug">
                 {stat.description}
               </p>
             </CardContent>
@@ -428,20 +428,20 @@ export default function DashboardHome() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="md:col-span-2 lg:col-span-4">
+          <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
             <CardTitle>Actividad Reciente</CardTitle>
-            <Button variant="outline" size="sm" onClick={() => navigate('/notifications')}>
+            <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
               Ver todo
             </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent className="p-4 sm:p-6 pt-0">
             {recentLoading ? (
               <div className="text-sm text-slate-500">Cargando actividad…</div>
             ) : recentNotifications.length === 0 ? (
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-sm text-slate-500">Sin actividad reciente.</div>
-                <Button variant="outline" size="sm" onClick={loadRecent}>
+                <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={loadRecent}>
                   Actualizar
                 </Button>
               </div>
@@ -451,7 +451,7 @@ export default function DashboardHome() {
                   <button
                     key={n.id}
                     type="button"
-                    className="w-full text-left p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                    className="w-full text-left p-3 sm:p-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
                     onClick={() => navigate('/notifications')}
                   >
                     <div className="flex items-start gap-3">
@@ -470,12 +470,12 @@ export default function DashboardHome() {
             )}
           </CardContent>
         </Card>
-        <div className="col-span-3 space-y-4">
+        <div className="md:col-span-2 lg:col-span-3 space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="p-4 sm:p-6">
               <CardTitle>Accesos Rápidos</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6 pt-0">
               <div className="space-y-2">
                 {quickActions.slice(0, 4).map((a) => (
                   <button
@@ -486,7 +486,7 @@ export default function DashboardHome() {
                   >
                     <span className="flex flex-col items-start">
                       <span>{a.label}</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">{a.description}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-normal line-clamp-2">{a.description}</span>
                     </span>
                     <span className="flex items-center gap-2">
                       {a.to === '/notifications' && unreadNotificationsCount > 0 ? (
@@ -503,10 +503,11 @@ export default function DashboardHome() {
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
               <CardTitle>Fechas importantes</CardTitle>
               {dashboardPeriodId ? (
                 <Button
+                  className="w-full sm:w-auto"
                   variant="outline"
                   size="sm"
                   onClick={() => navigate(`/grades?period=${dashboardPeriodId}`)}
@@ -515,7 +516,7 @@ export default function DashboardHome() {
                 </Button>
               ) : null}
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6 pt-0">
               {!isTeacher ? (
                 <div className="text-sm text-slate-500">Disponible para docentes.</div>
               ) : gradeDeadlines.length === 0 ? (
@@ -535,14 +536,14 @@ export default function DashboardHome() {
                     const badgeLabel = d.isClosed ? 'Cerrado' : overdue ? 'Vencido' : 'Vigente'
 
                     return (
-                      <div key={d.periodId} className="flex items-start justify-between gap-3">
+                      <div key={d.periodId} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
                         <div className="min-w-0">
                           <div className="text-sm font-medium text-slate-800 truncate">{d.periodName}</div>
                           <div className="text-xs text-slate-500 mt-0.5">
                             Límite cargue de notas: {formatDeadline(d.deadline)}
                           </div>
                         </div>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass} self-start sm:self-auto`}>
                           {badgeLabel}
                         </span>
                       </div>

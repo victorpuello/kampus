@@ -153,7 +153,6 @@ export default function AttendanceSession() {
   const [releaseX, setReleaseX] = useState<number | null>(null)
 
   const [showCompletion, setShowCompletion] = useState(false)
-  const prevIsLastCardRef = useRef(false)
 
   const [showLockedNotice, setShowLockedNotice] = useState(false)
   const [lockedNoticeText, setLockedNoticeText] = useState<string | null>(null)
@@ -357,7 +356,6 @@ export default function AttendanceSession() {
   const currentStudent = students[currentIndex] ?? null
   const nextStudent = students[currentIndex + 1] ?? null
 
-  const isLastCard = students.length > 0 && currentIndex === students.length - 1
   const lateWindowEndsAt = useMemo(() => {
     const startsAt = data?.session?.starts_at
     if (!startsAt) return null
@@ -419,19 +417,6 @@ export default function AttendanceSession() {
       setShowLockedNotice(true)
     }
   }, [locked])
-
-  useEffect(() => {
-    if (loading) return
-    if (!students.length) return
-
-    const wasLast = prevIsLastCardRef.current
-    prevIsLastCardRef.current = isLastCard
-
-    // Show the alert when the user *arrives* at the last card.
-    if (!wasLast && isLastCard) {
-      setShowCompletion(true)
-    }
-  }, [isLastCard, loading, students.length])
 
   const animateTo = (nextIndex: number, dir: 'next' | 'prev') => {
     if (nextIndex < 0 || nextIndex >= students.length) return
@@ -574,6 +559,7 @@ export default function AttendanceSession() {
     setInfo(null)
 
     const enrollmentId = currentStudent.enrollment_id
+    const isLastStudent = currentIndex >= students.length - 1
 
     const prev = draft[enrollmentId]
     const prevStatus = prev?.status
@@ -613,7 +599,11 @@ export default function AttendanceSession() {
         // ignore
       }
 
-      if (currentIndex < students.length - 1) goNext()
+      if (!isLastStudent) {
+        goNext()
+      } else {
+        setShowCompletion(true)
+      }
     } catch (err) {
       console.error(err)
       const httpStatus = getAxiosStatus(err)
@@ -663,6 +653,7 @@ export default function AttendanceSession() {
     }
 
     const enrollmentId = currentStudent.enrollment_id
+    const isLastStudent = currentIndex >= students.length - 1
     const reason = (excuseText || '').trim()
     if (!reason) {
       setError('La excusa requiere un motivo.')
@@ -700,7 +691,11 @@ export default function AttendanceSession() {
 
       setExcuseMode(false)
       setExcuseText('')
-      if (currentIndex < students.length - 1) goNext()
+      if (!isLastStudent) {
+        goNext()
+      } else {
+        setShowCompletion(true)
+      }
     } catch (err) {
       console.error(err)
       const httpStatus = getAxiosStatus(err)
@@ -900,9 +895,9 @@ export default function AttendanceSession() {
                     ) : null}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={load}>Actualizar</Button>
-                    <Button variant="outline" onClick={handleFlushQueue}>
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full sm:w-auto">
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={load}>Actualizar</Button>
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={handleFlushQueue}>
                       Reintentar cola offline
                       {offlinePending > 0 ? (
                         <span className="ml-2 inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -910,23 +905,23 @@ export default function AttendanceSession() {
                         </span>
                       ) : null}
                     </Button>
-                    <Button onClick={handleSave} disabled={saving || locked}>
+                    <Button className="w-full sm:w-auto" onClick={handleSave} disabled={saving || locked}>
                       {saving ? 'Guardando…' : 'Guardar'}
                     </Button>
-                    <Button variant="destructive" onClick={handleClose} disabled={locked}>
+                    <Button className="w-full sm:w-auto" variant="destructive" onClick={handleClose} disabled={locked}>
                       Cerrar clase
                     </Button>
                     {isTeacher && !deletionRequestedAt ? (
-                      <Button variant="destructive" onClick={() => setRequestDeleteModalOpen(true)}>
+                      <Button className="w-full sm:w-auto" variant="destructive" onClick={() => setRequestDeleteModalOpen(true)}>
                         Eliminar
                       </Button>
                     ) : null}
                     {isAdmin && deletionRequestedAt ? (
-                      <Button variant="destructive" onClick={() => setDeleteDefinitiveModalOpen(true)}>
+                      <Button className="w-full sm:w-auto" variant="destructive" onClick={() => setDeleteDefinitiveModalOpen(true)}>
                         Eliminar definitivamente
                       </Button>
                     ) : null}
-                    <Button variant="outline" onClick={() => navigate('/attendance')}>
+                    <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance')}>
                       <ArrowLeft className="mr-2 h-4 w-4" />
                       Volver
                     </Button>
@@ -942,11 +937,11 @@ export default function AttendanceSession() {
               </div>
             ) : null}
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => markAll('PRESENT')} disabled={locked}>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => markAll('PRESENT')} disabled={locked}>
                 Marcar todos presentes
               </Button>
-              <Button variant="outline" onClick={() => markAll('ABSENT')} disabled={locked}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => markAll('ABSENT')} disabled={locked}>
                 Marcar todos ausentes
               </Button>
             </div>
@@ -1035,7 +1030,7 @@ export default function AttendanceSession() {
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100">
+                              <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 whitespace-normal break-words leading-snug">
                                 {currentStudent.student_full_name}
                               </div>
 
@@ -1269,7 +1264,7 @@ export default function AttendanceSession() {
                 <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
                   <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">Asistencia completada</div>
                   <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                    Ya llegaste al último estudiante.
+                    Marcaste la asistencia del último estudiante.
                   </div>
 
                   <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">

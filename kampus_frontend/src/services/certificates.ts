@@ -53,6 +53,15 @@ export type CertificateIssueListItem = {
   has_pdf: boolean
 }
 
+export type CertificateIssueUpdatePayload = Partial<{
+  student_full_name: string
+  document_type: string
+  document_number: string
+  academic_year: string | number
+  grade_name: string
+  amount_cop: number
+}>
+
 export type CertificateIssuesListResponse = {
   results: CertificateIssueListItem[]
   count: number
@@ -97,5 +106,13 @@ export const certificatesApi = {
   downloadIssuePdf: (uuid: string) =>
     api.get(`/api/certificates/issues/${uuid}/pdf/`, {
       responseType: 'blob',
+    }),
+
+  updateIssue: (uuid: string, payload: CertificateIssueUpdatePayload) =>
+    api.patch<CertificateIssueListItem>(`/api/certificates/issues/${uuid}/`, payload),
+
+  deleteIssue: (uuid: string, payload?: { reason?: string }) =>
+    api.delete(`/api/certificates/issues/${uuid}/`, {
+      data: payload,
     }),
 }
