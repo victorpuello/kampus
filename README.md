@@ -87,6 +87,10 @@ docker-compose up --build
 
 > El stack incluye un servicio `backend_scheduler` para tareas automáticas (p. ej. alertas por vencimiento de descargos).
 
+Notas para desarrollo local (Docker):
+- Si defines `KAMPUS_RUN_MIGRATIONS=true`, el contenedor del backend ejecuta migraciones al iniciar.
+- Si defines `KAMPUS_CREATE_SUPERUSER=true`, el contenedor crea un superusuario de desarrollo (por defecto `admin` / `admin123`).
+
 ### Opción manual: Backend
 
 ```bash
@@ -96,7 +100,12 @@ cd kampus
 
 # Crear y activar entorno virtual
 python3 -m venv .venv
-source .venv/bin/activate  # En Windows: .venv\Scripts\activate
+
+# Linux/macOS
+source .venv/bin/activate
+
+# Windows (PowerShell)
+.\.venv\Scripts\Activate.ps1
 
 # Instalar dependencias
 pip install -r backend/requirements.txt
@@ -161,14 +170,22 @@ kampus/
 
 ---
 
-## 🔄 Actualizaciones Recientes (Diciembre 2025)
+## 🔄 Actualizaciones Recientes (Enero 2026)
 
 - **SIEE Mejorado**: Implementación completa de escalas de valoración cualitativas y numéricas.
 - **Gestión de Datos**: Corrección de duplicidad en correos electrónicos de usuarios.
 - **UX**: Nuevos filtros por año en paneles de configuración.
+- **Certificados (Administración)**: edición y eliminación de emisiones; eliminación de certificados emitidos se maneja como revocatoria.
+- **RBAC (móvil)**: búsqueda y agrupación de permisos con acordeón por grupo.
+- **UI móvil**: mejoras de usabilidad en `/users`, `/rbac` y `/academic-config` (tabs más accesibles, formularios apilados, acciones táctiles).
 - **DevOps**: Scripts de limpieza y corrección de migraciones.
 - **Convivencia / Observador**: auditoría, sellado/inmutabilidad, y portal de acudientes (rol PARENT) con enterado autenticado.
 - **Reportes**: nuevo PDF de **boletines/informe académico por periodo**, descargable por **grupo completo** (multipágina) o por **estudiante**.
+
+### 🔧 Configuración académica (UI)
+
+- Ruta: `/academic-config`
+- Incluye la configuración de SIEE y un tab de Convivencia (Manual) para administración.
 
 ### 🧾 Reportes: Boletines por periodo (PDF)
 
