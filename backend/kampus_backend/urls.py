@@ -38,7 +38,9 @@ urlpatterns = [
     path("api/", include("discipline.urls")),
     path("api/", include("audit.urls")),
     path("api/", include("reports.urls")),
+    path("api/public/", include("verification.public_urls")),
     path("api/public/", include("students.public_urls")),
+    path("public/", include("verification.public_site_urls")),
     path("public/", include("students.public_site_urls")),
 ]
 

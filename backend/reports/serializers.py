@@ -262,6 +262,38 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.STUDY_CERTIFICATION:
+            enrollment_id = params.get("enrollment_id")
+            if not enrollment_id:
+                raise serializers.ValidationError({"params": "enrollment_id es requerido"})
+
+            enrollment = (
+                Enrollment.objects.select_related(
+                    "student",
+                    "student__user",
+                    "grade",
+                    "group",
+                    "academic_year",
+                    "campus",
+                )
+                .filter(id=enrollment_id)
+                .first()
+            )
+            if not enrollment:
+                raise serializers.ValidationError({"params": "Enrollment no encontrado"})
+
+            admin_roles = {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR, User.ROLE_SECRETARY}
+            is_admin_like = role in admin_roles
+            is_group_director = (
+                role == User.ROLE_TEACHER
+                and enrollment.group_id
+                and getattr(enrollment.group, "director_id", None) == getattr(user, "id", None)
+            )
+            if not (is_admin_like or is_group_director):
+                raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
+            return attrs
+
         if report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
             # Administrative staff only.
             if role in {User.ROLE_TEACHER, User.ROLE_PARENT, User.ROLE_STUDENT}:

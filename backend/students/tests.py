@@ -220,6 +220,107 @@ class EnrollmentReportExportAPITest(APITestCase):
         self.assertTrue(res.content.startswith(b"PK"))
 
 
+class CertificateIssuesListFiltersAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_cert_list",
+            password="admin123",
+            email="admin_cert_list@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+        self.group = Group.objects.create(name="A", grade=self.grade, academic_year=self.year, capacity=40)
+
+        u1 = User.objects.create_user(
+            username="student_cert_1",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Uno",
+            role=User.ROLE_STUDENT,
+        )
+        self.student1 = Student.objects.create(user=u1, document_number="DOC_CERT_1")
+        self.enrollment1 = Enrollment.objects.create(
+            student=self.student1,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            status="ACTIVE",
+        )
+
+        u2 = User.objects.create_user(
+            username="student_cert_2",
+            password="pw123456",
+            first_name="Beto",
+            last_name="Dos",
+            role=User.ROLE_STUDENT,
+        )
+        self.student2 = Student.objects.create(user=u2, document_number="DOC_CERT_2")
+        self.enrollment2 = Enrollment.objects.create(
+            student=self.student2,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            status="ACTIVE",
+        )
+
+        self.issue1 = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            enrollment=self.enrollment1,
+            payload={
+                "student_full_name": "Ana Uno",
+                "document_number": "DOC_CERT_1",
+                "academic_year": "2025",
+                "grade_name": "1",
+            },
+        )
+        self.issue2 = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            enrollment=self.enrollment2,
+            payload={
+                "student_full_name": "Beto Dos",
+                "document_number": "DOC_CERT_2",
+                "academic_year": "2025",
+                "grade_name": "1",
+            },
+        )
+
+        # Manual issue without enrollment should not match student_id/enrollment_id filters.
+        CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            enrollment=None,
+            payload={
+                "student_full_name": "Ana Uno",
+                "document_number": "DOC_CERT_1",
+                "academic_year": "2025",
+                "grade_name": "1",
+            },
+        )
+
+    def test_list_can_filter_by_student_id(self):
+        res = self.client.get(
+            f"/api/certificates/issues/?student_id={self.student1.pk}&certificate_type=STUDIES&limit=100"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        uuids = [row.get("uuid") for row in res.data.get("results", [])]
+        self.assertIn(str(self.issue1.uuid), uuids)
+        self.assertNotIn(str(self.issue2.uuid), uuids)
+
+    def test_list_can_filter_by_enrollment_id(self):
+        res = self.client.get(
+            f"/api/certificates/issues/?enrollment_id={self.enrollment2.id}&certificate_type=STUDIES&limit=100"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        uuids = [row.get("uuid") for row in res.data.get("results", [])]
+        self.assertIn(str(self.issue2.uuid), uuids)
+        self.assertNotIn(str(self.issue1.uuid), uuids)
+
+
 class EnrollmentMyForTeacherAPITest(APITestCase):
     def setUp(self):
         self.teacher = User.objects.create_user(
@@ -682,6 +783,13 @@ class PublicCertificateVerificationNotificationTest(TestCase):
             ).count(),
             2,
         )
+
+    def test_public_verify_api_can_render_html_for_qr_scan(self):
+        url = f"/api/public/certificates/{self.issue.uuid}/verify/"
+
+        res = self.client.get(url, HTTP_ACCEPT="text/html", HTTP_USER_AGENT="pytest-agent")
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("text/html", res.get("Content-Type", ""))
 
     def test_public_verify_ui_not_found_is_audited(self):
         missing_uuid = py_uuid.uuid4()

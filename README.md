@@ -145,6 +145,21 @@ El frontend estará disponible en `http://localhost:5173` y el backend en `http:
 
 ---
 
+## 🔎 Verificación pública por QR (deploy)
+
+La verificación pública de certificados (QR) usa rutas sin autenticación que deben funcionar en producción con reverse proxy.
+
+Recomendaciones:
+- Asegura que el proxy enrute `/api/` al backend (Django).
+- Define `KAMPUS_PUBLIC_SITE_URL` con el dominio público canónico (ej: `https://colegio.midominio.com`) para que los PDFs incrusten URLs correctas.
+- Define `KAMPUS_PUBLIC_VERIFY_THROTTLE_RATE` para rate limit (ej: `60/min`).
+- Si en producción `/public/` es servido por el frontend (SPA), el proyecto incluye rutas públicas para `'/public/certificates/:uuid'` (QR legacy).
+- Si `/public/` es servido por el backend, Django también expone `path('public/', ...)`.
+
+Runbook: ver [docs/runbook_verificacion_qr.md](docs/runbook_verificacion_qr.md).
+
+---
+
 ## 📂 Estructura del Proyecto
 
 ```

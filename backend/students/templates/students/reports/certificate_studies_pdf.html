@@ -56,7 +56,16 @@
 
     .qr-wrap { margin-top: 6px; text-align: right; page-break-inside: avoid; }
     .qr-wrap img { width: 70px; height: 70px; }
-    .qr-wrap .small { word-break: break-all; }
+    .verify-block { margin-top: 4px; }
+    .verify-link { color: #2563eb; text-decoration: underline; font-weight: 700; }
+    .verify-url, .verify-token {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 9px;
+      white-space: nowrap;
+      word-break: normal;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
 
     .small { font-size: 10px; color: #374151; }
   </style>
@@ -131,7 +140,20 @@
             <img src="{{ qr_image_src }}" alt="QR verificación" />
           {% endif %}
           <div class="small" style="margin-top: 4px;">
-            Verificar: {{ verify_url }}
+            {% if verify_url %}
+              <div class="verify-block">
+                <div>
+                  <span style="font-weight:700;">Verificación:</span>
+                  <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
+                </div>
+                {% if verify_url_prefix and verify_token %}
+                  <div class="verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
+                  <div class="small" style="margin-top: 2px;">Código: <span class="verify-token">{{ verify_token }}</span></div>
+                {% else %}
+                  <div class="verify-url">{{ verify_url }}</div>
+                {% endif %}
+              </div>
+            {% endif %}
           </div>
         </div>
       </td>

@@ -3462,7 +3462,6 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                 Cancelar
               </Button>
               <Button 
-                className="bg-rose-600 hover:bg-rose-700 text-white"
                 className="w-full sm:w-auto bg-rose-600 hover:bg-rose-700 text-white"
                 onClick={handleCopyScales}
                 disabled={!copyScalesData.sourceYear || !copyScalesData.targetYear}

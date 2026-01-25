@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import StudentList from './pages/StudentList'
 import StudentForm from './pages/StudentForm'
 import StudentObserverPrint from './pages/StudentObserverPrint'
+import StudentStudyCertificationPrint from './pages/StudentStudyCertificationPrint'
 import TeacherList from './pages/TeacherList'
 import TeacherForm from './pages/TeacherForm'
 import UserList from './pages/UserList'
@@ -44,6 +45,7 @@ import AttendanceSession from './pages/attendance/AttendanceSession'
 import AttendanceStats from './pages/attendance/AttendanceStats'
 import GroupsManagement from './pages/GroupsManagement'
 import GroupStudents from './pages/groups/GroupStudents'
+import PublicCertificateVerify from './pages/PublicCertificateVerify'
 
 export default function App() {
   return (
@@ -51,9 +53,14 @@ export default function App() {
       <SeoManager />
       <Routes>
         <Route path="/login" element={<Login />} />
+
+        {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
+        <Route path="/public/certificates/:uuid" element={<PublicCertificateVerify />} />
+        <Route path="/public/certificates/:uuid/verify" element={<PublicCertificateVerify />} />
         
         <Route element={<ProtectedRoute />}>
           <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
+          <Route path="/students/:id/certifications/study/print" element={<StudentStudyCertificationPrint />} />
           <Route element={<DashboardLayout />}>
             <Route path="/" element={<DashboardHome />} />
             <Route path="/my-assignment" element={<TeacherAssignments />} />

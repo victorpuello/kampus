@@ -2360,11 +2360,35 @@ class CertificateStudiesIssueView(APIView):
                 },
             )
 
-            verify_url = _sanitize_url_path(
-                request.build_absolute_uri(
-                    reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+            # Prefer a deploy-safe verification URL under /api/public/verify/<token>/.
+            # This remains user-friendly because the API endpoint can render HTML.
+            verify_url = ""
+            verify_token = ""
+            try:
+                from verification.services import get_or_create_for_certificate_issue  # noqa: PLC0415
+
+                public_payload = {
+                    "title": "Certificado de estudios",
+                    "student_full_name": student_full_name,
+                    "document_number": document_number,
+                    "academic_year": academic_year,
+                    "grade_name": grade.name,
+                    "rows": rows,
+                    "final_status": getattr(enrollment, "final_status", "") or "APROBADO",
+                }
+
+                vdoc = get_or_create_for_certificate_issue(
+                    issue_uuid=str(issue.uuid),
+                    public_payload=public_payload,
+                    seal_hash=getattr(issue, "seal_hash", "") or "",
                 )
-            )
+                verify_token = vdoc.token
+                verify_path = reverse("public-verify", kwargs={"token": vdoc.token})
+                verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
+            except Exception:
+                # Fallback to legacy certificate verification endpoint.
+                verify_path = reverse("public-certificate-verify", kwargs={"uuid": str(issue.uuid)})
+                verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
         except Exception as e:
             # Common deploy-time failure: database schema is behind (migrations not applied).
             try:
@@ -2400,7 +2424,7 @@ class CertificateStudiesIssueView(APIView):
                 job = ReportJob.objects.create(
                     created_by=request.user,
                     report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
-                    params={"certificate_uuid": str(issue.uuid), "verify_url": verify_url},
+                    params={"certificate_uuid": str(issue.uuid), "verify_url": verify_url, "verify_token": verify_token},
                     expires_at=expires_at,
                 )
             except Exception as e:
@@ -2574,6 +2598,20 @@ class CertificateIssuesListView(APIView):
     def get(self, request, format=None):
         qs = CertificateIssue.objects.all().order_by("-issued_at")
 
+        enrollment_id_raw = (request.query_params.get("enrollment_id") or "").strip()
+        if enrollment_id_raw:
+            try:
+                qs = qs.filter(enrollment_id=int(enrollment_id_raw))
+            except Exception:
+                pass
+
+        student_id_raw = (request.query_params.get("student_id") or "").strip()
+        if student_id_raw:
+            try:
+                qs = qs.filter(enrollment__student_id=int(student_id_raw))
+            except Exception:
+                pass
+
         q = (request.query_params.get("q") or "").strip()
         if q:
             qs = qs.filter(
@@ -2619,13 +2657,15 @@ class CertificateIssuesListView(APIView):
         limit = max(1, min(limit, 500))
 
         items = []
-        for issue in qs.select_related("issued_by").only(
+        for issue in qs.select_related("issued_by", "enrollment").only(
             "uuid",
             "certificate_type",
             "status",
             "issued_at",
             "amount_cop",
             "payload",
+            "enrollment_id",
+            "enrollment__student_id",
             "pdf_private_relpath",
             "issued_by__id",
             "issued_by__first_name",
@@ -2640,6 +2680,8 @@ class CertificateIssuesListView(APIView):
                     "status": issue.status,
                     "issued_at": issue.issued_at,
                     "amount_cop": issue.amount_cop,
+                    "enrollment_id": issue.enrollment_id,
+                    "student_id": getattr(getattr(issue, "enrollment", None), "student_id", None),
                     "student_full_name": payload.get("student_full_name") or "",
                     "document_number": payload.get("document_number") or "",
                     "academic_year": payload.get("academic_year") or "",
@@ -2895,12 +2937,10 @@ class CertificateStudiesPreviewView(APIView):
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        preview_uuid = py_uuid.uuid4()
-        verify_url = _sanitize_url_path(
-            request.build_absolute_uri(
-                reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(preview_uuid)})
-            )
-        )
+        # Preview-only token (not persisted): used only to render QR visuals.
+        preview_token = secrets.token_urlsafe(16)
+        verify_path = reverse("public-verify", kwargs={"token": preview_token})
+        verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
 
         # For HTML preview, use a data URI so the browser can render it.
         # (Temp file paths are only resolvable on the server, not by the browser.)
@@ -2941,6 +2981,7 @@ class CertificateStudiesPreviewView(APIView):
             "signer_name": built["signer_name"],
             "signer_role": built["signer_role"],
             "verify_url": verify_url,
+            "verify_token": preview_token,
             "qr_image_src": qr_image_src,
             "seal_hash": seal_hash,
         }
@@ -2955,11 +2996,13 @@ class PublicCertificateVerifyView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, uuid, format=None):
-        # If a browser is requesting HTML (typical when scanning a QR), redirect to a
-        # user-friendly public page. Keep JSON response for API clients.
+        # If a browser is requesting HTML (typical when scanning a QR), render a
+        # user-friendly public page directly. This avoids a fragile dependency on
+        # reverse-proxy routing for `/public/`.
         accept = (request.META.get("HTTP_ACCEPT") or "").lower()
         if "text/html" in accept:
-            return redirect(reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(uuid)}))
+            django_request = getattr(request, "_request", request)
+            return PublicCertificateVerifyUIView().get(django_request, uuid)
 
         try:
             issue = CertificateIssue.objects.select_related(
@@ -3049,6 +3092,34 @@ def _sanitize_url_path(url: str) -> str:
         return re.sub(r"/\s+", "/", raw)
 
 
+def _public_build_absolute_uri(request, path: str) -> str:
+    """Build an absolute URL for public QR verification.
+
+    In production, the API may be served behind a reverse proxy or on a
+    different subdomain than the public site. When KAMPUS_PUBLIC_SITE_URL is
+    configured, prefer it as the canonical base.
+    """
+
+    try:
+        from urllib.parse import urljoin  # noqa: PLC0415
+
+        base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+        if base:
+            return urljoin(base + "/", str(path or "").lstrip("/"))
+    except Exception:
+        pass
+
+    # Fallback: depends on correct proxy headers.
+    try:
+        return request.build_absolute_uri(path)
+    except Exception:
+        # DRF Request wrapper compatibility
+        django_request = getattr(request, "_request", None)
+        if django_request is not None:
+            return django_request.build_absolute_uri(path)
+        return str(path or "")
+
+
 def _promoted_from_final_status(final_status: str | None) -> bool | None:
     """Infer promotion from Enrollment.final_status-like strings.
 
@@ -3103,7 +3174,8 @@ def _notify_admins_certificate_verification(*, request, issue: "CertificateIssue
         user_agent = user_agent[:200] + "…"
 
     try:
-        verify_url = reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+        verify_path = reverse("public-site-certificate-verify-ui", kwargs={"uuid": str(issue.uuid)})
+        verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
     except Exception:
         verify_url = ""
 

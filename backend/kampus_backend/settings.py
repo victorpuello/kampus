@@ -37,6 +37,20 @@ ALLOWED_HOSTS = (
     else (["*"] if DEBUG else [])
 )
 
+# Public-facing base URL used for QR verification links.
+# Example: https://colegio.midominio.com
+# If not set, we fall back to request.build_absolute_uri(), which depends on
+# correct reverse-proxy headers.
+PUBLIC_SITE_URL = (os.getenv("KAMPUS_PUBLIC_SITE_URL") or "").strip().rstrip("/")
+
+# Public verification throttling (DRF). Example values: "60/min", "100/hour".
+PUBLIC_VERIFY_THROTTLE_RATE = (os.getenv("KAMPUS_PUBLIC_VERIFY_THROTTLE_RATE") or "60/min").strip()
+
+# Reverse-proxy support (recommended in production when TLS terminates at the proxy).
+USE_X_FORWARDED_HOST = os.getenv("DJANGO_USE_X_FORWARDED_HOST", "false").lower() in {"1", "true", "yes"}
+if os.getenv("DJANGO_SECURE_PROXY_SSL_HEADER", "false").lower() in {"1", "true", "yes"}:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 
 # Application definition
 
@@ -67,6 +81,7 @@ INSTALLED_APPS = [
     "notifications",
     "audit",
     "attendance",
+    "verification",
 ]
 
 MIDDLEWARE = [
@@ -75,6 +90,8 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    # Normalize accidental whitespace in public verify URLs (e.g. copied from PDFs).
+    "verification.middleware.NormalizeVerificationPathMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

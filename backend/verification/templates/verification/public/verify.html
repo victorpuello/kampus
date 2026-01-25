@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verificación de documento</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: #f8fafc; color: #0f172a; margin: 0; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 32px 16px; }
+    .card { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; }
+    .header { display:flex; justify-content: space-between; gap: 16px; align-items: baseline; margin-bottom: 16px; }
+    .title { font-size: 20px; font-weight: 700; }
+    .sub { color: #475569; font-size: 13px; }
+    .pill { display: inline-block; padding: 6px 10px; border-radius: 999px; border: 1px solid #cbd5e1; font-weight: 700; font-size: 12px; }
+    .ok { background: #dcfce7; border-color: #86efac; color: #166534; }
+    .bad { background: #fee2e2; border-color: #fecaca; color: #991b1b; }
+    .warn { background: #fef9c3; border-color: #fde047; color: #854d0e; }
+    .grid { display:grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
+    .k { color:#64748b; font-size: 12px; }
+    .v { font-weight: 600; word-break: break-word; }
+    .muted { color:#64748b; font-size: 12px; margin-top: 12px; }
+    table { width:100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 12px; text-align: left; }
+    th { background: #f1f5f9; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <div class="title">Verificación de documento</div>
+        <div class="sub">Consulta pública por código</div>
+      </div>
+      {% if found %}
+        {% if valid %}
+          <span class="pill ok">VÁLIDO</span>
+        {% elif status == 'REVOKED' %}
+          <span class="pill bad">REVOCADO</span>
+        {% elif status == 'EXPIRED' %}
+          <span class="pill warn">EXPIRADO</span>
+        {% else %}
+          <span class="pill warn">NO VÁLIDO</span>
+        {% endif %}
+      {% else %}
+        <span class="pill warn">NO ENCONTRADO</span>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      {% if not found %}
+        <div style="font-weight:700; margin-bottom: 8px;">Documento no encontrado</div>
+        <div class="muted">Código: {{ token }}</div>
+      {% else %}
+        <div style="display:flex; justify-content: flex-end; margin-bottom: 10px;">
+          <a href="/api/public/verify/{{ token }}/" style="font-size: 12px; color: #2563eb; text-decoration: none; font-weight: 700;">Ver JSON</a>
+        </div>
+        <div class="grid">
+          <div>
+            <div class="k">Código</div>
+            <div class="v">{{ token }}</div>
+          </div>
+          <div>
+            <div class="k">Tipo</div>
+            <div class="v">{{ doc_type_label|default:doc_type }}</div>
+            <div class="k">{{ doc_type }}</div>
+          </div>
+          <div>
+            <div class="k">Estado</div>
+            <div class="v">{{ status_label|default:status }}</div>
+            <div class="k">{{ status }}</div>
+          </div>
+          <div>
+            <div class="k">Emitido</div>
+            <div class="v">{{ issued_at }}</div>
+          </div>
+          <div>
+            <div class="k">Sello</div>
+            <div class="v">{{ seal_hash|default:'—' }}</div>
+          </div>
+          <div>
+            <div class="k">Resumen</div>
+            <div class="v">{{ payload.title|default:'—' }}</div>
+          </div>
+
+          {% if payload.student_full_name %}
+          <div>
+            <div class="k">Estudiante</div>
+            <div class="v">{{ payload.student_full_name }}</div>
+          </div>
+          {% elif payload.student_name %}
+          <div>
+            <div class="k">Estudiante</div>
+            <div class="v">{{ payload.student_name }}</div>
+          </div>
+          {% endif %}
+
+          {% if payload.document_number %}
+          <div>
+            <div class="k">Documento (últimos 4)</div>
+            <div class="v">{{ payload.document_number }}</div>
+          </div>
+          {% endif %}
+
+          {% if payload.academic_year %}
+          <div>
+            <div class="k">Año</div>
+            <div class="v">{{ payload.academic_year }}</div>
+          </div>
+          {% elif payload.year_name %}
+          <div>
+            <div class="k">Año</div>
+            <div class="v">{{ payload.year_name }}</div>
+          </div>
+          {% endif %}
+
+          {% if payload.grade_name %}
+          <div>
+            <div class="k">Grado</div>
+            <div class="v">{{ payload.grade_name }}</div>
+          </div>
+          {% endif %}
+
+          {% if payload.group_name %}
+          <div>
+            <div class="k">Grupo</div>
+            <div class="v">{{ payload.group_name }}</div>
+          </div>
+          {% endif %}
+
+          {% if payload.period_name %}
+          <div>
+            <div class="k">Periodo</div>
+            <div class="v">{{ payload.period_name }}</div>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if payload.final_status %}
+          <div class="muted" style="margin-top: 14px;">
+            <b>SITUACIÓN ACADÉMICA FINAL:</b> {{ payload.final_status }}
+          </div>
+        {% endif %}
+
+        {% if payload.rows and doc_type == 'REPORT_CARD' %}
+          <table>
+            <thead>
+              <tr>
+                <th>Asignatura</th>
+                <th class="num">P1</th>
+                <th class="num">P2</th>
+                <th class="num">P3</th>
+                <th class="num">P4</th>
+                <th class="num">Final</th>
+                <th>Desempeño</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in payload.rows %}
+              <tr>
+                <td>{{ r.title|default:'—' }}</td>
+                <td class="num">{{ r.p1_score|default:'—' }}</td>
+                <td class="num">{{ r.p2_score|default:'—' }}</td>
+                <td class="num">{{ r.p3_score|default:'—' }}</td>
+                <td class="num">{{ r.p4_score|default:'—' }}</td>
+                <td class="num">{{ r.final_score|default:'—' }}</td>
+                <td>{{ r.final_scale|default:'—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% elif payload.rows %}
+          <table>
+            <thead>
+              <tr>
+                <th>Área / Asignatura</th>
+                <th class="num">Intensidad</th>
+                <th class="num">Nota</th>
+                <th>Desempeño</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in payload.rows %}
+              <tr>
+                <td>{{ r.area_subject|default:'—' }}</td>
+                <td class="num">{{ r.hours_per_week|default:'—' }}</td>
+                <td class="num">{{ r.score|default:'—' }}</td>
+                <td>{{ r.performance|default:'—' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+
+        {% if revoked_reason %}
+          <div class="muted"><b>Motivo revocación:</b> {{ revoked_reason }}</div>
+        {% endif %}
+
+        <div class="muted">
+          Este portal confirma la validez del <b>documento emitido</b> asociado a este código.
+          Si el documento físico que estás revisando muestra datos diferentes a los de esta pantalla, podría estar adulterado.
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>

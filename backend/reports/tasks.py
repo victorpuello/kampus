@@ -72,7 +72,57 @@ def _render_report_html(job: ReportJob) -> str:
         ).get(id=enrollment_id)
         period = Period.objects.select_related("academic_year").get(id=period_id)
 
+        from verification.models import VerifiableDocument  # noqa: PLC0415
+        from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
+
         ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
+
+        rows_public = []
+        for r in (ctx.get("rows") or [])[:80]:
+            if not isinstance(r, dict):
+                continue
+            rows_public.append(
+                {
+                    "title": r.get("title", ""),
+                    "absences": r.get("absences", ""),
+                    "p1_score": r.get("p1_score", ""),
+                    "p2_score": r.get("p2_score", ""),
+                    "p3_score": r.get("p3_score", ""),
+                    "p4_score": r.get("p4_score", ""),
+                    "final_score": r.get("final_score", ""),
+                    "p1_scale": r.get("p1_scale", ""),
+                    "p2_scale": r.get("p2_scale", ""),
+                    "p3_scale": r.get("p3_scale", ""),
+                    "p4_scale": r.get("p4_scale", ""),
+                    "final_scale": r.get("final_scale", ""),
+                }
+            )
+
+        vdoc = get_or_create_for_report_job(
+            job_id=job.id,
+            doc_type=VerifiableDocument.DocType.REPORT_CARD,
+            public_payload={
+                "title": f"Boletín / Informe académico: {ctx.get('student_name','').strip()} - {ctx.get('period_name','').strip()} - {ctx.get('year_name','')}",
+                "student_name": ctx.get("student_name", ""),
+                "group_name": ctx.get("group_name", ""),
+                "period_name": ctx.get("period_name", ""),
+                "year_name": ctx.get("year_name", ""),
+                "rows": rows_public,
+                "final_status": getattr(enrollment, "final_status", "") or "",
+            },
+        )
+        verify_url = build_public_verify_url(vdoc.token)
+        verify_url_prefix = ""
+        try:
+            marker = f"{vdoc.token}/"
+            if verify_url and marker in verify_url:
+                verify_url_prefix = verify_url.split(marker)[0] + "/"
+        except Exception:
+            verify_url_prefix = ""
+        ctx["verify_url"] = verify_url
+        ctx["verify_token"] = vdoc.token
+        ctx["verify_url_prefix"] = verify_url_prefix
+        ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
         return render_to_string("students/reports/academic_period_report_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_GROUP:
@@ -96,7 +146,24 @@ def _render_report_html(job: ReportJob) -> str:
             .filter(group_id=group.id, academic_year_id=period.academic_year_id, status="ACTIVE")
             .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
         )
+        from verification.models import VerifiableDocument  # noqa: PLC0415
+        from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
+
         ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
+
+        vdoc = get_or_create_for_report_job(
+            job_id=job.id,
+            doc_type=VerifiableDocument.DocType.REPORT_CARD,
+            public_payload={
+                "title": f"Informe académico grupo: {getattr(group, 'name', '')} - {getattr(period, 'name', '')} - {getattr(period.academic_year, 'year', '')}",
+                "group_name": getattr(group, "name", ""),
+                "period_name": getattr(period, "name", ""),
+                "year_name": getattr(period.academic_year, "year", ""),
+            },
+        )
+        verify_url = build_public_verify_url(vdoc.token)
+        ctx["verify_url"] = verify_url
+        ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
         return render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:
@@ -170,6 +237,75 @@ def _render_report_html(job: ReportJob) -> str:
             },
         )
 
+    if job.report_type == ReportJob.ReportType.STUDY_CERTIFICATION:
+        from core.models import Institution  # noqa: PLC0415
+
+        params = job.params or {}
+        enrollment_id = params.get("enrollment_id")
+        enrollment = Enrollment.objects.select_related(
+            "student",
+            "student__user",
+            "grade",
+            "group",
+            "academic_year",
+            "campus",
+        ).get(id=enrollment_id)
+
+        institution = Institution.objects.first() or Institution(name="")
+        student = enrollment.student
+        student_user = student.user
+        campus = enrollment.campus
+
+        signer_name = ""
+        try:
+            if getattr(institution, "rector_id", None):
+                signer_name = institution.rector.get_full_name()  # type: ignore[union-attr]
+        except Exception:
+            signer_name = ""
+
+        from verification.models import VerifiableDocument  # noqa: PLC0415
+        from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
+
+        ctx = {
+            "institution": institution,
+            "student_full_name": student_user.get_full_name(),
+            "document_type": student.document_type or "Documento",
+            "document_number": student.document_number or "",
+            "grade_name": getattr(enrollment.grade, "name", "") or str(enrollment.grade),
+            "group_name": getattr(enrollment.group, "name", "") if enrollment.group else "",
+            "academic_year": getattr(enrollment.academic_year, "year", "") or str(enrollment.academic_year),
+            "issue_date": date.today(),
+            "place": (getattr(campus, "municipality", "") or "").strip() if campus else "",
+            "signer_name": signer_name,
+            "signer_role": "Rector(a)",
+        }
+
+        vdoc = get_or_create_for_report_job(
+            job_id=job.id,
+            doc_type=VerifiableDocument.DocType.STUDY_CERTIFICATION,
+            public_payload={
+                "title": f"Certificación académica: {ctx.get('student_full_name','').strip()} - {ctx.get('academic_year','')}",
+                "student_full_name": ctx.get("student_full_name", ""),
+                "document_number": ctx.get("document_number", ""),
+                "grade_name": ctx.get("grade_name", ""),
+                "group_name": ctx.get("group_name", ""),
+                "academic_year": ctx.get("academic_year", ""),
+            },
+        )
+        verify_url = build_public_verify_url(vdoc.token)
+        verify_url_prefix = ""
+        try:
+            marker = f"{vdoc.token}/"
+            if verify_url and marker in verify_url:
+                verify_url_prefix = verify_url.split(marker)[0] + "/"
+        except Exception:
+            verify_url_prefix = ""
+        ctx["verify_url"] = verify_url
+        ctx["verify_token"] = vdoc.token
+        ctx["verify_url_prefix"] = verify_url_prefix
+        ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
+        return render_to_string("students/reports/study_certification_pdf.html", ctx)
+
     if job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
         from core.models import Institution  # noqa: PLC0415
         from students.models import CertificateIssue  # noqa: PLC0415
@@ -177,7 +313,15 @@ def _render_report_html(job: ReportJob) -> str:
         params = job.params or {}
         certificate_uuid = str(params.get("certificate_uuid") or "").strip()
         verify_url = str(params.get("verify_url") or "").strip()
+        verify_token = str(params.get("verify_token") or "").strip()
         verify_url = re.sub(r"/\s+", "/", verify_url)
+        verify_url_prefix = ""
+        try:
+            marker = f"{verify_token}/"
+            if verify_token and verify_url and marker in verify_url:
+                verify_url_prefix = verify_url.split(marker)[0] + "/"
+        except Exception:
+            verify_url_prefix = ""
 
         issue = CertificateIssue.objects.select_related("enrollment", "enrollment__grade", "enrollment__campus").get(
             uuid=certificate_uuid
@@ -213,6 +357,8 @@ def _render_report_html(job: ReportJob) -> str:
             "signer_name": payload.get("signer_name") or "",
             "signer_role": payload.get("signer_role") or "",
             "verify_url": verify_url,
+            "verify_token": verify_token,
+            "verify_url_prefix": verify_url_prefix,
             "qr_image_src": _qr_png_data_uri(verify_url) if verify_url else "",
             "seal_hash": issue.seal_hash,
         }
@@ -295,6 +441,10 @@ def generate_report_job_pdf(self, job_id: int) -> None:
             y = str(params.get("year_name") or "").strip() or "anio"
             p = str(params.get("period_name") or "").strip() or "periodo"
             out_filename = f"analisis_ia_{y}_{p}.pdf".replace(" ", "_")
+        elif job.report_type == ReportJob.ReportType.STUDY_CERTIFICATION:
+            params = job.params or {}
+            enrollment_id = params.get("enrollment_id")
+            out_filename = f"certificacion_academica_enrollment-{enrollment_id}.pdf".replace(" ", "_")
         elif job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
             params = job.params or {}
             cu = str(params.get("certificate_uuid") or "")

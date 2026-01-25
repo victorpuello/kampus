@@ -37,6 +37,8 @@ export type CertificateIssuesListParams = {
   limit?: number
   q?: string
   issued_by?: number
+  student_id?: number
+  enrollment_id?: number
 }
 
 export type CertificateIssueListItem = {
@@ -45,6 +47,8 @@ export type CertificateIssueListItem = {
   status: string
   issued_at: string
   amount_cop: number
+  student_id?: number | null
+  enrollment_id?: number | null
   student_full_name: string
   document_number: string
   academic_year: string | number

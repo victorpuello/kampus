@@ -12,7 +12,7 @@
 
 <body>
   {% for page in pages %}
-    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences %}
+    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences verify_url=verify_url qr_image_src=qr_image_src %}
   {% endfor %}
 </body>
 </html>

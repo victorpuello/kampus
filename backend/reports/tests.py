@@ -11,6 +11,106 @@ from rest_framework.test import APITestCase
 from .models import ReportJob
 
 
+class ReportJobVerificationTests(APITestCase):
+	def test_preview_study_certification_creates_verifiable_document(self):
+		from academic.models import AcademicYear, Grade  # noqa: PLC0415
+		from students.models import Student, Enrollment  # noqa: PLC0415
+		from verification.models import VerifiableDocument  # noqa: PLC0415
+
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_verify_cert", password="p1", role=User.ROLE_ADMIN)
+		student_user = User.objects.create_user(
+			username="student_verify_cert",
+			password="p2",
+			role=User.ROLE_STUDENT,
+			first_name="Ana",
+			last_name="Pérez",
+		)
+		student = Student.objects.create(user=student_user, document_type="TI", document_number="DOC-VERIFY-1")
+
+		ay = AcademicYear.objects.create(year=2098, status=AcademicYear.STATUS_ACTIVE)
+		grade = Grade.objects.create(name="5")
+		enrollment = Enrollment.objects.create(student=student, academic_year=ay, grade=grade, status="ACTIVE")
+
+		self.client.force_authenticate(user=admin)
+		job = ReportJob.objects.create(
+			created_by=admin,
+			report_type=ReportJob.ReportType.STUDY_CERTIFICATION,
+			params={"enrollment_id": enrollment.id},
+			status=ReportJob.Status.PENDING,
+		)
+
+		self.assertFalse(
+			VerifiableDocument.objects.filter(
+				doc_type=VerifiableDocument.DocType.STUDY_CERTIFICATION,
+				object_type="ReportJob",
+				object_id=str(job.id),
+			).exists()
+		)
+
+		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
+		self.assertEqual(res.status_code, 200)
+		html = res.content.decode("utf-8", errors="ignore")
+		self.assertIn("Verificar:", html)
+		self.assertIn("/api/public/verify/", html)
+
+		self.assertTrue(
+			VerifiableDocument.objects.filter(
+				doc_type=VerifiableDocument.DocType.STUDY_CERTIFICATION,
+				object_type="ReportJob",
+				object_id=str(job.id),
+			).exists()
+		)
+
+	def test_preview_academic_period_report_creates_verifiable_document(self):
+		from academic.models import AcademicYear, Grade, Period  # noqa: PLC0415
+		from students.models import Student, Enrollment  # noqa: PLC0415
+		from verification.models import VerifiableDocument  # noqa: PLC0415
+
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_verify_report", password="p1", role=User.ROLE_ADMIN)
+		student_user = User.objects.create_user(
+			username="student_verify_report",
+			password="p2",
+			role=User.ROLE_STUDENT,
+			first_name="Luis",
+			last_name="Gómez",
+		)
+		student = Student.objects.create(user=student_user, document_type="TI", document_number="DOC-VERIFY-2")
+
+		ay = AcademicYear.objects.create(year=2097, status=AcademicYear.STATUS_ACTIVE)
+		period = Period.objects.create(
+			academic_year=ay,
+			name="1",
+			start_date="2097-01-01",
+			end_date="2097-03-31",
+		)
+		grade = Grade.objects.create(name="6")
+		enrollment = Enrollment.objects.create(student=student, academic_year=ay, grade=grade, status="ACTIVE")
+
+		self.client.force_authenticate(user=admin)
+		job = ReportJob.objects.create(
+			created_by=admin,
+			report_type=ReportJob.ReportType.ACADEMIC_PERIOD_ENROLLMENT,
+			params={"enrollment_id": enrollment.id, "period_id": period.id},
+			status=ReportJob.Status.PENDING,
+		)
+
+		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
+		self.assertEqual(res.status_code, 200)
+		html = res.content.decode("utf-8", errors="ignore")
+		self.assertIn("Verificar:", html)
+		self.assertIn("/api/public/verify/", html)
+
+		self.assertTrue(
+			VerifiableDocument.objects.filter(
+				doc_type=VerifiableDocument.DocType.REPORT_CARD,
+				object_type="ReportJob",
+				object_id=str(job.id),
+			).exists()
+		)
+
+
 class ReportJobApiTests(APITestCase):
 	def test_preview_html_endpoint(self):
 		User = get_user_model()
@@ -52,6 +152,57 @@ class ReportJobApiTests(APITestCase):
 				res = self.client.post(
 					"/api/reports/jobs/",
 					{"report_type": "DUMMY", "params": {"hello": "world"}},
+					format="json",
+				)
+				self.assertEqual(res.status_code, 202)
+				job_id = res.data["id"]
+
+				job = ReportJob.objects.get(id=job_id)
+				self.assertEqual(job.status, ReportJob.Status.SUCCEEDED)
+				self.assertTrue(job.output_relpath)
+
+				download = self.client.get(f"/api/reports/jobs/{job_id}/download/")
+				self.assertEqual(download.status_code, 200)
+				self.assertTrue(download["Content-Type"].startswith("application/pdf"))
+
+	@override_settings(
+		CELERY_TASK_ALWAYS_EAGER=True,
+		CELERY_TASK_EAGER_PROPAGATES=True,
+	)
+	def test_create_study_certification_and_download_pdf(self):
+		# WeasyPrint on Windows local venv may fail due to missing native libs.
+		# In Docker it should work (Dockerfile installs required deps).
+		try:
+			from weasyprint import HTML  # noqa: F401
+		except Exception:
+			self.skipTest("WeasyPrint no disponible en este entorno")
+
+		from academic.models import AcademicYear, Grade  # noqa: PLC0415
+		from students.models import Student, Enrollment  # noqa: PLC0415
+
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_study_cert", password="p1", role=User.ROLE_ADMIN)
+		student_user = User.objects.create_user(
+			username="student_study_cert",
+			password="p2",
+			role=User.ROLE_STUDENT,
+			first_name="Juan",
+			last_name="Pérez",
+		)
+		student = Student.objects.create(user=student_user, document_type="TI", document_number="DOC-STUDY-CERT-1")
+
+		ay = AcademicYear.objects.create(year=2099, status=AcademicYear.STATUS_ACTIVE)
+		grade = Grade.objects.create(name="5")
+		enrollment = Enrollment.objects.create(student=student, academic_year=ay, grade=grade, status="ACTIVE")
+
+		with tempfile.TemporaryDirectory() as tmp:
+			private_root = Path(tmp)
+			with override_settings(PRIVATE_STORAGE_ROOT=private_root, PRIVATE_REPORTS_DIR="reports"):
+				self.client.force_authenticate(user=admin)
+
+				res = self.client.post(
+					"/api/reports/jobs/",
+					{"report_type": "STUDY_CERTIFICATION", "params": {"enrollment_id": enrollment.id}},
 					format="json",
 				)
 				self.assertEqual(res.status_code, 202)

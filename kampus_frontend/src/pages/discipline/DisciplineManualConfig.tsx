@@ -127,7 +127,12 @@ export default function DisciplineManualConfig() {
 
   return (
     <div className="space-y-6">
-      {toast.isVisible && <Toast message={toast.message} type={toast.type} onClose={() => setToast({ ...toast, isVisible: false })} />}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={() => setToast({ ...toast, isVisible: false })}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-t-4 border-t-emerald-500 shadow-sm">

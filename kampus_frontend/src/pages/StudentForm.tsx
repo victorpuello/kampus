@@ -9,13 +9,32 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
-import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText, GraduationCap, Printer } from 'lucide-react'
+import {
+    ArrowLeft,
+    User,
+    Home,
+    Activity,
+    Heart,
+    Users,
+    Plus,
+    Trash2,
+    Edit2,
+    X,
+    FileText,
+    GraduationCap,
+    Printer,
+    Download,
+    Ban,
+    RefreshCcw,
+} from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 import { useAuthStore } from '../store/auth'
 import { academicApi } from '../services/academic'
 import { enrollmentsApi, type Enrollment } from '../services/enrollments'
 import { disciplineApi, type DisciplineCaseListItem } from '../services/discipline'
+import { certificatesApi, type CertificateIssueListItem } from '../services/certificates'
+import { reportsApi, type ReportJob } from '../services/reports'
 
 const getErrorDetail = (err: unknown): string | undefined => {
     if (typeof err !== 'object' || err === null) return undefined
@@ -336,6 +355,11 @@ export default function StudentForm() {
   const isEditing = !!id
     const user = useAuthStore((s) => s.user)
     const isTeacher = user?.role === 'TEACHER'
+        const isAdministrativeStaff =
+                user?.role === 'ADMIN' ||
+                user?.role === 'SUPERADMIN' ||
+                user?.role === 'COORDINATOR' ||
+                user?.role === 'SECRETARY'
         const blockedHistoryImport = user?.role === 'TEACHER' || user?.role === 'PARENT' || user?.role === 'STUDENT'
 
     const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
@@ -354,6 +378,148 @@ export default function StudentForm() {
 
     const showToast = (message: string, type: ToastType = 'info') => {
         setToast({ message, type, isVisible: true })
+    }
+
+    const [issuingStudyCertificatePdf, setIssuingStudyCertificatePdf] = useState(false)
+
+    const [certificateIssues, setCertificateIssues] = useState<CertificateIssueListItem[]>([])
+    const [certificateIssuesLoading, setCertificateIssuesLoading] = useState(false)
+    const [certificateIssuesError, setCertificateIssuesError] = useState<string | null>(null)
+    const [downloadingIssueUuid, setDownloadingIssueUuid] = useState<string | null>(null)
+    const [revokingIssueUuid, setRevokingIssueUuid] = useState<string | null>(null)
+
+    const downloadBlob = (blob: Blob, filename: string) => {
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', filename)
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.URL.revokeObjectURL(url)
+    }
+
+    const showAxiosBlobError = async (err: unknown, fallbackMessage: string) => {
+        const anyErr = err as { response?: { data?: unknown; status?: number } }
+        const statusText = anyErr?.response?.status ? ` (${anyErr.response.status})` : ''
+        const data = anyErr?.response?.data
+
+        if (data instanceof Blob) {
+            try {
+                const text = await data.text()
+                showToast(`${fallbackMessage}${statusText}: ${text}`, 'error')
+                return
+            } catch {
+                // ignore
+            }
+        }
+
+        showToast(`${fallbackMessage}${statusText}`, 'error')
+    }
+
+    const pollJobUntilFinished = async (jobId: number): Promise<ReportJob> => {
+        let attempt = 0
+        const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
+
+        for (;;) {
+            const res = await reportsApi.getJob(jobId)
+            const job = res.data
+            if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
+            attempt += 1
+            await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
+        }
+    }
+
+    const handleIssueStudyCertificatePdf = async () => {
+        if (!currentEnrollment) {
+            showToast('El estudiante no tiene matrícula activa.', 'error')
+            return
+        }
+
+        setIssuingStudyCertificatePdf(true)
+        try {
+            const created = await certificatesApi.issueStudies({ enrollment_id: Number(currentEnrollment.id) })
+            const job = await pollJobUntilFinished(created.data.id)
+            if (job.status !== 'SUCCEEDED') {
+                showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
+                return
+            }
+
+            const res = await reportsApi.downloadJob(job.id)
+            const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+            const doc = (formData.document_number || '').trim()
+            const filename = doc ? `certificado-estudios-${doc}.pdf` : 'certificado-estudios.pdf'
+            downloadBlob(blob, filename)
+            showToast('Certificado generado.', 'success')
+        } catch (err: unknown) {
+            console.error(err)
+            await showAxiosBlobError(err, 'Error generando certificado')
+        } finally {
+            setIssuingStudyCertificatePdf(false)
+        }
+    }
+
+    const refreshCertificateIssues = async () => {
+        if (!isAdministrativeStaff) return
+        if (!studentId) return
+
+        setCertificateIssuesLoading(true)
+        setCertificateIssuesError(null)
+        try {
+            const res = await certificatesApi.listIssues({
+                certificate_type: 'STUDIES',
+                student_id: studentId,
+                limit: 50,
+            })
+
+            setCertificateIssues(res.data?.results || [])
+        } catch (err: unknown) {
+            console.error(err)
+            setCertificateIssuesError(getErrorDetail(err) || 'No se pudieron cargar los certificados.')
+        } finally {
+            setCertificateIssuesLoading(false)
+        }
+    }
+
+    const handleDownloadIssuePdf = async (issue: CertificateIssueListItem) => {
+        setDownloadingIssueUuid(issue.uuid)
+        try {
+            const res = await certificatesApi.downloadIssuePdf(issue.uuid)
+            const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+            const doc = (issue.document_number || formData.document_number || '').trim()
+            const filename = doc
+                ? `certificado-estudios-${doc}-${issue.uuid.slice(0, 8)}.pdf`
+                : `certificado-estudios-${issue.uuid.slice(0, 8)}.pdf`
+            downloadBlob(blob, filename)
+        } catch (err: unknown) {
+            console.error(err)
+            await showAxiosBlobError(err, 'Error descargando PDF')
+        } finally {
+            setDownloadingIssueUuid(null)
+        }
+    }
+
+    const handleRevokeOrDeleteIssue = async (issue: CertificateIssueListItem) => {
+        const isIssued = issue.status === 'ISSUED'
+        const actionLabel = isIssued ? 'anular' : 'eliminar'
+        const ok = window.confirm(`¿Seguro que deseas ${actionLabel} este certificado?`)
+        if (!ok) return
+
+        const reason = isIssued
+            ? (window.prompt('Motivo de anulación (opcional):') || '').trim()
+            : undefined
+
+        setRevokingIssueUuid(issue.uuid)
+        try {
+            await certificatesApi.deleteIssue(issue.uuid, reason ? { reason } : undefined)
+            showToast(isIssued ? 'Certificado anulado.' : 'Certificado eliminado.', 'success')
+            await refreshCertificateIssues()
+        } catch (err: unknown) {
+            console.error(err)
+            showToast(getErrorDetail(err) || `Error al ${actionLabel} el certificado.`, 'error')
+        } finally {
+            setRevokingIssueUuid(null)
+        }
     }
 
     const studentId = useMemo(() => {
@@ -394,6 +560,12 @@ export default function StudentForm() {
         failed_areas_count: number
     }>(null)
     const [historyConfirmOpen, setHistoryConfirmOpen] = useState(false)
+
+    useEffect(() => {
+        if (activeTab !== 'certificates') return
+        void refreshCertificateIssues()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab])
 
     useEffect(() => {
         if (activeTab !== 'discipline') return
@@ -1009,17 +1181,20 @@ export default function StudentForm() {
     }
   }
 
-  const tabs = [
-    { id: 'identification', label: 'Identificación', icon: User },
-    { id: 'residence', label: 'Residencia', icon: Home },
-    { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
-    { id: 'support', label: 'Apoyos', icon: Heart },
-        { id: 'discipline', label: 'Convivencia', icon: FileText },
-                { id: 'observer_annotations', label: 'Anotaciones', icon: FileText },
-        { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
-    { id: 'family', label: 'Familia', icon: Users },
-    { id: 'documents', label: 'Documentos', icon: FileText },
-  ]
+    const tabs = [
+        { id: 'identification', label: 'Identificación', icon: User },
+        { id: 'residence', label: 'Residencia', icon: Home },
+        { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
+        { id: 'support', label: 'Apoyos', icon: Heart },
+                { id: 'discipline', label: 'Convivencia', icon: FileText },
+                                { id: 'observer_annotations', label: 'Anotaciones', icon: FileText },
+                { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
+                ...(isAdministrativeStaff
+                        ? [{ id: 'certificates', label: 'Certificados', icon: GraduationCap }]
+                        : []),
+        { id: 'family', label: 'Familia', icon: Users },
+        { id: 'documents', label: 'Documentos', icon: FileText },
+    ]
 
     const visibleTabs = isTeacher && !(isEditing && teacherHasDirectedGroup === true)
         ? tabs.filter((t) => t.id !== 'family' && t.id !== 'documents')
@@ -1106,17 +1281,49 @@ export default function StudentForm() {
                         )}
                 </div>
                 {isEditing && studentId ? (
-                                        <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={() => navigate(`/students/${studentId}/observer/print`)}
                             title="Imprimir Observador"
-                                                        className="w-full sm:w-auto"
+                            className="w-full sm:w-auto"
                         >
                             <Printer className="h-4 w-4 mr-2" />
                             Imprimir Observador
                         </Button>
+
+                        {isAdministrativeStaff && (
+                            <>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={currentEnrollmentLoading || !currentEnrollment}
+                                    onClick={() => {
+                                        if (!currentEnrollment) {
+                                            showToast('El estudiante no tiene matrícula activa.', 'error')
+                                            return
+                                        }
+                                        navigate(`/students/${studentId}/certifications/study/print`)
+                                    }}
+                                    title={!currentEnrollment ? 'Requiere matrícula activa' : 'Vista imprimible'}
+                                    className="w-full sm:w-auto"
+                                >
+                                    <GraduationCap className="h-4 w-4 mr-2" />
+                                    Certificación (vista)
+                                </Button>
+                                <Button
+                                    variant="default"
+                                    size="sm"
+                                    disabled={issuingStudyCertificatePdf || currentEnrollmentLoading || !currentEnrollment}
+                                    onClick={handleIssueStudyCertificatePdf}
+                                    title={!currentEnrollment ? 'Requiere matrícula activa' : 'Generar certificado oficial en PDF'}
+                                    className="w-full sm:w-auto"
+                                >
+                                    {issuingStudyCertificatePdf ? 'Generando…' : 'Generar PDF'}
+                                </Button>
+                            </>
+                        )}
                     </div>
                 ) : null}
       </div>
@@ -1999,6 +2206,214 @@ export default function StudentForm() {
                             </>
                         )}
                     </CardContent>
+                </Card>
+            )}
+        </div>
+
+        {/* CERTIFICATES TAB */}
+        <div className={activeTab === 'certificates' ? 'block' : 'hidden'}>
+            {!studentId ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500">
+                        Guarde el estudiante primero para ver certificados.
+                    </CardContent>
+                </Card>
+            ) : !isAdministrativeStaff ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500 dark:text-slate-400">
+                        No tienes permisos para ver certificados.
+                    </CardContent>
+                </Card>
+            ) : (
+                <Card>
+                    <CardHeader>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <CardTitle>Certificados</CardTitle>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void refreshCertificateIssues()}
+                                    disabled={certificateIssuesLoading}
+                                >
+                                    <RefreshCcw className="h-4 w-4 mr-2" />
+                                    Actualizar
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    disabled={
+                                        issuingStudyCertificatePdf ||
+                                        currentEnrollmentLoading ||
+                                        !currentEnrollment
+                                    }
+                                    onClick={handleIssueStudyCertificatePdf}
+                                    title={!currentEnrollment ? 'Requiere matrícula activa' : 'Generar PDF oficial'}
+                                >
+                                    <GraduationCap className="h-4 w-4 mr-2" />
+                                    {issuingStudyCertificatePdf ? 'Generando…' : 'Generar PDF'}
+                                </Button>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {certificateIssuesError ? (
+                            <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-950/30 dark:text-red-300">
+                                {certificateIssuesError}
+                            </div>
+                        ) : null}
+
+                        {certificateIssuesLoading ? (
+                            <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
+                        ) : certificateIssues.length === 0 ? (
+                            <div className="text-slate-600 dark:text-slate-300">
+                                No hay certificados registrados para este estudiante.
+                            </div>
+                        ) : (
+                            <>
+                                {/* Mobile cards */}
+                                <div className="md:hidden space-y-3">
+                                    {certificateIssues.map((c) => (
+                                        <div
+                                            key={c.uuid}
+                                            className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/40"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="font-medium text-slate-900 dark:text-slate-100">
+                                                        {c.grade_name} • {String(c.academic_year)}
+                                                    </div>
+                                                    <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                                        {new Date(c.issued_at).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                                <span
+                                                    className={
+                                                        'shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ' +
+                                                        (c.status === 'ISSUED'
+                                                            ? 'border-emerald-200 text-emerald-700 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+                                                            : c.status === 'REVOKED'
+                                                              ? 'border-red-200 text-red-700 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200'
+                                                              : 'border-amber-200 text-amber-800 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200')
+                                                    }
+                                                >
+                                                    {c.status}
+                                                </span>
+                                            </div>
+
+                                            <div className="mt-3 flex items-center gap-2">
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full"
+                                                    disabled={!c.has_pdf || downloadingIssueUuid === c.uuid}
+                                                    onClick={() => void handleDownloadIssuePdf(c)}
+                                                >
+                                                    <Download className="h-4 w-4 mr-2" />
+                                                    {downloadingIssueUuid === c.uuid ? 'Descargando…' : 'PDF'}
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="w-full"
+                                                    disabled={revokingIssueUuid === c.uuid}
+                                                    onClick={() => void handleRevokeOrDeleteIssue(c)}
+                                                >
+                                                    {c.status === 'ISSUED' ? <Ban className="h-4 w-4 mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                                                    {revokingIssueUuid === c.uuid
+                                                        ? 'Procesando…'
+                                                        : c.status === 'ISSUED'
+                                                          ? 'Anular'
+                                                          : 'Eliminar'}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Desktop table */}
+                                <div className="hidden md:block overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
+                                            <tr>
+                                                <th className="px-6 py-4 font-semibold">Año</th>
+                                                <th className="px-6 py-4 font-semibold">Grado</th>
+                                                <th className="px-6 py-4 font-semibold">Estado</th>
+                                                <th className="px-6 py-4 font-semibold">Fecha</th>
+                                                <th className="px-6 py-4 font-semibold">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {certificateIssues.map((c) => (
+                                                <tr
+                                                    key={c.uuid}
+                                                    className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50"
+                                                >
+                                                    <td className="px-6 py-4">{String(c.academic_year)}</td>
+                                                    <td className="px-6 py-4">{c.grade_name}</td>
+                                                    <td className="px-6 py-4">
+                                                        <span
+                                                            className={
+                                                                'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ' +
+                                                                (c.status === 'ISSUED'
+                                                                    ? 'border-emerald-200 text-emerald-700 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200'
+                                                                    : c.status === 'REVOKED'
+                                                                      ? 'border-red-200 text-red-700 bg-red-50 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200'
+                                                                      : 'border-amber-200 text-amber-800 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200')
+                                                            }
+                                                        >
+                                                            {c.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4">{new Date(c.issued_at).toLocaleString()}</td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                disabled={!c.has_pdf || downloadingIssueUuid === c.uuid}
+                                                                onClick={() => void handleDownloadIssuePdf(c)}
+                                                                title={!c.has_pdf ? 'No hay PDF disponible' : 'Descargar PDF'}
+                                                            >
+                                                                <Download className="h-4 w-4" />
+                                                            </Button>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                disabled={revokingIssueUuid === c.uuid}
+                                                                onClick={() => void handleRevokeOrDeleteIssue(c)}
+                                                                title={c.status === 'ISSUED' ? 'Anular' : 'Eliminar'}
+                                                            >
+                                                                {c.status === 'ISSUED' ? <Ban className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                                                            </Button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
+                        )}
+                    </CardContent>
+                    <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+                        <Button
+                            variant="outline"
+                            onClick={() => setActiveTab('academic_history')}
+                            className="w-full sm:w-auto"
+                        >
+                            Anterior
+                        </Button>
+                        <Button
+                            onClick={() => setActiveTab('family')}
+                            className="w-full sm:w-auto"
+                        >
+                            Siguiente
+                        </Button>
+                    </div>
                 </Card>
             )}
         </div>

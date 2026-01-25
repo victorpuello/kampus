@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    /* Keep it compact and consistent with the base stylesheet. */
+    @page {
+      size: A4;
+      margin: 18mm 12mm;
+    }
+
+    .title {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 10px 0 6px;
+      color: #0f172a;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin: 0 0 10px;
+      color: #1f2937;
+    }
+
+    .block {
+      margin: 8px 0;
+      line-height: 1.4;
+      text-align: justify;
+    }
+
+    .em {
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .center {
+      text-align: center;
+    }
+
+    .grade-box {
+      margin: 10px 0 8px;
+      padding: 10px 8px;
+      border: 1px solid #e5e7eb;
+      background: #f8fafc;
+      text-align: center;
+    }
+
+    .grade-name {
+      font-size: 14px;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .year-name {
+      margin-top: 3px;
+      font-size: 10px;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+    }
+
+    .signature {
+      margin-top: 18px;
+      text-align: center;
+      page-break-inside: avoid;
+      position: relative;
+    }
+
+    .qr-wrap {
+      margin-top: 10px;
+      text-align: right;
+      page-break-inside: avoid;
+    }
+
+    .qr-wrap img {
+      height: 78px;
+      width: 78px;
+      border: 1px solid #e5e7eb;
+      padding: 3px;
+      background: #fff;
+    }
+
+    .qr-text {
+      margin-top: 4px;
+      font-size: 9px;
+      color: #334155;
+      word-break: normal;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
+
+    .verify-link { color: #2563eb; text-decoration: underline; font-weight: 700; }
+    .verify-url, .verify-token {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 9px;
+      white-space: nowrap;
+      word-break: normal;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
+
+    .signature-image {
+      height: 125px;
+      width: auto;
+      display: block;
+      position: absolute;
+      left: 50%;
+      top: -80px;
+      transform: translateX(-50%);
+      z-index: 2;
+    }
+
+    .signature-line {
+      position: relative;
+      z-index: 1;
+      margin: 105px auto 0;
+      width: 260px;
+      border-top: 1px solid #111827;
+      padding-top: 6px;
+    }
+
+    .signer-name {
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 11px;
+      color: #111827;
+    }
+
+    .signer-role {
+      font-size: 10px;
+      color: #6b7280;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+  </style>
+</head>
+<body>
+  {% include "reports/partials/pdf_masthead.html" %}
+
+  <div class="title">Certificación Académica</div>
+  <div class="subtitle">Hace constar</div>
+
+  <div class="block">
+    Que el estudiante <span class="em">{{ student_full_name }}</span>, identificado(a) con
+    <strong>{{ document_type }}</strong> No. <strong>{{ document_number }}</strong>, se encuentra oficialmente
+    matriculado(a) en el Sistema de Gestión Académica de esta institución.
+  </div>
+
+  <div class="block">Que, a la fecha de expedición de este documento, cursa el grado:</div>
+
+  <div class="grade-box">
+    <div class="grade-name">
+      {{ grade_name|upper }}{% if group_name %} - GRUPO ({{ group_name|upper }}){% endif %}
+    </div>
+    <div class="year-name">Año lectivo {{ academic_year }}</div>
+  </div>
+
+  <div class="block">
+    Para constancia de lo anterior, se firma en 
+    <strong>San Bernardo del Viento </strong>, a los
+    <strong>{{ issue_date|date:"d" }}</strong> días del mes de <strong>{{ issue_date|date:"F" }}</strong> de
+    <strong>{{ issue_date|date:"Y" }}</strong>.
+  </div>
+
+  {% if qr_image_src or verify_url %}
+    <div class="qr-wrap">
+      {% if qr_image_src %}
+        <img src="{{ qr_image_src }}" alt="QR verificación" />
+      {% endif %}
+      {% if verify_url %}
+        <div class="qr-text">
+          <span style="font-weight:700;">Verificación:</span>
+          <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
+        </div>
+        {% if verify_url_prefix and verify_token %}
+          <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
+          <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
+        {% else %}
+          <div class="qr-text verify-url">{{ verify_url }}</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+
+    <div class="signature">
+      {% if institution and institution.pdf_rector_signature_image %}
+      <img src="{{ institution.pdf_rector_signature_image.url }}" alt="Firma" class="signature-image" />
+      {% endif %}
+
+      <div class="signature-line">
+      <div class="signer-name">{% if signer_name %}{{ signer_name }}{% else %}&nbsp;{% endif %}</div>
+      <div class="signer-role">{% if signer_role %}{{ signer_role }}{% else %}Rector(a){% endif %}</div>
+      </div>
+    </div>
+</body>
+</html>
