@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { coreApi, type Campus, SEDE_TYPE_OPTIONS, SEDE_STATUS_OPTIONS } from '../services/core'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -11,6 +11,39 @@ export default function CampusList() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
+
+  const [campuses, setCampuses] = useState<Campus[]>([])
+  const [loading, setLoading] = useState(true)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false
+  })
+
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }, [])
+
+  const loadCampuses = useCallback(async () => {
+    try {
+      const res = await coreApi.listCampuses()
+      setCampuses(res.data)
+    } catch (err) {
+      console.error(err)
+      showToast('Error al cargar las sedes', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }, [showToast])
+
+  useEffect(() => {
+    if (isTeacher) {
+      setLoading(false)
+      return
+    }
+    loadCampuses()
+  }, [isTeacher, loadCampuses])
 
   if (isTeacher) {
     return (
@@ -26,35 +59,6 @@ export default function CampusList() {
         </CardContent>
       </Card>
     )
-  }
-
-  const [campuses, setCampuses] = useState<Campus[]>([])
-  const [loading, setLoading] = useState(true)
-  const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
-    message: '',
-    type: 'info',
-    isVisible: false
-  })
-
-  const showToast = (message: string, type: ToastType = 'info') => {
-    setToast({ message, type, isVisible: true })
-  }
-
-  useEffect(() => {
-    loadCampuses()
-  }, [])
-
-  const loadCampuses = async () => {
-    try {
-      const res = await coreApi.listCampuses()
-      setCampuses(res.data)
-    } catch (err) {
-      console.error(err)
-      showToast('Error al cargar las sedes', 'error')
-    } finally {
-      setLoading(false)
-    }
   }
 
   const handleDelete = async (id: number) => {

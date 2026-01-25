@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { 
   coreApi, 
@@ -64,22 +64,6 @@ export default function CampusForm() {
 
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
-
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-slate-100">Sedes</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para crear o editar sedes.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
   
   const [loading, setLoading] = useState(isEdit)
   const [saving, setSaving] = useState(false)
@@ -100,21 +84,17 @@ export default function CampusForm() {
     isVisible: false
   })
 
-  const showToast = (message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
-  }
+  }, [])
 
-  useEffect(() => {
-    loadInitialData()
-  }, [id])
-
-  const loadInitialData = async () => {
+  const loadInitialData = useCallback(async () => {
     try {
       // Cargar institución
       const instRes = await coreApi.listInstitutions()
       if (instRes.data.length > 0) {
         setInstitutionId(instRes.data[0].id)
-        setFormData(prev => ({ ...prev, institution: instRes.data[0].id }))
+        setFormData((prev) => ({ ...prev, institution: instRes.data[0].id }))
       }
 
       // Cargar listas de usuarios
@@ -131,10 +111,10 @@ export default function CampusForm() {
       if (id) {
         const campusRes = await coreApi.getCampus(Number(id))
         setFormData(campusRes.data)
-        
+
         // Cargar municipios si hay departamento seleccionado
         if (campusRes.data.department) {
-          const deptData = COLOMBIA_DATA.find(d => d.department === campusRes.data.department)
+          const deptData = COLOMBIA_DATA.find((d) => d.department === campusRes.data.department)
           if (deptData) {
             setMunicipalities(deptData.municipalities)
           }
@@ -146,6 +126,30 @@ export default function CampusForm() {
     } finally {
       setLoading(false)
     }
+  }, [id, showToast])
+
+  useEffect(() => {
+    if (isTeacher) {
+      setLoading(false)
+      return
+    }
+    loadInitialData()
+  }, [isTeacher, loadInitialData])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Sedes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para crear o editar sedes.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {

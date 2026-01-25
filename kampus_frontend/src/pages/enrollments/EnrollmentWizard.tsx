@@ -48,6 +48,39 @@ export default function EnrollmentWizard() {
     setToast({ message, type, isVisible: true })
   }
 
+  const getErrorResponseData = (err: unknown): unknown => {
+    return (err as { response?: { data?: unknown } } | undefined)?.response?.data
+  }
+
+  const getErrorMessage = (err: unknown, fallback: string) => {
+    const data = getErrorResponseData(err)
+    if (!data) return fallback
+
+    if (typeof data === 'string') return data
+
+    if (typeof data === 'object') {
+      const obj = data as Record<string, unknown>
+      const detail = obj.detail
+      if (typeof detail === 'string') return detail
+
+      const knownKeys = ['document_number', 'email', 'username', 'group', 'student']
+      for (const k of knownKeys) {
+        const v = obj[k]
+        if (Array.isArray(v) && typeof v[0] === 'string') return `${k}: ${v[0]}`
+        if (typeof v === 'string') return `${k}: ${v}`
+      }
+
+      const firstKey = Object.keys(obj)[0]
+      if (firstKey) {
+        const v = obj[firstKey]
+        if (Array.isArray(v) && typeof v[0] === 'string') return `${firstKey}: ${v[0]}`
+        if (typeof v === 'string') return `${firstKey}: ${v}`
+      }
+    }
+
+    return fallback
+  }
+
   // Step 1: Student Data
   const [studentData, setStudentData] = useState({
     first_name: '',
@@ -80,23 +113,8 @@ export default function EnrollmentWizard() {
   const [grades, setGrades] = useState<Grade[]>([])
   const [groups, setGroups] = useState<Group[]>([])
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Nueva Matrícula</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para crear matrículas.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   useEffect(() => {
+    if (isTeacher) return
     // Load academic data
     Promise.all([
       academicApi.listYears(),
@@ -129,7 +147,23 @@ export default function EnrollmentWizard() {
         setAcademicData(prev => ({ ...prev, academic_year: prev.academic_year || String(activeYear.id) }))
       }
     }).catch(console.error)
-  }, [prefill.groupId, prefillApplied])
+  }, [isTeacher, prefill.groupId, prefillApplied])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Nueva Matrícula</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para crear matrículas.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -161,26 +195,9 @@ export default function EnrollmentWizard() {
       }
 
       setCurrentStep(2)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating student:', error)
-      let msg = 'Error al crear estudiante'
-      
-      if (error.response?.data) {
-        const data = error.response.data
-        if (data.document_number) msg = `Documento: ${data.document_number[0]}`
-        else if (data.email) msg = `Email: ${data.email[0]}`
-        else if (data.username) msg = `Usuario: ${data.username[0]}`
-        else if (data.detail) msg = data.detail
-        else if (typeof data === 'object') {
-            const firstKey = Object.keys(data)[0]
-            if (firstKey) {
-                const val = data[firstKey]
-                msg = `${firstKey}: ${Array.isArray(val) ? val[0] : val}`
-            }
-        }
-      }
-      
-      showToast(msg, 'error')
+      showToast(getErrorMessage(error, 'Error al crear estudiante'), 'error')
     } finally {
       setLoading(false)
     }
@@ -241,12 +258,9 @@ export default function EnrollmentWizard() {
       })
       showToast('Matrícula exitosa', 'success')
       setTimeout(() => navigate(prefill.returnTo || '/enrollments'), 1500)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
-      const msg = error.response?.data?.group ? error.response.data.group[0] : 
-                  error.response?.data?.student ? error.response.data.student[0] :
-                  'Error al matricular'
-      showToast(msg, 'error')
+      showToast(getErrorMessage(error, 'Error al matricular'), 'error')
     } finally {
       setLoading(false)
     }

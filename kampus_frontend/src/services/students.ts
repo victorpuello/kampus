@@ -13,6 +13,7 @@ export interface FamilyMember {
   id: number
   full_name: string
   document_number: string
+  identity_document?: string | null
   relationship: string
   phone: string
   email: string
@@ -86,6 +87,124 @@ export interface Student {
   documents: StudentDocument[]
 }
 
+export interface ObserverReportInstitution {
+  name: string
+  dane_code: string
+  nit: string
+  pdf_header_line1: string
+  pdf_header_line2: string
+  pdf_header_line3: string
+  logo_url: string | null
+}
+
+export interface ObserverReportCampus {
+  name: string
+  municipality: string
+}
+
+export interface ObserverReportStudent {
+  id: number
+  full_name: string
+  first_name: string
+  last_name: string
+  document_type: string
+  document_number: string
+  birth_date: string | null
+  place_of_issue: string
+  neighborhood: string
+  address: string
+  blood_type: string
+  stratum: string
+  sisben_score: string
+  photo_url: string | null
+}
+
+export interface ObserverReportFamilyMember {
+  id: number
+  relationship: string
+  full_name: string
+  document_number: string
+  phone: string
+  email: string
+  is_main_guardian: boolean
+}
+
+export interface ObserverReportEnrollment {
+  id: number
+  academic_year: number | null
+  grade_name: string
+  group_name: string
+  campus_name: string
+  status: string
+  final_status: string
+  enrolled_at: string | null
+}
+
+export interface ObserverReportDisciplineEvent {
+  id: number
+  event_type: string
+  text: string
+  created_at: string | null
+  created_by_name: string
+}
+
+export interface ObserverReportDisciplineEntry {
+  id: number
+  occurred_at: string | null
+  location: string
+  manual_severity: string
+  law_1620_type: string
+  status: string
+  academic_year: number | null
+  grade_name: string
+  group_name: string
+  narrative: string
+  decision_text: string
+  created_by_name: string
+  created_at: string | null
+  events: ObserverReportDisciplineEvent[]
+}
+
+export type ObserverAnnotationType = 'PRAISE' | 'OBSERVATION' | 'ALERT' | 'COMMITMENT'
+
+export interface ObserverAnnotationPeriodMeta {
+  id: number
+  name: string
+  academic_year: number | null
+  is_closed: boolean
+}
+
+export interface ObserverAnnotation {
+  id: number
+  student: number
+  period: number | null
+  annotation_type: ObserverAnnotationType
+  title: string
+  text: string
+  commitments: string
+  commitment_due_date: string | null
+  commitment_responsible: string
+  is_automatic: boolean
+  created_at: string
+  updated_at: string
+  created_by_name: string
+  updated_by_name: string
+}
+
+export interface ObserverReport {
+  observer_number: string
+  generated_at: string
+  institution: ObserverReportInstitution
+  campus: ObserverReportCampus
+  student: ObserverReportStudent
+  family_members: ObserverReportFamilyMember[]
+  enrollments: ObserverReportEnrollment[]
+  discipline_entries: ObserverReportDisciplineEntry[]
+  observer_annotations: Array<
+    Omit<ObserverAnnotation, 'student' | 'period'> & { period: ObserverAnnotationPeriodMeta | null }
+  >
+}
+
 export interface ImportAcademicHistorySubject {
   area: string
   subject: string
@@ -136,6 +255,8 @@ export const studentsApi = {
   list: (params?: Record<string, unknown>) =>
     api.get<PaginatedResponse<Student>>('/api/students/', { params }),
   get: (id: number) => api.get<Student>(`/api/students/${id}/`),
+
+  getObserverReport: (id: number) => api.get<ObserverReport>(`/api/students/${id}/observer-report/`),
   create: (data: Record<string, unknown>) =>
     hasFile(data) ? api.post<Student>('/api/students/', toFormData(data)) : api.post<Student>('/api/students/', data),
   update: (id: number, data: Record<string, unknown>) =>
@@ -162,9 +283,19 @@ export const documentsApi = {
 }
 
 export const familyMembersApi = {
-  create: (data: Record<string, unknown>) => api.post('/api/family-members/', data),
-  update: (id: number, data: Record<string, unknown>) => api.patch(`/api/family-members/${id}/`, data),
+  create: (data: Record<string, unknown>) =>
+    hasFile(data) ? api.post('/api/family-members/', toFormData(data)) : api.post('/api/family-members/', data),
+  update: (id: number, data: Record<string, unknown>) =>
+    hasFile(data) ? api.patch(`/api/family-members/${id}/`, toFormData(data)) : api.patch(`/api/family-members/${id}/`, data),
   delete: (id: number) => api.delete(`/api/family-members/${id}/`),
+}
+
+export const observerAnnotationsApi = {
+  list: (params?: Record<string, unknown>) =>
+    api.get<PaginatedResponse<ObserverAnnotation> | ObserverAnnotation[]>('/api/observer-annotations/', { params }),
+  create: (data: Record<string, unknown>) => api.post<ObserverAnnotation>('/api/observer-annotations/', data),
+  update: (id: number, data: Record<string, unknown>) => api.patch<ObserverAnnotation>(`/api/observer-annotations/${id}/`, data),
+  delete: (id: number) => api.delete(`/api/observer-annotations/${id}/`),
 }
 
 export const noveltiesApi = {

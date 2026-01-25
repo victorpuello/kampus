@@ -10,10 +10,18 @@ export default function PeriodPlanning() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
 
-  const getErrorResponseData = (error: unknown): unknown => {
+  const getErrorResponseData = (error: unknown): unknown | undefined => {
     if (typeof error !== 'object' || error === null) return undefined
     const maybeAxios = error as { response?: { data?: unknown } }
     return maybeAxios.response?.data
+  }
+
+  const getDetailFromErrorData = (data: unknown): string | undefined => {
+    if (!data || typeof data !== 'object') return undefined
+    const detail = (data as Record<string, unknown>).detail
+    if (typeof detail === 'string') return detail
+    if (detail != null) return String(detail)
+    return undefined
   }
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -117,52 +125,7 @@ export default function PeriodPlanning() {
 
   const [generatingAI, setGeneratingAI] = useState(false);
 
-  useEffect(() => {
-    loadInitialData();
-  }, []);
-
-  useEffect(() => {
-    if (selectedYear) {
-      loadPeriods(Number(selectedYear));
-      loadDimensions(Number(selectedYear));
-
-      // Reset dependent selections to avoid mixing entities across academic years
-      setSelectedPeriod('')
-      setSelectedGrade('')
-      setSelectedGroup('')
-      setSelectedSubject('')
-      setGroups([])
-      setAchievements([])
-    }
-  }, [selectedYear]);
-
-  useEffect(() => {
-    if (selectedGrade) {
-      loadGroups(Number(selectedGrade));
-    }
-  }, [selectedGrade]);
-
-  useEffect(() => {
-    if (selectedGrade && selectedGroup) {
-      // Filter subjects by grade (assuming subjects are linked to grade via area or directly)
-      // In this system, subjects are linked to grade.
-      // We can filter the subjects list loaded initially or fetch specific subjects.
-      // For now, we filter the loaded subjects.
-      // Ideally, we should fetch AcademicLoads for the group, but let's use subjects for now.
-    }
-  }, [selectedGrade, selectedGroup]);
-
-  useEffect(() => {
-    if (selectedPeriod && selectedSubject && selectedGroup) {
-      loadAchievements();
-    }
-  }, [selectedPeriod, selectedSubject, selectedGroup]);
-
-  useEffect(() => {
-    refreshPlanningGrants()
-  }, [refreshPlanningGrants])
-
-  const loadInitialData = async () => {
+  const loadInitialData = useCallback(async () => {
     try {
       const teacherMode = user?.role === 'TEACHER'
       const [yRes, gRes, sRes, dRes, assignmentsRes, groupsRes] = await Promise.all([
@@ -172,10 +135,10 @@ export default function PeriodPlanning() {
         academicApi.listAchievementDefinitions(),
         teacherMode ? academicApi.listMyAssignments() : Promise.resolve({ data: [] as TeacherAssignment[] }),
         teacherMode ? academicApi.listGroups() : Promise.resolve({ data: [] as Group[] }),
-      ]);
-      setYears(yRes.data);
-      setSubjects(sRes.data);
-      setDefinitions(dRes.data);
+      ])
+      setYears(yRes.data)
+      setSubjects(sRes.data)
+      setDefinitions(dRes.data)
 
       if (teacherMode && user) {
         const subjectIdByName = new Map<string, number>()
@@ -221,66 +184,114 @@ export default function PeriodPlanning() {
         setSelectedSubject('')
       } else {
         setTeacherAllowed(null)
-        setGrades(gRes.data);
+        setGrades(gRes.data)
       }
 
-      const activeYear = yRes.data.find(y => y.status === 'ACTIVE');
-      if (activeYear) setSelectedYear(activeYear.id);
+      const activeYear = yRes.data.find((y) => y.status === 'ACTIVE')
+      if (activeYear) setSelectedYear(activeYear.id)
     } catch (error) {
-      console.error("Error loading initial data", error);
+      console.error('Error loading initial data', error)
     }
-  };
+  }, [user])
 
-  const loadPeriods = async (yearId: number) => {
+  const loadPeriods = useCallback(async (yearId: number) => {
     try {
-      const res = await academicApi.listPeriods();
+      const res = await academicApi.listPeriods()
       // Filter periods by year locally or via API if supported
-      const yearPeriods = res.data.filter(p => p.academic_year === yearId);
-      setPeriods(yearPeriods);
+      const yearPeriods = res.data.filter((p) => p.academic_year === yearId)
+      setPeriods(yearPeriods)
     } catch (error) {
-      console.error("Error loading periods", error);
+      console.error('Error loading periods', error)
     }
-  };
+  }, [])
 
-  const loadGroups = async (gradeId: number) => {
-    try {
-      const params: Record<string, unknown> = { grade: gradeId }
-      if (selectedYear) params.academic_year = Number(selectedYear)
-      const res = await academicApi.listGroups(params);
-      if (teacherAllowed?.groupIdsByGrade?.[gradeId]) {
-        const allowed = new Set<number>(teacherAllowed.groupIdsByGrade[gradeId])
-        setGroups(res.data.filter((g) => allowed.has(g.id)));
-      } else {
-        setGroups(res.data);
+  const loadGroups = useCallback(
+    async (gradeId: number) => {
+      try {
+        const params: Record<string, unknown> = { grade: gradeId }
+        if (selectedYear) params.academic_year = Number(selectedYear)
+        const res = await academicApi.listGroups(params)
+        if (teacherAllowed?.groupIdsByGrade?.[gradeId]) {
+          const allowed = new Set<number>(teacherAllowed.groupIdsByGrade[gradeId])
+          setGroups(res.data.filter((g) => allowed.has(g.id)))
+        } else {
+          setGroups(res.data)
+        }
+      } catch (error) {
+        console.error('Error loading groups', error)
       }
-    } catch (error) {
-      console.error("Error loading groups", error);
-    }
-  };
+    },
+    [selectedYear, teacherAllowed]
+  )
 
-  const loadDimensions = async (yearId: number) => {
+  const loadDimensions = useCallback(async (yearId: number) => {
     try {
-      const res = await academicApi.listDimensions(yearId);
-      setDimensions(res.data);
+      const res = await academicApi.listDimensions(yearId)
+      setDimensions(res.data)
     } catch (error) {
-      console.error("Error loading dimensions", error);
+      console.error('Error loading dimensions', error)
     }
-  };
+  }, [])
 
-  const loadAchievements = async () => {
-    setLoading(true);
-    setAchievements([]); // Clear previous achievements while loading
+  const loadAchievements = useCallback(async () => {
+    setLoading(true)
+    setAchievements([]) // Clear previous achievements while loading
     try {
-      const res = await academicApi.listAchievements({ 
-        period: selectedPeriod, 
+      const res = await academicApi.listAchievements({
+        period: selectedPeriod,
         subject: selectedSubject,
-        group: selectedGroup 
-      });
-      setAchievements(res.data);
+        group: selectedGroup,
+      })
+      setAchievements(res.data)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }, [selectedGroup, selectedPeriod, selectedSubject])
+
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
+
+  useEffect(() => {
+    if (selectedYear) {
+      loadPeriods(Number(selectedYear));
+      loadDimensions(Number(selectedYear));
+
+      // Reset dependent selections to avoid mixing entities across academic years
+      setSelectedPeriod('')
+      setSelectedGrade('')
+      setSelectedGroup('')
+      setSelectedSubject('')
+      setGroups([])
+      setAchievements([])
+    }
+  }, [loadDimensions, loadPeriods, selectedYear]);
+
+  useEffect(() => {
+    if (selectedGrade) {
+      loadGroups(Number(selectedGrade));
+    }
+  }, [loadGroups, selectedGrade]);
+
+  useEffect(() => {
+    if (selectedGrade && selectedGroup) {
+      // Filter subjects by grade (assuming subjects are linked to grade via area or directly)
+      // In this system, subjects are linked to grade.
+      // We can filter the subjects list loaded initially or fetch specific subjects.
+      // For now, we filter the loaded subjects.
+      // Ideally, we should fetch AcademicLoads for the group, but let's use subjects for now.
+    }
+  }, [selectedGrade, selectedGroup]);
+
+  useEffect(() => {
+    if (selectedPeriod && selectedSubject && selectedGroup) {
+      loadAchievements();
+    }
+  }, [loadAchievements, selectedGroup, selectedPeriod, selectedSubject]);
+
+  useEffect(() => {
+    refreshPlanningGrants()
+  }, [refreshPlanningGrants])
 
   const handleDefinitionChange = (defId: number) => {
     const def = definitions.find(d => d.id === defId);
@@ -365,8 +376,9 @@ export default function PeriodPlanning() {
     } catch (error: unknown) {
       console.error(error);
       const data = getErrorResponseData(error)
-      if (data?.detail) {
-        alert(String(data.detail))
+      const detail = getDetailFromErrorData(data)
+      if (detail) {
+        alert(detail)
       } else if (data && typeof data === 'object') {
         const firstKey = Object.keys(data)[0]
         const firstVal = firstKey ? (data as Record<string, unknown>)[firstKey] : null
@@ -402,8 +414,9 @@ export default function PeriodPlanning() {
     } catch (error: unknown) {
       console.error(error)
       const data = getErrorResponseData(error)
-      if (data?.detail) {
-        alert(String(data.detail))
+      const detail = getDetailFromErrorData(data)
+      if (detail) {
+        alert(detail)
       } else if (data && typeof data === 'object') {
         const firstKey = Object.keys(data)[0]
         const firstVal = firstKey ? (data as Record<string, unknown>)[firstKey] : null

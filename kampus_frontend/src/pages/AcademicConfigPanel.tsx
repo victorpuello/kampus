@@ -116,11 +116,16 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
   const [users, setUsers] = useState<User[]>([])
 
   // Form states
-  const [yearInput, setYearInput] = useState({
+  const [yearInput, setYearInput] = useState<{
+    year: string
+    status: AcademicYear['status']
+    start_date: string
+    end_date: string
+  }>({
     year: '',
     status: 'PLANNING',
     start_date: '',
-    end_date: ''
+    end_date: '',
   })
   const [editingYearId, setEditingYearId] = useState<number | null>(null)
   const [periodInput, setPeriodInput] = useState({
@@ -480,30 +485,37 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     return d.toISOString()
   }
 
-  const getErrorMessage = (error: any, defaultMsg: string) => {
-    if (error.response?.data) {
-      const data = error.response.data
-      if (typeof data === 'string') return data
-      if (data.detail) return data.detail
-      if (data.non_field_errors) return Array.isArray(data.non_field_errors) ? data.non_field_errors.join(', ') : data.non_field_errors
-      
-      // If it's an object with field errors
-      const messages = Object.entries(data).map(([field, errors]) => {
+  const getErrorMessage = (error: unknown, defaultMsg: string) => {
+    const data = (error as { response?: { data?: unknown } } | undefined)?.response?.data
+    if (!data) return defaultMsg
+    if (typeof data === 'string') return data
+
+    if (typeof data === 'object' && data) {
+      const obj = data as Record<string, unknown>
+      const detail = obj.detail
+      if (typeof detail === 'string') return detail
+
+      const nonField = obj.non_field_errors
+      if (Array.isArray(nonField)) return nonField.filter((x) => typeof x === 'string').join(', ')
+      if (typeof nonField === 'string') return nonField
+
+      const messages = Object.entries(obj).map(([field, errors]) => {
         if (Array.isArray(errors)) {
-          return `${field}: ${errors.join(', ')}`
+          return `${field}: ${errors.filter((x) => typeof x === 'string').join(', ')}`
         }
-        return `${field}: ${errors}`
+        return `${field}: ${String(errors)}`
       })
-      
+
       if (messages.length > 0) return messages.join('\n')
     }
+
     return defaultMsg
   }
 
   // Loading state
   const [loading, setLoading] = useState(false)
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const [y, p, l, g, a, s, al, gr, sc, i, c, u] = await Promise.all([
@@ -559,12 +571,12 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     } finally {
       setLoading(false)
     }
-  }
+  }, [editingPeriodId, hasInitializedFilters])
 
   useEffect(() => {
     if (isTeacher) return
     load()
-  }, [isTeacher])
+  }, [isTeacher, load])
 
   if (isTeacher) {
     return (
@@ -589,7 +601,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     
     const data = {
       year: y,
-      status: yearInput.status as any,
+      status: yearInput.status,
       start_date: yearInput.start_date || null,
       end_date: yearInput.end_date || null
     }
@@ -604,7 +616,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setYearInput({ year: '', status: 'PLANNING', start_date: '', end_date: '' })
       await load()
       showToast(editingYearId ? 'Año lectivo actualizado correctamente' : 'Año lectivo creado correctamente', 'success')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el año lectivo'), 'error')
     }
@@ -676,7 +688,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setDeleteModalOpen(false)
       setItemToDelete(null)
       setDeleteType(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       let itemType = 'el elemento'
       if (deleteType === 'year') itemType = 'el año lectivo'
@@ -740,7 +752,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       
       setPeriodInput({ name: '', start_date: '', end_date: '', academic_year: '', grades_edit_until: '', planning_edit_until: '' })
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el periodo'), 'error')
     }
@@ -802,7 +814,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       }
       setLevelInput({ name: '', level_type: 'PRIMARY', min_age: 5, max_age: 100 })
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el nivel'), 'error')
     }
@@ -854,7 +866,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setGradeLevelInput('')
       setGradeOrdinalInput('')
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el grado'), 'error')
     }
@@ -913,7 +925,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setAreaInput({ name: '', description: '' })
       setCreateSubjectForArea(false)
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el área'), 'error')
     }
@@ -947,7 +959,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     
     if (totalHours > 0) {
       // Calculate initial weights
-      let weights = areaLoads.map(l => ({
+      const weights = areaLoads.map(l => ({
         ...l,
         newWeight: Math.round((l.hours_per_week / totalHours) * 100)
       }))
@@ -1023,7 +1035,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setShowCopyModal(false)
       setCopyFromGradeId('')
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al copiar el plan de estudios'), 'error')
     }
@@ -1069,7 +1081,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       }
 
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar la carga académica'), 'error')
     }
@@ -1097,7 +1109,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       showToast('Carga académica eliminada', 'success')
       setAcademicLoadToDelete(null)
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al eliminar la carga académica'), 'error')
     } finally {
@@ -1147,7 +1159,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setSubjectInput({ name: '', area: '' })
       setCreateSubjectForArea(false)
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar la asignatura'), 'error')
     }
@@ -1203,7 +1215,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setInstLogo(null)
       await load()
       showToast('Institución creada correctamente', 'success')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al crear la institución'), 'error')
     }
@@ -1237,7 +1249,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       }
       setCampusInput({ name: '', institution: '' })
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar la sede'), 'error')
     }
@@ -1311,7 +1323,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       setIsMultigrade(false)
       await load()
       setIsGroupModalOpen(false)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar el grupo'), 'error')
     }
@@ -1336,10 +1348,6 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     setItemToDelete(id)
     setDeleteType('group')
     setDeleteModalOpen(true)
-  }
-
-  const onCancelEditGroup = () => {
-    closeGroupModal()
   }
 
   const findPreviousAcademicYearId = (targetYearId: number) => {
@@ -1381,7 +1389,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       showToast(res.data?.message || 'Grupos importados correctamente', 'success')
       setImportGroupsModalOpen(false)
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al importar grupos'), 'error')
     } finally {
@@ -1429,7 +1437,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
         academic_year: scaleInput.academic_year
       })
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al guardar la escala'), 'error')
     }
@@ -1453,7 +1461,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       await academicApi.deleteEvaluationScale(id)
       showToast('Escala eliminada correctamente', 'success')
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al eliminar la escala'), 'error')
     }
@@ -1490,7 +1498,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       showToast('Escalas copiadas correctamente', 'success')
       setShowCopyScalesModal(false)
       await load()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al copiar las escalas'), 'error')
     }
@@ -1575,7 +1583,12 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   />
                   <select
                     value={yearInput.status}
-                    onChange={(e) => setYearInput({...yearInput, status: e.target.value})}
+                    onChange={(e) => {
+                      const next = e.target.value
+                      if (next === 'PLANNING' || next === 'ACTIVE' || next === 'CLOSED') {
+                        setYearInput({ ...yearInput, status: next })
+                      }
+                    }}
                     className="border border-blue-100 rounded-md bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="PLANNING">En Planeación</option>

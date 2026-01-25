@@ -23,6 +23,15 @@ type AuthState = {
   fetchMe: () => Promise<void>
 }
 
+type TokenPair = {
+  access: string
+  refresh: string
+}
+
+function getStatusFromUnknownError(err: unknown): number | undefined {
+  return (err as { response?: { status?: number } } | undefined)?.response?.status
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   accessToken: localStorage.getItem('accessToken'),
   refreshToken: localStorage.getItem('refreshToken'),
@@ -33,13 +42,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ loading: true, error: null })
     try {
       const { data } = await authApi.login(username, password)
-      const access = (data as any).access as string
-      const refresh = (data as any).refresh as string
+      const tokenPair = data as TokenPair
+      const access = tokenPair.access
+      const refresh = tokenPair.refresh
       localStorage.setItem('accessToken', access)
       localStorage.setItem('refreshToken', refresh)
       set({ accessToken: access, refreshToken: refresh })
       await get().fetchMe()
-    } catch (e: any) {
+    } catch (e: unknown) {
       set({ error: 'Credenciales inválidas', user: null })
       throw e
     } finally {
@@ -56,7 +66,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data } = await authApi.me()
       set({ user: data as User })
     } catch (e) {
-      const status = (e as any)?.response?.status
+      const status = getStatusFromUnknownError(e)
       // If token is invalid/expired, clear session.
       if (status === 401 || status === 403) {
         localStorage.removeItem('accessToken')

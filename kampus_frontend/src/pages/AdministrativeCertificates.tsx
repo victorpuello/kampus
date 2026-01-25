@@ -168,9 +168,10 @@ export default function AdministrativeCertificates() {
         if (docTypesRes?.data?.options?.length) {
           setArchiveDocTypeOptions(docTypesRes.data.options)
           setArchiveDocTypeAllowOther(Boolean(docTypesRes.data.allow_other))
-          if (!docTypesRes.data.options.some((o) => o.value === archiveDocType)) {
-            setArchiveDocType(docTypesRes.data.options[0].value)
-          }
+          setArchiveDocType((current) => {
+            if (docTypesRes.data.options.some((o) => o.value === current)) return current
+            return docTypesRes.data.options[0].value
+          })
         }
 
         const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')

@@ -15,22 +15,6 @@ export default function RbacSettings() {
   const me = useAuthStore((s) => s.user)
   const isTeacher = me?.role === 'TEACHER'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-slate-100">Permisos</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para gestionar roles o permisos.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const [mode, setMode] = useState<Mode>('role')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -122,6 +106,22 @@ export default function RbacSettings() {
       userSelectRef.current?.focus()
     }
   }, [mode])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Permisos</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para gestionar roles o permisos.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const loadRolePermissions = async (role: string) => {
     setLoading(true)

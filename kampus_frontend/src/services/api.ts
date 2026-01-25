@@ -1,8 +1,4 @@
-import axios, { AxiosError } from 'axios';
-
-// Use 'any' for config to avoid import issues with InternalAxiosRequestConfig
-// which might be a type-only export.
-type AxiosConfig = any; 
+import axios, { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -10,6 +6,15 @@ export const api = axios.create({
   baseURL: API_BASE_URL,
   withCredentials: false,
 });
+
+type RefreshTokenResponse = {
+  access: string
+}
+
+function getStatusFromUnknownError(err: unknown): number | undefined {
+  if (axios.isAxiosError(err)) return err.response?.status
+  return (err as { response?: { status?: number } } | undefined)?.response?.status
+}
 
 function getAccessToken(): string | null {
   return localStorage.getItem('accessToken');
@@ -40,16 +45,15 @@ function clearStoredTokens() {
   localStorage.removeItem('refreshToken')
 }
 
-api.interceptors.request.use((config: AxiosConfig) => {
-  const token = getAccessToken();
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = getAccessToken()
   if (token) {
-    config.headers = {
-      ...(config.headers || {}),
-      Authorization: `Bearer ${token}`,
-    };
+    const headers = AxiosHeaders.from(config.headers)
+    headers.set('Authorization', `Bearer ${token}`)
+    config.headers = headers
   }
-  return config;
-});
+  return config
+})
 
 let isRefreshing = false;
 let pendingRequests: Array<(token: string) => void> = [];
@@ -57,7 +61,8 @@ let pendingRequests: Array<(token: string) => void> = [];
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
-    const original = error.config as AxiosConfig & { _retry?: boolean };
+    const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
+    if (!original) return Promise.reject(error)
     
     if (error.response?.status === 401 && !original._retry) {
       const refresh = getRefreshToken();
@@ -73,10 +78,9 @@ api.interceptors.response.use(
       if (isRefreshing) {
         return new Promise((resolve) => {
           pendingRequests.push((token: string) => {
-            original.headers = {
-              ...(original.headers || {}),
-              Authorization: `Bearer ${token}`,
-            };
+            const headers = AxiosHeaders.from(original.headers)
+            headers.set('Authorization', `Bearer ${token}`)
+            original.headers = headers
             resolve(api(original));
           });
         });
@@ -85,8 +89,8 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const response = await axios.post(`${API_BASE_URL}/api/token/refresh/`, { refresh });
-        const newAccess = response.data.access;
+        const response = await axios.post<RefreshTokenResponse>(`${API_BASE_URL}/api/token/refresh/`, { refresh })
+        const newAccess = response.data.access
         
         setAccessToken(newAccess);
         
@@ -94,16 +98,17 @@ api.interceptors.response.use(
         pendingRequests = [];
         isRefreshing = false;
 
-        original.headers = {
-          ...(original.headers || {}),
-          Authorization: `Bearer ${newAccess}`,
-        };
+        {
+          const headers = AxiosHeaders.from(original.headers)
+          headers.set('Authorization', `Bearer ${newAccess}`)
+          original.headers = headers
+        }
         
         return api(original);
       } catch (err) {
         isRefreshing = false;
         pendingRequests = [];
-        const status = (err as AxiosError | any)?.response?.status;
+        const status = getStatusFromUnknownError(err)
         // Only clear tokens when the refresh token is actually invalid/expired.
         // For transient errors (network, 5xx), keep tokens so the user isn't logged out unnecessarily.
         if (status === 401 || status === 403) {

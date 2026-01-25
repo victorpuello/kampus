@@ -273,6 +273,18 @@ class EnrollmentMyForTeacherAPITest(APITestCase):
             status="ACTIVE",
         )
 
+        # Past year enrollment for the same student (should be visible via include_all_years)
+        self.year_past = AcademicYear.objects.create(year="2024", status="CLOSED")
+        self.grade_past = Grade.objects.create(name="0", ordinal=0)
+        self.group_past = Group.objects.create(name="A", grade=self.grade_past, academic_year=self.year_past, capacity=40)
+        self.enr_assigned_past = Enrollment.objects.create(
+            student=s1,
+            academic_year=self.year_past,
+            grade=self.grade_past,
+            group=self.group_past,
+            status="ACTIVE",
+        )
+
         u2 = User.objects.create_user(
             username="student_my_2",
             password="pw123456",
@@ -301,6 +313,43 @@ class EnrollmentMyForTeacherAPITest(APITestCase):
     def test_teacher_cannot_see_enrollments_from_unassigned_group(self):
         self.client.force_authenticate(user=self.teacher)
         res = self.client.get(f"/api/enrollments/my/?group_id={self.group_other.id}&page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        self.assertEqual(len(results), 0)
+
+    def test_teacher_can_filter_my_enrollments_by_student(self):
+        self.client.force_authenticate(user=self.teacher)
+
+        res = self.client.get(f"/api/enrollments/my/?student={self.enr_assigned.student_id}&page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        ids = [row.get("id") for row in results]
+        self.assertIn(self.enr_assigned.id, ids)
+        self.assertNotIn(self.enr_other.id, ids)
+
+        res2 = self.client.get(f"/api/enrollments/my/?student={self.enr_other.student_id}&page=1&page_size=100")
+        self.assertEqual(res2.status_code, status.HTTP_200_OK)
+        results2 = res2.data.get("results", [])
+        ids2 = [row.get("id") for row in results2]
+        self.assertNotIn(self.enr_assigned.id, ids2)
+        self.assertNotIn(self.enr_other.id, ids2)
+
+    def test_teacher_can_request_full_history_for_allowed_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(
+            f"/api/enrollments/my/?student={self.enr_assigned.student_id}&include_all_years=true&page=1&page_size=100"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        ids = [row.get("id") for row in results]
+        self.assertIn(self.enr_assigned.id, ids)
+        self.assertIn(self.enr_assigned_past.id, ids)
+
+    def test_teacher_cannot_request_full_history_for_unallowed_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(
+            f"/api/enrollments/my/?student={self.enr_other.student_id}&include_all_years=true&page=1&page_size=100"
+        )
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         results = res.data.get("results", [])
         self.assertEqual(len(results), 0)

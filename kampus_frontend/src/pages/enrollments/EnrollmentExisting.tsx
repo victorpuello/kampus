@@ -111,7 +111,8 @@ export default function EnrollmentExisting() {
         }
 
         if (prefillGroup) {
-          resolvedActiveYear = years.find(y => y.id === prefillGroup.academic_year) ?? resolvedActiveYear
+          const prefillYearId = prefillGroup.academic_year
+          resolvedActiveYear = years.find((y) => y.id === prefillYearId) ?? resolvedActiveYear
         }
       }
 

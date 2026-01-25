@@ -33,10 +33,36 @@ class AcademicYear(models.Model):
         return f"{self.year} ({self.get_status_display()})"
 
     def save(self, *args, **kwargs):
+        old_status = None
+        if self.pk:
+            try:
+                old_status = AcademicYear.objects.filter(pk=self.pk).values_list('status', flat=True).first()
+            except Exception:
+                old_status = None
+
+        closed_other_ids = []
         if self.status == self.STATUS_ACTIVE:
             # Si este año se marca como activo, cerrar los otros activos
-            AcademicYear.objects.filter(status=self.STATUS_ACTIVE).exclude(pk=self.pk).update(status=self.STATUS_CLOSED)
+            closed_other_ids = list(
+                AcademicYear.objects.filter(status=self.STATUS_ACTIVE).exclude(pk=self.pk).values_list('id', flat=True)
+            )
+            AcademicYear.objects.filter(id__in=closed_other_ids).update(status=self.STATUS_CLOSED)
+
         super().save(*args, **kwargs)
+
+        # Keep enrollment statuses consistent with academic year lifecycle.
+        # If a year is CLOSED, there should not be ACTIVE enrollments in it.
+        try:
+            from students.models import Enrollment  # noqa: PLC0415
+
+            if self.status == self.STATUS_CLOSED:
+                Enrollment.objects.filter(academic_year_id=self.pk, status='ACTIVE').update(status='RETIRED')
+
+            if closed_other_ids:
+                Enrollment.objects.filter(academic_year_id__in=closed_other_ids, status='ACTIVE').update(status='RETIRED')
+        except Exception:
+            # Do not block saving AcademicYear on enrollment cleanup issues.
+            pass
 
 
 class Period(models.Model):

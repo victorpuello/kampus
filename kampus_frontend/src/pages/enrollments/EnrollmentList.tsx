@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi, type Enrollment } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../../services/academic'
@@ -36,22 +36,12 @@ export default function EnrollmentList() {
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; studentName: string } | null>(null)
 
-  useEffect(() => {
-    loadInitialData()
-  }, [])
-
-  useEffect(() => {
-    if (selectedYear) {
-      loadEnrollments()
-    }
-  }, [selectedYear, page, pageSize, searchTerm])
-
-  const loadInitialData = async () => {
+  const loadInitialData = useCallback(async () => {
     try {
       const [yearsRes, gradesRes] = await Promise.all([academicApi.listYears(), academicApi.listGrades()])
       setYears(yearsRes.data)
       setGrades(gradesRes.data)
-      const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
+      const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')
       if (activeYear) {
         setSelectedYear(String(activeYear.id))
       } else if (yearsRes.data.length > 0) {
@@ -60,7 +50,38 @@ export default function EnrollmentList() {
     } catch (error) {
       console.error('Error loading years:', error)
     }
-  }
+  }, [])
+
+  const loadEnrollments = useCallback(async () => {
+    if (!selectedYear) return
+
+    setLoading(true)
+    try {
+      const res = await enrollmentsApi.list({
+        academic_year: Number(selectedYear),
+        page,
+        page_size: pageSize,
+        search: searchTerm,
+      })
+
+      setEnrollments(res.data.results)
+      setCount(res.data.count)
+      setHasNext(Boolean(res.data.next))
+      setHasPrevious(Boolean(res.data.previous))
+    } catch (error) {
+      console.error('Error loading enrollments:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [page, pageSize, searchTerm, selectedYear])
+
+  useEffect(() => {
+    loadInitialData()
+  }, [loadInitialData])
+
+  useEffect(() => {
+    if (selectedYear) loadEnrollments()
+  }, [loadEnrollments, selectedYear])
 
   const getId = (value: unknown): number | null => {
     if (typeof value === 'number') return value
@@ -170,26 +191,6 @@ export default function EnrollmentList() {
         </CardContent>
       </Card>
     )
-  }
-
-  const loadEnrollments = async () => {
-    setLoading(true)
-    try {
-      const response = await enrollmentsApi.list({
-        academic_year: selectedYear,
-        page,
-        page_size: pageSize,
-        search: searchTerm.trim() ? searchTerm.trim() : undefined,
-      })
-      setEnrollments(response.data.results)
-      setCount(response.data.count)
-      setHasNext(Boolean(response.data.next))
-      setHasPrevious(Boolean(response.data.previous))
-    } catch (error) {
-      console.error('Error loading enrollments:', error)
-    } finally {
-      setLoading(false)
-    }
   }
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { documentsApi, type StudentDocument } from '../../services/students'
+import { useCallback, useEffect, useState } from 'react'
+import { documentsApi, studentsApi, type FamilyMember, type StudentDocument } from '../../services/students'
 import { Button } from '../ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
 import { Input } from '../ui/Input'
@@ -12,6 +12,7 @@ interface StudentDocumentsProps {
 
 export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
   const [documents, setDocuments] = useState<StudentDocument[]>([])
+  const [guardianIdentityDocs, setGuardianIdentityDocs] = useState<FamilyMember[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   
@@ -20,11 +21,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
   const [docType, setDocType] = useState('OTHER')
   const [description, setDescription] = useState('')
 
-  useEffect(() => {
-    loadDocuments()
-  }, [studentId])
-
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     setLoading(true)
     try {
       // Ideally we would have an endpoint to list documents for a student
@@ -32,14 +29,23 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
       // Or assume we have a list endpoint. 
       // Based on previous context, `studentsApi.get(id)` returns a student object which has a `documents` array.
       // Let's use that for now.
-      const response = await import('../../services/students').then(m => m.studentsApi.get(studentId))
+      const response = await studentsApi.get(studentId)
       setDocuments(response.data.documents || [])
+
+      const fm = response.data.family_members || []
+      setGuardianIdentityDocs(
+        fm.filter((m) => !!(m.identity_document || '').trim())
+      )
     } catch (error) {
       console.error('Error loading documents:', error)
     } finally {
       setLoading(false)
     }
-  }
+  }, [studentId])
+
+  useEffect(() => {
+    loadDocuments()
+  }, [loadDocuments])
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -53,9 +59,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
     formData.append('description', description)
 
     try {
-      await documentsApi.create(formData, (_progressEvent) => {
-        // Optional: Add progress tracking here if needed for single uploads
-      })
+      await documentsApi.create(formData)
       setFile(null)
       setDescription('')
       setDocType('OTHER')
@@ -137,9 +141,9 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                     setFile(selectedFile)
                   }
                 }}
-                accept=".pdf,.jpg,.jpeg,.png"
+                accept=".pdf,.jpg,.jpeg,.png,.webp"
               />
-              <p className="text-xs text-slate-500 dark:text-slate-400">Formatos: PDF, JPG, PNG. Máximo 5MB.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Formatos: PDF, JPG, PNG, WebP. Máximo 5MB.</p>
             </div>
 
             <div className="flex justify-end">
@@ -159,37 +163,98 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
         <CardContent>
           {loading ? (
             <div className="text-center py-4 text-slate-500 dark:text-slate-400">Cargando documentos...</div>
-          ) : documents.length === 0 ? (
+          ) : documents.length === 0 && guardianIdentityDocs.length === 0 ? (
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">No hay documentos registrados.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {documents.map((doc) => (
-                <div key={doc.id} className="border rounded-lg p-4 flex flex-col justify-between bg-slate-50 hover:bg-slate-100 transition-colors dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="p-2 bg-blue-100 rounded-full text-blue-600 dark:bg-sky-950/40 dark:text-sky-300">
-                      <FileText className="h-5 w-5" />
-                    </div>
-                    <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300" onClick={() => handleDelete(doc.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+            <div className="space-y-6">
+              {guardianIdentityDocs.length > 0 ? (
+                <div>
+                  <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">
+                    Documentos de identidad de acudientes
                   </div>
-                  <div>
-                    <h4 className="font-medium text-slate-900 dark:text-slate-100">{getDocTypeName(doc.document_type)}</h4>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{doc.description || 'Sin descripción'}</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">Subido: {new Date(doc.uploaded_at).toLocaleDateString()}</p>
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
-                    <a 
-                      href={doc.file} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
-                    >
-                      <Eye className="mr-1 h-3 w-3" /> Ver Documento
-                    </a>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {guardianIdentityDocs.map((m) => (
+                      <div
+                        key={`guardian-id-${m.id}`}
+                        className="border rounded-lg p-4 flex flex-col justify-between bg-slate-50 hover:bg-slate-100 transition-colors dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/50"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="p-2 bg-blue-100 rounded-full text-blue-600 dark:bg-sky-950/40 dark:text-sky-300">
+                            <FileText className="h-5 w-5" />
+                          </div>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-slate-900 dark:text-slate-100">Documento de identidad</h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                            {m.relationship || 'Acudiente'} · {m.full_name || '—'}
+                          </p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">Doc: {m.document_number || '—'}</p>
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                          <a
+                            href={m.identity_document || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
+                          >
+                            <Eye className="mr-1 h-3 w-3" /> Ver Documento
+                          </a>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              ))}
+              ) : null}
+
+              {documents.length > 0 ? (
+                <div>
+                  {guardianIdentityDocs.length > 0 ? (
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-3">
+                      Documentos del estudiante
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="border rounded-lg p-4 flex flex-col justify-between bg-slate-50 hover:bg-slate-100 transition-colors dark:border-slate-800 dark:bg-slate-900/40 dark:hover:bg-slate-800/50"
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="p-2 bg-blue-100 rounded-full text-blue-600 dark:bg-sky-950/40 dark:text-sky-300">
+                            <FileText className="h-5 w-5" />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                            onClick={() => handleDelete(doc.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-slate-900 dark:text-slate-100">{getDocTypeName(doc.document_type)}</h4>
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{doc.description || 'Sin descripción'}</p>
+                          <p className="text-xs text-slate-400 dark:text-slate-500 mt-2">
+                            Subido: {new Date(doc.uploaded_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
+                          <a
+                            href={doc.file}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
+                          >
+                            <Eye className="mr-1 h-3 w-3" /> Ver Documento
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>

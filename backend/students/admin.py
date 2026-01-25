@@ -23,7 +23,7 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(FamilyMember)
 class FamilyMemberAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'student', 'relationship', 'phone', 'is_main_guardian')
+    list_display = ('full_name', 'student', 'relationship', 'document_number', 'identity_document', 'phone', 'is_main_guardian')
     search_fields = ('full_name', 'student__user__first_name', 'student__user__last_name')
     list_filter = ('relationship', 'is_main_guardian')
 

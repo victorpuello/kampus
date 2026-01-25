@@ -5,7 +5,6 @@ const siteUrlRaw = process.env.SITE_URL || 'http://localhost:5173'
 const siteUrl = siteUrlRaw.replace(/\/$/, '')
 
 if (!process.env.SITE_URL) {
-  // eslint-disable-next-line no-console
   console.warn('[SEO] SITE_URL no está definido; usando', siteUrl)
 }
 

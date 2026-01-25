@@ -34,6 +34,30 @@ function isCurrentPeriod(period: Period): boolean {
   return now.getTime() >= start.getTime() && now.getTime() <= end.getTime()
 }
 
+const sanitizeScoreInput = (raw: string): string => {
+  // Allow teachers to type decimals using comma; normalize to dot.
+  // Also keep only digits and a single dot to reduce accidental invalid values.
+  const normalized = raw.replace(/,/g, '.')
+  let out = ''
+  let dotSeen = false
+  for (const ch of normalized) {
+    if (ch >= '0' && ch <= '9') out += ch
+    else if (ch === '.' && !dotSeen) {
+      out += ch
+      dotSeen = true
+    }
+  }
+  return out
+}
+
+const parseScoreOrNull = (raw: string): number | null => {
+  const trimmed = sanitizeScoreInput(raw).trim()
+  if (!trimmed) return null
+  const score = Number(trimmed)
+  if (!Number.isFinite(score)) return NaN
+  return score
+}
+
 export default function Grades() {
   const user = useAuthStore((s) => s.user)
   const location = useLocation()
@@ -524,22 +548,6 @@ export default function Grades() {
     return Math.trunc(n)
   }
 
-  const sanitizeScoreInput = (raw: string): string => {
-    // Allow teachers to type decimals using comma; normalize to dot.
-    // Also keep only digits and a single dot to reduce accidental invalid values.
-    const normalized = raw.replace(/,/g, '.')
-    let out = ''
-    let dotSeen = false
-    for (const ch of normalized) {
-      if (ch >= '0' && ch <= '9') out += ch
-      else if (ch === '.' && !dotSeen) {
-        out += ch
-        dotSeen = true
-      }
-    }
-    return out
-  }
-
   const clampScoreToRangeInput = (sanitized: string): string => {
     const trimmed = sanitized.trim()
 
@@ -553,14 +561,6 @@ export default function Grades() {
     if (n < 1) return '1'
     if (n > 5) return '5'
     return sanitized
-  }
-
-  const parseScoreOrNull = (raw: string): number | null => {
-    const trimmed = sanitizeScoreInput(raw).trim()
-    if (!trimmed) return null
-    const score = Number(trimmed)
-    if (!Number.isFinite(score)) return NaN
-    return score
   }
 
   const clampScoreNumber = (n: number): number => {
@@ -920,7 +920,7 @@ export default function Grades() {
 
     const percent = Math.round((filled / total) * 100)
     return { total, filled, percent }
-  }, [activitiesMode, activityColumnsByAchievement, activityValues, cellValues, gradebook, parseScoreOrNull])
+  }, [activitiesMode, activityColumnsByAchievement, activityValues, cellValues, gradebook])
 
   const loadInit = useCallback(async () => {
     setLoadingInit(true)
@@ -964,7 +964,7 @@ export default function Grades() {
     } finally {
       setLoadingInit(false)
     }
-  }, [selectedPeriodId, showToast, user?.id, user?.role])
+  }, [selectedPeriodId, showToast, user?.role])
 
   useEffect(() => {
     if (user?.role !== 'TEACHER') return

@@ -50,6 +50,7 @@ from .models import (
     ConditionalPromotionPlan,
     Enrollment,
     FamilyMember,
+    ObserverAnnotation,
     Student,
     StudentDocument,
     StudentNovelty,
@@ -71,6 +72,7 @@ from .serializers import (
     EnrollmentSerializer,
     StudentNoveltySerializer,
     StudentDocumentSerializer,
+    ObserverAnnotationSerializer,
 )
 from .pagination import StudentPagination, EnrollmentPagination
 from core.permissions import HasDjangoPermission, KampusModelPermissions
@@ -113,6 +115,42 @@ def _director_student_ids(user):
     return set(directed_student_ids)
 
 
+def _teacher_managed_student_ids(user):
+    """Student IDs a teacher can manage (director or assigned teacher).
+
+    Uses ACTIVE academic year when available. If no ACTIVE year exists,
+    falls back to any group where the user is director or has a TeacherAssignment.
+    """
+
+    if user is None or getattr(user, "role", None) != "TEACHER":
+        return set()
+
+    active_year = AcademicYear.objects.filter(status="ACTIVE").first()
+
+    directed_groups = Group.objects.filter(director=user)
+    assigned_group_ids = TeacherAssignment.objects.filter(teacher=user).values_list("group_id", flat=True)
+    assigned_groups = Group.objects.filter(id__in=assigned_group_ids)
+
+    if active_year:
+        directed_groups = directed_groups.filter(academic_year=active_year)
+        assigned_groups = assigned_groups.filter(academic_year=active_year)
+
+    allowed_groups = directed_groups | assigned_groups
+    if not allowed_groups.exists():
+        return set()
+
+    year_filter = Q(group__in=allowed_groups, status="ACTIVE")
+    if active_year:
+        year_filter &= Q(academic_year=active_year)
+
+    managed_student_ids = (
+        Enrollment.objects.filter(year_filter)
+        .values_list("student_id", flat=True)
+        .distinct()
+    )
+    return set(managed_student_ids)
+
+
 class IsTeacherDirectorOfStudent(BasePermission):
     """Teacher can access only students from their directed groups."""
 
@@ -125,6 +163,20 @@ class IsTeacherDirectorOfStudent(BasePermission):
         if not user or getattr(user, 'role', None) != 'TEACHER':
             return False
         return getattr(obj, 'pk', None) in _director_student_ids(user)
+
+
+class IsTeacherAssignedOrDirectorOfStudent(BasePermission):
+    """Teacher can access only students from their directed OR assigned groups."""
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        return bool(user and user.is_authenticated and getattr(user, "role", None) == "TEACHER")
+
+    def has_object_permission(self, request, view, obj):
+        user = getattr(request, "user", None)
+        if not user or getattr(user, "role", None) != "TEACHER":
+            return False
+        return getattr(obj, "pk", None) in _teacher_managed_student_ids(user)
 
 
 class IsTeacherDirectorOfRelatedStudent(BasePermission):
@@ -157,6 +209,32 @@ class IsTeacherDirectorOfRelatedStudent(BasePermission):
         return student_id in _director_student_ids(user)
 
 
+class IsTeacherAssignedOrDirectorOfRelatedStudent(BasePermission):
+    """Teacher can access objects that point to a student in their directed/assigned groups."""
+
+    def has_permission(self, request, view):
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated and getattr(user, "role", None) == "TEACHER"):
+            return False
+
+        if getattr(view, "action", None) == "create":
+            raw = request.data.get("student")
+            try:
+                student_id = int(raw)
+            except Exception:
+                return False
+            return student_id in _teacher_managed_student_ids(user)
+
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        user = getattr(request, "user", None)
+        if not user or getattr(user, "role", None) != "TEACHER":
+            return False
+        student_id = getattr(obj, "student_id", None)
+        return student_id in _teacher_managed_student_ids(user)
+
+
 
 class StudentViewSet(viewsets.ModelViewSet):
     queryset = Student.objects.select_related("user").all().order_by("user__last_name", "user__first_name", "user__id")
@@ -170,13 +248,12 @@ class StudentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         # Directors (teachers) can manage students in their directed groups,
         # regardless of Django model-permissions.
-        if getattr(self.request.user, 'role', None) == 'TEACHER' and getattr(self, 'action', None) in {
-            'list',
-            'retrieve',
-            'update',
-            'partial_update',
-        }:
-            return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
+        if getattr(self.request.user, 'role', None) == 'TEACHER':
+            action = getattr(self, 'action', None)
+            if action in {'list', 'retrieve'}:
+                return [IsAuthenticated(), IsTeacherAssignedOrDirectorOfStudent()]
+            if action in {'update', 'partial_update'}:
+                return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
         return super().get_permissions()
 
     def get_queryset(self):
@@ -195,27 +272,10 @@ class StudentViewSet(viewsets.ModelViewSet):
             return qs.none()
 
         if user is not None and getattr(user, 'role', None) == 'TEACHER':
-            # Teachers should only see students from the group(s) they direct.
-            # Default to current ACTIVE academic year when available.
-            active_year = AcademicYear.objects.filter(status='ACTIVE').first()
-            directed_groups = Group.objects.filter(director=user)
-            if active_year:
-                directed_groups = directed_groups.filter(academic_year=active_year)
-
-            if not directed_groups.exists():
+            allowed_ids = _teacher_managed_student_ids(user)
+            if not allowed_ids:
                 return qs.none()
-
-            from students.models import Enrollment
-
-            directed_student_ids = (
-                Enrollment.objects.filter(
-                    group__in=directed_groups,
-                    status='ACTIVE',
-                )
-                .values_list('student_id', flat=True)
-                .distinct()
-            )
-            qs = qs.filter(pk__in=directed_student_ids)
+            qs = qs.filter(pk__in=allowed_ids)
 
         if exclude_year_id is not None:
             from students.models import Enrollment
@@ -239,6 +299,284 @@ class StudentViewSet(viewsets.ModelViewSet):
             print("ERROR IN STUDENT LIST:")
             traceback.print_exc()
             return Response({"error": str(e), "traceback": traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=["get"], url_path="observer-report")
+    def observer_report(self, request, pk=None):
+        """Reporte consolidado del Observador/Ficha del estudiante (JSON).
+
+        Diseñado para consumo por el frontend y posterior impresión desde el navegador.
+        """
+
+        student: Student = self.get_object()
+
+        # Preferir matrícula activa para resolver sede/institución.
+        current_enrollment = (
+            Enrollment.objects.select_related(
+                "academic_year",
+                "grade",
+                "group",
+                "campus",
+                "campus__institution",
+            )
+            .filter(student=student, status="ACTIVE")
+            .order_by("-academic_year__year", "-id")
+            .first()
+        )
+
+        institution = None
+        campus = None
+        if current_enrollment is not None:
+            campus = getattr(current_enrollment, "campus", None)
+            institution = getattr(campus, "institution", None) if campus else None
+
+        if institution is None:
+            institution = Institution.objects.first() or Institution()
+
+        def _abs_media_url(rel_or_abs: str | None) -> str | None:
+            if not rel_or_abs:
+                return None
+            try:
+                return request.build_absolute_uri(rel_or_abs)
+            except Exception:
+                return rel_or_abs
+
+        logo_url = None
+        try:
+            if getattr(institution, "logo", None) and getattr(institution.logo, "url", None):
+                logo_url = _abs_media_url(institution.logo.url)
+        except Exception:
+            logo_url = None
+
+        student_photo_url = None
+        try:
+            if getattr(student, "photo", None) and getattr(student.photo, "url", None):
+                student_photo_url = _abs_media_url(student.photo.url)
+        except Exception:
+            student_photo_url = None
+
+        family_members = list(
+            FamilyMember.objects.filter(student=student)
+            .select_related("user")
+            .order_by("-is_main_guardian", "id")
+        )
+
+        enrollments = list(
+            Enrollment.objects.select_related("academic_year", "grade", "group", "campus")
+            .filter(student=student)
+            .order_by("-academic_year__year", "-id")
+        )
+
+        # === Disciplina / Observador ===
+        # Respetar reglas de visibilidad similares a DisciplineCaseViewSet.
+        user = getattr(request, "user", None)
+        role = getattr(user, "role", None)
+
+        from discipline.models import DisciplineCase  # noqa: PLC0415
+
+        cases_qs = (
+            DisciplineCase.objects.select_related(
+                "enrollment",
+                "enrollment__academic_year",
+                "enrollment__grade",
+                "enrollment__group",
+                "created_by",
+            )
+            .prefetch_related("events")
+            .filter(student=student)
+            .order_by("-occurred_at", "-id")
+        )
+
+        if role == "TEACHER":
+            active_year = AcademicYear.objects.filter(status="ACTIVE").first()
+            directed_groups = Group.objects.filter(director=user)
+            if active_year:
+                directed_groups = directed_groups.filter(academic_year=active_year)
+
+            if active_year:
+                assigned_group_ids = set(
+                    TeacherAssignment.objects.filter(teacher=user, academic_year=active_year).values_list(
+                        "group_id", flat=True
+                    )
+                )
+            else:
+                assigned_group_ids = set(
+                    TeacherAssignment.objects.filter(teacher=user).values_list("group_id", flat=True)
+                )
+
+            allowed_group_ids = set(directed_groups.values_list("id", flat=True)) | assigned_group_ids
+            if not allowed_group_ids:
+                cases_qs = cases_qs.none()
+            else:
+                cases_qs = cases_qs.filter(enrollment__group_id__in=allowed_group_ids).distinct()
+
+        elif role in {"ADMIN", "SUPERADMIN", "COORDINATOR"}:
+            cases_qs = cases_qs
+
+        elif role == "PARENT":
+            # Solo si realmente es acudiente del estudiante
+            is_guardian = FamilyMember.objects.filter(student=student, user=user).exists()
+            if not is_guardian:
+                cases_qs = cases_qs.none()
+
+        else:
+            cases_qs = cases_qs.none()
+
+        cases = list(cases_qs)
+
+        def _full_name(u) -> str:
+            try:
+                return u.get_full_name() or getattr(u, "username", "") or ""
+            except Exception:
+                return ""
+
+        def _fmt_date(value) -> str | None:
+            if not value:
+                return None
+            try:
+                # date or datetime
+                return value.isoformat()
+            except Exception:
+                return str(value)
+
+        discipline_entries = []
+        for case in cases:
+            enrollment = getattr(case, "enrollment", None)
+            academic_year = None
+            grade_name = ""
+            group_name = ""
+            try:
+                academic_year = getattr(getattr(enrollment, "academic_year", None), "year", None)
+                grade_name = getattr(getattr(enrollment, "grade", None), "name", "") or ""
+                group_name = getattr(getattr(enrollment, "group", None), "name", "") or ""
+            except Exception:
+                pass
+
+            events_out = []
+            try:
+                for ev in list(case.events.all()):
+                    events_out.append(
+                        {
+                            "id": ev.id,
+                            "event_type": ev.event_type,
+                            "text": ev.text,
+                            "created_at": _fmt_date(ev.created_at),
+                            "created_by_name": _full_name(getattr(ev, "created_by", None)),
+                        }
+                    )
+            except Exception:
+                events_out = []
+
+            discipline_entries.append(
+                {
+                    "id": case.id,
+                    "occurred_at": _fmt_date(case.occurred_at),
+                    "location": case.location,
+                    "manual_severity": case.manual_severity,
+                    "law_1620_type": case.law_1620_type,
+                    "status": case.status,
+                    "academic_year": academic_year,
+                    "grade_name": grade_name,
+                    "group_name": group_name,
+                    "narrative": case.narrative,
+                    "decision_text": case.decision_text,
+                    "created_by_name": _full_name(getattr(case, "created_by", None)),
+                    "created_at": _fmt_date(case.created_at),
+                    "events": events_out,
+                }
+            )
+
+        observer_number = f"{getattr(student, 'pk', 0):010d}"
+
+        out = {
+            "observer_number": observer_number,
+            "generated_at": datetime.now().isoformat(),
+            "institution": {
+                "name": getattr(institution, "name", "") or "",
+                "dane_code": getattr(institution, "dane_code", "") or "",
+                "nit": getattr(institution, "nit", "") or "",
+                "pdf_header_line1": getattr(institution, "pdf_header_line1", "") or "",
+                "pdf_header_line2": getattr(institution, "pdf_header_line2", "") or "",
+                "pdf_header_line3": getattr(institution, "pdf_header_line3", "") or "",
+                "logo_url": logo_url,
+            },
+            "campus": {
+                "name": getattr(campus, "name", "") if campus else "",
+                "municipality": getattr(campus, "municipality", "") if campus else "",
+            },
+            "student": {
+                "id": student.pk,
+                "full_name": student.user.get_full_name(),
+                "first_name": getattr(student.user, "first_name", "") or "",
+                "last_name": getattr(student.user, "last_name", "") or "",
+                "document_type": student.document_type,
+                "document_number": student.document_number,
+                "birth_date": _fmt_date(student.birth_date),
+                "place_of_issue": student.place_of_issue,
+                "neighborhood": student.neighborhood,
+                "address": student.address,
+                "blood_type": student.blood_type,
+                "stratum": student.stratum,
+                "sisben_score": student.sisben_score,
+                "photo_url": student_photo_url,
+            },
+            "family_members": [
+                {
+                    "id": fm.id,
+                    "relationship": fm.relationship,
+                    "full_name": fm.full_name,
+                    "document_number": fm.document_number,
+                    "phone": fm.phone,
+                    "email": fm.email,
+                    "is_main_guardian": fm.is_main_guardian,
+                }
+                for fm in family_members
+            ],
+            "enrollments": [
+                {
+                    "id": e.id,
+                    "academic_year": getattr(getattr(e, "academic_year", None), "year", None),
+                    "grade_name": getattr(getattr(e, "grade", None), "name", "") or "",
+                    "group_name": getattr(getattr(e, "group", None), "name", "") or "",
+                    "campus_name": getattr(getattr(e, "campus", None), "name", "") or "",
+                    "status": e.status,
+                    "final_status": e.final_status,
+                    "enrolled_at": _fmt_date(e.enrolled_at),
+                }
+                for e in enrollments
+            ],
+            "discipline_entries": discipline_entries,
+            "observer_annotations": [
+                {
+                    "id": a.id,
+                    "period": {
+                        "id": a.period_id,
+                        "name": getattr(getattr(a, "period", None), "name", "") if getattr(a, "period", None) else "",
+                        "academic_year": getattr(getattr(getattr(a, "period", None), "academic_year", None), "year", None)
+                        if getattr(a, "period", None)
+                        else None,
+                        "is_closed": bool(getattr(getattr(a, "period", None), "is_closed", False)) if getattr(a, "period", None) else False,
+                    }
+                    if a.period_id
+                    else None,
+                    "annotation_type": a.annotation_type,
+                    "title": a.title,
+                    "text": a.text,
+                    "commitments": a.commitments,
+                    "commitment_due_date": _fmt_date(a.commitment_due_date),
+                    "commitment_responsible": a.commitment_responsible,
+                    "is_automatic": bool(a.is_automatic),
+                    "created_at": _fmt_date(a.created_at),
+                    "updated_at": _fmt_date(a.updated_at),
+                    "created_by_name": _full_name(getattr(a, "created_by", None)),
+                    "updated_by_name": _full_name(getattr(a, "updated_by", None)),
+                }
+                for a in ObserverAnnotation.objects.select_related("period", "period__academic_year", "created_by", "updated_by")
+                .filter(student=student, is_deleted=False)
+                .order_by("-created_at", "-id")
+            ],
+        }
+
+        return Response(out)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -696,6 +1034,7 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
     queryset = FamilyMember.objects.select_related("student").all().order_by("id")
     serializer_class = FamilyMemberSerializer
     permission_classes = [KampusModelPermissions]
+    parser_classes = (JSONParser, FormParser, MultiPartParser)
 
     def get_permissions(self):
         if getattr(self.request.user, 'role', None) == 'TEACHER':
@@ -717,13 +1056,7 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
         if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
 
-        print("FAMILY MEMBER CREATE DATA:", request.data)
-        serializer = self.get_serializer(data=request.data)
-        if not serializer.is_valid():
-            print("FAMILY MEMBER ERRORS:", serializer.errors)
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        self.perform_create(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return super().create(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
@@ -830,18 +1163,53 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             except Exception:
                 group_id = None
 
-        qs = (
-            Enrollment.objects.select_related('student', 'student__user', 'academic_year', 'grade', 'group')
-            .filter(
-                academic_year=active_year,
-                status='ACTIVE',
-                group_id__in=allowed_group_ids,
-            )
-            .order_by('student__user__last_name', 'student__user__first_name', 'id')
+        student_raw = request.query_params.get('student') or request.query_params.get('student_id')
+        student_id = None
+        if student_raw is not None and str(student_raw).strip() != '':
+            try:
+                student_id = int(student_raw)
+            except Exception:
+                student_id = None
+
+        include_all_years_raw = request.query_params.get('include_all_years')
+        include_all_years = str(include_all_years_raw).lower() in {'1', 'true', 'yes', 'y'}
+
+        base_active_qs = Enrollment.objects.filter(
+            academic_year=active_year,
+            status='ACTIVE',
+            group_id__in=allowed_group_ids,
         )
+
+        if include_all_years and student_id is not None:
+            # Security: only allow full history for students the teacher can see
+            # in the ACTIVE academic year.
+            if not base_active_qs.filter(student_id=student_id).exists():
+                page = self.paginate_queryset(Enrollment.objects.none())
+                if page is not None:
+                    return self.get_paginated_response([])
+                return Response([], status=status.HTTP_200_OK)
+
+            qs = (
+                Enrollment.objects.select_related('student', 'student__user', 'academic_year', 'grade', 'group')
+                .filter(student_id=student_id)
+                .order_by('-academic_year__year', '-id')
+            )
+        else:
+            qs = (
+                Enrollment.objects.select_related('student', 'student__user', 'academic_year', 'grade', 'group')
+                .filter(
+                    academic_year=active_year,
+                    status='ACTIVE',
+                    group_id__in=allowed_group_ids,
+                )
+                .order_by('student__user__last_name', 'student__user__first_name', 'id')
+            )
 
         if group_id is not None:
             qs = qs.filter(group_id=group_id)
+
+        if student_id is not None:
+            qs = qs.filter(student_id=student_id)
 
         q = (request.query_params.get('q') or '').strip()
         if q:
@@ -1422,6 +1790,50 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
+class ObserverAnnotationViewSet(viewsets.ModelViewSet):
+    queryset = ObserverAnnotation.objects.select_related("student", "period", "created_by", "updated_by").all()
+    serializer_class = ObserverAnnotationSerializer
+    permission_classes = [KampusModelPermissions]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["student", "period", "annotation_type", "is_automatic"]
+
+    def get_permissions(self):
+        if getattr(self.request.user, "role", None) == "TEACHER":
+            return [IsAuthenticated(), IsTeacherAssignedOrDirectorOfRelatedStudent()]
+        return super().get_permissions()
+
+    def get_queryset(self):
+        qs = super().get_queryset().filter(is_deleted=False)
+        role = getattr(self.request.user, "role", None)
+        if role in {"PARENT", "STUDENT"}:
+            return qs.none()
+        if role == "TEACHER":
+            allowed_ids = _teacher_managed_student_ids(self.request.user)
+            if not allowed_ids:
+                return qs.none()
+            return qs.filter(student_id__in=allowed_ids)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        instance: ObserverAnnotation = self.get_object()
+        if getattr(self.request.user, "role", None) == "TEACHER" and bool(getattr(instance, "is_automatic", False)):
+            raise serializers.ValidationError({"detail": "Las anotaciones automáticas no se pueden editar."})
+        serializer.save(updated_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        annotation: ObserverAnnotation = self.get_object()
+        if getattr(request.user, "role", None) == "TEACHER" and bool(getattr(annotation, "is_automatic", False)):
+            return Response({"detail": "Las anotaciones automáticas no se pueden eliminar."}, status=status.HTTP_400_BAD_REQUEST)
+        annotation.is_deleted = True
+        annotation.deleted_at = datetime.now()
+        annotation.deleted_by = request.user
+        annotation.save(update_fields=["is_deleted", "deleted_at", "deleted_by", "updated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class BulkEnrollmentView(APIView):
     parser_classes = [MultiPartParser]
     permission_classes = [HasDjangoPermission]
@@ -1954,6 +2366,21 @@ class CertificateStudiesIssueView(APIView):
                 )
             )
         except Exception as e:
+            # Common deploy-time failure: database schema is behind (migrations not applied).
+            try:
+                from django.db.utils import OperationalError, ProgrammingError  # noqa: PLC0415
+
+                if isinstance(e, (OperationalError, ProgrammingError)):
+                    return Response(
+                        {
+                            "error": "Database schema out of date",
+                            "detail": "Parece que faltan migraciones en el servidor. Ejecuta `python manage.py migrate` (apps: students, reports).",
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+            except Exception:
+                pass
+
             payload = {"error": "Error preparing certificate", "detail": str(e)}
             if getattr(settings, 'DEBUG', False):
                 payload["traceback"] = traceback.format_exc()
@@ -1969,13 +2396,48 @@ class CertificateStudiesIssueView(APIView):
             ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
             expires_at = timezone.now() + timedelta(hours=ttl_hours)
 
-            job = ReportJob.objects.create(
-                created_by=request.user,
-                report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
-                params={"certificate_uuid": str(issue.uuid), "verify_url": verify_url},
-                expires_at=expires_at,
-            )
-            generate_report_job_pdf.delay(job.id)
+            try:
+                job = ReportJob.objects.create(
+                    created_by=request.user,
+                    report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
+                    params={"certificate_uuid": str(issue.uuid), "verify_url": verify_url},
+                    expires_at=expires_at,
+                )
+            except Exception as e:
+                # Likely missing reports migrations / table doesn't exist.
+                try:
+                    from django.db.utils import OperationalError, ProgrammingError  # noqa: PLC0415
+
+                    if isinstance(e, (OperationalError, ProgrammingError)):
+                        try:
+                            issue.delete()
+                        except Exception:
+                            pass
+                        return Response(
+                            {
+                                "error": "Report jobs unavailable",
+                                "detail": "No se pudo crear el ReportJob. Ejecuta migraciones del app `reports` en el servidor: `python manage.py migrate reports`.",
+                            },
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        )
+                except Exception:
+                    pass
+                raise
+
+            try:
+                generate_report_job_pdf.delay(job.id)
+            except Exception as e:
+                # Broker/worker misconfiguration should not surface as a generic 500.
+                job.mark_failed(error_code="ENQUEUE_FAILED", error_message=str(e))
+                return Response(
+                    {
+                        "error": "Could not enqueue PDF job",
+                        "detail": "No se pudo encolar la generación del PDF. Revisa que Celery/Redis estén activos y que `CELERY_BROKER_URL` esté configurado.",
+                        "job_id": job.id,
+                    },
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+
             out = ReportJobSerializer(job, context={"request": request}).data
             return Response(out, status=status.HTTP_202_ACCEPTED)
 

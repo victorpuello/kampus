@@ -10,7 +10,7 @@ export interface PaginatedResponse<T> {
 export interface Enrollment {
   id: number
   student: number | { id: number; full_name: string; document_number: string; document_type?: string }
-  academic_year: number | { id: number; year: string }
+  academic_year: number | { id: number; year: string; status?: string | null }
   grade: number | { id: number; name: string }
   group: number | { id: number; name: string } | null
   campus: number | null

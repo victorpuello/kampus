@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument
+from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ObserverAnnotation
 import unicodedata
 
 User = get_user_model()
@@ -10,6 +10,70 @@ class StudentDocumentSerializer(serializers.ModelSerializer):
         model = StudentDocument
         fields = ["id", "student", "document_type", "file", "description", "uploaded_at"]
         read_only_fields = ["id", "uploaded_at"]
+
+
+class ObserverAnnotationSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    updated_by_name = serializers.SerializerMethodField()
+    deleted_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ObserverAnnotation
+        fields = [
+            "id",
+            "student",
+            "period",
+            "annotation_type",
+            "title",
+            "text",
+            "commitments",
+            "commitment_due_date",
+            "commitment_responsible",
+            "is_automatic",
+            "rule_key",
+            "meta",
+            "is_deleted",
+            "deleted_at",
+            "created_by",
+            "updated_by",
+            "deleted_by",
+            "created_at",
+            "updated_at",
+            "created_by_name",
+            "updated_by_name",
+            "deleted_by_name",
+        ]
+        read_only_fields = [
+            "id",
+            "is_automatic",
+            "rule_key",
+            "meta",
+            "is_deleted",
+            "deleted_at",
+            "created_by",
+            "updated_by",
+            "deleted_by",
+            "created_at",
+            "updated_at",
+            "created_by_name",
+            "updated_by_name",
+            "deleted_by_name",
+        ]
+
+    def _full_name(self, u) -> str:
+        try:
+            return u.get_full_name() or getattr(u, "username", "") or ""
+        except Exception:
+            return ""
+
+    def get_created_by_name(self, obj) -> str:
+        return self._full_name(getattr(obj, "created_by", None))
+
+    def get_updated_by_name(self, obj) -> str:
+        return self._full_name(getattr(obj, "updated_by", None))
+
+    def get_deleted_by_name(self, obj) -> str:
+        return self._full_name(getattr(obj, "deleted_by", None))
 
 
 class StudentNoveltySerializer(serializers.ModelSerializer):
@@ -28,6 +92,7 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
             "user",
             "full_name",
             "document_number",
+            "identity_document",
             "relationship",
             "phone",
             "email",
@@ -36,6 +101,34 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
             "is_head_of_household",
         ]
         read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        instance = getattr(self, 'instance', None)
+
+        relationship = (attrs.get('relationship') if 'relationship' in attrs else getattr(instance, 'relationship', '')) or ''
+        is_main_guardian = (
+            attrs.get('is_main_guardian') if 'is_main_guardian' in attrs else getattr(instance, 'is_main_guardian', False)
+        )
+        document_number = (
+            attrs.get('document_number') if 'document_number' in attrs else getattr(instance, 'document_number', '')
+        ) or ''
+        identity_document = (
+            attrs.get('identity_document') if 'identity_document' in attrs else getattr(instance, 'identity_document', None)
+        )
+
+        requires_identity = is_main_guardian or relationship in {"Padre", "Acudiente"}
+
+        if requires_identity:
+            if not document_number.strip():
+                raise serializers.ValidationError({
+                    "document_number": "El documento de identidad es requerido para Padre/Acudiente (o acudiente principal)."
+                })
+            if not identity_document:
+                raise serializers.ValidationError({
+                    "identity_document": "Adjunta el documento de identidad (PDF o imagen) para Padre/Acudiente (o acudiente principal)."
+                })
+
+        return attrs
 
 
 class StudentUserSerializer(serializers.ModelSerializer):
@@ -210,7 +303,8 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         }
         response['academic_year'] = {
             'id': instance.academic_year.pk,
-            'year': instance.academic_year.year
+            'year': instance.academic_year.year,
+            'status': getattr(instance.academic_year, 'status', None),
         }
         response['grade'] = {
             'id': instance.grade.pk,

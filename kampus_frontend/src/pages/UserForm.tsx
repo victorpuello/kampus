@@ -19,22 +19,6 @@ export default function UserForm() {
   const isTeacher = me?.role === 'TEACHER'
   const canManageRbac = me?.role === 'ADMIN' || me?.role === 'SUPERADMIN'
 
-  if (isTeacher) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Usuarios</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a la gestión de usuarios.</p>
-          <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -137,6 +121,22 @@ export default function UserForm() {
     }
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
   }, [permissions, permissionSearch])
+
+  if (isTeacher) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Usuarios</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-slate-600">No tienes permisos para acceder a la gestión de usuarios.</p>
+          <div className="mt-4">
+            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const toggleUserPermission = (permId: number) => {
     setUserPermissionIds((prev) => {

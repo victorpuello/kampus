@@ -5,7 +5,156 @@ import { Button } from '../components/ui/Button'
 import { Pill } from '../components/ui/Pill'
 import { academicApi, type AcademicYear, type Period } from '../services/academic'
 import { teachersApi, type TeacherStatisticsResponse } from '../services/teachers'
-import { BarList, DonutChart } from '@tremor/react'
+
+type ChartRow = Record<string, unknown>
+
+const CHART_COLORS: Record<string, string> = {
+  emerald: '#10b981',
+  sky: '#0ea5e9',
+  rose: '#f43f5e',
+  amber: '#f59e0b',
+  indigo: '#6366f1',
+  violet: '#8b5cf6',
+  cyan: '#06b6d4',
+  fuchsia: '#d946ef',
+  lime: '#84cc16',
+  orange: '#f97316',
+  gray: '#94a3b8',
+}
+
+const pickColor = (key: unknown, fallback: string) => {
+  if (typeof key === 'string' && key in CHART_COLORS) return CHART_COLORS[key]
+  return fallback
+}
+
+const readNumber = (obj: ChartRow, key: string) => {
+  const v = obj[key]
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+  if (typeof v === 'string') {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : 0
+  }
+  return 0
+}
+
+const readString = (obj: ChartRow, key: string) => {
+  const v = obj[key]
+  return typeof v === 'string' ? v : String(v ?? '')
+}
+
+type DonutChartProps = {
+  data: ChartRow[]
+  category: string
+  index: string
+  colors?: string[]
+  className?: string
+  variant?: string
+}
+
+const DonutChart = ({ data, category, index, colors, className }: DonutChartProps) => {
+  const rows = (data || []).map((row, idx) => {
+    const fallback = pickColor(colors?.[idx], '#94a3b8')
+    return {
+      name: readString(row, index) || '—',
+      value: Math.max(0, readNumber(row, category)),
+      color: pickColor((row as { color?: unknown }).color, fallback),
+    }
+  })
+
+  const total = rows.reduce((acc, r) => acc + r.value, 0)
+  const segments = total
+    ? rows
+        .filter((r) => r.value > 0)
+        .reduce<{ stops: string[]; accPct: number }>(
+          (acc, r) => {
+            const start = acc.accPct
+            const end = start + (r.value / total) * 100
+            acc.stops.push(`${r.color} ${start.toFixed(2)}% ${end.toFixed(2)}%`)
+            acc.accPct = end
+            return acc
+          },
+          { stops: [], accPct: 0 }
+        ).stops
+    : []
+
+  const background = segments.length ? `conic-gradient(${segments.join(', ')})` : 'conic-gradient(#e2e8f0 0% 100%)'
+
+  return (
+    <div className={`flex flex-col gap-4 sm:flex-row sm:items-center ${className || ''}`}>
+      <div className="relative mx-auto h-32 w-32 sm:mx-0 sm:h-36 sm:w-36">
+        <div className="h-full w-full rounded-full" style={{ background }} />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-sm font-medium text-slate-900 shadow-sm dark:bg-slate-950 dark:text-slate-100 sm:h-20 sm:w-20">
+            {total ? total : '—'}
+          </div>
+        </div>
+      </div>
+
+      <div className="min-w-0 flex-1">
+        {rows.length === 0 ? (
+          <div className="text-sm text-slate-500 dark:text-slate-400">No hay datos para graficar.</div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((r) => {
+              const pct = total ? Math.round((r.value / total) * 100) : 0
+              return (
+                <div key={r.name} className="flex items-center justify-between gap-3 text-sm">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: r.color }} />
+                    <span className="truncate text-slate-700 dark:text-slate-200">{r.name}</span>
+                  </div>
+                  <div className="shrink-0 text-slate-600 dark:text-slate-300">
+                    {r.value} ({pct}%)
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+type BarListRow = { name: string; value: number; color?: string }
+type BarListProps = {
+  data: BarListRow[]
+  className?: string
+  valueFormatter?: (v: number) => string
+}
+
+const BarList = ({ data, className, valueFormatter }: BarListProps) => {
+  const rows = data || []
+  const max = Math.max(0, ...rows.map((r) => (Number.isFinite(r.value) ? r.value : 0)))
+
+  return (
+    <div className={className || ''}>
+      <div className="space-y-2">
+        {rows.map((r) => {
+          const value = Number.isFinite(r.value) ? r.value : 0
+          const pct = max ? Math.max(0, Math.min(100, (value / max) * 100)) : 0
+          const color = pickColor(r.color, '#0ea5e9')
+          return (
+            <div key={r.name} className="grid grid-cols-[1fr_auto] items-center gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                  <div className="truncate text-sm text-slate-700 dark:text-slate-200">{r.name}</div>
+                </div>
+                <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                  <div className="h-2 rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                </div>
+              </div>
+              <div className="text-sm tabular-nums text-slate-600 dark:text-slate-300">
+                {valueFormatter ? valueFormatter(value) : value}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 type TabKey = 'subject' | 'director'
 
@@ -456,18 +605,19 @@ export default function TeacherStatistics() {
   }, [directorSubjects, directorSubjectId])
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto px-3 py-4 sm:p-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Estadísticas docentes</h1>
           <p className="text-slate-600 dark:text-slate-300 mt-1">Resumen de asignatura y dirección de grupo.</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
+        <div className="w-full md:w-auto">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={yearId}
               disabled={loadingMeta}
               onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
@@ -479,12 +629,12 @@ export default function TeacherStatistics() {
                 </option>
               ))}
             </select>
-          </div>
+            </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-500 dark:text-slate-400">Periodo</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm text-slate-500 dark:text-slate-400">Periodo</span>
             <select
-              className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={periodId}
               disabled={loadingMeta || !yearId}
               onChange={(e) => setPeriodId(e.target.value ? Number(e.target.value) : '')}
@@ -496,6 +646,7 @@ export default function TeacherStatistics() {
                 </option>
               ))}
             </select>
+            </div>
           </div>
         </div>
       </div>
@@ -512,13 +663,15 @@ export default function TeacherStatistics() {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2 mb-4">
-        <Button variant={tab === 'subject' ? 'default' : 'outline'} onClick={() => setTab('subject')}>
-          Docente de asignatura
-        </Button>
-        <Button variant={tab === 'director' ? 'default' : 'outline'} onClick={() => setTab('director')}>
-          Director de grupo
-        </Button>
+      <div className="mb-4 -mx-3 px-3 overflow-x-auto">
+        <div className="flex w-max min-w-full items-center gap-2">
+          <Button variant={tab === 'subject' ? 'default' : 'outline'} onClick={() => setTab('subject')}>
+            Docente de asignatura
+          </Button>
+          <Button variant={tab === 'director' ? 'default' : 'outline'} onClick={() => setTab('director')}>
+            Director de grupo
+          </Button>
+        </div>
       </div>
 
       {error ? (
@@ -563,14 +716,7 @@ export default function TeacherStatistics() {
                     <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Estado de planillas</div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Sobre {subjectCharts.expected} esperadas</div>
                     <div className="mt-2">
-                      <DonutChart
-                        data={subjectCharts.gradeSheets}
-                        category="value"
-                        index="name"
-                        variant="donut"
-                        colors={['emerald', 'sky', 'rose']}
-                        className="h-36"
-                      />
+                      <DonutChart data={subjectCharts.gradeSheets} category="value" index="name" colors={['emerald', 'sky', 'rose']} />
                     </div>
                   </div>
 
@@ -578,14 +724,7 @@ export default function TeacherStatistics() {
                     <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Celdas de calificación</div>
                     <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Diligenciadas vs pendientes</div>
                     <div className="mt-2">
-                      <DonutChart
-                        data={subjectCharts.cells}
-                        category="value"
-                        index="name"
-                        variant="donut"
-                        colors={['emerald', 'amber']}
-                        className="h-36"
-                      />
+                      <DonutChart data={subjectCharts.cells} category="value" index="name" colors={['emerald', 'amber']} />
                     </div>
                   </div>
                 </div>
@@ -664,10 +803,10 @@ export default function TeacherStatistics() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-2">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+                  <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
                     <span className="text-sm text-slate-500 dark:text-slate-400">Vista</span>
-                    <div className="flex items-center gap-2">
+                    <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 lg:mx-0 lg:px-0">
                       <Button
                         variant={directorMode === 'period' ? 'default' : 'outline'}
                         onClick={() => setDirectorMode('period')}
@@ -683,10 +822,10 @@ export default function TeacherStatistics() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
                     <span className="text-sm text-slate-500 dark:text-slate-400">Grupo</span>
                     <select
-                      className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 lg:w-auto"
                       value={directorGroupId}
                       disabled={(director?.groups || []).length === 0}
                       onChange={(e) => setDirectorGroupId(e.target.value ? Number(e.target.value) : '')}
@@ -700,10 +839,10 @@ export default function TeacherStatistics() {
                     </select>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2 sm:col-span-2">
                     <span className="text-sm text-slate-500 dark:text-slate-400">Asignatura</span>
                     <select
-                      className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       value={directorSubjectId}
                       disabled={directorSubjects.length === 0}
                       onChange={(e) => setDirectorSubjectId(e.target.value ? Number(e.target.value) : '')}
@@ -728,7 +867,8 @@ export default function TeacherStatistics() {
             </CardContent>
           </Card>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="-mx-3 px-3 overflow-x-auto">
+            <div className="flex w-max min-w-full items-center gap-2">
             <Button variant={directorSubtab === 'resumen' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('resumen')}>
               Resumen
             </Button>
@@ -747,6 +887,7 @@ export default function TeacherStatistics() {
             <Button variant={directorSubtab === 'ia' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('ia')}>
               IA
             </Button>
+            </div>
           </div>
 
           {directorSubtab === 'resumen' ? (
@@ -771,7 +912,6 @@ export default function TeacherStatistics() {
                           index="name"
                           variant="donut"
                           colors={['emerald', 'rose', 'gray']}
-                          className="h-44"
                         />
                       </>
                     )}

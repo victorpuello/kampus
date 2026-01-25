@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import StudentList from './pages/StudentList'
 import StudentForm from './pages/StudentForm'
+import StudentObserverPrint from './pages/StudentObserverPrint'
 import TeacherList from './pages/TeacherList'
 import TeacherForm from './pages/TeacherForm'
 import UserList from './pages/UserList'
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         
         <Route element={<ProtectedRoute />}>
+          <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
           <Route element={<DashboardLayout />}>
             <Route path="/" element={<DashboardHome />} />
             <Route path="/my-assignment" element={<TeacherAssignments />} />

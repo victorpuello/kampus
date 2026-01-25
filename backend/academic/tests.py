@@ -1,6 +1,37 @@
 from django.test import TestCase
 from academic.models import AchievementDefinition
 
+
+class AcademicYearEnrollmentStatusTest(TestCase):
+    def test_auto_closing_year_retires_enrollments(self):
+        from academic.models import AcademicYear, Grade, Group
+        from students.models import Enrollment, Student
+        from users.models import User
+
+        y2025 = AcademicYear.objects.create(year=2025, status=AcademicYear.STATUS_ACTIVE)
+        grade = Grade.objects.create(name="1", ordinal=1)
+        group = Group.objects.create(name="A", grade=grade, academic_year=y2025, capacity=40)
+
+        u = User.objects.create_user(
+            username="student_ay",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Diaz",
+            role=getattr(User, "ROLE_STUDENT", "STUDENT"),
+        )
+        s = Student.objects.create(user=u, document_number="DOC_AY")
+        enr = Enrollment.objects.create(student=s, academic_year=y2025, grade=grade, group=group, status="ACTIVE")
+
+        y2026 = AcademicYear.objects.create(year=2026, status=AcademicYear.STATUS_PLANNING)
+        y2026.status = AcademicYear.STATUS_ACTIVE
+        y2026.save()
+
+        y2025.refresh_from_db()
+        enr.refresh_from_db()
+
+        self.assertEqual(y2025.status, AcademicYear.STATUS_CLOSED)
+        self.assertEqual(enr.status, "RETIRED")
+
 class AchievementDefinitionModelTest(TestCase):
     def test_code_auto_generation(self):
         # Create a definition without code

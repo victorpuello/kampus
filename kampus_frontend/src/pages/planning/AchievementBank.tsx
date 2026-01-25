@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { academicApi } from '../../services/academic';
 import { useAuthStore } from '../../store/auth'
 import type { AchievementDefinition, Area, Subject, Grade, Dimension, TeacherAssignment, Group } from '../../services/academic';
@@ -35,11 +35,7 @@ export default function AchievementBank() {
     is_active: true
   });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const teacherMode = user?.role === 'TEACHER'
       const [defsRes, areasRes, subjectsRes, gradesRes, yearsRes, assignmentsRes, groupsRes] = await Promise.all([
@@ -135,7 +131,11 @@ export default function AchievementBank() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    loadData()
+  }, [loadData])
 
   const visibleSubjectIds = useMemo(() => {
     if (!teacherAllowed) return null

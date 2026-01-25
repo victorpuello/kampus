@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { studentsApi, noveltiesApi, documentsApi } from '../services/students'
 import type { Student } from '../services/students'
@@ -26,7 +26,7 @@ export default function StudentProfile() {
     file: null as File | null
   })
 
-  const loadStudent = () => {
+  const loadStudent = useCallback(() => {
     if (!studentId) return
     setLoading(true)
     studentsApi
@@ -34,11 +34,11 @@ export default function StudentProfile() {
       .then((res) => setData(res.data))
       .catch(() => setError('No se pudo cargar el perfil'))
       .finally(() => setLoading(false))
-  }
+  }, [studentId])
 
   useEffect(() => {
     loadStudent()
-  }, [studentId])
+  }, [loadStudent])
 
   const handleAddNovelty = async (e: React.FormEvent) => {
     e.preventDefault()

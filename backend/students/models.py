@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
+from django.core.validators import FileExtensionValidator
 import hashlib
 import json
 import uuid
@@ -71,6 +73,13 @@ class FamilyMember(models.Model):
     )
     full_name = models.CharField(max_length=200)
     document_number = models.CharField(max_length=50, blank=True, verbose_name="Cédula")
+    identity_document = models.FileField(
+        upload_to='family_identity_documents/',
+        blank=True,
+        null=True,
+        verbose_name="Documento de identidad (archivo)",
+        validators=[FileExtensionValidator(allowed_extensions=['pdf', 'png', 'jpg', 'jpeg', 'webp'])],
+    )
     relationship = models.CharField(max_length=50)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
@@ -204,6 +213,94 @@ class StudentDocument(models.Model):
 
     def __str__(self):
         return f"{self.get_document_type_display()} - {self.student}"
+
+
+class ObserverAnnotation(models.Model):
+    """Manual or automatic observer notes linked to a student (optionally a period).
+
+    Supports audit trail (created/updated/deleted by) and soft-delete.
+    """
+
+    TYPE_PRAISE = "PRAISE"
+    TYPE_OBSERVATION = "OBSERVATION"
+    TYPE_ALERT = "ALERT"
+    TYPE_COMMITMENT = "COMMITMENT"
+    TYPE_CHOICES = (
+        (TYPE_PRAISE, "Felicitación"),
+        (TYPE_OBSERVATION, "Observación"),
+        (TYPE_ALERT, "Llamado de atención"),
+        (TYPE_COMMITMENT, "Compromiso"),
+    )
+
+    student = models.ForeignKey(
+        Student,
+        related_name="observer_annotations",
+        on_delete=models.CASCADE,
+    )
+    period = models.ForeignKey(
+        "academic.Period",
+        related_name="observer_annotations",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    annotation_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_OBSERVATION)
+    title = models.CharField(max_length=200, blank=True)
+    text = models.TextField()
+
+    commitments = models.TextField(blank=True)
+    commitment_due_date = models.DateField(null=True, blank=True)
+    commitment_responsible = models.CharField(max_length=120, blank=True)
+
+    is_automatic = models.BooleanField(default=False)
+    rule_key = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Clave para idempotencia en anotaciones automáticas (por estudiante+periodo).",
+    )
+    meta = models.JSONField(default=dict, blank=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="observer_annotations_created",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="observer_annotations_updated",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="observer_annotations_deleted",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "period", "rule_key"],
+                condition=Q(rule_key__isnull=False) & Q(is_deleted=False),
+                name="uniq_observer_annotation_rule_per_student_period",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"ObserverAnnotation {self.student_id} {self.annotation_type} ({self.created_at})"
 
 
 class CertificateIssue(models.Model):

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { teachersApi } from '../services/teachers'
 import { academicApi, type AcademicYear, type Group, type TeacherAssignment, type AcademicLoad, type Grade } from '../services/academic'
@@ -59,9 +59,9 @@ export default function TeacherForm() {
     isVisible: false
   })
   
-  const showToast = (message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
-  }
+  }, [])
 
   const getErrorMessage = (error: unknown, defaultMessage: string): string => {
     const errObj = (typeof error === 'object' && error !== null)
@@ -145,13 +145,7 @@ export default function TeacherForm() {
     academic_load: ''
   })
 
-  useEffect(() => {
-    if (activeTab === 'assignments' && isEditing) {
-      loadAssignmentData()
-    }
-  }, [activeTab, isEditing])
-
-  const loadAssignmentData = async () => {
+  const loadAssignmentData = useCallback(async () => {
     try {
       const [yearsRes, groupsRes, gradesRes, assignmentsRes, loadsRes] = await Promise.all([
         academicApi.listYears(),
@@ -179,7 +173,13 @@ export default function TeacherForm() {
       console.error('Error loading assignment data:', error)
       showToast('Error al cargar datos de asignación', 'error')
     }
-  }
+  }, [id, selectedYear, showToast])
+
+  useEffect(() => {
+    if (activeTab === 'assignments' && isEditing) {
+      loadAssignmentData()
+    }
+  }, [activeTab, isEditing, loadAssignmentData])
 
   const handleAddAssignment = async () => {
     if (!selectedYear || !newAssignment.group || !newAssignment.academic_load) {
@@ -303,7 +303,7 @@ export default function TeacherForm() {
         })
         .finally(() => setLoading(false))
     }
-  }, [id, isEditing])
+  }, [id, isEditing, showToast])
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null

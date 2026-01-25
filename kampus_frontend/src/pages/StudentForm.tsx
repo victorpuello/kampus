@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { studentsApi, familyMembersApi } from '../services/students'
-import type { FamilyMember } from '../services/students'
+import { studentsApi, familyMembersApi, observerAnnotationsApi } from '../services/students'
+import type { FamilyMember, ObserverAnnotation, ObserverAnnotationType } from '../services/students'
 import StudentDocuments from '../components/students/StudentDocuments'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -9,7 +9,7 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
-import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText, GraduationCap } from 'lucide-react'
+import { ArrowLeft, User, Home, Activity, Heart, Users, Plus, Trash2, Edit2, X, FileText, GraduationCap, Printer } from 'lucide-react'
 import { colombiaData } from '../data/colombia'
 import { epsList, ethnicityList } from '../data/socioeconomic'
 import { useAuthStore } from '../store/auth'
@@ -52,6 +52,7 @@ function FamilyMemberForm({
     const [formData, setFormData] = useState({
         full_name: member?.full_name || '',
         document_number: member?.document_number || '',
+        identity_document: null as File | null,
         relationship: member?.relationship || '',
         phone: member?.phone || '',
         email: member?.email || '',
@@ -59,6 +60,10 @@ function FamilyMemberForm({
         is_main_guardian: member?.is_main_guardian || false,
         is_head_of_household: member?.is_head_of_household || false,
     })
+
+    const requiresIdentity =
+        formData.is_main_guardian || formData.relationship === 'Padre' || formData.relationship === 'Acudiente'
+    const requiresIdentityFile = requiresIdentity && !(member?.identity_document || '').trim()
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target
@@ -70,11 +75,16 @@ function FamilyMemberForm({
         setFormData(prev => ({ ...prev, [name]: checked }))
     }
 
+    const handleIdentityFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0] || null
+        setFormData(prev => ({ ...prev, identity_document: file }))
+    }
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
         try {
-            const payload = { ...formData, student: studentId }
+            const payload: Record<string, unknown> = { ...formData, student: studentId }
             if (member) {
                 await familyMembersApi.update(member.id, payload)
             } else {
@@ -123,7 +133,41 @@ function FamilyMemberForm({
                         </div>
                         <div className="space-y-2">
                             <Label>Documento</Label>
-                            <Input name="document_number" value={formData.document_number} onChange={handleChange} />
+                            <Input
+                                name="document_number"
+                                value={formData.document_number}
+                                onChange={handleChange}
+                                required={requiresIdentity}
+                            />
+                            {requiresIdentity ? (
+                                <p className="text-xs text-slate-500">Requerido para Padre/Acudiente (o acudiente principal).</p>
+                            ) : null}
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Documento de identidad (archivo)</Label>
+                            <input
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={handleIdentityFileChange}
+                                required={requiresIdentityFile}
+                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                            />
+                            <div className="text-xs text-slate-500">
+                                {member?.identity_document ? (
+                                    <a
+                                        href={member.identity_document}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-sky-700 hover:underline"
+                                    >
+                                        Ver archivo actual
+                                    </a>
+                                ) : (
+                                    <span>Sube PDF o imagen (JPG/PNG/WebP).</span>
+                                )}
+                                {requiresIdentityFile ? <span className="block">Requerido para Padre/Acudiente.</span> : null}
+                            </div>
                         </div>
                         <div className="space-y-2">
                             <Label>Teléfono</Label>
@@ -158,6 +202,134 @@ function FamilyMemberForm({
     )
 }
 
+function ObserverAnnotationForm({
+    studentId,
+    annotation,
+    onSave,
+    onCancel,
+}: {
+    studentId: number
+    annotation?: ObserverAnnotation
+    onSave: () => void
+    onCancel: () => void
+}) {
+    const [loading, setLoading] = useState(false)
+    const [formData, setFormData] = useState({
+        annotation_type: (annotation?.annotation_type || 'OBSERVATION') as ObserverAnnotationType,
+        title: annotation?.title || '',
+        text: annotation?.text || '',
+        commitments: annotation?.commitments || '',
+        commitment_due_date: annotation?.commitment_due_date || '',
+        commitment_responsible: annotation?.commitment_responsible || '',
+    })
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setLoading(true)
+        try {
+            const payload: Record<string, unknown> = {
+                student: studentId,
+                annotation_type: formData.annotation_type,
+                title: formData.title,
+                text: formData.text,
+                commitments: formData.commitments,
+                commitment_due_date: formData.commitment_due_date || null,
+                commitment_responsible: formData.commitment_responsible,
+            }
+
+            if (annotation) await observerAnnotationsApi.update(annotation.id, payload)
+            else await observerAnnotationsApi.create(payload)
+
+            onSave()
+        } catch (err: unknown) {
+            console.error(err)
+            alert(getErrorDetail(err) || 'No se pudo guardar la anotación')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white dark:bg-slate-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
+                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+                        {annotation ? 'Editar anotación' : 'Nueva anotación'}
+                    </h3>
+                    <button onClick={onCancel}><X className="h-5 w-5 text-slate-500 dark:text-slate-400" /></button>
+                </div>
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Tipo</Label>
+                            <select
+                                value={formData.annotation_type}
+                                onChange={(e) => setFormData((p) => ({ ...p, annotation_type: e.target.value as ObserverAnnotationType }))}
+                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                required
+                            >
+                                <option value="PRAISE">Felicitación</option>
+                                <option value="OBSERVATION">Observación</option>
+                                <option value="ALERT">Llamado de atención</option>
+                                <option value="COMMITMENT">Compromiso</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label>Título</Label>
+                            <Input value={formData.title} onChange={(e) => setFormData((p) => ({ ...p, title: e.target.value }))} />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Descripción</Label>
+                        <textarea
+                            value={formData.text}
+                            onChange={(e) => setFormData((p) => ({ ...p, text: e.target.value }))}
+                            className="flex min-h-[140px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                            required
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label>Fecha compromiso (opcional)</Label>
+                            <Input
+                                type="date"
+                                value={formData.commitment_due_date}
+                                onChange={(e) => setFormData((p) => ({ ...p, commitment_due_date: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Responsable (opcional)</Label>
+                            <Input
+                                value={formData.commitment_responsible}
+                                onChange={(e) => setFormData((p) => ({ ...p, commitment_responsible: e.target.value }))}
+                                placeholder="Estudiante / acudiente / docente"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label>Compromisos (opcional)</Label>
+                        <textarea
+                            value={formData.commitments}
+                            onChange={(e) => setFormData((p) => ({ ...p, commitments: e.target.value }))}
+                            className="flex min-h-[100px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                            placeholder="Lista de compromisos o plan de mejora"
+                        />
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                        <Button type="button" variant="outline" onClick={onCancel}>Cancelar</Button>
+                        <Button type="submit" disabled={loading}>{loading ? 'Guardando…' : 'Guardar'}</Button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    )
+}
+
 export default function StudentForm() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -167,6 +339,7 @@ export default function StudentForm() {
         const blockedHistoryImport = user?.role === 'TEACHER' || user?.role === 'PARENT' || user?.role === 'STUDENT'
 
     const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean | null>(null)
+    const [teacherHasGroupAccess, setTeacherHasGroupAccess] = useState<boolean | null>(null)
     const canEdit = !isTeacher || (isEditing && teacherHasDirectedGroup === true)
 
   const [loading, setLoading] = useState(false)
@@ -240,7 +413,14 @@ export default function StudentForm() {
         setDisciplineError(null)
 
         Promise.all([
-            enrollmentsApi.list({ student: studentId, status: 'ACTIVE' }),
+            enrollmentsApi
+                .list({ student: studentId, status: 'ACTIVE' })
+                .then((res) => {
+                    const results = res.data?.results || []
+                    if (results.length > 0) return res
+                    return enrollmentsApi.my({ student: studentId })
+                })
+                .catch(() => enrollmentsApi.my({ student: studentId })),
             disciplineApi.list({ student: studentId }),
         ])
             .then(([enRes, casesRes]) => {
@@ -274,6 +454,11 @@ export default function StudentForm() {
         return typeof en.academic_year === 'number' ? String(en.academic_year) : '-'
     }
 
+    const enrollmentYearStatusLabel = (en: Enrollment): string => {
+        if (typeof en.academic_year === 'object' && en.academic_year) return String(en.academic_year.status || '')
+        return ''
+    }
+
     const enrollmentGradeLabel = (en: Enrollment): string => {
         if (typeof en.grade === 'object' && en.grade) return String(en.grade.name)
         return typeof en.grade === 'number' ? String(en.grade) : '-'
@@ -296,6 +481,26 @@ export default function StudentForm() {
             .then((res) => {
                 if (!mounted) return
                 const results = res.data?.results || []
+
+                if (results.length === 0) {
+                    return enrollmentsApi
+                        .my({ student: studentId, page_size: 50 })
+                        .then((fallbackRes) => {
+                            if (!mounted) return
+                            const fallbackResults = fallbackRes.data?.results || []
+                            const sorted = fallbackResults.slice().sort((a, b) => {
+                                const ay = Number(enrollmentYearLabel(a))
+                                const by = Number(enrollmentYearLabel(b))
+                                if (Number.isFinite(ay) && Number.isFinite(by)) return by - ay
+                                return enrollmentYearLabel(b).localeCompare(enrollmentYearLabel(a))
+                            })
+                            setCurrentEnrollment(sorted[0] || null)
+                        })
+                        .catch(() => {
+                            if (!mounted) return
+                            setCurrentEnrollment(null)
+                        })
+                }
                 const sorted = results.slice().sort((a, b) => {
                     const ay = Number(enrollmentYearLabel(a))
                     const by = Number(enrollmentYearLabel(b))
@@ -304,10 +509,25 @@ export default function StudentForm() {
                 })
                 setCurrentEnrollment(sorted[0] || null)
             })
-            .catch(() => {
-                if (!mounted) return
-                setCurrentEnrollment(null)
-            })
+            .catch(() =>
+                enrollmentsApi
+                    .my({ student: studentId, page_size: 50 })
+                    .then((res) => {
+                        if (!mounted) return
+                        const results = res.data?.results || []
+                        const sorted = results.slice().sort((a, b) => {
+                            const ay = Number(enrollmentYearLabel(a))
+                            const by = Number(enrollmentYearLabel(b))
+                            if (Number.isFinite(ay) && Number.isFinite(by)) return by - ay
+                            return enrollmentYearLabel(b).localeCompare(enrollmentYearLabel(a))
+                        })
+                        setCurrentEnrollment(sorted[0] || null)
+                    })
+                    .catch(() => {
+                        if (!mounted) return
+                        setCurrentEnrollment(null)
+                    })
+            )
             .finally(() => {
                 if (!mounted) return
                 setCurrentEnrollmentLoading(false)
@@ -331,6 +551,29 @@ export default function StudentForm() {
             .then((res) => {
                 if (!mounted) return
                 const results = res.data?.results || []
+
+                if (results.length === 0) {
+                    return enrollmentsApi
+                        .my({ student: studentId, include_all_years: true, page_size: 200 })
+                        .then((fallbackRes) => {
+                            if (!mounted) return
+                            const fallbackResults = fallbackRes.data?.results || []
+                            const sorted = fallbackResults.slice().sort((a, b) => {
+                                const ay = Number(enrollmentYearLabel(a))
+                                const by = Number(enrollmentYearLabel(b))
+                                if (Number.isFinite(ay) && Number.isFinite(by)) return by - ay
+                                return enrollmentYearLabel(b).localeCompare(enrollmentYearLabel(a))
+                            })
+                            setAcademicHistory(sorted)
+                        })
+                        .catch((e: unknown) => {
+                            if (!mounted) return
+                            console.error(e)
+                            setAcademicHistory([])
+                            setAcademicHistoryError(getErrorDetail(e) || 'No se pudo cargar el historial académico')
+                        })
+                }
+
                 const sorted = results.slice().sort((a, b) => {
                     const ay = Number(enrollmentYearLabel(a))
                     const by = Number(enrollmentYearLabel(b))
@@ -511,10 +754,12 @@ export default function StudentForm() {
 
         if (!isTeacher || !user?.id) {
             setTeacherHasDirectedGroup(null)
+            setTeacherHasGroupAccess(null)
             return
         }
 
         setTeacherHasDirectedGroup(null)
+        setTeacherHasGroupAccess(null)
 
         ;(async () => {
             try {
@@ -524,11 +769,20 @@ export default function StudentForm() {
                     director: user.id,
                     ...(activeYear ? { academic_year: activeYear.id } : {}),
                 })
+
+                const assignmentsRes = await academicApi.listMyAssignments({
+                    academic_year: activeYear ? activeYear.id : '',
+                })
+
                 if (!mounted) return
-                setTeacherHasDirectedGroup(groupsRes.data.length > 0)
+                const hasDirected = groupsRes.data.length > 0
+                const hasAssigned = (assignmentsRes.data || []).length > 0
+                setTeacherHasDirectedGroup(hasDirected)
+                setTeacherHasGroupAccess(hasDirected || hasAssigned)
             } catch {
                 if (!mounted) return
                 setTeacherHasDirectedGroup(false)
+                setTeacherHasGroupAccess(false)
             }
         })()
 
@@ -538,7 +792,7 @@ export default function StudentForm() {
     }, [isTeacher, user?.id])
 
   useEffect(() => {
-        if (isTeacher && teacherHasDirectedGroup !== true) return
+      if (isTeacher && teacherHasGroupAccess !== true) return
 
     if (isEditing && id) {
       setLoading(true)
@@ -607,7 +861,42 @@ export default function StudentForm() {
         })
         .finally(() => setLoading(false))
     }
-    }, [id, isEditing, isTeacher, teacherHasDirectedGroup])
+    }, [id, isEditing, isTeacher, teacherHasGroupAccess])
+
+    const [annotationsLoading, setAnnotationsLoading] = useState(false)
+    const [annotationsError, setAnnotationsError] = useState<string | null>(null)
+    const [annotations, setAnnotations] = useState<ObserverAnnotation[]>([])
+    const [annotationFormOpen, setAnnotationFormOpen] = useState(false)
+    const [annotationEditing, setAnnotationEditing] = useState<ObserverAnnotation | undefined>(undefined)
+    const [annotationToDelete, setAnnotationToDelete] = useState<ObserverAnnotation | null>(null)
+
+    const refreshAnnotations = async () => {
+        if (!studentId) return
+        setAnnotationsLoading(true)
+        setAnnotationsError(null)
+        try {
+            const res = await observerAnnotationsApi.list({ student: studentId })
+            const payload = res.data as unknown
+            if (Array.isArray(payload)) {
+                setAnnotations(payload)
+            } else {
+                const maybe = payload as { results?: ObserverAnnotation[] }
+                setAnnotations(maybe.results || [])
+            }
+        } catch (e: unknown) {
+            console.error(e)
+            setAnnotationsError(getErrorDetail(e) || 'No se pudieron cargar las anotaciones')
+        } finally {
+            setAnnotationsLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        if (!studentId) return
+        if (isTeacher && teacherHasGroupAccess !== true) return
+        refreshAnnotations()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [studentId, isTeacher, teacherHasGroupAccess])
     const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0] || null
         setStudentPhotoFile(file)
@@ -726,6 +1015,7 @@ export default function StudentForm() {
     { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
     { id: 'support', label: 'Apoyos', icon: Heart },
         { id: 'discipline', label: 'Convivencia', icon: FileText },
+                { id: 'observer_annotations', label: 'Anotaciones', icon: FileText },
         { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
     { id: 'family', label: 'Familia', icon: Users },
     { id: 'documents', label: 'Documentos', icon: FileText },
@@ -736,9 +1026,9 @@ export default function StudentForm() {
         : tabs
 
     if (isTeacher) {
-        if (teacherHasDirectedGroup === null) return <div className="p-6">Cargando…</div>
+        if (teacherHasGroupAccess === null) return <div className="p-6">Cargando…</div>
 
-        if (teacherHasDirectedGroup === false) {
+        if (teacherHasGroupAccess === false) {
             return (
                 <Card>
                     <CardHeader>
@@ -746,8 +1036,7 @@ export default function StudentForm() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-slate-600">
-                            No tienes asignación como director de grupo. Para ver estudiantes, primero debes estar asignado
-                            como director de un grupo.
+                            No tienes asignaciones (como director o docente) en el año activo.
                         </p>
                         <div className="mt-4">
                             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
@@ -793,13 +1082,13 @@ export default function StudentForm() {
     }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
+        <div className="max-w-5xl mx-auto space-y-6 px-3 py-4 sm:p-6">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Button variant="ghost" size="sm" onClick={() => navigate('/students')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
-                <div className="flex flex-col">
+                <div className="flex flex-col flex-1">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                             {isEditing ? 'Editar Estudiante' : 'Nuevo Estudiante'}
                         </h2>
@@ -816,27 +1105,43 @@ export default function StudentForm() {
                                 </div>
                         )}
                 </div>
+                {isEditing && studentId ? (
+                                        <div className="flex w-full items-center gap-2 sm:w-auto">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/students/${studentId}/observer/print`)}
+                            title="Imprimir Observador"
+                                                        className="w-full sm:w-auto"
+                        >
+                            <Printer className="h-4 w-4 mr-2" />
+                            Imprimir Observador
+                        </Button>
+                    </div>
+                ) : null}
       </div>
 
-      <div className="flex space-x-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 p-1">
-                {visibleTabs.map((tab) => {
-            const Icon = tab.icon
-            return (
-                <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 flex items-center justify-center gap-2
-                    ${activeTab === tab.id 
-            ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
-            : 'text-slate-600 hover:bg-white/12 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-900/50 dark:hover:text-blue-300'
-                    }`}
-                >
-                    <Icon className="h-4 w-4" />
-                    <span className="hidden md:inline">{tab.label}</span>
-                </button>
-            )
-        })}
-      </div>
+            <div className="-mx-3 overflow-x-auto px-3">
+                <div className="flex w-max min-w-full gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/60">
+                    {visibleTabs.map((tab) => {
+                        const Icon = tab.icon
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`min-h-10 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium leading-5 flex items-center justify-center gap-2 sm:text-sm
+                                ${activeTab === tab.id
+                                    ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
+                                    : 'text-slate-600 hover:bg-white/12 hover:text-blue-600 dark:text-slate-300 dark:hover:bg-slate-900/50 dark:hover:text-blue-300'
+                                }`}
+                            >
+                                <Icon className="h-4 w-4" />
+                                <span>{tab.label}</span>
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
 
       <div className="space-y-6">
         {error && (
@@ -877,7 +1182,7 @@ export default function StudentForm() {
 
                 <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="student_photo">Foto</Label>
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                         {(studentPhotoPreviewUrl || studentPhotoUrl) ? (
                             <img
                                 src={studentPhotoPreviewUrl || studentPhotoUrl || ''}
@@ -988,8 +1293,8 @@ export default function StudentForm() {
                     </select>
                 </div>
             </CardContent>
-            <div className="flex justify-end p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
-                <Button onClick={() => handleSaveStep('residence')} disabled={loading || !canEdit}>
+            <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-end dark:border-slate-800 dark:bg-slate-900/40">
+                <Button onClick={() => handleSaveStep('residence')} disabled={loading || !canEdit} className="w-full sm:w-auto">
                     Guardar y Continuar
                 </Button>
             </div>
@@ -1038,9 +1343,9 @@ export default function StudentForm() {
                     <Input name="stratum" value={formData.stratum} onChange={handleChange} disabled={!canEdit} />
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
-                <Button variant="outline" onClick={() => setActiveTab('identification')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('socioeconomic')} disabled={loading || !canEdit}>
+            <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+                <Button variant="outline" onClick={() => setActiveTab('identification')} className="w-full sm:w-auto">Anterior</Button>
+                <Button onClick={() => handleSaveStep('socioeconomic')} disabled={loading || !canEdit} className="w-full sm:w-auto">
                     Guardar y Continuar
                 </Button>
             </div>
@@ -1094,9 +1399,9 @@ export default function StudentForm() {
                     </label>
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
-                <Button variant="outline" onClick={() => setActiveTab('residence')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('support')} disabled={loading || !canEdit}>
+            <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+                <Button variant="outline" onClick={() => setActiveTab('residence')} className="w-full sm:w-auto">Anterior</Button>
+                <Button onClick={() => handleSaveStep('support')} disabled={loading || !canEdit} className="w-full sm:w-auto">
                     Guardar y Continuar
                 </Button>
             </div>
@@ -1145,9 +1450,9 @@ export default function StudentForm() {
                     />
                 </div>
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
-                <Button variant="outline" onClick={() => setActiveTab('socioeconomic')}>Anterior</Button>
-                <Button onClick={() => handleSaveStep('family')} disabled={loading || !canEdit}>
+            <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+                <Button variant="outline" onClick={() => setActiveTab('socioeconomic')} className="w-full sm:w-auto">Anterior</Button>
+                <Button onClick={() => handleSaveStep('family')} disabled={loading || !canEdit} className="w-full sm:w-auto">
                     Guardar y Continuar
                 </Button>
             </div>
@@ -1372,6 +1677,118 @@ export default function StudentForm() {
                 </div>
 
         {/* ACADEMIC HISTORY TAB */}
+        {/* OBSERVER ANNOTATIONS TAB */}
+        <div className={activeTab === 'observer_annotations' ? 'block' : 'hidden'}>
+            {!studentId ? (
+                <Card>
+                    <CardContent className="py-8 text-center text-slate-500">
+                        Guarde el estudiante primero para gestionar anotaciones.
+                    </CardContent>
+                </Card>
+            ) : (
+                <div className="space-y-6">
+                    <Card>
+                        <CardHeader>
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <CardTitle>Anotaciones del Observador</CardTitle>
+                                <div className="flex gap-2">
+                                    <Button
+                                        type="button"
+                                        onClick={() => {
+                                            setAnnotationEditing(undefined)
+                                            setAnnotationFormOpen(true)
+                                        }}
+                                        className="w-full sm:w-auto"
+                                    >
+                                        <Plus className="h-4 w-4 mr-2" /> Nueva anotación
+                                    </Button>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent>
+                            {annotationsError ? (
+                                <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-950/30 dark:text-red-300">
+                                    {annotationsError}
+                                </div>
+                            ) : null}
+
+                            {annotationsLoading ? (
+                                <div className="text-slate-600 dark:text-slate-300">Cargando…</div>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
+                                            <tr>
+                                                <th className="px-6 py-4 font-semibold">Tipo</th>
+                                                <th className="px-6 py-4 font-semibold">Título</th>
+                                                <th className="px-6 py-4 font-semibold">Autor</th>
+                                                <th className="px-6 py-4 font-semibold">Fecha</th>
+                                                <th className="px-6 py-4 font-semibold">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {annotations.map((a) => (
+                                                <tr key={a.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
+                                                    <td className="px-6 py-4">
+                                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border border-slate-200 text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                                                            {a.annotation_type}
+                                                            {a.is_automatic ? ' (Auto)' : ''}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="font-medium text-slate-900 dark:text-slate-100">{a.title || '—'}</div>
+                                                        <div className="text-slate-600 dark:text-slate-300 line-clamp-2">{a.text}</div>
+                                                    </td>
+                                                    <td className="px-6 py-4">{a.created_by_name || '—'}</td>
+                                                    <td className="px-6 py-4">{new Date(a.created_at).toLocaleString()}</td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            {!a.is_automatic ? (
+                                                                <>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => {
+                                                                            setAnnotationEditing(a)
+                                                                            setAnnotationFormOpen(true)
+                                                                        }}
+                                                                    >
+                                                                        <Edit2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                    <Button
+                                                                        type="button"
+                                                                        variant="outline"
+                                                                        size="sm"
+                                                                        onClick={() => setAnnotationToDelete(a)}
+                                                                    >
+                                                                        <Trash2 className="h-4 w-4" />
+                                                                    </Button>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-xs text-slate-500">—</span>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {annotations.length === 0 && (
+                                                <tr>
+                                                    <td className="px-6 py-6 text-slate-500 dark:text-slate-400" colSpan={5}>
+                                                        No hay anotaciones.
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
+        </div>
+
         <div className={activeTab === 'academic_history' ? 'block' : 'hidden'}>
             {!studentId ? (
                 <Card>
@@ -1396,27 +1813,30 @@ export default function StudentForm() {
                         ) : academicHistory.length === 0 ? (
                             <div className="text-slate-600 dark:text-slate-300">No hay matrículas registradas para este estudiante.</div>
                         ) : (
-                            <div className="overflow-x-auto">
+                            <div className="overflow-x-auto -mx-4 px-4">
                                 <table className="w-full text-sm text-left">
                                     <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                         <tr>
-                                            <th className="px-6 py-4 font-semibold">Año</th>
-                                            <th className="px-6 py-4 font-semibold">Grado</th>
-                                            <th className="px-6 py-4 font-semibold">Grupo</th>
-                                            <th className="px-6 py-4 font-semibold">Estado</th>
-                                            <th className="px-6 py-4 font-semibold">Promoción</th>
-                                            <th className="px-6 py-4 font-semibold">Procedencia</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Año</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Grado</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Grupo</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Estado</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Promoción</th>
+                                            <th className="px-3 py-3 font-semibold sm:px-6 sm:py-4">Procedencia</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                         {academicHistory.map((en) => (
                                             <tr key={en.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
-                                                <td className="px-6 py-4">{enrollmentYearLabel(en)}</td>
-                                                <td className="px-6 py-4">{enrollmentGradeLabel(en)}</td>
-                                                <td className="px-6 py-4">{enrollmentGroupLabel(en)}</td>
-                                                <td className="px-6 py-4">{en.status}</td>
-                                                <td className="px-6 py-4">{en.final_status || '-'}</td>
-                                                <td className="px-6 py-4">{en.origin_school || '-'}</td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">
+                                                    {enrollmentYearLabel(en)}
+                                                    {enrollmentYearStatusLabel(en) ? ` (${enrollmentYearStatusLabel(en)})` : ''}
+                                                </td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">{enrollmentGradeLabel(en)}</td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">{enrollmentGroupLabel(en)}</td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">{en.status}</td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">{en.final_status || '-'}</td>
+                                                <td className="px-3 py-3 sm:px-6 sm:py-4">{en.origin_school || '-'}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1432,7 +1852,7 @@ export default function StudentForm() {
         <div className={activeTab === 'family' ? 'block' : 'hidden'}>
             <Card>
             <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle>Referencias Familiares</CardTitle>
                     {isEditing && canEdit && (
                         <Button size="sm" onClick={() => { setEditingMember(undefined); setShowFamilyModal(true); }} type="button">
@@ -1451,28 +1871,28 @@ export default function StudentForm() {
                         <p>No hay familiares registrados.</p>
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto -mx-4 px-4">
                         <table className="w-full text-sm text-left">
                             <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                                 <tr>
-                                    <th className="px-6 py-3 font-semibold">Nombre</th>
-                                    <th className="px-6 py-3 font-semibold">Parentesco</th>
-                                    <th className="px-6 py-3 font-semibold">Teléfono</th>
-                                    <th className="px-6 py-3 font-semibold">Acudiente</th>
-                                    {canEdit && <th className="px-6 py-3 font-semibold text-right">Acciones</th>}
+                                    <th className="px-3 py-3 font-semibold sm:px-6">Nombre</th>
+                                    <th className="px-3 py-3 font-semibold sm:px-6">Parentesco</th>
+                                    <th className="px-3 py-3 font-semibold sm:px-6">Teléfono</th>
+                                    <th className="px-3 py-3 font-semibold sm:px-6">Acudiente</th>
+                                    {canEdit && <th className="px-3 py-3 font-semibold text-right sm:px-6">Acciones</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {familyMembers.map((member) => (
                                     <tr key={member.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900/40 dark:hover:bg-slate-800/50">
-                                        <td className="px-6 py-3 font-medium text-slate-900 dark:text-slate-100">{member.full_name}</td>
-                                        <td className="px-6 py-3">{member.relationship}</td>
-                                        <td className="px-6 py-3">{member.phone}</td>
-                                        <td className="px-6 py-3">
+                                        <td className="px-3 py-3 font-medium text-slate-900 dark:text-slate-100 sm:px-6">{member.full_name}</td>
+                                        <td className="px-3 py-3 sm:px-6">{member.relationship}</td>
+                                        <td className="px-3 py-3 sm:px-6">{member.phone}</td>
+                                        <td className="px-3 py-3 sm:px-6">
                                             {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">Principal</span>}
                                         </td>
                                         {canEdit && (
-                                          <td className="px-6 py-3 text-right">
+                                          <td className="px-3 py-3 text-right sm:px-6">
                                               <div className="flex items-center justify-end gap-2">
                                                   <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-300">
                                                       <Edit2 className="h-4 w-4" />
@@ -1490,9 +1910,9 @@ export default function StudentForm() {
                     </div>
                 )}
             </CardContent>
-            <div className="flex justify-between p-4 border-t bg-slate-50 rounded-b-lg dark:border-slate-800 dark:bg-slate-900/40">
-                <Button variant="outline" onClick={() => setActiveTab('support')}>Anterior</Button>
-                <Button onClick={() => setActiveTab('documents')} disabled={loading}>
+            <div className="flex flex-col gap-2 p-4 border-t bg-slate-50 rounded-b-lg sm:flex-row sm:justify-between dark:border-slate-800 dark:bg-slate-900/40">
+                <Button variant="outline" onClick={() => setActiveTab('support')} className="w-full sm:w-auto">Anterior</Button>
+                <Button onClick={() => setActiveTab('documents')} disabled={loading} className="w-full sm:w-auto">
                     Siguiente
                 </Button>
             </div>
@@ -1626,6 +2046,44 @@ export default function StudentForm() {
                 onCancel={() => setShowFamilyModal(false)} 
             />
         )}
+
+                {annotationFormOpen && studentId && (
+                    <ObserverAnnotationForm
+                        studentId={studentId}
+                        annotation={annotationEditing}
+                        onSave={async () => {
+                            setAnnotationFormOpen(false)
+                            setAnnotationEditing(undefined)
+                            await refreshAnnotations()
+                            showToast('Anotación guardada', 'success')
+                        }}
+                        onCancel={() => {
+                            setAnnotationFormOpen(false)
+                            setAnnotationEditing(undefined)
+                        }}
+                    />
+                )}
+
+                <ConfirmationModal
+                    isOpen={!!annotationToDelete}
+                    onClose={() => setAnnotationToDelete(null)}
+                    onConfirm={async () => {
+                        if (!annotationToDelete) return
+                        try {
+                            await observerAnnotationsApi.delete(annotationToDelete.id)
+                            setAnnotationToDelete(null)
+                            await refreshAnnotations()
+                            showToast('Anotación eliminada', 'success')
+                        } catch (e: unknown) {
+                            console.error(e)
+                            showToast(getErrorDetail(e) || 'No se pudo eliminar la anotación', 'error')
+                        }
+                    }}
+                    title="Eliminar anotación"
+                    description="Esta acción eliminará la anotación (borrado lógico)."
+                    confirmText="Eliminar"
+                    cancelText="Cancelar"
+                />
       </div>
     </div>
   )
