@@ -60,7 +60,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {toast && (
         <Toast
           type={toast.type}
@@ -70,24 +70,25 @@ export default function NotificationsPage() {
         />
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 sm:gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
-              <Bell className="h-6 w-6 text-blue-600" />
+          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40 shrink-0">
+              <Bell className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" />
             </div>
             Notificaciones
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">{unreadCount > 0 ? `Tienes ${unreadCount} sin leer.` : 'No tienes notificaciones pendientes.'}</p>
         </div>
 
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={load} disabled={loading}>
+        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <Button className="w-full sm:w-auto" variant="outline" onClick={load} disabled={loading}>
             Recargar
           </Button>
-          <Button onClick={markAllRead} disabled={loading || items.length === 0 || unreadCount === 0}>
-            <Check className="h-4 w-4 mr-2" />
-            Marcar todas como leídas
+          <Button className="w-full sm:w-auto" onClick={markAllRead} disabled={loading || items.length === 0 || unreadCount === 0}>
+            <Check className="h-4 w-4 mr-2 hidden sm:inline-block" />
+            <span className="hidden sm:inline">Marcar todas como leídas</span>
+            <span className="sm:hidden">Marcar leídas</span>
           </Button>
         </div>
       </div>
@@ -97,48 +98,98 @@ export default function NotificationsPage() {
           <CardTitle>Actividad</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
-                <tr>
-                  <th className="px-6 py-4 font-semibold">Estado</th>
-                  <th className="px-6 py-4 font-semibold">Título</th>
-                  <th className="px-6 py-4 font-semibold">Detalle</th>
-                  <th className="px-6 py-4 font-semibold">Fecha</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {items.length === 0 ? (
-                  <tr className="bg-white dark:bg-slate-900">
-                    <td className="px-6 py-8 text-slate-500" colSpan={4}>
-                      No hay notificaciones.
-                    </td>
-                  </tr>
-                ) : (
-                  items.map((n) => {
-                    const isUnread = !n.read_at
-                    return (
-                      <tr
-                        key={n.id}
-                        className="bg-white hover:bg-slate-50/80 transition-colors cursor-pointer dark:bg-slate-900 dark:hover:bg-slate-800/60"
-                        onClick={() => openNotification(n)}
-                      >
-                        <td className="px-6 py-4">
-                          <Pill
-                            text={isUnread ? 'SIN LEER' : 'LEÍDA'}
-                            className={isUnread ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-slate-50 text-slate-600 border-slate-200'}
-                          />
-                        </td>
-                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{n.title}</td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{n.body || '—'}</td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{new Date(n.created_at).toLocaleString()}</td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+          {items.length === 0 ? (
+            <div className="py-8 text-sm text-slate-500">No hay notificaciones.</div>
+          ) : (
+            <>
+              {/* Mobile cards */}
+              <div className="md:hidden space-y-3">
+                {items.map((n) => {
+                  const isUnread = !n.read_at
+                  return (
+                    <button
+                      key={n.id}
+                      type="button"
+                      className="w-full text-left rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:bg-slate-50 transition-colors dark:bg-slate-900 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                      onClick={() => openNotification(n)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <Pill
+                              text={isUnread ? 'SIN LEER' : 'LEÍDA'}
+                              className={
+                                isUnread
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                              }
+                            />
+                            {isUnread ? <span className="h-2 w-2 rounded-full bg-blue-500" /> : null}
+                          </div>
+
+                          <div className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100 break-words">
+                            {n.title}
+                          </div>
+
+                          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line line-clamp-3">
+                            {n.body || '—'}
+                          </div>
+
+                          <div className="mt-3 text-xs text-slate-400">
+                            {new Date(n.created_at).toLocaleString('es-CO')}
+                          </div>
+                        </div>
+
+                        <div className="text-slate-400 pt-1">→</div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
+                    <tr>
+                      <th className="px-6 py-4 font-semibold">Estado</th>
+                      <th className="px-6 py-4 font-semibold">Título</th>
+                      <th className="px-6 py-4 font-semibold">Detalle</th>
+                      <th className="px-6 py-4 font-semibold">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {items.map((n) => {
+                      const isUnread = !n.read_at
+                      return (
+                        <tr
+                          key={n.id}
+                          className="bg-white hover:bg-slate-50/80 transition-colors cursor-pointer dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                          onClick={() => openNotification(n)}
+                        >
+                          <td className="px-6 py-4">
+                            <Pill
+                              text={isUnread ? 'SIN LEER' : 'LEÍDA'}
+                              className={
+                                isUnread
+                                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                  : 'bg-slate-50 text-slate-600 border-slate-200'
+                              }
+                            />
+                          </td>
+                          <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{n.title}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-300">{n.body || '—'}</td>
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-300">
+                            {new Date(n.created_at).toLocaleString('es-CO')}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
