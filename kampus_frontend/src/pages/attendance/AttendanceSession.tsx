@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CheckCircle2, CloudOff, RotateCcw } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
@@ -122,6 +123,8 @@ function getOfflineQueueCountForSession(sessionId: number | null): number {
 export default function AttendanceSession() {
   const navigate = useNavigate()
   const params = useParams()
+
+  const canUseDom = typeof document !== 'undefined'
 
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
@@ -1030,7 +1033,7 @@ export default function AttendanceSession() {
                             </div>
 
                             <div className="min-w-0 flex-1">
-                              <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 whitespace-normal break-words leading-snug">
+                              <div className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-100 whitespace-normal wrap-break-word leading-snug">
                                 {currentStudent.student_full_name}
                               </div>
 
@@ -1204,59 +1207,86 @@ export default function AttendanceSession() {
               </div>
             </div>
 
-            {/* Mobile sticky action bar */}
-            {currentStudent ? (
-              <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 lg:hidden">
-                <div className="mx-auto max-w-xl px-4 pt-3" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-                  <div className="grid grid-cols-4 gap-2">
-                    <Button
-                      onClick={() => handleMark('PRESENT')}
-                      disabled={saving || locked}
-                      className={currentStudent.status === 'PRESENT' ? 'ring-2 ring-emerald-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
+            {/* Mobile fixed action bar (ported to body so it stays fixed inside overflow containers) */}
+            {currentStudent && canUseDom
+              ? createPortal(
+                  <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 lg:hidden">
+                    <div
+                      className="mx-auto max-w-xl px-4 pt-3"
+                      style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
                     >
-                      Pres.
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleMark('ABSENT')}
-                      disabled={saving || locked}
-                      className={currentStudent.status === 'ABSENT' ? 'ring-2 ring-rose-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
-                    >
-                      Aus.
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleMark('TARDY')}
-                      disabled={saving || locked}
-                      className={currentStudent.status === 'TARDY' ? 'ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
-                    >
-                      Tarde
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleMark('EXCUSED')}
-                      disabled={saving || locked}
-                      className={currentStudent.status === 'EXCUSED' ? 'ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-950' : ''}
-                    >
-                      Exc.
-                    </Button>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <span>Desliza · 1-4</span>
-                    {undo ? (
-                      <Button variant="outline" size="sm" onClick={handleUndo} disabled={saving || locked}>
-                        <RotateCcw className="mr-2 h-4 w-4" />
-                        Deshacer
-                      </Button>
-                    ) : (
-                      <span className={'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold ' + statusPillClasses(currentStudent.status)}>
-                        {statusLabel(currentStudent.status)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : null}
+                      <div className="grid grid-cols-4 gap-2">
+                        <Button
+                          onClick={() => handleMark('PRESENT')}
+                          disabled={saving || locked}
+                          className={
+                            currentStudent.status === 'PRESENT'
+                              ? 'ring-2 ring-emerald-400 ring-offset-2 dark:ring-offset-slate-950'
+                              : ''
+                          }
+                        >
+                          Pres.
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleMark('ABSENT')}
+                          disabled={saving || locked}
+                          className={
+                            currentStudent.status === 'ABSENT'
+                              ? 'ring-2 ring-rose-400 ring-offset-2 dark:ring-offset-slate-950'
+                              : ''
+                          }
+                        >
+                          Aus.
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleMark('TARDY')}
+                          disabled={saving || locked}
+                          className={
+                            currentStudent.status === 'TARDY'
+                              ? 'ring-2 ring-amber-400 ring-offset-2 dark:ring-offset-slate-950'
+                              : ''
+                          }
+                        >
+                          Tarde
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => handleMark('EXCUSED')}
+                          disabled={saving || locked}
+                          className={
+                            currentStudent.status === 'EXCUSED'
+                              ? 'ring-2 ring-sky-400 ring-offset-2 dark:ring-offset-slate-950'
+                              : ''
+                          }
+                        >
+                          Exc.
+                        </Button>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                        <span>Desliza · 1-4</span>
+                        {undo ? (
+                          <Button variant="outline" size="sm" onClick={handleUndo} disabled={saving || locked}>
+                            <RotateCcw className="mr-2 h-4 w-4" />
+                            Deshacer
+                          </Button>
+                        ) : (
+                          <span
+                            className={
+                              'inline-flex items-center rounded-full border px-2 py-1 text-[11px] font-semibold ' +
+                              statusPillClasses(currentStudent.status)
+                            }
+                          >
+                            {statusLabel(currentStudent.status)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>,
+                  document.body
+                )
+              : null}
 
             {/* Completion modal */}
             {showCompletion ? (

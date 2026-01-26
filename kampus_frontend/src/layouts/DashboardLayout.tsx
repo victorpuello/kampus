@@ -848,7 +848,14 @@ export default function DashboardLayout() {
       </div>
 
       {/* Main Content */}
-      <div className={cn('flex-1 flex flex-col min-h-screen w-full', isCollapsed ? 'lg:ml-20' : 'lg:ml-64')}>
+      <div
+        className={cn(
+          'flex-1 flex flex-col min-h-screen w-full min-w-0',
+          // Sidebar is `position: fixed`, so we reserve space using padding (not margin)
+          // to avoid widening the layout and causing horizontal overflow / scale glitches.
+          isCollapsed ? 'lg:pl-20' : 'lg:pl-64'
+        )}
+      >
         {/* Mobile Header */}
         <header className="lg:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
           <button 
