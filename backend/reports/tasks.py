@@ -4,6 +4,7 @@ import base64
 import logging
 import time
 import re
+from urllib.parse import urljoin, urlparse
 from datetime import date, datetime
 from pathlib import Path
 
@@ -111,12 +112,12 @@ def _render_report_html(job: ReportJob) -> str:
                 "final_status": getattr(enrollment, "final_status", "") or "",
             },
         )
-        verify_url = build_public_verify_url(vdoc.token)
+        verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
         verify_url_prefix = ""
         try:
             marker = f"{vdoc.token}/"
             if verify_url and marker in verify_url:
-                verify_url_prefix = verify_url.split(marker)[0] + "/"
+                verify_url_prefix = verify_url.split(marker)[0].rstrip("/") + "/"
         except Exception:
             verify_url_prefix = ""
         ctx["verify_url"] = verify_url
@@ -161,7 +162,7 @@ def _render_report_html(job: ReportJob) -> str:
                 "year_name": getattr(period.academic_year, "year", ""),
             },
         )
-        verify_url = build_public_verify_url(vdoc.token)
+        verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
         ctx["verify_url"] = verify_url
         ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
         return render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
@@ -292,12 +293,12 @@ def _render_report_html(job: ReportJob) -> str:
                 "academic_year": ctx.get("academic_year", ""),
             },
         )
-        verify_url = build_public_verify_url(vdoc.token)
+        verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
         verify_url_prefix = ""
         try:
             marker = f"{vdoc.token}/"
             if verify_url and marker in verify_url:
-                verify_url_prefix = verify_url.split(marker)[0] + "/"
+                verify_url_prefix = verify_url.split(marker)[0].rstrip("/") + "/"
         except Exception:
             verify_url_prefix = ""
         ctx["verify_url"] = verify_url
@@ -319,7 +320,7 @@ def _render_report_html(job: ReportJob) -> str:
         try:
             marker = f"{verify_token}/"
             if verify_token and verify_url and marker in verify_url:
-                verify_url_prefix = verify_url.split(marker)[0] + "/"
+                verify_url_prefix = verify_url.split(marker)[0].rstrip("/") + "/"
         except Exception:
             verify_url_prefix = ""
 
@@ -366,6 +367,35 @@ def _render_report_html(job: ReportJob) -> str:
 
     raise ValueError(f"Unsupported report_type: {job.report_type}")
 
+
+def _coerce_public_absolute_url(job: ReportJob, value: str) -> str:
+    """Ensure a URL/path is absolute using the job's persisted public base.
+
+    QR scanners often require a full URL (scheme + host). Celery tasks do not
+    have request context, so the API persists a `public_site_url` in params.
+    """
+
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+
+    try:
+        parsed = urlparse(raw)
+        if parsed.scheme and parsed.netloc:
+            return raw
+    except Exception:
+        # If parsing fails, keep raw and try joining below.
+        pass
+
+    params = job.params or {}
+    base = str(params.get("public_site_url") or "").strip()
+    if not base:
+        return raw
+
+    try:
+        return urljoin(base.rstrip("/") + "/", raw.lstrip("/"))
+    except Exception:
+        return raw
 
 def _qr_png_data_uri(text: str) -> str:
     # Avoid temp files; embed QR as a data URI.

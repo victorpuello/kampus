@@ -91,10 +91,23 @@ class ReportJobViewSet(viewsets.ModelViewSet):
 		ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
 		expires_at = timezone.now() + timedelta(hours=ttl_hours)
 
+		params = serializer.validated_data.get("params") or {}
+		# Ensure report templates can embed absolute public URLs (QR codes need scheme+host).
+		# Celery workers do not have access to the incoming request, so we persist a safe base.
+		# Prefer explicit PUBLIC_SITE_URL when configured; otherwise fall back to request.build_absolute_uri.
+		public_base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+		if not public_base:
+			try:
+				public_base = request.build_absolute_uri("/").strip().rstrip("/")
+			except Exception:
+				public_base = ""
+		if public_base:
+			params = {**params, "public_site_url": public_base}
+
 		job = ReportJob.objects.create(
 			created_by=user,
 			report_type=serializer.validated_data["report_type"],
-			params=serializer.validated_data.get("params") or {},
+			params=params,
 			expires_at=expires_at,
 		)
 
@@ -150,6 +163,19 @@ class ReportJobViewSet(viewsets.ModelViewSet):
 		in a browser and iterate quickly without waiting for PDF rendering.
 		"""
 		job: ReportJob = self.get_object()
+		# Backfill the public base URL for older jobs so QR codes render as full URLs.
+		try:
+			params = job.params or {}
+			if not (params.get("public_site_url") or "").strip():
+				public_base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+				if not public_base:
+					public_base = request.build_absolute_uri("/").strip().rstrip("/")
+				if public_base:
+					job.params = {**params, "public_site_url": public_base}
+					job.save(update_fields=["params"])
+		except Exception:
+			# Best-effort only.
+			pass
 		try:
 			html = _render_report_html(job)
 		except Exception as exc:  # noqa: BLE001
