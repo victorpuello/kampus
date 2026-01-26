@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Printer, ChevronLeft, School, UserRound } from 'lucide-react'
+import { Printer, ChevronLeft, School, UserRound, Download } from 'lucide-react'
 import { studentsApi, type ObserverReport } from '../services/students'
+import { reportsApi, type ReportJob } from '../services/reports'
 
 function formatDateTime(value?: string | null) {
   if (!value) return ''
@@ -102,6 +103,33 @@ export default function StudentObserverPrint() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const pollJobUntilFinished = async (jobId: number): Promise<ReportJob> => {
+    let attempt = 0
+    const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
+
+    for (;;) {
+      const res = await reportsApi.getJob(jobId)
+      const job = res.data
+      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
+      attempt += 1
+      await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
+    }
+  }
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
   useEffect(() => {
     let mounted = true
 
@@ -184,6 +212,39 @@ export default function StudentObserverPrint() {
     headerLine3?.trim() === 'DANE: 223675000297 NIT: 900003571-2' ? 'ee_22367500029701@sedcordoba.gov.co' : headerLine3
 
   const studentFullName = data.student.full_name || `${data.student.last_name} ${data.student.first_name}`.trim()
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true)
+    setActionError(null)
+    try {
+      if (!studentId) {
+        setActionError('ID de estudiante inválido')
+        return
+      }
+
+      const created = await reportsApi.createJob({
+        report_type: 'OBSERVER_REPORT',
+        params: { student_id: studentId },
+      })
+
+      const job = await pollJobUntilFinished(created.data.id)
+      if (job.status !== 'SUCCEEDED') {
+        setActionError(job.error_message || 'No se pudo generar el PDF.')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(job.id)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+      const doc = (data.student.document_number || '').trim()
+      const filename = doc ? `observador-${doc}.pdf` : 'observador.pdf'
+      downloadBlob(blob, filename)
+    } catch (err) {
+      console.error(err)
+      setActionError('Error generando/descargando el PDF.')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
 
   return (
     <div className="print-root text-slate-800 bg-slate-100 min-h-screen">
@@ -268,15 +329,36 @@ export default function StudentObserverPrint() {
           <span className="text-sm font-semibold text-slate-700 truncate">Vista previa del Observador</span>
         </div>
 
-        <button
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold px-4 py-2 rounded-md shadow"
-        >
-          <Printer className="h-4 w-4" /> Imprimir / Guardar PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void handleDownloadPdf()}
+            disabled={downloadingPdf}
+            className={
+              'inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-md shadow ' +
+              (downloadingPdf
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                : 'bg-blue-700 hover:bg-blue-800 text-white')
+            }
+          >
+            <Download className="h-4 w-4" /> {downloadingPdf ? 'Preparando…' : 'Descargar'}
+          </button>
+
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold px-4 py-2 rounded-md shadow"
+          >
+            <Printer className="h-4 w-4" /> Imprimir
+          </button>
+        </div>
       </div>
 
-      <div className="h-16 no-print" />
+      {actionError ? (
+        <div className="no-print fixed top-[64px] left-0 w-full px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-100 z-40">
+          {actionError}
+        </div>
+      ) : null}
+
+      <div className={actionError ? 'h-28 no-print' : 'h-16 no-print'} />
 
       {/* PAGE 1 */}
       <div className="page">

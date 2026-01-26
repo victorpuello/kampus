@@ -307,6 +307,395 @@ def _render_report_html(job: ReportJob) -> str:
         ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
         return render_to_string("students/reports/study_certification_pdf.html", ctx)
 
+    if job.report_type == ReportJob.ReportType.OBSERVER_REPORT:
+        from core.models import Institution  # noqa: PLC0415
+        from students.models import Student, FamilyMember, ObserverAnnotation  # noqa: PLC0415
+
+        params = job.params or {}
+        student_id = params.get("student_id")
+        student = Student.objects.select_related("user").get(pk=student_id)
+
+        # Prefer active enrollment to resolve campus/institution.
+        current_enrollment = (
+            Enrollment.objects.select_related(
+                "academic_year",
+                "grade",
+                "group",
+                "campus",
+                "campus__institution",
+            )
+            .filter(student=student, status="ACTIVE")
+            .order_by("-academic_year__year", "-id")
+            .first()
+        )
+        campus = getattr(current_enrollment, "campus", None) if current_enrollment else None
+        institution = getattr(campus, "institution", None) if campus else None
+        if institution is None:
+            institution = Institution.objects.first() or Institution()
+
+        user = job.created_by
+        role = getattr(user, "role", None)
+
+        # Families/enrollments.
+        family_members = list(
+            FamilyMember.objects.filter(student=student).select_related("user").order_by("-is_main_guardian", "id")
+        )
+        enrollments = list(
+            Enrollment.objects.select_related("academic_year", "grade", "group", "campus")
+            .filter(student=student)
+            .order_by("-academic_year__year", "-id")
+        )
+
+        # Disciplina: match the visibility rules from students.views.StudentViewSet.observer_report.
+        from discipline.models import DisciplineCase  # noqa: PLC0415
+        from academic.models import AcademicYear, Group, TeacherAssignment  # noqa: PLC0415
+
+        cases_qs = (
+            DisciplineCase.objects.select_related(
+                "enrollment",
+                "enrollment__academic_year",
+                "enrollment__grade",
+                "enrollment__group",
+                "created_by",
+            )
+            .prefetch_related("events")
+            .filter(student=student)
+            .order_by("-occurred_at", "-id")
+        )
+
+        if role == "TEACHER":
+            active_year = AcademicYear.objects.filter(status="ACTIVE").first()
+            directed_groups = Group.objects.filter(director=user)
+            if active_year:
+                directed_groups = directed_groups.filter(academic_year=active_year)
+
+            if active_year:
+                assigned_group_ids = set(
+                    TeacherAssignment.objects.filter(teacher=user, academic_year=active_year).values_list(
+                        "group_id", flat=True
+                    )
+                )
+            else:
+                assigned_group_ids = set(TeacherAssignment.objects.filter(teacher=user).values_list("group_id", flat=True))
+
+            allowed_group_ids = set(directed_groups.values_list("id", flat=True)) | assigned_group_ids
+            if not allowed_group_ids:
+                cases_qs = cases_qs.none()
+            else:
+                cases_qs = cases_qs.filter(enrollment__group_id__in=allowed_group_ids).distinct()
+        elif role in {"ADMIN", "SUPERADMIN", "COORDINATOR", "SECRETARY"}:
+            cases_qs = cases_qs
+        elif role == "PARENT":
+            is_guardian = FamilyMember.objects.filter(student=student, user=user).exists()
+            if not is_guardian:
+                cases_qs = cases_qs.none()
+        elif role == "STUDENT":
+            if getattr(student, "user_id", None) != getattr(user, "id", None):
+                cases_qs = cases_qs.none()
+        else:
+            cases_qs = cases_qs.none()
+
+        def _full_name(u) -> str:
+            try:
+                return u.get_full_name() or getattr(u, "username", "") or ""
+            except Exception:
+                return ""
+
+        def _dt(value):
+            return value or None
+
+        def _discipline_severity_meta(manual_severity: str | None):
+            sev = (manual_severity or "MINOR").strip().upper()
+            if sev == "VERY_MAJOR":
+                return {
+                    "label": "Llamado de Atención (Gravísima)",
+                    "badge_bg": "#fee2e2",
+                    "badge_text": "#b91c1c",
+                    "border": "#ef4444",
+                }
+            if sev == "MAJOR":
+                return {
+                    "label": "Llamado de Atención (Grave)",
+                    "badge_bg": "#fee2e2",
+                    "badge_text": "#b91c1c",
+                    "border": "#ef4444",
+                }
+            return {
+                "label": "Llamado de Atención (Leve)",
+                "badge_bg": "#fef3c7",
+                "badge_text": "#92400e",
+                "border": "#eab308",
+            }
+
+        def _annotation_meta(annotation_type: str | None):
+            t = (annotation_type or "OBSERVATION").strip().upper()
+            if t == "ALERT":
+                return {
+                    "label": "Anotación (Alerta)",
+                    "badge_bg": "#fee2e2",
+                    "badge_text": "#b91c1c",
+                    "border": "#ef4444",
+                }
+            if t == "PRAISE":
+                return {
+                    "label": "Anotación (Felicitación)",
+                    "badge_bg": "#dcfce7",
+                    "badge_text": "#166534",
+                    "border": "#22c55e",
+                }
+            if t == "COMMITMENT":
+                return {
+                    "label": "Anotación (Compromiso)",
+                    "badge_bg": "#e0f2fe",
+                    "badge_text": "#075985",
+                    "border": "#0ea5e9",
+                }
+            return {
+                "label": "Anotación",
+                "badge_bg": "#fef3c7",
+                "badge_text": "#92400e",
+                "border": "#eab308",
+            }
+
+        discipline_entries = []
+        for case in list(cases_qs):
+            enrollment = getattr(case, "enrollment", None)
+            academic_year = None
+            grade_name = ""
+            group_name = ""
+            try:
+                academic_year = getattr(getattr(enrollment, "academic_year", None), "year", None)
+                grade_name = getattr(getattr(enrollment, "grade", None), "name", "") or ""
+                group_name = getattr(getattr(enrollment, "group", None), "name", "") or ""
+            except Exception:
+                pass
+
+            events_out = []
+            try:
+                for ev in list(case.events.all()):
+                    event_type_label = ""
+                    try:
+                        event_type_label = ev.get_event_type_display()  # type: ignore[attr-defined]
+                    except Exception:
+                        event_type_label = ev.event_type
+
+                    events_out.append(
+                        {
+                            "id": ev.id,
+                            "event_type": ev.event_type,
+                            "event_type_label": event_type_label,
+                            "text": ev.text,
+                            "created_at": _dt(ev.created_at),
+                            "created_by_name": _full_name(getattr(ev, "created_by", None)),
+                        }
+                    )
+            except Exception:
+                events_out = []
+
+            discipline_entries.append(
+                {
+                    "id": case.id,
+                    "occurred_at": _dt(case.occurred_at),
+                    "location": case.location,
+                    "manual_severity": case.manual_severity,
+                    "severity": _discipline_severity_meta(getattr(case, "manual_severity", None)),
+                    "law_1620_type": case.law_1620_type,
+                    "status": case.status,
+                    "academic_year": academic_year,
+                    "grade_name": grade_name,
+                    "group_name": group_name,
+                    "narrative": case.narrative,
+                    "decision_text": case.decision_text,
+                    "created_by_name": _full_name(getattr(case, "created_by", None)),
+                    "created_at": _dt(case.created_at),
+                    "events": events_out,
+                }
+            )
+
+        observer_number = f"{getattr(student, 'pk', 0):010d}"
+        observer_number_display = str(getattr(student, "pk", "") or "")
+        student_user = student.user
+        student_full_name = (student_user.get_full_name() or "").strip()
+
+        # Observer annotations.
+        annotations_qs = (
+            ObserverAnnotation.objects.select_related("period", "period__academic_year", "created_by", "updated_by")
+            .filter(student=student, is_deleted=False)
+            .order_by("-created_at", "-id")
+        )
+        if role == "PARENT" and not FamilyMember.objects.filter(student=student, user=user).exists():
+            annotations_qs = annotations_qs.none()
+        if role == "STUDENT" and getattr(student, "user_id", None) != getattr(user, "id", None):
+            annotations_qs = annotations_qs.none()
+
+        observer_annotations = []
+        for a in list(annotations_qs):
+            period = getattr(a, "period", None)
+            annotation_type_label = ""
+            try:
+                annotation_type_label = a.get_annotation_type_display()  # type: ignore[attr-defined]
+            except Exception:
+                annotation_type_label = str(a.annotation_type or "")
+
+            observer_annotations.append(
+                {
+                    "id": a.id,
+                    "period": {
+                        "id": a.period_id,
+                        "name": getattr(period, "name", "") if period else "",
+                        "academic_year": getattr(getattr(period, "academic_year", None), "year", None) if period else None,
+                        "is_closed": bool(getattr(period, "is_closed", False)) if period else False,
+                    }
+                    if a.period_id
+                    else None,
+                    "annotation_type": a.annotation_type,
+                    "annotation_type_label": annotation_type_label,
+                    "meta": _annotation_meta(getattr(a, "annotation_type", None)),
+                    "title": a.title,
+                    "text": a.text,
+                    "commitments": a.commitments,
+                    "commitment_due_date": _dt(a.commitment_due_date),
+                    "commitment_responsible": a.commitment_responsible,
+                    "is_automatic": bool(a.is_automatic),
+                    "created_at": _dt(a.created_at),
+                    "updated_at": _dt(a.updated_at),
+                    "created_by_name": _full_name(getattr(a, "created_by", None)),
+                    "updated_by_name": _full_name(getattr(a, "updated_by", None)),
+                }
+            )
+
+        # Build the same merged timeline used by the web preview.
+        timeline = []
+        for entry in discipline_entries:
+            ts = entry.get("occurred_at") or entry.get("created_at")
+            timeline.append({"kind": "discipline", "ts": ts, "entry": entry})
+        for ann in observer_annotations:
+            ts = ann.get("created_at")
+            timeline.append({"kind": "observer_annotation", "ts": ts, "annotation": ann})
+        timeline.sort(key=lambda r: (r.get("ts") is not None, r.get("ts")), reverse=True)
+
+        academic_year_label = ""
+        try:
+            if current_enrollment and getattr(getattr(current_enrollment, "academic_year", None), "year", None):
+                academic_year_label = str(current_enrollment.academic_year.year)
+        except Exception:
+            academic_year_label = ""
+
+        from verification.models import VerifiableDocument  # noqa: PLC0415
+        from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
+
+        vdoc = get_or_create_for_report_job(
+            job_id=job.id,
+            doc_type=VerifiableDocument.DocType.OBSERVER_REPORT,
+            public_payload={
+                "title": f"Observador del estudiante: {student_full_name}",
+                "student_full_name": student_full_name,
+                "document_number": getattr(student, "document_number", "") or "",
+                "observer_number": observer_number,
+                "academic_year": academic_year_label,
+            },
+        )
+        verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
+        verify_url_prefix = ""
+        try:
+            marker = f"{vdoc.token}/"
+            if verify_url and marker in verify_url:
+                verify_url_prefix = verify_url.split(marker)[0].rstrip("/") + "/"
+        except Exception:
+            verify_url_prefix = ""
+
+        logo_url = None
+        try:
+            if getattr(institution, "logo", None) and getattr(institution.logo, "url", None):
+                logo_url = institution.logo.url
+        except Exception:
+            logo_url = None
+
+        student_photo_url = None
+        try:
+            if getattr(student, "photo", None) and getattr(student.photo, "url", None):
+                student_photo_url = student.photo.url
+        except Exception:
+            student_photo_url = None
+
+        header_line3 = getattr(institution, "pdf_header_line3", "") or ""
+        header_line3_display = header_line3
+        try:
+            if header_line3.strip() == "DANE: 223675000297 NIT: 900003571-2":
+                header_line3_display = "ee_22367500029701@sedcordoba.gov.co"
+        except Exception:
+            header_line3_display = header_line3
+
+        ctx = {
+            "generated_at": datetime.now(),
+            "observer_number": observer_number,
+            "observer_number_display": observer_number_display,
+            "institution": {
+                "name": getattr(institution, "name", "") or "",
+                "dane_code": getattr(institution, "dane_code", "") or "",
+                "nit": getattr(institution, "nit", "") or "",
+                "pdf_header_line1": getattr(institution, "pdf_header_line1", "") or "",
+                "pdf_header_line2": getattr(institution, "pdf_header_line2", "") or "",
+                "pdf_header_line3": header_line3,
+                "pdf_header_line3_display": header_line3_display,
+                "logo_url": logo_url,
+            },
+            "campus": {
+                "name": getattr(campus, "name", "") if campus else "",
+                "municipality": getattr(campus, "municipality", "") if campus else "",
+            },
+            "student": {
+                "id": student.pk,
+                "full_name": student_full_name,
+                "first_name": getattr(student_user, "first_name", "") or "",
+                "last_name": getattr(student_user, "last_name", "") or "",
+                "document_type": getattr(student, "document_type", "") or "",
+                "document_number": getattr(student, "document_number", "") or "",
+                "birth_date": _dt(getattr(student, "birth_date", None)),
+                "place_of_issue": getattr(student, "place_of_issue", "") or "",
+                "neighborhood": getattr(student, "neighborhood", "") or "",
+                "address": getattr(student, "address", "") or "",
+                "blood_type": getattr(student, "blood_type", "") or "",
+                "stratum": getattr(student, "stratum", "") or "",
+                "sisben_score": getattr(student, "sisben_score", "") or "",
+                "photo_url": student_photo_url,
+            },
+            "family_members": [
+                {
+                    "id": fm.id,
+                    "relationship": fm.relationship,
+                    "full_name": fm.full_name,
+                    "document_number": fm.document_number,
+                    "phone": fm.phone,
+                    "email": fm.email,
+                    "is_main_guardian": fm.is_main_guardian,
+                }
+                for fm in family_members
+            ],
+            "enrollments": [
+                {
+                    "id": e.id,
+                    "academic_year": getattr(getattr(e, "academic_year", None), "year", None),
+                    "grade_name": getattr(getattr(e, "grade", None), "name", "") or "",
+                    "group_name": getattr(getattr(e, "group", None), "name", "") or "",
+                    "campus_name": getattr(getattr(e, "campus", None), "name", "") or "",
+                    "status": e.status,
+                    "status_label": (e.get_status_display() if hasattr(e, "get_status_display") else e.status),
+                    "final_status": e.final_status,
+                    "enrolled_at": _dt(getattr(e, "enrolled_at", None)),
+                }
+                for e in enrollments
+            ],
+            "discipline_entries": discipline_entries,
+            "observer_annotations": observer_annotations,
+            "timeline": timeline,
+            "verify_url": verify_url,
+            "verify_token": vdoc.token,
+            "verify_url_prefix": verify_url_prefix,
+            "qr_image_src": _qr_png_data_uri(verify_url) if verify_url else "",
+        }
+        return render_to_string("students/reports/observer_report_pdf.html", ctx)
+
     if job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
         from core.models import Institution  # noqa: PLC0415
         from students.models import CertificateIssue  # noqa: PLC0415
@@ -390,12 +779,16 @@ def _coerce_public_absolute_url(job: ReportJob, value: str) -> str:
     params = job.params or {}
     base = str(params.get("public_site_url") or "").strip()
     if not base:
+        base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip()
+    if not base:
         return raw
 
     try:
         return urljoin(base.rstrip("/") + "/", raw.lstrip("/"))
     except Exception:
         return raw
+
+
 
 def _qr_png_data_uri(text: str) -> str:
     # Avoid temp files; embed QR as a data URI.
@@ -416,6 +809,18 @@ def _qr_png_data_uri(text: str) -> str:
 def generate_report_job_pdf(self, job_id: int) -> None:
     started_monotonic = time.monotonic()
     job = ReportJob.objects.select_related("created_by").get(id=job_id)
+
+    # Best-effort backfill for older jobs: preview endpoint can add `public_site_url`
+    # at request-time, but the Celery worker needs it persisted to build absolute QR URLs.
+    try:
+        params = job.params or {}
+        if not str(params.get("public_site_url") or "").strip():
+            public_base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+            if public_base:
+                job.params = {**params, "public_site_url": public_base}
+                job.save(update_fields=["params"])
+    except Exception:
+        pass
 
     if job.status in {ReportJob.Status.SUCCEEDED, ReportJob.Status.CANCELED}:
         logger.info("report_job.skip", extra={"job_id": job.id, "status": job.status, "report_type": job.report_type})
@@ -475,6 +880,10 @@ def generate_report_job_pdf(self, job_id: int) -> None:
             params = job.params or {}
             enrollment_id = params.get("enrollment_id")
             out_filename = f"certificacion_academica_enrollment-{enrollment_id}.pdf".replace(" ", "_")
+        elif job.report_type == ReportJob.ReportType.OBSERVER_REPORT:
+            params = job.params or {}
+            student_id = params.get("student_id")
+            out_filename = f"observador_estudiante-{student_id}.pdf".replace(" ", "_")
         elif job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
             params = job.params or {}
             cu = str(params.get("certificate_uuid") or "")

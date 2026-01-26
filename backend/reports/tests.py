@@ -49,7 +49,7 @@ class ReportJobVerificationTests(APITestCase):
 		)
 
 		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
-		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.status_code, 200, res.content.decode("utf-8", errors="ignore"))
 		html = res.content.decode("utf-8", errors="ignore")
 		self.assertIn("Verificación:", html)
 		self.assertIn("/api/public/verify/", html)
@@ -97,7 +97,7 @@ class ReportJobVerificationTests(APITestCase):
 		)
 
 		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
-		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.status_code, 200, res.content.decode("utf-8", errors="ignore"))
 		html = res.content.decode("utf-8", errors="ignore")
 		self.assertIn("Verificación:", html)
 		self.assertIn("/api/public/verify/", html)
@@ -105,6 +105,53 @@ class ReportJobVerificationTests(APITestCase):
 		self.assertTrue(
 			VerifiableDocument.objects.filter(
 				doc_type=VerifiableDocument.DocType.REPORT_CARD,
+				object_type="ReportJob",
+				object_id=str(job.id),
+			).exists()
+		)
+
+	def test_preview_observer_report_creates_verifiable_document(self):
+		from students.models import Student  # noqa: PLC0415
+		from verification.models import VerifiableDocument  # noqa: PLC0415
+		from core.models import Institution  # noqa: PLC0415
+
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_verify_observer", password="p1", role=User.ROLE_ADMIN)
+		student_user = User.objects.create_user(
+			username="student_verify_observer",
+			password="p2",
+			role=User.ROLE_STUDENT,
+			first_name="María",
+			last_name="López",
+		)
+		student = Student.objects.create(user=student_user, document_type="TI", document_number="DOC-VERIFY-OBS")
+		Institution.objects.create(name="IE Test")
+
+		self.client.force_authenticate(user=admin)
+		job = ReportJob.objects.create(
+			created_by=admin,
+			report_type=ReportJob.ReportType.OBSERVER_REPORT,
+			params={"student_id": student.pk},
+			status=ReportJob.Status.PENDING,
+		)
+
+		self.assertFalse(
+			VerifiableDocument.objects.filter(
+				doc_type=VerifiableDocument.DocType.OBSERVER_REPORT,
+				object_type="ReportJob",
+				object_id=str(job.id),
+			).exists()
+		)
+
+		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
+		self.assertEqual(res.status_code, 200)
+		html = res.content.decode("utf-8", errors="ignore")
+		self.assertIn("Verificación:", html)
+		self.assertIn("/api/public/verify/", html)
+
+		self.assertTrue(
+			VerifiableDocument.objects.filter(
+				doc_type=VerifiableDocument.DocType.OBSERVER_REPORT,
 				object_type="ReportJob",
 				object_id=str(job.id),
 			).exists()

@@ -22,6 +22,7 @@ class ReportJob(models.Model):
 		TEACHER_STATISTICS_AI = "TEACHER_STATISTICS_AI", "Estadísticas IA (docente)"
 		CERTIFICATE_STUDIES = "CERTIFICATE_STUDIES", "Certificado de estudios"
 		STUDY_CERTIFICATION = "STUDY_CERTIFICATION", "Certificación académica (constancia de estudio)"
+		OBSERVER_REPORT = "OBSERVER_REPORT", "Observador del estudiante"
 
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_jobs"

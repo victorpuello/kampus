@@ -108,7 +108,6 @@ export default function StudentStudyCertificationPrint() {
   const [actionError, setActionError] = useState<string | null>(null)
 
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const [previewJobId, setPreviewJobId] = useState<number | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const previewIframeRef = useRef<HTMLIFrameElement | null>(null)
   const [iframeHeightPx, setIframeHeightPx] = useState<number>(0)
@@ -237,7 +236,6 @@ export default function StudentStudyCertificationPrint() {
           try {
             const htmlRes = await reportsApi.previewJobHtml(cached)
             if (!mounted) return
-            setPreviewJobId(cached)
             setPreviewHtml(htmlRes.data)
             return
           } catch {
@@ -254,7 +252,6 @@ export default function StudentStudyCertificationPrint() {
         const htmlRes = await reportsApi.previewJobHtml(jobId)
         if (!mounted) return
         sessionStorage.setItem(cacheKey, String(jobId))
-        setPreviewJobId(jobId)
         setPreviewHtml(htmlRes.data)
       } catch (err) {
         console.error(err)
@@ -280,14 +277,14 @@ export default function StudentStudyCertificationPrint() {
         return
       }
 
-      const jobId = previewJobId
-        ? previewJobId
-        : (
-            await reportsApi.createJob({
-              report_type: 'STUDY_CERTIFICATION',
-              params: { enrollment_id: Number(enrollment.id) },
-            })
-          ).data.id
+      // Always create a fresh job for downloads.
+      // Cached preview jobs may already have a PDF generated with older QR URL logic.
+      const jobId = (
+        await reportsApi.createJob({
+          report_type: 'STUDY_CERTIFICATION',
+          params: { enrollment_id: Number(enrollment.id) },
+        })
+      ).data.id
 
       const job = await pollJobUntilFinished(jobId)
       if (job.status !== 'SUCCEEDED') {

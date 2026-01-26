@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page {
+      size: A4;
+      /* Use real page margins so they apply to every page, including overflow pages. */
+      margin: 15mm 12mm 18mm 12mm;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, "Noto Sans", sans-serif;
+      color: #0f172a;
+    }
+
+    .page {
+      /* Let @page control margins; keep pages as flow containers. */
+      page-break-after: always;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    .avoid-break {
+      page-break-inside: avoid;
+    }
+
+    .header {
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 10px;
+      margin-bottom: 14px;
+    }
+
+    .grid {
+      width: 100%;
+      display: table;
+      table-layout: fixed;
+    }
+
+    .grid-row {
+      display: table-row;
+    }
+
+    .grid-col {
+      display: table-cell;
+      vertical-align: top;
+    }
+
+    .logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      background: #f1f5f9;
+      overflow: hidden;
+      display: inline-block;
+      vertical-align: middle;
+      text-align: center;
+      line-height: 52px;
+      margin-right: 10px;
+    }
+
+    .logo img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+    .inst-line1 {
+      font-size: 10px;
+      font-weight: 800;
+      color: #475569;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .inst-line2 {
+      font-size: 12px;
+      font-weight: 700;
+      color: #475569;
+      margin: 2px 0 2px;
+    }
+
+    .inst-name {
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      margin: 0;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+
+    .inst-meta {
+      font-size: 10px;
+      color: #64748b;
+      margin: 2px 0 0;
+    }
+
+    .inst-line3 {
+      font-size: 10px;
+      color: #0369a1;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      margin: 6px 0 0;
+    }
+
+    .photo {
+      width: 72px;
+      height: 88px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      background: #ffffff;
+      display: inline-block;
+      margin-right: 10px;
+    }
+
+    .photo img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .observer-card {
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 10px 12px;
+      text-align: right;
+      height: 88px;
+      box-sizing: border-box;
+    }
+
+    .observer-card .kicker {
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .observer-card .number {
+      font-size: 16px;
+      font-weight: 900;
+      margin: 2px 0 0;
+    }
+
+    .observer-card .printed {
+      font-size: 10px;
+      color: #64748b;
+      margin: 6px 0 0;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 900;
+      color: #64748b;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 4px;
+      margin: 0 0 10px;
+    }
+
+    .card {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      background: #ffffff;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+
+    .label {
+      font-size: 9px;
+      color: #94a3b8;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin: 0 0 3px;
+    }
+
+    .value-lg {
+      font-size: 16px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin: 0;
+    }
+
+    .value {
+      font-size: 12px;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    .value-sm {
+      font-size: 11px;
+      font-weight: 600;
+      margin: 0;
+      color: #0f172a;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 9px;
+      font-weight: 900;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #334155;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .table th {
+      background: #f1f5f9;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 8px 10px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 11px;
+      vertical-align: top;
+    }
+
+    .table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .table-row-striped:nth-child(even) {
+      background-color: #f9fafb;
+    }
+
+    .timeline-titlebar {
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 8px;
+      margin-bottom: 14px;
+    }
+
+    .timeline-kicker {
+      font-size: 10px;
+      color: #94a3b8;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .timeline-student {
+      font-size: 12px;
+      font-weight: 900;
+      text-transform: uppercase;
+      float: right;
+    }
+
+    .timeline-heading {
+      font-size: 18px;
+      font-weight: 900;
+      margin: 0 0 14px;
+    }
+
+    .entry {
+      border: 1px solid #e2e8f0;
+      border-left-width: 4px;
+      border-radius: 0 10px 10px 0;
+      background: #ffffff;
+      padding: 12px;
+      position: relative;
+      box-sizing: border-box;
+      margin: 0 0 12px;
+    }
+
+    .entry-date {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      font-size: 10px;
+      color: #94a3b8;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-right: 6px;
+    }
+
+    .subtitle {
+      font-size: 10px;
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .desc {
+      font-size: 12px;
+      color: #1f2937;
+      margin: 10px 0 0;
+      white-space: pre-line;
+    }
+
+    .panel {
+      margin-top: 10px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 12px;
+    }
+
+    .panel small {
+      font-size: 10px;
+      color: #64748b;
+    }
+
+    .footer-sign {
+      margin-top: 24px;
+      padding-top: 14px;
+      border-top: 1px solid #cbd5e1;
+    }
+
+    .sign-grid {
+      width: 100%;
+      display: table;
+      table-layout: fixed;
+    }
+
+    .sign-col {
+      display: table-cell;
+      width: 33.333%;
+      text-align: center;
+      padding: 0 10px;
+    }
+
+    .sign-line {
+      height: 56px;
+      border-bottom: 1px solid #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .sign-label {
+      font-size: 10px;
+      font-weight: 900;
+      color: #475569;
+      text-transform: uppercase;
+    }
+
+    .tiny-muted {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 9px;
+      color: #94a3b8;
+    }
+
+    .qr-wrap {
+      margin-top: 10px;
+      text-align: right;
+      page-break-inside: avoid;
+    }
+
+    .qr-wrap img {
+      height: 78px;
+      width: 78px;
+      border: 1px solid #e2e8f0;
+      padding: 3px;
+      background: #fff;
+    }
+
+    .qr-text {
+      margin-top: 4px;
+      font-size: 9px;
+      color: #334155;
+      word-break: normal;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
+
+    .verify-link { color: #2563eb; text-decoration: underline; font-weight: 800; }
+    .verify-url, .verify-token {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 9px;
+      white-space: nowrap;
+      word-break: normal;
+      overflow-wrap: normal;
+      hyphens: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- PAGE 1: Header + Student info + Family + Enrollment -->
+  <div class="page">
+    <div class="header">
+      <div class="grid">
+        <div class="grid-row">
+          <div class="grid-col" style="width: 70%;">
+            <div>
+              <span class="logo">
+                {% if institution.logo_url %}
+                  <img src="{{ institution.logo_url }}" alt="Escudo" />
+                {% endif %}
+              </span>
+              <div style="display:inline-block; vertical-align: middle; width: calc(100% - 72px);">
+                {% if institution.pdf_header_line1 %}<p class="inst-line1">{{ institution.pdf_header_line1 }}</p>{% endif %}
+                {% if institution.pdf_header_line2 %}
+                  <p class="inst-line2">{{ institution.pdf_header_line2 }}</p>
+                {% elif campus.municipality %}
+                  <p class="inst-line2">{{ campus.municipality }}</p>
+                {% endif %}
+                <p class="inst-name">{{ institution.name|default:"Institución Educativa" }}</p>
+                <p class="inst-meta">
+                  {% if institution.dane_code %}Código DANE: {{ institution.dane_code }}{% else %}Código DANE: -{% endif %}
+                  {% if institution.nit %} | NIT: {{ institution.nit }}{% endif %}
+                </p>
+                {% if institution.pdf_header_line3_display %}
+                  <p class="inst-line3">{{ institution.pdf_header_line3_display }}</p>
+                {% elif institution.pdf_header_line3 %}
+                  <p class="inst-line3">{{ institution.pdf_header_line3 }}</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="grid-col" style="width: 30%; text-align: right;">
+            <span class="photo">
+              {% if student.photo_url %}
+                <img src="{{ student.photo_url }}" alt="Foto" />
+              {% endif %}
+            </span>
+            <div class="observer-card" style="display:inline-block; width: calc(100% - 92px); vertical-align: top;">
+              <p class="kicker">Ficha de Observador</p>
+              <p class="number">N° {{ observer_number_display|default:observer_number }}</p>
+              {% if generated_at %}<p class="printed">Impreso: {{ generated_at|date:"d/m/Y" }}</p>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="avoid-break" style="margin-bottom: 18px;">
+      <p class="section-title">Información del Estudiante</p>
+      <div class="card">
+        <div class="grid" style="margin-bottom: 8px;">
+          <div class="grid-row">
+            <div class="grid-col" style="width: 68%; padding-right: 12px;">
+              <p class="label">Apellidos y Nombres</p>
+              <p class="value-lg">{{ student.full_name|default:"-" }}</p>
+            </div>
+            <div class="grid-col" style="width: 32%;">
+              <p class="label">Documento de Identidad</p>
+              <p class="value">{{ student.document_type|default:""|upper }} {{ student.document_number|default:"-" }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="grid-row">
+            <div class="grid-col" style="width: 25%; padding-right: 10px;">
+              <p class="label">Fecha Nacimiento</p>
+              <p class="value-sm">{% if student.birth_date %}{{ student.birth_date|date:"d/m/Y" }}{% else %}-{% endif %}</p>
+            </div>
+            <div class="grid-col" style="width: 45%; padding-right: 10px;">
+              <p class="label">Lugar Expedición</p>
+              <p class="value-sm">{{ student.place_of_issue|default:"-" }}</p>
+            </div>
+            <div class="grid-col" style="width: 15%; padding-right: 10px;">
+              <p class="label">Tipo Sangre</p>
+              <p class="value-sm"><span class="pill" style="border-color:#fecaca; background:#fef2f2; color:#b91c1c;">{{ student.blood_type|default:"-" }}</span></p>
+            </div>
+            <div class="grid-col" style="width: 15%;">
+              <p class="label">Estrato</p>
+              <p class="value-sm">{{ student.stratum|default:"-" }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top: 10px;">
+          <div class="grid-row">
+            <div class="grid-col" style="width: 40%; padding-right: 10px;">
+              <p class="label">SISBÉN</p>
+              <p class="value-sm">{{ student.sisben_score|default:"-" }}</p>
+            </div>
+            <div class="grid-col" style="width: 60%;">
+              <p class="label">Dirección de Residencia</p>
+              <p class="value-sm">
+                {% if student.address or student.neighborhood %}
+                  {% if student.address %}{{ student.address }}{% endif %}{% if student.address and student.neighborhood %} - {% endif %}{% if student.neighborhood %}{{ student.neighborhood }}{% endif %}
+                {% else %}
+                  -
+                {% endif %}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="avoid-break" style="margin-bottom: 18px;">
+      <p class="section-title">Información Familiar</p>
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 18%;">Parentesco</th>
+            <th style="width: 34%;">Nombre Completo</th>
+            <th style="width: 18%;">Documento</th>
+            <th style="width: 20%;">Teléfono</th>
+            <th style="width: 10%; text-align:center;">Acudiente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if family_members and family_members|length > 0 %}
+            {% for fm in family_members %}
+              <tr>
+                <td style="font-weight: 900; text-transform: uppercase;">{{ fm.relationship|default:"-" }}</td>
+                <td>{{ fm.full_name|default:"-" }}</td>
+                <td>{{ fm.document_number|default:"-" }}</td>
+                <td>{{ fm.phone|default:"-" }}</td>
+                <td style="text-align:center;">
+                  {% if fm.is_main_guardian %}
+                    <span class="pill" style="border-color:#bbf7d0; background:#f0fdf4; color:#166534;">✓</span>
+                  {% else %}
+                    <span style="color:#cbd5e1;">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="5" style="text-align:center; color:#64748b; font-style: italic; padding: 14px;">No hay familiares registrados.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="avoid-break">
+      <p class="section-title">Historial de Matrícula</p>
+      <table class="table">
+        <thead>
+          <tr>
+            <th style="width: 10%;">Año</th>
+            <th style="width: 18%;">Grado</th>
+            <th style="width: 14%;">Grupo</th>
+            <th style="width: 26%;">Sede</th>
+            <th style="width: 16%; text-align:center;">Estado</th>
+            <th style="width: 16%; text-align:center;">Promoción</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if enrollments and enrollments|length > 0 %}
+            {% for en in enrollments %}
+              <tr class="table-row-striped">
+                <td style="font-weight: 900;">{{ en.academic_year|default:"-" }}</td>
+                <td>{{ en.grade_name|default:"-" }}</td>
+                <td>{{ en.group_name|default:"-" }}</td>
+                <td>{{ en.campus_name|default:"-" }}</td>
+                <td style="text-align:center;"><span class="pill">{{ en.status_label|default:en.status|default:"-" }}</span></td>
+                <td style="text-align:center;">
+                  {% if en.final_status %}
+                    <span class="pill" style="border-color:#bbf7d0; background:#dcfce7; color:#166534;">{{ en.final_status }}</span>
+                  {% else %}
+                    <span style="color:#94a3b8;">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="6" style="text-align:center; color:#64748b; font-style: italic; padding: 14px;">No hay historial de matrícula.</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PAGE 2: Timeline (Disciplina + Anotaciones) + Signatures + QR -->
+  <div class="page">
+    <div class="timeline-titlebar">
+      <span class="timeline-kicker">Hoja de Seguimiento Disciplinario</span>
+      <span class="timeline-student">{{ student.full_name|default:"" }}</span>
+      <div style="clear: both;"></div>
+    </div>
+
+    <h2 class="timeline-heading">Bitácora de Observaciones</h2>
+
+    {% if timeline and timeline|length > 0 %}
+      {% for row in timeline %}
+        {% if row.kind == 'discipline' %}
+          {% with entry=row.entry %}
+            <div class="entry avoid-break" style="border-left-color: {{ entry.severity.border|default:'#eab308' }};">
+              {% if entry.occurred_at %}<div class="entry-date">{{ entry.occurred_at|date:"d/m/Y" }}</div>{% endif %}
+
+              <div>
+                <span class="badge" style="background: {{ entry.severity.badge_bg|default:'#fef3c7' }}; color: {{ entry.severity.badge_text|default:'#92400e' }};">
+                  {{ entry.severity.label|default:"Llamado de Atención" }}
+                </span>
+
+                <span class="subtitle">
+                  {% if entry.grade_name %}{{ entry.grade_name }}{% endif %}
+                  {% if entry.group_name %}{% if entry.grade_name %} · {% endif %}{{ entry.group_name }}{% endif %}
+                  {% if entry.academic_year %}{% if entry.grade_name or entry.group_name %} · {% endif %}{{ entry.academic_year }}{% endif %}
+                  {% if entry.law_1620_type and entry.law_1620_type != 'UNKNOWN' %} (Ley 1620: {{ entry.law_1620_type }}){% endif %}
+                </span>
+              </div>
+
+              {% if entry.location %}
+                <div class="subtitle" style="margin-top: 6px;"><strong>Lugar:</strong> {{ entry.location }}</div>
+              {% endif %}
+
+              <div class="desc"><strong>Descripción:</strong> {{ entry.narrative|default:"—" }}</div>
+
+              {% if entry.decision_text %}
+                <div class="panel">
+                  <strong>Acción Institucional:</strong> {{ entry.decision_text }}
+                </div>
+              {% endif %}
+
+              <div class="subtitle" style="margin-top: 10px;"><strong>Registrado por:</strong> {{ entry.created_by_name|default:"—" }}</div>
+
+              {% if entry.events and entry.events|length > 0 %}
+                <div class="panel" style="margin-top: 10px;">
+                  <small><strong>Eventos:</strong></small>
+                  <div style="margin-top: 6px;">
+                    {% for ev in entry.events %}
+                      <div class="subtitle">- {% if ev.created_at %}{{ ev.created_at|date:"d/m/Y H:i" }} {% endif %}{{ ev.event_type_label|default:ev.event_type|default:"" }}{% if ev.created_by_name %} ({{ ev.created_by_name }}){% endif %}</div>
+                      {% if ev.text %}<div class="desc" style="margin-top: 4px;">{{ ev.text }}</div>{% endif %}
+                    {% endfor %}
+                  </div>
+                </div>
+              {% endif %}
+            </div>
+          {% endwith %}
+        {% else %}
+          {% with a=row.annotation %}
+            <div class="entry avoid-break" style="border-left-color: {{ a.meta.border|default:'#eab308' }};">
+              {% if a.created_at %}<div class="entry-date">{{ a.created_at|date:"d/m/Y H:i" }}</div>{% endif %}
+
+              <div>
+                <span class="badge" style="background: {{ a.meta.badge_bg|default:'#fef3c7' }}; color: {{ a.meta.badge_text|default:'#92400e' }};">
+                  {{ a.meta.label|default:"Anotación" }}{% if a.is_automatic %} (Auto){% endif %}
+                </span>
+
+                {% if a.period and a.period.name %}
+                  <span class="subtitle">{{ a.period.name }}{% if a.period.academic_year %} ({{ a.period.academic_year }}){% endif %}</span>
+                {% endif %}
+              </div>
+
+              {% if a.title %}
+                <div class="subtitle" style="margin-top: 6px;"><strong>Título:</strong> {{ a.title }}</div>
+              {% endif %}
+
+              <div class="desc"><strong>Descripción:</strong> {{ a.text|default:"—" }}</div>
+
+              {% if a.commitments %}
+                <div class="panel">
+                  <strong>Compromisos:</strong> {{ a.commitments }}
+                  {% if a.commitment_due_date or a.commitment_responsible %}
+                    <div style="margin-top: 6px;" class="subtitle">
+                      {% if a.commitment_due_date %}<strong>Fecha:</strong> {{ a.commitment_due_date|date:"d/m/Y" }}{% endif %}
+                      {% if a.commitment_due_date and a.commitment_responsible %} · {% endif %}
+                      {% if a.commitment_responsible %}<strong>Responsable:</strong> {{ a.commitment_responsible }}{% endif %}
+                    </div>
+                  {% endif %}
+                </div>
+              {% endif %}
+
+              <div class="subtitle" style="margin-top: 10px;"><strong>Registrado por:</strong> {{ a.created_by_name|default:"—" }}</div>
+            </div>
+          {% endwith %}
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <div class="subtitle" style="font-style: italic;">No hay observaciones registradas.</div>
+    {% endif %}
+
+    <div class="footer-sign avoid-break">
+      <div class="sign-grid">
+        <div class="sign-col">
+          <div class="sign-line"></div>
+          <div class="sign-label">Firma del Director de grupo</div>
+        </div>
+        <div class="sign-col">
+          <div class="sign-line"></div>
+          <div class="sign-label">Firma del Acudiente</div>
+        </div>
+        <div class="sign-col">
+          <div class="sign-line"></div>
+          <div class="sign-label">Firma del Estudiante</div>
+        </div>
+      </div>
+      <div class="tiny-muted">
+        {{ institution.name|default:"Institución Educativa" }} | Sistema de Gestión Escolar | Reporte generado el {% if generated_at %}{{ generated_at|date:"d/m/Y" }}{% endif %}
+      </div>
+    </div>
+
+    {% if qr_image_src or verify_url %}
+      <div class="qr-wrap">
+        {% if qr_image_src %}
+          <img src="{{ qr_image_src }}" alt="QR verificación" />
+        {% endif %}
+        {% if verify_url %}
+          <div class="qr-text">
+            <span style="font-weight:800;">Verificación:</span>
+            <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
+          </div>
+          {% if verify_url_prefix and verify_token %}
+            <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
+            <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
+          {% else %}
+            <div class="qr-text verify-url">{{ verify_url }}</div>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+</body>
+</html>

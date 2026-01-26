@@ -308,6 +308,47 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.OBSERVER_REPORT:
+            student_id = params.get("student_id")
+            if not student_id:
+                raise serializers.ValidationError({"params": "student_id es requerido"})
+
+            from students.models import Student, FamilyMember  # noqa: PLC0415
+
+            student = Student.objects.select_related("user").filter(pk=student_id).first()
+            if not student:
+                raise serializers.ValidationError({"params": "Estudiante no encontrado"})
+
+            admin_roles = {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR, User.ROLE_SECRETARY}
+            if role in admin_roles:
+                return attrs
+
+            if role == User.ROLE_TEACHER:
+                # Reuse the same helper used by StudentViewSet listing restrictions.
+                try:
+                    from students.views import _teacher_managed_student_ids  # noqa: PLC0415
+                except Exception:
+                    _teacher_managed_student_ids = None
+                if _teacher_managed_student_ids is None:
+                    raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+                allowed_ids = _teacher_managed_student_ids(user)
+                if not allowed_ids or int(student.id) not in set(int(x) for x in allowed_ids):
+                    raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+                return attrs
+
+            if role == User.ROLE_PARENT:
+                is_guardian = FamilyMember.objects.filter(student=student, user=user).exists()
+                if not is_guardian:
+                    raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+                return attrs
+
+            if role == User.ROLE_STUDENT:
+                if getattr(student, "user_id", None) != getattr(user, "id", None):
+                    raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+                return attrs
+
+            raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
         raise serializers.ValidationError({"report_type": "report_type no soportado"})
 
 

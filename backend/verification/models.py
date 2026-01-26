@@ -13,6 +13,7 @@ class VerifiableDocument(models.Model):
         STUDY_CERTIFICATE = "STUDY_CERTIFICATE", "Certificado de estudios"
         STUDY_CERTIFICATION = "STUDY_CERTIFICATION", "Certificación académica"
         REPORT_CARD = "REPORT_CARD", "Boletín / Informe académico"
+        OBSERVER_REPORT = "OBSERVER_REPORT", "Observador del estudiante"
 
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE", "Activo"

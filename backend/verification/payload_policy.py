@@ -54,6 +54,13 @@ _ALLOWED_PUBLIC_PAYLOAD_KEYS: dict[str, set[str]] = {
         "rows",
         "final_status",
     },
+    VerifiableDocument.DocType.OBSERVER_REPORT: {
+        "title",
+        "student_full_name",
+        "document_number",
+        "observer_number",
+        "academic_year",
+    },
 }
 
 
