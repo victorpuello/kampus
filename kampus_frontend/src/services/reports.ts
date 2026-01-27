@@ -49,4 +49,10 @@ export const reportsApi = {
       report_type: 'ACADEMIC_PERIOD_GROUP',
       params: { group_id: groupId, period_id: periodId },
     }),
+
+  createAcademicPeriodSabanaJob: (groupId: number, periodId: number) =>
+    reportsApi.createJob({
+      report_type: 'ACADEMIC_PERIOD_SABANA',
+      params: { group_id: groupId, period_id: periodId },
+    }),
 }

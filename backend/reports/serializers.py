@@ -109,6 +109,45 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.ACADEMIC_PERIOD_SABANA:
+            group_id = params.get("group_id")
+            period_id = params.get("period_id")
+            if not group_id or not period_id:
+                raise serializers.ValidationError({"params": "group_id y period_id son requeridos"})
+
+            from academic.models import Group  # noqa: PLC0415
+
+            group = Group.objects.select_related("academic_year", "director").filter(id=group_id).first()
+            if not group:
+                raise serializers.ValidationError({"params": "Grupo no encontrado"})
+
+            try:
+                period = Period.objects.select_related("academic_year").get(id=period_id)
+            except Period.DoesNotExist:
+                raise serializers.ValidationError({"params": "Periodo no encontrado"})
+
+            if period.academic_year_id != group.academic_year_id:
+                raise serializers.ValidationError({"params": "El periodo no corresponde al año lectivo del grupo."})
+
+            is_admin_like = role in {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR}
+            if is_admin_like:
+                return attrs
+
+            if role == User.ROLE_TEACHER:
+                teacher_id = getattr(user, "id", None)
+                is_director = getattr(group, "director_id", None) == teacher_id
+                is_assigned = (
+                    TeacherAssignment.objects.filter(teacher_id=teacher_id, group_id=group.id).exists()
+                    if teacher_id is not None
+                    else False
+                )
+                if not (is_director or is_assigned):
+                    raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+            else:
+                raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
+            return attrs
+
         if report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:
             case_id = params.get("case_id")
             if not case_id:

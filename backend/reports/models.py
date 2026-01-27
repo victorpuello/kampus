@@ -15,6 +15,7 @@ class ReportJob(models.Model):
 		DUMMY = "DUMMY", "Dummy (prueba)"
 		ACADEMIC_PERIOD_ENROLLMENT = "ACADEMIC_PERIOD_ENROLLMENT", "Informe académico (matrícula/periodo)"
 		ACADEMIC_PERIOD_GROUP = "ACADEMIC_PERIOD_GROUP", "Informe académico (grupo/periodo)"
+		ACADEMIC_PERIOD_SABANA = "ACADEMIC_PERIOD_SABANA", "Sábana de notas (grupo/periodo)"
 		DISCIPLINE_CASE_ACTA = "DISCIPLINE_CASE_ACTA", "Acta de caso disciplinario"
 		ATTENDANCE_MANUAL_SHEET = "ATTENDANCE_MANUAL_SHEET", "Planilla de asistencia (manual)"
 		ENROLLMENT_LIST = "ENROLLMENT_LIST", "Reporte de matriculados"

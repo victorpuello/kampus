@@ -18,6 +18,7 @@ from students.academic_period_report import (
     build_academic_period_group_report_context,
     build_academic_period_report_context,
 )
+from students.academic_period_sabana_report import build_academic_period_sabana_context
 from students.models import Enrollment
 
 from attendance.reports import build_attendance_manual_sheet_context
@@ -229,6 +230,18 @@ def _render_report_html(job: ReportJob) -> str:
                 page["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
 
         return render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
+
+    if job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_SABANA:
+        from academic.models import Group  # noqa: PLC0415
+
+        group_id = (job.params or {}).get("group_id")
+        period_id = (job.params or {}).get("period_id")
+
+        group = Group.objects.select_related("academic_year", "director", "grade").get(id=group_id)
+        period = Period.objects.select_related("academic_year").get(id=period_id)
+
+        ctx = build_academic_period_sabana_context(group=group, period=period)
+        return render_to_string("students/reports/academic_period_sabana_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:
         from discipline.models import DisciplineCase  # noqa: PLC0415
@@ -917,6 +930,9 @@ def generate_report_job_pdf(self, job_id: int) -> None:
         elif job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_GROUP:
             params = job.params or {}
             out_filename = f"informe-academico-grupo-{params.get('group_id')}-period-{params.get('period_id')}.pdf"
+        elif job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_SABANA:
+            params = job.params or {}
+            out_filename = f"sabana-notas-grupo-{params.get('group_id')}-period-{params.get('period_id')}.pdf"
         elif job.report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:
             params = job.params or {}
             out_filename = f"caso-{params.get('case_id')}-acta.pdf"

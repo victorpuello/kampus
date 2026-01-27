@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page { size: A4 landscape; margin: 10mm; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, "Noto Sans", sans-serif;
+      background: #f3f4f6;
+      color: #1f2937;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    .page {
+      width: 297mm;
+      min-height: 210mm;
+      padding: 15mm;
+      margin: 0 auto;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+    }
+
+    /* Encabezado compacto (similar a tu maqueta) */
+    .header {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      border-bottom: 2px solid #1f2937;
+      padding-bottom: 6px;
+      margin-bottom: 12px;
+    }
+    .header-left { display: table-cell; width: 62%; vertical-align: bottom; }
+    .header-right { display: table-cell; width: 38%; vertical-align: bottom; text-align: right; }
+
+    .brand {
+      display: table;
+      table-layout: fixed;
+    }
+    .brand-icon {
+      display: table-cell;
+      width: 44px;
+      vertical-align: bottom;
+      padding-right: 10px;
+    }
+    .brand-icon img {
+      display: block;
+      width: auto;
+      height: 34px;
+      object-fit: contain;
+    }
+    .brand-icon .fallback {
+      font-size: 24px;
+      color: #1f2937;
+      opacity: 0.8;
+      line-height: 1;
+    }
+    .brand-text { display: table-cell; vertical-align: bottom; }
+
+    .inst-name {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 900;
+      text-transform: uppercase;
+      color: #111827;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+    .inst-subtitle {
+      margin-top: 2px;
+      font-size: 9px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+    }
+
+    .group-pill {
+      display: inline-block;
+      background: #f3f4f6;
+      padding: 4px 10px;
+      border-radius: 8px;
+      margin-right: 8px;
+      border: 1px solid #e5e7eb;
+    }
+    .group-pill .k { font-size: 9px; color: #6b7280; font-weight: 900; text-transform: uppercase; }
+    .group-pill .v { font-size: 16px; color: #111827; font-weight: 900; margin-left: 6px; vertical-align: middle; }
+
+    .grade-pill {
+      display: inline-block;
+      background: #ffffff;
+      padding: 3px 8px;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      margin-right: 8px;
+      font-size: 10px;
+      color: #111827;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .hdr-right-lines { display: inline-block; text-align: right; }
+    .hdr-right-lines .dir { font-size: 10px; font-weight: 800; color: #1f2937; }
+    .hdr-right-lines .meta { font-size: 10px; color: #6b7280; margin-top: 2px; }
+
+    /* Tabla */
+    table.table-sabana {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+
+    th {
+      border-bottom: 1px solid #d1d5db;
+      font-size: 10px;
+      font-weight: 700;
+      color: #374151;
+      padding: 4px 2px;
+      text-align: center;
+      vertical-align: bottom;
+    }
+
+    td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 6px 2px;
+      text-align: center;
+      vertical-align: middle;
+      color: #111827;
+    }
+
+    tbody tr:nth-child(even) td { background: #f9fafb; }
+
+    .col-id { width: 30px; color: #9ca3af; text-align: center; }
+    .col-name {
+      min-width: 220px;
+      text-align: left;
+      padding: 6px 8px;
+      font-weight: 400;
+      color: #111827;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Encabezados rotados */
+    .th-rotated {
+      white-space: nowrap;
+      height: 100px;
+      vertical-align: bottom;
+      padding-bottom: 10px;
+      padding-left: 5px;
+      width: 34px;
+    }
+    .th-rotated > div {
+      transform: rotate(-45deg);
+      transform-origin: bottom left;
+      width: 30px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #4b5563;
+      text-transform: uppercase;
+    }
+
+    /* Semáforo de notas */
+    .grade-low { color: #dc2626; font-weight: 900; background: #fef2f2 !important; }
+    .grade-basic { color: #d97706; font-weight: 700; }
+    .grade-high { color: #111827; font-weight: 700; }
+    .grade-superior { color: #059669; font-weight: 900; }
+
+    /* Columna final: perdidas */
+    .lost-head {
+      width: 60px;
+      border-bottom: 1px solid #1f2937;
+      background: #f9fafb;
+      color: #111827;
+      font-weight: 900;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .lost-none { font-weight: 900; background: #ecfdf5 !important; color: #047857; }
+    .lost-some { font-weight: 900; background: #fee2e2 !important; color: #b91c1c; }
+
+    /* Footer resumen */
+    .footer {
+      margin-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 6px;
+      font-size: 9px;
+      color: #6b7280;
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+    .footer-left { display: table-cell; width: 60%; vertical-align: middle; }
+    .footer-right {
+      display: table-cell;
+      width: 40%;
+      vertical-align: middle;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .footer-left strong { color: #374151; }
+
+    .page-num::before { content: counter(page); }
+    .page-count::before { content: counter(pages); }
+
+    @media print {
+      body { background: none; }
+      .page { width: 100%; border: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-left">
+        <div class="brand">
+          <div class="brand-icon">
+            {% if institution_logo_src %}
+              <img
+                src="{{ institution_logo_src }}"
+                alt="Escudo"
+                style="height: {{ institution.pdf_logo_height_px|default:60 }}px;"
+              />
+            {% else %}
+              <div class="fallback">🏛</div>
+            {% endif %}
+          </div>
+          <div class="brand-text">
+            <h1 class="inst-name">{{ institution.name|default:"" }}</h1>
+            <div class="inst-subtitle">Seguimiento de Evaluación y Promoción</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        {% if grade_name %}
+          <span class="grade-pill">GRADO: {{ grade_name }}</span>
+        {% endif %}
+        <div class="group-pill">
+          <span class="k">GRUPO:</span>
+          <span class="v">{{ group_short_name|default:group_name|default:"" }}</span>
+        </div>
+        <div class="hdr-right-lines">
+          <span class="dir">
+            {% if director_name %}Dir. {{ director_name }}{% endif %}
+          </span>
+          <span class="meta">
+            {{ period_name|default:"" }}{% if year_name %} - {{ year_name }}{% endif %}
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <table class="table-sabana">
+      <thead>
+        <tr>
+          <th class="col-id">#</th>
+          <th class="col-name">ESTUDIANTE</th>
+
+          {% for c in columns %}
+            <th class="th-rotated"><div>{{ c.short_label|default:c.subject_name }}</div></th>
+          {% endfor %}
+
+          <th class="lost-head">Asig.<br>Perdidas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr class="row-student">
+            <td class="col-id">{{ r.index }}</td>
+            <td class="col-name">{{ r.student_name|default:""|lower|title }}</td>
+            {% for cell in r.scores %}
+              <td class="td-grade {{ cell.css|default:"" }}">{{ cell.score|default:"" }}</td>
+            {% endfor %}
+            <td class="td-grade {{ r.lost_css|default:"" }}">{{ r.lost_display|default:"" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="footer">
+      <div class="footer-left">
+        <strong>Resumen del Grupo:</strong>
+        <span>Promedio General: {{ footer.group_avg|default:"" }}</span>
+        <span> | </span>
+        <span style="color:#047857; font-weight:900;">Aprobados: {{ footer.approved|default:0 }}</span>
+        <span> | </span>
+        <span style="color:#dc2626; font-weight:900;">En Riesgo: {{ footer.at_risk|default:0 }}</span>
+      </div>
+      <div class="footer-right">
+        Página <span class="page-num"></span> de <span class="page-count"></span>
+        - Generado el {{ generated_on|date:"d/m/Y" }}
+      </div>
+    </div>
+  </div>
+</body>
+</html>

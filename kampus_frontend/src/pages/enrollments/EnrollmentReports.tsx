@@ -22,7 +22,7 @@ export default function EnrollmentReports() {
   const isTeacher = user?.role === 'TEACHER'
   const [loading, setLoading] = useState(false)
   const [loadingFilters, setLoadingFilters] = useState(false)
-  const [activeModal, setActiveModal] = useState<null | 'ENROLLMENT_LIST' | 'BULLETINS'>(null)
+  const [activeModal, setActiveModal] = useState<null | 'ENROLLMENT_LIST' | 'BULLETINS' | 'SABANA'>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -46,6 +46,11 @@ export default function EnrollmentReports() {
     year: '',
     group: '',
   })
+
+  const [sabanaFilters, setSabanaFilters] = useState({
+    year: '',
+    group: '',
+  })
   
   const [years, setYears] = useState<AcademicYear[]>([])
   const [grades, setGrades] = useState<Grade[]>([])
@@ -58,7 +63,10 @@ export default function EnrollmentReports() {
   const [bulletinEnrollments, setBulletinEnrollments] = useState<EnrollmentOption[]>([])
   const [loadingBulletinEnrollments, setLoadingBulletinEnrollments] = useState(false)
 
+  const [sabanaPeriodId, setSabanaPeriodId] = useState('')
+
   const [bulletinJob, setBulletinJob] = useState<ReportJob | null>(null)
+  const [sabanaJob, setSabanaJob] = useState<ReportJob | null>(null)
   const [enrollmentListJob, setEnrollmentListJob] = useState<ReportJob | null>(null)
 
   const getFilenameFromContentDisposition = (value?: string) => {
@@ -128,6 +136,7 @@ export default function EnrollmentReports() {
             const yearId = String(activeYear.id)
             setEnrollmentFilters((prev) => ({ ...prev, year: prev.year || yearId }))
             setBulletinFilters((prev) => ({ ...prev, year: prev.year || yearId }))
+            setSabanaFilters((prev) => ({ ...prev, year: prev.year || yearId }))
           }
         } else {
           console.error(yearsRes.reason)
@@ -224,6 +233,14 @@ export default function EnrollmentReports() {
       .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
   }, [bulletinFilters.year, periods])
 
+  const sabanaPeriodOptions = useMemo(() => {
+    const yearId = sabanaFilters.year ? Number(sabanaFilters.year) : null
+    if (!yearId) return [] as Period[]
+    return periods
+      .filter((p) => p.academic_year === yearId)
+      .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
+  }, [sabanaFilters.year, periods])
+
   useEffect(() => {
     if (!bulletinFilters.year) {
       setBulletinPeriodId('')
@@ -236,11 +253,26 @@ export default function EnrollmentReports() {
   }, [bulletinFilters.year, periodOptions, bulletinPeriodId])
 
   useEffect(() => {
+    if (!sabanaFilters.year) {
+      setSabanaPeriodId('')
+      return
+    }
+    if (sabanaPeriodId && sabanaPeriodOptions.some((p) => String(p.id) === sabanaPeriodId)) {
+      return
+    }
+    setSabanaPeriodId(sabanaPeriodOptions.length ? String(sabanaPeriodOptions[0].id) : '')
+  }, [sabanaFilters.year, sabanaPeriodOptions, sabanaPeriodId])
+
+  useEffect(() => {
     // When changing group/year or switching mode, reset student selection.
     setBulletinEnrollmentId('')
     setBulletinEnrollments([])
     setBulletinJob(null)
   }, [bulletinFilters.group, bulletinFilters.year, bulletinMode])
+
+  useEffect(() => {
+    setSabanaJob(null)
+  }, [sabanaFilters.group, sabanaFilters.year, sabanaPeriodId])
 
   useEffect(() => {
     if (isTeacher) return
@@ -350,6 +382,50 @@ export default function EnrollmentReports() {
     } catch (err) {
       console.error(err)
       showToast('Error al generar el boletín', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadSabana = async () => {
+    if (!sabanaFilters.group || !sabanaFilters.year) {
+      showToast('Selecciona año y grupo.', 'error')
+      return
+    }
+    if (!sabanaPeriodId) {
+      showToast('Selecciona el periodo.', 'error')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const groupId = Number(sabanaFilters.group)
+      const periodId = Number(sabanaPeriodId)
+
+      showToast('Generando PDF…', 'info')
+
+      const created = await reportsApi.createAcademicPeriodSabanaJob(groupId, periodId)
+      const jobId = created.data.id
+      setSabanaJob(created.data)
+
+      const job = await pollJobUntilFinished(jobId, setSabanaJob)
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el PDF', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(jobId)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+      const headers = res.headers as Record<string, string | undefined>
+      const filename =
+        getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+        job.output_filename ||
+        `sabana-notas-grupo-${groupId}-periodo-${periodId}.pdf`
+      downloadBlob(blob, filename)
+      showToast('PDF listo.', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('Error al generar la sábana', 'error')
     } finally {
       setLoading(false)
     }
@@ -465,6 +541,13 @@ export default function EnrollmentReports() {
           icon={<FileText className="h-5 w-5" />}
           actionText="Abrir"
           onAction={() => setActiveModal('BULLETINS')}
+        />
+        <ReportCard
+          title="Sábana de notas por periodo"
+          description="Genera un PDF horizontal (grupo × asignaturas) con semáforo por nivel y conteo de perdidas."
+          icon={<FileSpreadsheet className="h-5 w-5" />}
+          actionText="Abrir"
+          onAction={() => setActiveModal('SABANA')}
         />
         <ReportCard
           title="Reporte de Seguimiento"
@@ -788,6 +871,124 @@ export default function EnrollmentReports() {
                 !bulletinPeriodId ||
                 (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)
               }
+              className="w-full"
+            >
+              Reintentar
+            </Button>
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* Sabana Modal */}
+      <Modal
+        isOpen={activeModal === 'SABANA'}
+        onClose={() => setActiveModal(null)}
+        title="Sábana de notas por periodo"
+        description="Genera un PDF horizontal con todas las notas del grupo para un periodo."
+        size="lg"
+        loading={loading}
+        footer={
+          <Button variant="outline" onClick={() => setActiveModal(null)} disabled={loading}>
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Año Académico</Label>
+            <select
+              className={selectClassName}
+              value={sabanaFilters.year}
+              onChange={(e) => setSabanaFilters((prev) => ({ ...prev, year: e.target.value }))}
+              disabled={loadingFilters}
+            >
+              <option value="">Selecciona…</option>
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.year} ({y.status})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Grupo</Label>
+            <select
+              className={selectClassName}
+              value={sabanaFilters.group}
+              onChange={(e) => {
+                const nextGroupId = e.target.value
+                if (!nextGroupId) {
+                  setSabanaFilters((prev) => ({ ...prev, group: '' }))
+                  return
+                }
+
+                const selected = groups.find((g) => String(g.id) === nextGroupId)
+                setSabanaFilters((prev) => ({
+                  ...prev,
+                  group: nextGroupId,
+                  year: prev.year || (selected ? String(selected.academic_year) : prev.year),
+                }))
+              }}
+              disabled={loadingFilters}
+            >
+              <option value="">Selecciona…</option>
+              {getFilteredGroups({ year: sabanaFilters.year, grade: '' }).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {(gradeNameById.get(g.grade) ? `${gradeNameById.get(g.grade)} — ` : '') + g.name}
+                </option>
+              ))}
+            </select>
+            {!sabanaFilters.year ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Tip: puedes seleccionar el grupo primero; el año se autocompleta.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          <Label>Periodo</Label>
+          <select
+            className={selectClassName}
+            value={sabanaPeriodId}
+            onChange={(e) => setSabanaPeriodId(e.target.value)}
+            disabled={loadingFilters || !sabanaFilters.year}
+          >
+            <option value="">Selecciona…</option>
+            {sabanaPeriodOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="mt-5">
+          <Button
+            onClick={handleDownloadSabana}
+            disabled={loading || !sabanaFilters.group || !sabanaFilters.year || !sabanaPeriodId}
+            className="w-full"
+          >
+            Generar PDF
+          </Button>
+        </div>
+
+        {sabanaJob ? (
+          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
+            Estado: <span className="font-medium">{sabanaJob.status}</span>
+            {typeof sabanaJob.progress === 'number' ? ` (${sabanaJob.progress}%)` : ''}
+            {sabanaJob.status === 'FAILED' && sabanaJob.error_message ? ` — ${sabanaJob.error_message}` : ''}
+          </div>
+        ) : null}
+
+        {sabanaJob?.status === 'FAILED' ? (
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDownloadSabana}
+              disabled={loading || !sabanaFilters.group || !sabanaFilters.year || !sabanaPeriodId}
               className="w-full"
             >
               Reintentar
