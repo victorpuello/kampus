@@ -164,23 +164,34 @@ Runbook: ver [docs/runbook_verificacion_qr.md](docs/runbook_verificacion_qr.md).
 
 ```
 kampus/
-├── backend/                 # Código fuente del Backend (Django)
-│   ├── academic/            # App: Gestión académica y SIEE
-│   ├── audit/               # App: Auditoría de accesos/acciones sensibles
-│   ├── communications/      # App: Mensajería y notificaciones
-│   ├── core/                # App: Modelos base e institución
-│   ├── discipline/          # App: Convivencia / Observador disciplinario
-│   ├── students/            # App: Gestión de estudiantes
-│   ├── users/               # App: Autenticación y usuarios
-│   └── manage.py            # CLI de Django
-├── kampus_frontend/         # Código fuente del Frontend (React)
+├── docker-compose.yml               # Orquestación local (Postgres + backend + frontend + scheduler)
+├── env.backend.example              # Variables de entorno de ejemplo (backend)
+├── env.frontend.example             # Variables de entorno de ejemplo (frontend)
+├── backend/                         # Backend (Django + DRF)
+│   ├── manage.py                    # CLI de Django
+│   ├── entrypoint.sh                # Bootstrap del contenedor (migraciones + superuser dev)
+│   ├── requirements.txt             # Dependencias Python
+│   ├── kampus_backend/              # Proyecto Django (settings/urls/wsgi/asgi)
+│   ├── academic/                    # App: Gestión académica y SIEE
+│   ├── attendance/                  # App: Asistencia
+│   ├── audit/                       # App: Auditoría de accesos/acciones sensibles
+│   ├── communications/              # App: Mensajería y notificaciones
+│   ├── config/                      # App: Configuración institucional
+│   ├── core/                        # App: Modelos base e institución
+│   ├── discipline/                  # App: Convivencia / Observador
+│   ├── notifications/               # App: Notificaciones
+│   ├── reports/                     # App: Jobs de reportes (PDF/descargas)
+│   ├── students/                    # App: Estudiantes (matrículas, certificados, reportes)
+│   ├── teachers/                    # App: Docentes
+│   └── users/                       # App: Usuarios y permisos
+├── kampus_frontend/                 # Frontend (React + TypeScript + Vite)
 │   ├── src/
-│   │   ├── components/      # Componentes reutilizables UI
-│   │   ├── pages/           # Vistas principales
-│   │   ├── services/        # Integración con API
-│   │   └── store/           # Gestión de estado global
-│   └── vite.config.ts       # Configuración de Vite
-└── docs/                    # Documentación adicional
+│   │   ├── components/              # Componentes reutilizables UI
+│   │   ├── pages/                   # Vistas (rutas)
+│   │   ├── services/                # Cliente API (Axios) y servicios
+│   │   └── store/                   # Estado global (auth, etc.)
+│   └── vite.config.ts               # Configuración Vite
+└── docs/                            # Documentación adicional
 ```
 
 ---

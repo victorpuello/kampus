@@ -462,9 +462,10 @@ export default function EnrollmentReports() {
 
   if (isTeacher) {
     return (
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-slate-900 dark:text-slate-100">Reportes de Matrículas</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100 text-xl sm:text-2xl">Reportes de Matrículas</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a reportes de matrículas.</p>
@@ -473,6 +474,7 @@ export default function EnrollmentReports() {
           </div>
         </CardContent>
       </Card>
+      </div>
     )
   }
 
@@ -495,10 +497,10 @@ export default function EnrollmentReports() {
       <Card className="h-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-3">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               {icon}
             </span>
-            <span>{title}</span>
+            <span className="text-lg sm:text-xl">{title}</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -512,9 +514,11 @@ export default function EnrollmentReports() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
       <div>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Centro de Reportes</h2>
+        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          Centro de Reportes
+        </h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           Genera reportes y PDFs desde un solo lugar. Cada reporte abre su propio formulario.
         </p>
@@ -527,7 +531,7 @@ export default function EnrollmentReports() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
         <ReportCard
           title="Reporte de Matriculados"
           description="Exporta matrículas activas por año, grado y/o grupo (CSV/XLSX) o genera PDF desde Jobs."
