@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group, type Period } from '../../services/academic'
@@ -6,6 +6,7 @@ import { reportsApi, type ReportJob } from '../../services/reports'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Label } from '../../components/ui/Label'
+import { Modal } from '../../components/ui/Modal'
 import { Toast, type ToastType } from '../../components/ui/Toast'
 import { FileSpreadsheet, FileText } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
@@ -20,6 +21,8 @@ export default function EnrollmentReports() {
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
   const [loading, setLoading] = useState(false)
+  const [loadingFilters, setLoadingFilters] = useState(false)
+  const [activeModal, setActiveModal] = useState<null | 'ENROLLMENT_LIST' | 'BULLETINS'>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -30,11 +33,18 @@ export default function EnrollmentReports() {
     setToast({ message, type, isVisible: true })
   }
 
-  // Report Filters State
-  const [filters, setFilters] = useState({
+  const selectClassName =
+    'flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+
+  const [enrollmentFilters, setEnrollmentFilters] = useState({
     year: '',
     grade: '',
-    group: ''
+    group: '',
+  })
+
+  const [bulletinFilters, setBulletinFilters] = useState({
+    year: '',
+    group: '',
   })
   
   const [years, setYears] = useState<AcademicYear[]>([])
@@ -97,22 +107,65 @@ export default function EnrollmentReports() {
 
   useEffect(() => {
     if (isTeacher) return
-    Promise.all([
+    let cancelled = false
+    setLoadingFilters(true)
+
+    Promise.allSettled([
       academicApi.listYears(),
       academicApi.listGrades(),
       academicApi.listGroups(),
       academicApi.listPeriods(),
-    ]).then(([yearsRes, gradesRes, groupsRes, periodsRes]) => {
-      setYears(yearsRes.data)
-      setGrades(gradesRes.data)
-      setGroups(groupsRes.data)
-      setPeriods(periodsRes.data)
-      
-      const activeYear = yearsRes.data.find(y => y.status === 'ACTIVE')
-      if (activeYear) {
-        setFilters(prev => ({ ...prev, year: String(activeYear.id) }))
-      }
-    }).catch(console.error)
+    ])
+      .then((results) => {
+        if (cancelled) return
+
+        const [yearsRes, gradesRes, groupsRes, periodsRes] = results
+
+        if (yearsRes.status === 'fulfilled') {
+          setYears(yearsRes.value.data)
+          const activeYear = yearsRes.value.data.find((y) => y.status === 'ACTIVE')
+          if (activeYear) {
+            const yearId = String(activeYear.id)
+            setEnrollmentFilters((prev) => ({ ...prev, year: prev.year || yearId }))
+            setBulletinFilters((prev) => ({ ...prev, year: prev.year || yearId }))
+          }
+        } else {
+          console.error(yearsRes.reason)
+          showToast('No se pudieron cargar los años académicos', 'error')
+          setYears([])
+        }
+
+        if (gradesRes.status === 'fulfilled') {
+          setGrades(gradesRes.value.data)
+        } else {
+          console.error(gradesRes.reason)
+          showToast('No se pudieron cargar los grados', 'error')
+          setGrades([])
+        }
+
+        if (groupsRes.status === 'fulfilled') {
+          setGroups(groupsRes.value.data)
+        } else {
+          console.error(groupsRes.reason)
+          showToast('No se pudieron cargar los grupos (revisa permisos o sesión)', 'error')
+          setGroups([])
+        }
+
+        if (periodsRes.status === 'fulfilled') {
+          setPeriods(periodsRes.value.data)
+        } else {
+          console.error(periodsRes.reason)
+          showToast('No se pudieron cargar los periodos', 'error')
+          setPeriods([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingFilters(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [isTeacher])
 
   const handleDownloadReport = async (format: 'csv' | 'pdf' | 'xlsx' = 'csv') => {
@@ -124,9 +177,9 @@ export default function EnrollmentReports() {
         const created = await reportsApi.createJob({
           report_type: 'ENROLLMENT_LIST',
           params: {
-            year_id: filters.year ? Number(filters.year) : null,
-            grade_id: filters.grade ? Number(filters.grade) : null,
-            group_id: filters.group ? Number(filters.group) : null,
+            year_id: enrollmentFilters.year ? Number(enrollmentFilters.year) : null,
+            grade_id: enrollmentFilters.grade ? Number(enrollmentFilters.grade) : null,
+            group_id: enrollmentFilters.group ? Number(enrollmentFilters.group) : null,
           },
         })
 
@@ -151,7 +204,7 @@ export default function EnrollmentReports() {
         return
       }
 
-      const response = await enrollmentsApi.downloadReport({ ...filters, export: format })
+      const response = await enrollmentsApi.downloadReport({ ...enrollmentFilters, export: format })
       const blob = response.data instanceof Blob ? response.data : new Blob([response.data])
       const filename = format === 'csv' ? 'matriculados.csv' : 'matriculados.xlsx'
       downloadBlob(blob, filename)
@@ -164,15 +217,15 @@ export default function EnrollmentReports() {
   }
 
   const periodOptions = useMemo(() => {
-    const yearId = filters.year ? Number(filters.year) : null
+    const yearId = bulletinFilters.year ? Number(bulletinFilters.year) : null
     if (!yearId) return [] as Period[]
     return periods
       .filter((p) => p.academic_year === yearId)
       .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
-  }, [filters.year, periods])
+  }, [bulletinFilters.year, periods])
 
   useEffect(() => {
-    if (!filters.year) {
+    if (!bulletinFilters.year) {
       setBulletinPeriodId('')
       return
     }
@@ -180,26 +233,26 @@ export default function EnrollmentReports() {
       return
     }
     setBulletinPeriodId(periodOptions.length ? String(periodOptions[0].id) : '')
-  }, [filters.year, periodOptions, bulletinPeriodId])
+  }, [bulletinFilters.year, periodOptions, bulletinPeriodId])
 
   useEffect(() => {
     // When changing group/year or switching mode, reset student selection.
     setBulletinEnrollmentId('')
     setBulletinEnrollments([])
     setBulletinJob(null)
-  }, [filters.group, filters.year, bulletinMode])
+  }, [bulletinFilters.group, bulletinFilters.year, bulletinMode])
 
   useEffect(() => {
     if (isTeacher) return
     if (bulletinMode !== 'STUDENT') return
-    if (!filters.year || !filters.group) return
+    if (!bulletinFilters.year || !bulletinFilters.group) return
 
     let cancelled = false
     setLoadingBulletinEnrollments(true)
     enrollmentsApi
       .list({
-        academic_year: Number(filters.year),
-        group: Number(filters.group),
+        academic_year: Number(bulletinFilters.year),
+        group: Number(bulletinFilters.group),
         status: 'ACTIVE',
         page_size: 200,
       })
@@ -223,10 +276,10 @@ export default function EnrollmentReports() {
     return () => {
       cancelled = true
     }
-  }, [bulletinMode, filters.group, filters.year, isTeacher])
+  }, [bulletinMode, bulletinFilters.group, bulletinFilters.year, isTeacher])
 
   const handleDownloadBulletin = async () => {
-    if (!filters.group || !filters.year) {
+    if (!bulletinFilters.group || !bulletinFilters.year) {
       showToast('Selecciona año y grupo.', 'error')
       return
     }
@@ -237,7 +290,7 @@ export default function EnrollmentReports() {
 
     setLoading(true)
     try {
-      const groupId = Number(filters.group)
+      const groupId = Number(bulletinFilters.group)
       const periodId = Number(bulletinPeriodId)
 
       if (bulletinMode === 'GROUP') {
@@ -302,29 +355,34 @@ export default function EnrollmentReports() {
     }
   }
 
-  const getFilteredGroups = () => {
-    if (!filters.year) return []
-    const yearId = Number(filters.year)
-    const gradeId = filters.grade ? Number(filters.grade) : null
+  const getFilteredGroups = ({ year, grade }: { year: string; grade: string }) => {
+    const yearId = year ? Number(year) : null
+    const gradeId = grade ? Number(grade) : null
     const gradeOrdinalById = new Map<number, number | null | undefined>()
     for (const grade of grades) gradeOrdinalById.set(grade.id, grade.ordinal)
 
     return groups
       .filter((g) => {
-      if (g.academic_year !== yearId) return false
-      if (gradeId && g.grade !== gradeId) return false
-      return true
+        if (yearId && g.academic_year !== yearId) return false
+        if (gradeId && g.grade !== gradeId) return false
+        return true
       })
       .slice()
       .sort((a, b) => {
         const ao = gradeOrdinalById.get(a.grade)
         const bo = gradeOrdinalById.get(b.grade)
-        const aOrd = ao === null || ao === undefined ? -9999 : ao
-        const bOrd = bo === null || bo === undefined ? -9999 : bo
-        if (aOrd !== bOrd) return bOrd - aOrd
+        const aOrd = ao === null || ao === undefined ? 9999 : ao
+        const bOrd = bo === null || bo === undefined ? 9999 : bo
+        if (aOrd !== bOrd) return aOrd - bOrd
         return (a.name || '').localeCompare(b.name || '')
       })
   }
+
+  const gradeNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const gr of grades) map.set(gr.id, gr.name)
+    return map
+  }, [grades])
 
   if (isTeacher) {
     return (
@@ -342,11 +400,49 @@ export default function EnrollmentReports() {
     )
   }
 
+  const ReportCard = ({
+    title,
+    description,
+    icon,
+    actionText,
+    onAction,
+    disabled,
+  }: {
+    title: string
+    description: string
+    icon: ReactNode
+    actionText: string
+    onAction: () => void
+    disabled?: boolean
+  }) => {
+    return (
+      <Card className="h-full">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-3">
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+              {icon}
+            </span>
+            <span>{title}</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-slate-600 dark:text-slate-300">{description}</p>
+          <Button onClick={onAction} disabled={disabled} className="w-full">
+            {actionText}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-        Reportes
-      </h2>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Centro de Reportes</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Genera reportes y PDFs desde un solo lugar. Cada reporte abre su propio formulario.
+        </p>
+      </div>
 
       <Toast
         message={toast.message}
@@ -355,209 +451,350 @@ export default function EnrollmentReports() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="grid grid-cols-1 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5" />
-              Reporte de Matriculados
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Año Académico</Label>
-              <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={filters.year}
-                onChange={e => setFilters({...filters, year: e.target.value})}
-              >
-                <option value="">Todos</option>
-                {years.map(y => (
-                  <option key={y.id} value={y.id}>{y.year} ({y.status})</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Grado</Label>
-              <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={filters.grade}
-                onChange={e => setFilters({...filters, grade: e.target.value, group: ''})}
-              >
-                <option value="">Todos</option>
-                {grades
-                  .slice()
-                  .sort((a, b) => {
-                    const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
-                    const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
-                    if (ao !== bo) return bo - ao
-                    return (a.name || '').localeCompare(b.name || '')
-                  })
-                  .map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Grupo</Label>
-              <select 
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={filters.group}
-                onChange={e => setFilters({...filters, group: e.target.value})}
-                disabled={!filters.year}
-              >
-                <option value="">Todos</option>
-                {getFilteredGroups().map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <ReportCard
+          title="Reporte de Matriculados"
+          description="Exporta matrículas activas por año, grado y/o grupo (CSV/XLSX) o genera PDF desde Jobs."
+          icon={<FileSpreadsheet className="h-5 w-5" />}
+          actionText="Abrir"
+          onAction={() => setActiveModal('ENROLLMENT_LIST')}
+        />
+        <ReportCard
+          title="Boletines por periodo"
+          description="Genera boletines en PDF por grupo o por estudiante, con verificación por QR."
+          icon={<FileText className="h-5 w-5" />}
+          actionText="Abrir"
+          onAction={() => setActiveModal('BULLETINS')}
+        />
+        <ReportCard
+          title="Reporte de Seguimiento"
+          description="Asistencias, novedades y observaciones (próximamente)."
+          icon={<FileText className="h-5 w-5" />}
+          actionText="Próximamente"
+          onAction={() => showToast('Este reporte estará disponible pronto.', 'info')}
+          disabled
+        />
+      </div>
 
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="w-full sm:flex-1">
-                <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-                CSV
-              </Button>
-              <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="w-full sm:flex-1">
-                <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-                XLSX
-              </Button>
-              <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="w-full sm:flex-1">
-                <FileText className="w-4 h-4 mr-2 text-red-600" />
-                PDF
-              </Button>
-            </div>
+      {/* Enrollment List Modal */}
+      <Modal
+        isOpen={activeModal === 'ENROLLMENT_LIST'}
+        onClose={() => setActiveModal(null)}
+        title="Reporte de Matriculados"
+        description="Exporta CSV/XLSX o genera PDF vía Jobs."
+        size="lg"
+        loading={loading}
+        footer={
+          <Button variant="outline" onClick={() => setActiveModal(null)} disabled={loading}>
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="space-y-2">
+            <Label>Año Académico</Label>
+            <select
+              className={selectClassName}
+              value={enrollmentFilters.year}
+              onChange={(e) => setEnrollmentFilters((prev) => ({ ...prev, year: e.target.value }))}
+              disabled={loadingFilters}
+            >
+              <option value="">Todos</option>
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.year} ({y.status})
+                </option>
+              ))}
+            </select>
+          </div>
 
-            {enrollmentListJob && (
-              <div className="text-xs text-slate-600 dark:text-slate-300">
-                PDF: <span className="font-medium">{enrollmentListJob.status}</span>
-                {typeof enrollmentListJob.progress === 'number' ? ` (${enrollmentListJob.progress}%)` : ''}
-                {enrollmentListJob.status === 'FAILED' && enrollmentListJob.error_message
-                  ? ` — ${enrollmentListJob.error_message}`
-                  : ''}
+          <div className="space-y-2">
+            <Label>Grado</Label>
+            <select
+              className={selectClassName}
+              value={enrollmentFilters.grade}
+              onChange={(e) => setEnrollmentFilters((prev) => ({ ...prev, grade: e.target.value, group: '' }))}
+              disabled={loadingFilters}
+            >
+              <option value="">Todos</option>
+              {grades
+                .slice()
+                .sort((a, b) => {
+                  const ao = a.ordinal === null || a.ordinal === undefined ? -9999 : a.ordinal
+                  const bo = b.ordinal === null || b.ordinal === undefined ? -9999 : b.ordinal
+                  if (ao !== bo) return bo - ao
+                  return (a.name || '').localeCompare(b.name || '')
+                })
+                .map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Grupo</Label>
+            <select
+              className={selectClassName}
+              value={enrollmentFilters.group}
+              onChange={(e) => {
+                const nextGroupId = e.target.value
+                if (!nextGroupId) {
+                  setEnrollmentFilters((prev) => ({ ...prev, group: '' }))
+                  return
+                }
+
+                const selected = groups.find((g) => String(g.id) === nextGroupId)
+                setEnrollmentFilters((prev) => ({
+                  ...prev,
+                  group: nextGroupId,
+                  year: prev.year || (selected ? String(selected.academic_year) : prev.year),
+                }))
+              }}
+              disabled={loadingFilters}
+            >
+              <option value="">Todos</option>
+              {getFilteredGroups({ year: enrollmentFilters.year, grade: enrollmentFilters.grade }).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            {!enrollmentFilters.year ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Tip: puedes seleccionar el grupo primero; el año se autocompleta.
               </div>
-            )}
+            ) : null}
+          </div>
+        </div>
 
-            {enrollmentListJob?.status === 'FAILED' && (
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+          <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+            <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
+            CSV
+          </Button>
+          <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+            <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
+            XLSX
+          </Button>
+          <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+            <FileText className="w-4 h-4 mr-2 text-red-600" />
+            PDF
+          </Button>
+        </div>
+
+        {enrollmentListJob ? (
+          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
+            PDF: <span className="font-medium">{enrollmentListJob.status}</span>
+            {typeof enrollmentListJob.progress === 'number' ? ` (${enrollmentListJob.progress}%)` : ''}
+            {enrollmentListJob.status === 'FAILED' && enrollmentListJob.error_message
+              ? ` — ${enrollmentListJob.error_message}`
+              : ''}
+          </div>
+        ) : null}
+
+        {enrollmentListJob?.status === 'FAILED' ? (
+          <div className="mt-3">
+            <Button type="button" variant="outline" onClick={() => handleDownloadReport('pdf')} disabled={loading} className="w-full">
+              Reintentar PDF
+            </Button>
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* Bulletins Modal */}
+      <Modal
+        isOpen={activeModal === 'BULLETINS'}
+        onClose={() => setActiveModal(null)}
+        title="Boletines por periodo"
+        description="Genera PDFs por grupo o por estudiante."
+        size="lg"
+        loading={loading}
+        footer={
+          <Button variant="outline" onClick={() => setActiveModal(null)} disabled={loading}>
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Año Académico</Label>
+            <select
+              className={selectClassName}
+              value={bulletinFilters.year}
+              onChange={(e) => setBulletinFilters((prev) => ({ ...prev, year: e.target.value }))}
+              disabled={loadingFilters}
+            >
+              <option value="">Selecciona…</option>
+              {years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.year} ({y.status})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Grupo</Label>
+            <select
+              className={selectClassName}
+              value={bulletinFilters.group}
+              onChange={(e) => {
+                const nextGroupId = e.target.value
+                if (!nextGroupId) {
+                  setBulletinFilters((prev) => ({ ...prev, group: '' }))
+                  return
+                }
+
+                const selected = groups.find((g) => String(g.id) === nextGroupId)
+                setBulletinFilters((prev) => ({
+                  ...prev,
+                  group: nextGroupId,
+                  year: prev.year || (selected ? String(selected.academic_year) : prev.year),
+                }))
+              }}
+              disabled={loadingFilters}
+            >
+              <option value="">Selecciona…</option>
+              {getFilteredGroups({ year: bulletinFilters.year, grade: '' }).map((g) => (
+                <option key={g.id} value={g.id}>
+                  {(gradeNameById.get(g.grade) ? `${gradeNameById.get(g.grade)} — ` : '') + g.name}
+                </option>
+              ))}
+            </select>
+            {bulletinFilters.group ? (
+              <div className="text-xs text-slate-600 dark:text-slate-300">
+                Selección:{' '}
+                <span className="font-medium">
+                  {(() => {
+                    const selected = groups.find((gg) => String(gg.id) === bulletinFilters.group)
+                    const gradeName = selected ? gradeNameById.get(selected.grade) : undefined
+                    return `${gradeName || 'Grado'} / ${selected?.name || 'Grupo'}`
+                  })()}
+                </span>
+              </div>
+            ) : null}
+            {!bulletinFilters.year ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Tip: puedes seleccionar el grupo primero; el año se autocompleta.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label>Periodo</Label>
+            <select
+              className={selectClassName}
+              value={bulletinPeriodId}
+              onChange={(e) => setBulletinPeriodId(e.target.value)}
+              disabled={!bulletinFilters.year}
+            >
+              <option value="">Selecciona…</option>
+              {periodOptions.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Generar para</Label>
+            <div className="flex gap-2">
               <Button
                 type="button"
-                variant="outline"
-                onClick={() => handleDownloadReport('pdf')}
-                disabled={loading}
-                className="w-full"
+                variant={bulletinMode === 'GROUP' ? 'secondary' : 'outline'}
+                className="flex-1"
+                onClick={() => setBulletinMode('GROUP')}
               >
-                Reintentar PDF
+                Grupo
               </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="w-5 h-5" />
-              Boletines por periodo
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Periodo</Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  value={bulletinPeriodId}
-                  onChange={(e) => setBulletinPeriodId(e.target.value)}
-                  disabled={!filters.year}
-                >
-                  <option value="">Selecciona…</option>
-                  {periodOptions.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Generar para</Label>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant={bulletinMode === 'GROUP' ? 'secondary' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setBulletinMode('GROUP')}
-                  >
-                    Grupo
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={bulletinMode === 'STUDENT' ? 'secondary' : 'outline'}
-                    className="flex-1"
-                    onClick={() => setBulletinMode('STUDENT')}
-                    disabled={!filters.group || !filters.year}
-                    title={!filters.group || !filters.year ? 'Selecciona año y grupo primero' : undefined}
-                  >
-                    Estudiante
-                  </Button>
-                </div>
-              </div>
+              <Button
+                type="button"
+                variant={bulletinMode === 'STUDENT' ? 'secondary' : 'outline'}
+                className="flex-1"
+                onClick={() => setBulletinMode('STUDENT')}
+                disabled={!bulletinFilters.group || !bulletinFilters.year}
+                title={!bulletinFilters.group || !bulletinFilters.year ? 'Selecciona año y grupo primero' : undefined}
+              >
+                Estudiante
+              </Button>
             </div>
+          </div>
+        </div>
 
-            {bulletinMode === 'STUDENT' && (
-              <div className="space-y-2">
-                <Label>Estudiante</Label>
-                <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  value={bulletinEnrollmentId}
-                  onChange={(e) => setBulletinEnrollmentId(e.target.value)}
-                  disabled={!filters.group || !filters.year || loadingBulletinEnrollments}
-                >
-                  <option value="">Selecciona…</option>
-                  {bulletinEnrollments.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.student.full_name} ({e.student.document_number})
-                    </option>
-                  ))}
-                </select>
-                {loadingBulletinEnrollments && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Cargando estudiantes…</div>
-                )}
-                {!loadingBulletinEnrollments && filters.group && filters.year && bulletinEnrollments.length === 0 && (
-                  <div className="text-xs text-slate-500 dark:text-slate-400">No hay matrículas activas para este grupo.</div>
-                )}
-              </div>
-            )}
+        {bulletinMode === 'STUDENT' ? (
+          <div className="mt-4 space-y-2">
+            <Label>Estudiante</Label>
+            <select
+              className={selectClassName}
+              value={bulletinEnrollmentId}
+              onChange={(e) => setBulletinEnrollmentId(e.target.value)}
+              disabled={!bulletinFilters.group || !bulletinFilters.year || loadingBulletinEnrollments}
+            >
+              <option value="">Selecciona…</option>
+              {bulletinEnrollments.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.student.full_name} ({e.student.document_number})
+                </option>
+              ))}
+            </select>
+            {loadingBulletinEnrollments ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">Cargando estudiantes…</div>
+            ) : null}
+            {!loadingBulletinEnrollments && bulletinFilters.group && bulletinFilters.year && bulletinEnrollments.length === 0 ? (
+              <div className="text-xs text-slate-500 dark:text-slate-400">No hay matrículas activas para este grupo.</div>
+            ) : null}
+          </div>
+        ) : null}
 
+        <div className="mt-5">
+          <Button
+            onClick={handleDownloadBulletin}
+            disabled={
+              loading ||
+              !bulletinFilters.group ||
+              !bulletinFilters.year ||
+              !bulletinPeriodId ||
+              (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)
+            }
+            className="w-full"
+          >
+            Generar PDF
+          </Button>
+        </div>
+
+        {bulletinJob ? (
+          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
+            Estado: <span className="font-medium">{bulletinJob.status}</span>
+            {typeof bulletinJob.progress === 'number' ? ` (${bulletinJob.progress}%)` : ''}
+            {bulletinJob.status === 'FAILED' && bulletinJob.error_message ? ` — ${bulletinJob.error_message}` : ''}
+          </div>
+        ) : null}
+
+        {bulletinJob?.status === 'FAILED' ? (
+          <div className="mt-3">
             <Button
+              type="button"
+              variant="outline"
               onClick={handleDownloadBulletin}
-              disabled={loading || !filters.group || !filters.year || !bulletinPeriodId || (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)}
+              disabled={
+                loading ||
+                !bulletinFilters.group ||
+                !bulletinFilters.year ||
+                !bulletinPeriodId ||
+                (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)
+              }
               className="w-full"
             >
-              Generar PDF
+              Reintentar
             </Button>
-
-            {bulletinJob && (
-              <div className="text-xs text-slate-600 dark:text-slate-300">
-                Estado: <span className="font-medium">{bulletinJob.status}</span>
-                {typeof bulletinJob.progress === 'number' ? ` (${bulletinJob.progress}%)` : ''}
-                {bulletinJob.status === 'FAILED' && bulletinJob.error_message ? ` — ${bulletinJob.error_message}` : ''}
-              </div>
-            )}
-
-            {bulletinJob?.status === 'FAILED' && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleDownloadBulletin}
-                disabled={loading || !filters.group || !filters.year || !bulletinPeriodId || (bulletinMode === 'STUDENT' && !bulletinEnrollmentId)}
-                className="w-full"
-              >
-                Reintentar
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   )
 }
