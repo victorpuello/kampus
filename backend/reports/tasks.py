@@ -148,23 +148,86 @@ def _render_report_html(job: ReportJob) -> str:
             .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
         )
         from verification.models import VerifiableDocument  # noqa: PLC0415
-        from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
+        from verification.payload_policy import sanitize_public_payload  # noqa: PLC0415
+        from verification.services import build_public_verify_url  # noqa: PLC0415
 
         ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
 
-        vdoc = get_or_create_for_report_job(
-            job_id=job.id,
-            doc_type=VerifiableDocument.DocType.REPORT_CARD,
-            public_payload={
-                "title": f"Informe académico grupo: {getattr(group, 'name', '')} - {getattr(period, 'name', '')} - {getattr(period.academic_year, 'year', '')}",
-                "group_name": getattr(group, "name", ""),
-                "period_name": getattr(period, "name", ""),
-                "year_name": getattr(period.academic_year, "year", ""),
-            },
-        )
-        verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
-        ctx["verify_url"] = verify_url
-        ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
+        # One verification token per student/page.
+        pages = ctx.get("pages") or []
+        if isinstance(pages, list):
+            for page in pages:
+                if not isinstance(page, dict):
+                    continue
+
+                enrollment_id = page.get("enrollment_id")
+                object_id = f"{job.id}:enrollment:{enrollment_id}" if enrollment_id else f"{job.id}:student:{page.get('student_code','')}"
+
+                rows_public = []
+                for r in (page.get("rows") or [])[:80]:
+                    if not isinstance(r, dict):
+                        continue
+                    rows_public.append(
+                        {
+                            "title": r.get("title", ""),
+                            "absences": r.get("absences", ""),
+                            "p1_score": r.get("p1_score", ""),
+                            "p2_score": r.get("p2_score", ""),
+                            "p3_score": r.get("p3_score", ""),
+                            "p4_score": r.get("p4_score", ""),
+                            "final_score": r.get("final_score", ""),
+                            "p1_scale": r.get("p1_scale", ""),
+                            "p2_scale": r.get("p2_scale", ""),
+                            "p3_scale": r.get("p3_scale", ""),
+                            "p4_scale": r.get("p4_scale", ""),
+                            "final_scale": r.get("final_scale", ""),
+                        }
+                    )
+
+                public_payload = sanitize_public_payload(
+                    VerifiableDocument.DocType.REPORT_CARD,
+                    {
+                        "title": f"Boletín / Informe académico: {str(page.get('student_name','')).strip()} - {str(page.get('period_name','')).strip()} - {str(page.get('year_name','')).strip()}",
+                        "student_name": page.get("student_name", ""),
+                        "group_name": page.get("group_name", ""),
+                        "period_name": page.get("period_name", ""),
+                        "year_name": page.get("year_name", ""),
+                        "rows": rows_public,
+                        "final_status": page.get("final_status", ""),
+                    },
+                )
+
+                vdoc = VerifiableDocument.objects.filter(
+                    doc_type=VerifiableDocument.DocType.REPORT_CARD,
+                    object_type="ReportJobPage",
+                    object_id=str(object_id),
+                ).first()
+                if vdoc:
+                    if public_payload and (vdoc.public_payload or {}) != public_payload:
+                        vdoc.public_payload = public_payload
+                        vdoc.save(update_fields=["public_payload", "updated_at"])
+                else:
+                    vdoc = VerifiableDocument.create_with_unique_token(
+                        doc_type=VerifiableDocument.DocType.REPORT_CARD,
+                        public_payload=public_payload,
+                        object_type="ReportJobPage",
+                        object_id=str(object_id),
+                    )
+
+                verify_url = _coerce_public_absolute_url(job, build_public_verify_url(vdoc.token))
+                verify_url_prefix = ""
+                try:
+                    marker = f"{vdoc.token}/"
+                    if verify_url and marker in verify_url:
+                        verify_url_prefix = verify_url.split(marker)[0].rstrip("/") + "/"
+                except Exception:
+                    verify_url_prefix = ""
+
+                page["verify_url"] = verify_url
+                page["verify_token"] = vdoc.token
+                page["verify_url_prefix"] = verify_url_prefix
+                page["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
+
         return render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:

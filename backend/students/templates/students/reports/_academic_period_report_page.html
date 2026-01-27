@@ -1,153 +1,224 @@
-<div align="left" class="SaltoDePagina">
-  <table border="0" width="753" cellpadding="0" cellspacing="0" align="center">
+<header class="header">
+  <div class="header-left">
+    <span class="logo">
+      {% if institution and institution.pdf_show_logo and institution.logo %}
+        <img src="{{ institution.logo.url }}" alt="Logo" />
+      {% else %}
+        IE
+      {% endif %}
+    </span>
+    <div class="inst">
+      <p class="inst-name">{{ institution.name|default:"Institución Educativa" }}</p>
+      {% if institution.pdf_header_line2 %}
+        <p class="inst-line">{{ institution.pdf_header_line2 }}</p>
+      {% endif %}
+      <div class="inst-meta">
+        {% if institution.dane_code %}<span>DANE: {{ institution.dane_code }}</span>{% endif %}
+        {% if institution.nit %}<span>NIT: {{ institution.nit }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="period-kicker">Periodo</div>
+    <div class="period-number">
+      {% if period_name %}{% if period_name|length == 1 %}0{{ period_name }}{% else %}{{ period_name }}{% endif %}{% else %}--{% endif %}
+    </div>
+    <div class="period-year">Año Lectivo {{ year_name|default:"" }}</div>
+  </div>
+</header>
+
+<section class="student-card avoid-break">
+  <div class="row">
+    <div class="col" style="width: 50%; padding-right: 8px;">
+      <div class="k">Estudiante</div>
+      <div class="v-lg">{{ student_name|default:"-" }}</div>
+      {% if student_code %}
+        <div class="k" style="margin-top: 8px;">Documento</div>
+        <div class="v">{{ student_code }}</div>
+      {% endif %}
+    </div>
+
+    <div class="col" style="width: 16%; padding-right: 8px;">
+      <div class="k">Grado / Grupo</div>
+      <div class="v">{{ group_name|default:"-" }}</div>
+    </div>
+
+    <div class="col" style="width: 16%; padding-right: 8px;">
+      <div class="k">Jornada</div>
+      <div class="v">{{ shift_name|default:"-" }}</div>
+    </div>
+
+    <div class="col" style="width: 18%; text-align: right;">
+      <div class="k">Fecha</div>
+      <div class="v"><span class="pill" style="max-width: 100%;">{{ report_date|default:"" }}</span></div>
+    </div>
+  </div>
+
+  <div class="divider">
+    <span class="k">Director de Grupo:</span>
+    <span class="v" style="display:inline; font-size: 11px; font-weight: 800; color:#374151;"> {{ director_name|default:"-" }}</span>
+  </div>
+</section>
+
+<table class="grades">
+  <thead>
     <tr>
-      <td colspan="4">
-        {% include "reports/partials/pdf_masthead.html" %}
-      </td>
+      <th class="subject" style="width: 44%;">Área / Asignatura</th>
+      <th style="width: 8%;">Faltas</th>
+      <th style="width: 8%;">P1</th>
+      <th style="width: 8%;">P2</th>
+      <th style="width: 8%;">P3</th>
+      <th style="width: 8%;">P4</th>
+      <th style="width: 16%; background:#f3f4f6; color:#111827;">Final</th>
     </tr>
-
-    <tr><td height="12" colspan="4"></td></tr>
-
-    <tr>
-      <td colspan="4">
-        <div align="center">
-          <b><font face="Arial" size="2">INFORME DESCRIPTIVO - EXPLICATIVO - CUANTITATIVO</font></b>
-        </div>
-      </td>
-    </tr>
-
-    <tr>
-      <td height="80" colspan="4">
-        <div align="center">
-          <table border="1" cellpadding="0" cellspacing="0" width="96%" bordercolor="#111111">
-            <tr>
-              <td colspan="2">
-                <font face="Arial" size="2">Estudiante: <b>{{ student_name }}</b>&nbsp;&nbsp; Código: <b>{{ student_code }}</b></font>
-              </td>
-            </tr>
-            <tr>
-              <td colspan="2">
-                <font face="Arial" size="2">
-                  Grupo: <b>{{ group_name }}</b>&nbsp;&nbsp;
-                  Jornada: <b>{{ shift_name }}</b>&nbsp;&nbsp;
-                  Período: <b>{{ period_name }}</b>&nbsp;&nbsp;
-                  Año: <b>{{ year_name }}</b>
-                </font>
-              </td>
-            </tr>
-            <tr>
-              <td width="82%"><font face="Arial" size="2">Director de Grupo: <b>{{ director_name }}</b></font></td>
-              <td width="18%"><div align="right"><font face="Arial" size="2">Fecha: <b>{{ report_date }}</b></font></div></td>
-            </tr>
-          </table>
-        </div>
-      </td>
-    </tr>
-
-    <tr><td height="8" colspan="4"></td></tr>
-
-    <tr>
-      <td colspan="4">
-        <div align="center">
-          <table border="1" cellpadding="0" cellspacing="0" width="98%" bordercolor="#111111">
-            <tr>
-              <td width="50%" rowspan="2" align="center"><font size="2" face="Arial, Helvetica, sans-serif"><strong>AREAS - ASIGNATURAS / LOGROS - DIFICULTADES</strong></font></td>
-              <td width="5%" rowspan="2" align="center"><font size="1" face="Arial, Helvetica, sans-serif"><strong>FALTAS</strong></font></td>
-              <td colspan="5" align="center"><font size="2" face="Arial, Helvetica, sans-serif"><strong>DESARROLLO ANUAL (PERÍODOS)</strong></font></td>
-            </tr>
-            <tr>
-              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">1º</font></strong></td>
-              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">2º</font></strong></td>
-              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">3º</font></strong></td>
-              <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">4º</font></strong></td>
-              <td width="9%" align="center"><font size="1" face="Arial, Helvetica, sans-serif"><strong>FINAL</strong></font></td>
-            </tr>
-          </table>
-        </div>
-      </td>
-    </tr>
-
-    <tr><td height="5" colspan="4"></td></tr>
-
-    <tr>
-      <td colspan="4">
-        <div align="center">
-          {% for row in rows %}
-            <table border="1" cellpadding="0" cellspacing="0" width="98%" bordercolor="#111111">
-              <tr>
-                <td width="50%" rowspan="2"><div align="left"><font size="2" face="Arial, Helvetica, sans-serif"><strong>&nbsp;{{ row.title }}</strong></font></div></td>
-                <td width="5%" rowspan="2" align="center"><font size="2" face="Arial, Helvetica, sans-serif">{{ row.absences }}</font></td>
-                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p1_score }}</font></strong></td>
-                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p2_score }}</font></strong></td>
-                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p3_score }}</font></strong></td>
-                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.p4_score }}</font></strong></td>
-                <td width="9%" align="center"><strong><font size="2" face="Arial, Helvetica, sans-serif">{{ row.final_score }}</font></strong></td>
-              </tr>
-              <tr>
-                <td height="18" align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p1_scale }}</font></strong></td>
-                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p2_scale }}</font></strong></td>
-                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p3_scale }}</font></strong></td>
-                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.p4_scale }}</font></strong></td>
-                <td align="center"><strong><font size="1" face="Arial, Helvetica, sans-serif">{{ row.final_scale }}</font></strong></td>
-              </tr>
-            </table>
-
-            <table border="0" cellpadding="0" cellspacing="0" width="98%">
-              {% for line in row.lines %}
-                <tr>
-                  <td height="10" align="center">
-                    <div align="justify"><font size="2" face="Arial, Helvetica, sans-serif">* {{ line }}</font></div>
-                  </td>
-                </tr>
-              {% endfor %}
-              <tr><td height="4"></td></tr>
-            </table>
-          {% endfor %}
-        </div>
-      </td>
-    </tr>
-
-    <tr><td height="10" colspan="4"></td></tr>
-
-    <tr>
-      <td colspan="4">
-        <div align="center">
-          <span class="Estilo1"><font face="Arial, Helvetica, sans-serif"><span class="Estilo2">Equivalencias escala institucional: {{ scale_equivalences }}</span></font></span>
-        </div>
-      </td>
-    </tr>
-
-    {% if qr_image_src or verify_url %}
-      <tr>
-        <td colspan="4">
-          <div align="right" style="margin-top: 6px;">
-            {% if qr_image_src %}
-              <img src="{{ qr_image_src }}" alt="QR verificación" style="height:72px; width:72px; border:1px solid #e5e7eb; padding:3px; background:#fff;" />
-            {% endif %}
-            {% if verify_url %}
-              <div style="font-size: 9px; color: #334155; margin-top: 3px;">
-                <span style="font-weight:700;">Verificación:</span>
-                <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
-              </div>
-              {% if verify_url_prefix and verify_token %}
-                <div class="verify-url" style="margin-top: 2px;">{{ verify_url_prefix }}{{ verify_token }}/</div>
-                <div style="font-size: 9px; color: #334155; margin-top: 2px;">Código: <span class="verify-token">{{ verify_token }}</span></div>
-              {% else %}
-                <div class="verify-url" style="margin-top: 2px;">{{ verify_url }}</div>
-              {% endif %}
+  </thead>
+  <tbody>
+    {% for row in rows %}
+      {% if row.row_type == 'AREA' %}
+        <tr class="avoid-break area-row">
+          <td class="subject">
+            <div class="area-title">{{ row.title|default:"" }}</div>
+          </td>
+          <td class="grade-cell muted">-</td>
+          <td class="grade-cell">
+            <span
+              class="{% if 'superior' in row.p1_scale|lower %}perf-superior{% elif 'alto' in row.p1_scale|lower %}perf-alto{% elif 'basi' in row.p1_scale|lower %}perf-basico{% elif 'bajo' in row.p1_scale|lower %}perf-bajo{% endif %}"
+            >{{ row.p1_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span
+              class="{% if 'superior' in row.p2_scale|lower %}perf-superior{% elif 'alto' in row.p2_scale|lower %}perf-alto{% elif 'basi' in row.p2_scale|lower %}perf-basico{% elif 'bajo' in row.p2_scale|lower %}perf-bajo{% endif %}"
+            >{{ row.p2_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span
+              class="{% if 'superior' in row.p3_scale|lower %}perf-superior{% elif 'alto' in row.p3_scale|lower %}perf-alto{% elif 'basi' in row.p3_scale|lower %}perf-basico{% elif 'bajo' in row.p3_scale|lower %}perf-bajo{% endif %}"
+            >{{ row.p3_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span
+              class="{% if 'superior' in row.p4_scale|lower %}perf-superior{% elif 'alto' in row.p4_scale|lower %}perf-alto{% elif 'basi' in row.p4_scale|lower %}perf-basico{% elif 'bajo' in row.p4_scale|lower %}perf-bajo{% endif %}"
+            >{{ row.p4_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell grade-final">
+            <span
+              class="{% if 'superior' in row.final_scale|lower %}perf-superior{% elif 'alto' in row.final_scale|lower %}perf-alto{% elif 'basi' in row.final_scale|lower %}perf-basico{% elif 'bajo' in row.final_scale|lower %}perf-bajo{% endif %}"
+            >{{ row.final_display|default:row.final_score }}</span>
+          </td>
+        </tr>
+      {% else %}
+      <tr class="avoid-break subject-row{% if row.is_single_area %} single-area-row{% endif %}">
+        <td class="subject">
+          <div class="subject-title{% if not row.is_single_area %} subject-title-indent{% endif %}">
+            {% if row.is_single_area %}
+              {{ row.title|default:"" }}
+            {% else %}
+              {{ row.title|default:""|title }}{% if row.weight_percentage %} ({{ row.weight_percentage }}%){% endif %}
             {% endif %}
           </div>
+          {% if row.lines and row.lines|length > 0 %}
+            <div class="subject-desc">
+              {% if row.lines_as_paragraph %}
+                <div>{{ row.lines|join:" " }}</div>
+              {% else %}
+                {% for line in row.lines %}
+                  <div>• {{ line }}</div>
+                {% endfor %}
+              {% endif %}
+            </div>
+          {% endif %}
+        </td>
+        <td class="grade-cell muted">{% if row.absences %}{{ row.absences }}{% else %}-{% endif %}</td>
+
+        <td class="grade-cell">
+          <span
+            class="{% if 'superior' in row.p1_scale|lower %}perf-superior{% elif 'alto' in row.p1_scale|lower %}perf-alto{% elif 'basi' in row.p1_scale|lower %}perf-basico{% elif 'bajo' in row.p1_scale|lower %}perf-bajo{% endif %}"
+          >{{ row.p1_score|default:"" }}</span>
+        </td>
+        <td class="grade-cell">
+          <span
+            class="{% if 'superior' in row.p2_scale|lower %}perf-superior{% elif 'alto' in row.p2_scale|lower %}perf-alto{% elif 'basi' in row.p2_scale|lower %}perf-basico{% elif 'bajo' in row.p2_scale|lower %}perf-bajo{% endif %}"
+          >{{ row.p2_score|default:"" }}</span>
+        </td>
+        <td class="grade-cell">
+          <span
+            class="{% if 'superior' in row.p3_scale|lower %}perf-superior{% elif 'alto' in row.p3_scale|lower %}perf-alto{% elif 'basi' in row.p3_scale|lower %}perf-basico{% elif 'bajo' in row.p3_scale|lower %}perf-bajo{% endif %}"
+          >{{ row.p3_score|default:"" }}</span>
+        </td>
+        <td class="grade-cell">
+          <span
+            class="{% if 'superior' in row.p4_scale|lower %}perf-superior{% elif 'alto' in row.p4_scale|lower %}perf-alto{% elif 'basi' in row.p4_scale|lower %}perf-basico{% elif 'bajo' in row.p4_scale|lower %}perf-bajo{% endif %}"
+          >{{ row.p4_score|default:"" }}</span>
+        </td>
+
+        <td class="grade-cell grade-final">
+          <span
+            class="{% if 'superior' in row.final_scale|lower %}perf-superior{% elif 'alto' in row.final_scale|lower %}perf-alto{% elif 'basi' in row.final_scale|lower %}perf-basico{% elif 'bajo' in row.final_scale|lower %}perf-bajo{% endif %}"
+          >{{ row.final_display|default:row.final_score }}</span>
         </td>
       </tr>
-    {% endif %}
+      {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
 
-    <tr>
-      <td colspan="4">
-        <p align="center"><font size="1" face="Arial, Helvetica, sans-serif">_____________________________________________</font></p>
-      </td>
-    </tr>
-    <tr>
-      <td colspan="4"><div align="center"><font size="2" face="Arial, Helvetica, sans-serif">Director(a) de Grupo</font></div></td>
-    </tr>
-  </table>
+<div class="footer">
+  <div class="summary avoid-break">
+    <div style="display: table; width: 100%; table-layout: fixed;">
+      <div style="display: table-cell; width: 36%; vertical-align: top;">
+        <span style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;">Promedio general:</span>
+        {% if overall_score %}
+          <span style="margin-left: 6px; font-size: 16px; font-weight: 900; color:#111827;">{{ overall_score }}</span>
+          {% if overall_scale %}
+            <span style="margin-left: 6px; font-weight: 900;" class="{% if 'superior' in overall_scale|lower %}perf-superior{% elif 'alto' in overall_scale|lower %}perf-alto{% elif 'basi' in overall_scale|lower %}perf-basico{% elif 'bajo' in overall_scale|lower %}perf-bajo{% endif %}">
+              ({{ overall_scale }})
+            </span>
+          {% endif %}
+        {% else %}
+          <span style="margin-left: 6px;" class="muted">-</span>
+        {% endif %}
+
+        {% if rank_position and rank_total %}
+          <div class="rank-row">
+            <span class="rank-pill">Puesto en el grupo: {{ rank_position }} de {{ rank_total }}</span>
+            {% if rank_badge_label %}
+              <span class="rank-badge rank-{{ rank_position }}">Felicitaciones · {{ rank_badge_label }}</span>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+      <div style="display: table-cell; width: 64%; vertical-align: top;">
+        <span style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;">Escala institucional:</span>
+        <span style="margin-left: 6px;">{{ scale_equivalences|default:"" }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sign-grid avoid-break">
+    <div class="sign-col" style="width: 100%;">
+      <div class="sign-line"></div>
+      <div class="sign-name">{{ director_name|default:"" }}</div>
+      <div class="sign-role">Director de grupo</div>
+    </div>
+  </div>
+
+  {% if qr_image_src or verify_url %}
+    <div class="qr-wrap">
+      {% if qr_image_src %}
+        <img src="{{ qr_image_src }}" alt="QR verificación" />
+      {% endif %}
+      {% if verify_url %}
+        <div class="qr-text">
+          <span style="font-weight:900;">Verificación:</span>
+          <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
+        </div>
+        {% if verify_url_prefix and verify_token %}
+          <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
+          <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
+        {% else %}
+          <div class="qr-text verify-url">{{ verify_url }}</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
 </div>
