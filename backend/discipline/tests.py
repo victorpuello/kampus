@@ -293,6 +293,14 @@ class DisciplineCaseApiTests(TestCase):
 		self.assertIn("Acta / Registro de Convivencia", html)
 
 	def test_acta_can_be_downloaded_as_pdf(self):
+		from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html
+
+		# Skip when native deps are missing (Windows dev env without GTK/Pango).
+		try:
+			render_pdf_bytes_from_html(html="<html><body><p>ok</p></body></html>")
+		except WeasyPrintUnavailableError:
+			self.skipTest("WeasyPrint no está disponible; se omite prueba de PDF.")
+
 		self.institution.pdf_header_line1 = "Institución PDF"
 		self.institution.save(update_fields=["pdf_header_line1"])
 
@@ -1018,10 +1026,13 @@ class DisciplineCaseApiTests(TestCase):
 		self.assertEqual(create_resp2.status_code, 201, create_resp2.data)
 
 		# Parent should only see their child's case
+		self.client.force_authenticate(user=parent)
 		case_id = create_resp.data["id"]
 		list_resp = self.client.get("/api/discipline/cases/")
 		self.assertEqual(list_resp.status_code, 200)
-		ids = [c["id"] for c in list_resp.data]
+		data = list_resp.data
+		items = data.get("results", data) if isinstance(data, dict) else data
+		ids = [c["id"] for c in items]
 		self.assertIn(case_id, ids)
 		self.assertEqual(len(ids), 1)
 

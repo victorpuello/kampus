@@ -244,7 +244,7 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             # Persist decisions: store a human-readable string in Enrollment.final_status (legacy field)
-            enrollments = Enrollment.objects.filter(id__in=list(computed.keys())).select_related("grade")
+            enrollments = Enrollment.objects.filter(id__in=list(computed.keys())).select_related("grade", "student", "student__user")
 
             updated = 0
             created = 0
@@ -277,6 +277,17 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
 
                 e.final_status = final_status
                 e.save(update_fields=["final_status", "status"] if e.status == "GRADUATED" else ["final_status"])
+
+                if e.status == "GRADUATED":
+                    try:
+                        student = getattr(e, "student", None)
+                        if student is not None and not Enrollment.objects.filter(student=student, status="ACTIVE").exists():
+                            user = getattr(student, "user", None)
+                            if user is not None and getattr(user, "is_active", True):
+                                user.is_active = False
+                                user.save(update_fields=["is_active"])
+                    except Exception:
+                        pass
 
                 details = {
                     "passing_score": str(passing_score),
@@ -428,8 +439,9 @@ class AcademicYearViewSet(viewsets.ModelViewSet):
                 return ord_val >= 13
             return str(getattr(current_grade, "name", "")).strip().lower() in {"11", "11°", "once", "undecimo", "undécimo"}
 
-        # Only ACTIVE enrollments are eligible for promotion.
-        source_enrollments = Enrollment.objects.filter(academic_year=source_year, status="ACTIVE")
+        # When a year is CLOSED, AcademicYear.save retires ACTIVE enrollments.
+        # Applying promotions must therefore consider both ACTIVE (open year) and RETIRED (closed year) enrollments.
+        source_enrollments = Enrollment.objects.filter(academic_year=source_year, status__in=["ACTIVE", "RETIRED"])
         if source_grade_id is not None:
             source_enrollments = source_enrollments.filter(grade_id=source_grade_id)
         if enrollment_ids is not None:

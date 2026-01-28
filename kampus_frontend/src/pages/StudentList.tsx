@@ -4,22 +4,30 @@ import { studentsApi } from '../services/students'
 import type { Student } from '../services/students'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { Plus, Search, Users, User, UserCheck, GraduationCap } from 'lucide-react'
+import { GraduationCap, Plus, Search, User, UserCheck, Users } from 'lucide-react'
 import { Input } from '../components/ui/Input'
 import { useAuthStore } from '../store/auth'
 import { academicApi } from '../services/academic'
 import { Toast, type ToastType } from '../components/ui/Toast'
+import { Modal } from '../components/ui/Modal'
+import { NoveltyCaseForm } from '../components/novelties/NoveltyCaseForm'
 
 export default function StudentList() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
   const canImport = !isTeacher && user?.role !== 'PARENT' && user?.role !== 'STUDENT'
+  const canCreateNovelty = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+
+  const [isNewNoveltyModalOpen, setIsNewNoveltyModalOpen] = useState(false)
+  const [newNoveltyModalInitial, setNewNoveltyModalInitial] = useState<{ studentId?: number; typeId?: number }>({})
+
   const [data, setData] = useState<Student[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [count, setCount] = useState(0)
@@ -38,6 +46,30 @@ export default function StudentList() {
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  const studentStatusLabel = (raw: string | null | undefined): string => {
+    const key = (raw || '').trim().toUpperCase()
+    if (!key) return 'Sin matrícula'
+    if (key === 'ACTIVE') return 'Activo'
+    if (key === 'RETIRED') return 'Retirado'
+    if (key === 'GRADUATED') return 'Graduado'
+    return key
+  }
+
+  const studentStatusClassName = (raw: string | null | undefined): string => {
+    const key = (raw || '').trim().toUpperCase()
+    if (key === 'ACTIVE') return 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900/40'
+    if (key === 'RETIRED') return 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900/40'
+    if (key === 'GRADUATED') return 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/40'
+    if (!key) return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
+    return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
+  }
+
+  const openNewNoveltyModal = (opts: { studentId: number; typeId?: number }) => {
+    if (!canCreateNovelty) return
+    setNewNoveltyModalInitial({ studentId: opts.studentId, typeId: opts.typeId })
+    setIsNewNoveltyModalOpen(true)
   }
 
   const topErrors = useMemo(() => {
@@ -59,6 +91,11 @@ export default function StudentList() {
     const q = debouncedSearchTerm.trim()
     return q ? q : undefined
   }, [debouncedSearchTerm])
+
+  const statusParam = useMemo(() => {
+    const s = statusFilter.trim()
+    return s ? s : undefined
+  }, [statusFilter])
 
   useEffect(() => {
     let mounted = true
@@ -124,6 +161,7 @@ export default function StudentList() {
         page,
         page_size: pageSize,
         search: searchParam,
+        current_enrollment_status: statusParam,
       })
       .then((res) => {
         if (!mounted) return
@@ -141,7 +179,7 @@ export default function StudentList() {
     return () => {
       mounted = false
     }
-  }, [page, pageSize, searchParam, isTeacher, teacherHasDirectedGroup])
+  }, [page, pageSize, searchParam, statusParam, isTeacher, teacherHasDirectedGroup])
 
   const totalPages = Math.max(1, Math.ceil(count / pageSize))
   const startIndex = count === 0 ? 0 : (page - 1) * pageSize + 1
@@ -331,17 +369,35 @@ export default function StudentList() {
         <CardHeader>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <CardTitle>Listado de Alumnos</CardTitle>
-            <div className="relative w-full md:w-64">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
-              <Input 
-                placeholder="Buscar estudiante..." 
-                className="pl-8"
-                value={searchTerm}
+            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
+                <Input
+                  placeholder="Buscar estudiante..."
+                  className="pl-8"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value)
+                    setPage(1)
+                  }}
+                />
+              </div>
+
+              <select
+                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                value={statusFilter}
                 onChange={(e) => {
-                  setSearchTerm(e.target.value)
+                  setStatusFilter(e.target.value)
                   setPage(1)
                 }}
-              />
+                aria-label="Filtrar por estado"
+              >
+                <option value="">Todos</option>
+                <option value="ACTIVE">Activo</option>
+                <option value="RETIRED">Retirado</option>
+                <option value="GRADUATED">Graduado</option>
+                <option value="NONE">Sin matrícula</option>
+              </select>
             </div>
           </div>
           {loading && data.length > 0 && (
@@ -408,6 +464,17 @@ export default function StudentList() {
                           <span className="font-mono">{s.document_number || '-'}</span>
                         </div>
                         <div className="text-slate-700 dark:text-slate-200">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">Estado: </span>
+                          <span
+                            className={
+                              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ' +
+                              studentStatusClassName(s.current_enrollment_status)
+                            }
+                          >
+                            {studentStatusLabel(s.current_enrollment_status)}
+                          </span>
+                        </div>
+                        <div className="text-slate-700 dark:text-slate-200">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Tel: </span>
                           {s.phone || '-'}
                         </div>
@@ -420,17 +487,46 @@ export default function StudentList() {
                   </div>
 
                   <div className="mt-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        navigate(`/students/${s.user?.id}`)
-                      }}
-                    >
-                      Ver ficha
-                    </Button>
+                    {canCreateNovelty ? (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="flex-1 border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openNewNoveltyModal({ studentId: s.id })
+                          }}
+                        >
+                          Novedades
+                        </Button>
+
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="flex-1"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/students/${s.user?.id}`)
+                          }}
+                        >
+                          Ver ficha
+                        </Button>
+
+                      </div>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="w-full"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/students/${s.user?.id}`)
+                        }}
+                      >
+                        Ver ficha
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))
@@ -449,6 +545,9 @@ export default function StudentList() {
                     Documento
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
+                    Estado
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Contacto
                   </th>
                   <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
@@ -459,13 +558,13 @@ export default function StudentList() {
               <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-900 dark:divide-slate-800">
                 {loading && data.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={5} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
                       Cargando…
                     </td>
                   </tr>
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center">
+                    <td colSpan={5} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
                         <div className="p-4 bg-slate-100 rounded-full dark:bg-slate-800">
                           <GraduationCap className="h-8 w-8 text-slate-400" />
@@ -512,21 +611,52 @@ export default function StudentList() {
                         <div className="text-xs text-slate-500 dark:text-slate-400">{s.document_type}</div>
                       </td>
                       <td className="px-6 py-4">
+                        <span
+                          className={
+                            'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ' +
+                            studentStatusClassName(s.current_enrollment_status)
+                          }
+                        >
+                          {studentStatusLabel(s.current_enrollment_status)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
                         <div className="text-sm text-slate-900 dark:text-slate-100">{s.phone || '-'}</div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">{s.user?.email || '-'}</div>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            navigate(`/students/${s.user?.id}`)
-                          }}
-                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                        <div
+                          className="relative inline-flex items-center justify-end gap-2"
                         >
-                          Ver Ficha →
-                        </Button>
+                          {canCreateNovelty ? (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Novedades"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openNewNoveltyModal({ studentId: s.id })
+                                }}
+                                className="text-amber-700 hover:text-amber-800 hover:bg-amber-50 dark:text-amber-200 dark:hover:text-amber-100 dark:hover:bg-amber-900/20"
+                              >
+                                Novedades
+                              </Button>
+                            </>
+                          ) : null}
+
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/students/${s.user?.id}`)
+                            }}
+                            className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          >
+                            Ver Ficha →
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -597,6 +727,25 @@ export default function StudentList() {
           </div>
         </CardContent>
       </Card>
+
+      {canCreateNovelty ? (
+        <Modal
+          isOpen={isNewNoveltyModalOpen}
+          onClose={() => setIsNewNoveltyModalOpen(false)}
+          title="Nueva novedad"
+          size="lg"
+        >
+          <NoveltyCaseForm
+            initial={{ studentId: newNoveltyModalInitial.studentId, typeId: newNoveltyModalInitial.typeId }}
+            onCancel={() => setIsNewNoveltyModalOpen(false)}
+            onCreated={(caseId) => {
+              setIsNewNoveltyModalOpen(false)
+              navigate(`/novelties/${caseId}`)
+            }}
+          />
+        </Modal>
+      ) : null}
+
       <Toast
         message={toast.message}
         type={toast.type}

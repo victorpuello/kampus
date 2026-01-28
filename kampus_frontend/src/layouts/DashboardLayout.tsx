@@ -381,6 +381,7 @@ export default function DashboardLayout() {
           { name: 'Carga masiva', href: '/enrollments/bulk-upload' },
         ],
       },
+      { name: 'Novedades', href: '/novelties' },
       { name: 'Grupos', href: '/groups' },
       { name: 'Asistencias', href: '/attendance' },
       { name: 'Convivencia', href: '/discipline/cases' },

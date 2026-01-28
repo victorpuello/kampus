@@ -78,6 +78,8 @@ from .pagination import StudentPagination, EnrollmentPagination
 from core.permissions import HasDjangoPermission, KampusModelPermissions
 import traceback
 
+from .filters import StudentFilter
+
 from .academic_period_report import compute_certificate_studies_rows, generate_academic_period_report_pdf
 
 from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
@@ -242,7 +244,8 @@ class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     parser_classes = (JSONParser, FormParser, MultiPartParser)
     pagination_class = StudentPagination
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_class = StudentFilter
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
     def get_permissions(self):
@@ -251,7 +254,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         if getattr(self.request.user, 'role', None) == 'TEACHER':
             action = getattr(self, 'action', None)
             if action in {'list', 'retrieve'}:
-                return [IsAuthenticated(), IsTeacherAssignedOrDirectorOfStudent()]
+                return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
             if action in {'update', 'partial_update'}:
                 return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
         return super().get_permissions()
@@ -272,7 +275,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             return qs.none()
 
         if user is not None and getattr(user, 'role', None) == 'TEACHER':
-            allowed_ids = _teacher_managed_student_ids(user)
+            allowed_ids = _director_student_ids(user)
             if not allowed_ids:
                 return qs.none()
             qs = qs.filter(pk__in=allowed_ids)
@@ -289,6 +292,61 @@ class StudentViewSet(viewsets.ModelViewSet):
                 .distinct()
             )
             qs = qs.exclude(pk__in=excluded_student_ids)
+
+        # Annotate current enrollment status for UI list.
+        # Prefer the enrollment from the ACTIVE academic year when present; otherwise use the latest enrollment.
+        try:
+            from django.db.models import OuterRef, Subquery
+            from django.db.models.functions import Coalesce
+            from students.models import Enrollment
+
+            active_year = AcademicYear.objects.filter(status='ACTIVE').first()
+
+            latest_status_sq = (
+                Enrollment.objects.filter(student_id=OuterRef('pk'))
+                .order_by('-academic_year__year', '-id')
+                .values('status')[:1]
+            )
+
+            latest_grade_ordinal_sq = (
+                Enrollment.objects.filter(student_id=OuterRef('pk'))
+                .order_by('-academic_year__year', '-id')
+                .values('grade__ordinal')[:1]
+            )
+            latest_grade_name_sq = (
+                Enrollment.objects.filter(student_id=OuterRef('pk'))
+                .order_by('-academic_year__year', '-id')
+                .values('grade__name')[:1]
+            )
+
+            if active_year is not None:
+                active_year_status_sq = (
+                    Enrollment.objects.filter(student_id=OuterRef('pk'), academic_year_id=active_year.id)
+                    .values('status')[:1]
+                )
+                active_year_grade_ordinal_sq = (
+                    Enrollment.objects.filter(student_id=OuterRef('pk'), academic_year_id=active_year.id)
+                    .values('grade__ordinal')[:1]
+                )
+                active_year_grade_name_sq = (
+                    Enrollment.objects.filter(student_id=OuterRef('pk'), academic_year_id=active_year.id)
+                    .values('grade__name')[:1]
+                )
+
+                qs = qs.annotate(
+                    current_enrollment_status=Coalesce(Subquery(active_year_status_sq), Subquery(latest_status_sq)),
+                    current_grade_ordinal=Coalesce(Subquery(active_year_grade_ordinal_sq), Subquery(latest_grade_ordinal_sq)),
+                    current_grade_name=Coalesce(Subquery(active_year_grade_name_sq), Subquery(latest_grade_name_sq)),
+                )
+            else:
+                qs = qs.annotate(
+                    current_enrollment_status=Subquery(latest_status_sq),
+                    current_grade_ordinal=Subquery(latest_grade_ordinal_sq),
+                    current_grade_name=Subquery(latest_grade_name_sq),
+                )
+        except Exception:
+            # Best-effort: keep endpoint working even if annotation fails.
+            pass
 
         return qs.order_by("user__last_name", "user__first_name", "user__id")
 

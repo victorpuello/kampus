@@ -135,7 +135,7 @@ def compute_promotions_for_year(
     from students.models import Enrollment
 
     enrollments = (
-        Enrollment.objects.filter(academic_year=academic_year, status="ACTIVE")
+        Enrollment.objects.filter(academic_year_id=academic_year.id, status="ACTIVE")
         .select_related("group", "grade", "grade__level")
         .only("id", "group_id", "grade_id", "grade__level__level_type")
     )
@@ -156,7 +156,7 @@ def compute_promotions_for_year(
     subject_area_id: Dict[int, int] = {}
 
     assignments = (
-        TeacherAssignment.objects.filter(academic_year=academic_year)
+        TeacherAssignment.objects.filter(academic_year_id=academic_year.id)
         .select_related("group", "academic_load__subject__area")
         .only(
             "id",

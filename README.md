@@ -179,6 +179,7 @@ kampus/
 │   ├── config/                      # App: Configuración institucional
 │   ├── core/                        # App: Modelos base e institución
 │   ├── discipline/                  # App: Convivencia / Observador
+│   ├── novelties/                   # App: Novedades (workflow + adjuntos + ejecución/reversión)
 │   ├── notifications/               # App: Notificaciones
 │   ├── reports/                     # App: Jobs de reportes (PDF/descargas)
 │   ├── students/                    # App: Estudiantes (matrículas, certificados, reportes)
@@ -196,6 +197,25 @@ kampus/
 
 ---
 
+## 🧩 Módulo de Novedades (Workflow)
+
+El módulo de **Novedades** gestiona casos con trazabilidad completa (radicado, estados, bitácora, adjuntos), y permite **aprobar**, **ejecutar** y **revertir** cambios académicos de forma transaccional.
+
+- **API**: `/api/novelties-workflow/`
+- **Características**:
+	- Radicado por institución/año.
+	- Workflow por estados (borrador → radicada → revisión → aprobada/pendiente docs → ejecutada → revertida/cerrada).
+	- Checklist de soportes por tipo/motivo (reglas de documentos requeridos).
+	- Ejecución idempotente (por `idempotency_key`) y snapshots before/after.
+
+**Graduación (UX sin fricción)**
+- La **aprobación** de casos de graduación **no requiere comentario**.
+- La **graduación** no se bloquea por soportes/adjuntos obligatorios.
+
+Documento de diseño/plan: [docs/plan_modulo_novedades_estudiantes.md](docs/plan_modulo_novedades_estudiantes.md).
+
+---
+
 ## 🔄 Actualizaciones Recientes (Enero 2026)
 
 - **SIEE Mejorado**: Implementación completa de escalas de valoración cualitativas y numéricas.
@@ -207,6 +227,29 @@ kampus/
 - **DevOps**: Scripts de limpieza y corrección de migraciones.
 - **Convivencia / Observador**: auditoría, sellado/inmutabilidad, y portal de acudientes (rol PARENT) con enterado autenticado.
 - **Reportes**: nuevo PDF de **boletines/informe académico por periodo**, descargable por **grupo completo** (multipágina) o por **estudiante**.
+- **Novedades (workflow)**: módulo nuevo para tramitar/aprobar/ejecutar/revertir novedades; graduación sin comentario obligatorio y sin bloqueo por soportes.
+
+---
+
+## ✅ Tests y notas de entorno
+
+### Backend
+
+Ejecuta los tests desde la carpeta `backend/` (Django discovery en este repo depende del cwd):
+
+```bash
+cd backend
+python manage.py test -v 1
+```
+
+Nota (Windows): algunos tests de PDF con **WeasyPrint** pueden requerir dependencias nativas (GTK/Pango). Si no están disponibles, esos tests se omiten (skip). Para un entorno más estable, usa `docker-compose up --build`.
+
+### Frontend
+
+```bash
+cd kampus_frontend
+npm run lint
+```
 
 ### 🔧 Configuración académica (UI)
 

@@ -42,6 +42,9 @@ export interface StudentDocument {
 
 export interface Student {
   id: number
+  current_enrollment_status?: string | null
+  current_grade_ordinal?: number | null
+  current_grade_name?: string | null
   user: User
   // Identification
   document_type: string

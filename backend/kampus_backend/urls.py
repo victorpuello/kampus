@@ -38,6 +38,9 @@ urlpatterns = [
     path("api/", include("discipline.urls")),
     path("api/", include("audit.urls")),
     path("api/", include("reports.urls")),
+    # NOTE: /api/novelties/ ya existe en students (legacy). Esta app nueva se monta
+    # en un namespace separado para permitir migración gradual.
+    path("api/novelties-workflow/", include("novelties.urls")),
     path("api/public/", include("verification.public_urls")),
     path("api/public/", include("students.public_urls")),
     path("public/", include("verification.public_site_urls")),

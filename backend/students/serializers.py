@@ -138,6 +138,9 @@ class StudentUserSerializer(serializers.ModelSerializer):
 
 class StudentSerializer(serializers.ModelSerializer):
     id = serializers.ReadOnlyField(source='pk')
+    current_enrollment_status = serializers.CharField(read_only=True)
+    current_grade_ordinal = serializers.IntegerField(read_only=True)
+    current_grade_name = serializers.CharField(read_only=True)
     # Write-only fields for User creation
     first_name = serializers.CharField(write_only=True, required=False)
     last_name = serializers.CharField(write_only=True, required=False)
@@ -154,6 +157,9 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             "id",
+            "current_enrollment_status",
+            "current_grade_ordinal",
+            "current_grade_name",
             "user",
             "first_name",
             "last_name",

@@ -46,6 +46,9 @@ import AttendanceStats from './pages/attendance/AttendanceStats'
 import GroupsManagement from './pages/GroupsManagement'
 import GroupStudents from './pages/groups/GroupStudents'
 import PublicCertificateVerify from './pages/PublicCertificateVerify'
+import NoveltiesInbox from './pages/NoveltiesInbox'
+import NoveltyCaseDetail from './pages/NoveltyCaseDetail'
+import NoveltyCaseNew from './pages/NoveltyCaseNew'
 
 export default function App() {
   return (
@@ -91,6 +94,9 @@ export default function App() {
             <Route path="/account" element={<AccountSettings />} />
             <Route path="/discipline/cases" element={<DisciplineCases />} />
             <Route path="/discipline/cases/:id" element={<DisciplineCaseDetail />} />
+            <Route path="/novelties" element={<NoveltiesInbox />} />
+            <Route path="/novelties/new" element={<NoveltyCaseNew />} />
+            <Route path="/novelties/:id" element={<NoveltyCaseDetail />} />
             <Route path="/edit-requests/grades" element={<GradeEditRequests />} />
             <Route path="/edit-requests/planning" element={<PlanningEditRequests />} />
             <Route path="/rbac" element={<RbacSettings />} />

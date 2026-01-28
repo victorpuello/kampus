@@ -35,6 +35,7 @@ dist/
 .env.*
 backend/debug_curl.py
 backend/get_token.py
+backend/_debug_*.py
 
 # Generated SEO (build-time)
 kampus_frontend/public/robots.txt

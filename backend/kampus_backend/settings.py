@@ -71,7 +71,7 @@ INSTALLED_APPS = [
     # Local apps
     "core",
     "users",
-    "students",
+    "students.apps.StudentsConfig",
     "teachers",
     "academic",
     "communications",
@@ -82,6 +82,7 @@ INSTALLED_APPS = [
     "audit",
     "attendance",
     "verification",
+    "novelties",
 ]
 
 MIDDLEWARE = [

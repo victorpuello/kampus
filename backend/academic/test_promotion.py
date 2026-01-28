@@ -137,11 +137,20 @@ class PromotionApiTests(APITestCase):
             end_date="2026-03-31",
             is_closed=True,
         )
+
+        # Dimension percentages are defined per academic year; recreate for the new year.
+        self.dimension = Dimension.objects.create(
+            academic_year=self.year,
+            name="Cognitivo",
+            percentage=100,
+            is_active=True,
+        )
         self.group.academic_year = self.year
         self.group.save(update_fields=["academic_year"])
         self.enrollment.academic_year = self.year
+        self.enrollment.status = "ACTIVE"
         self.enrollment.final_status = ""
-        self.enrollment.save(update_fields=["academic_year", "final_status"])
+        self.enrollment.save(update_fields=["academic_year", "status", "final_status"])
 
         self._make_subject_with_score(area_name="Matemáticas", subject_name="Algebra 2", score="2.00")
         self._make_subject_with_score(area_name="Ciencias", subject_name="Biología", score="2.00")

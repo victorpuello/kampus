@@ -8,6 +8,7 @@ from students.models import CertificateIssue
 from students.serializers import StudentSerializer
 from rest_framework.test import APITestCase
 from rest_framework import status
+from django.core.management import call_command
 from academic.models import AcademicYear, Grade, Group
 from academic.models import TeacherAssignment
 from reports.models import ReportJob
@@ -108,6 +109,42 @@ class StudentListPaginationAPITest(APITestCase):
         ids = [row["id"] for row in res.data.get("results", [])]
         self.assertNotIn(s1.user_id, ids)
         self.assertIn(s2.user_id, ids)
+
+    def test_students_list_can_filter_by_current_enrollment_status_none(self):
+        year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        grade = Grade.objects.create(name="1", ordinal=1)
+
+        u1 = User.objects.create_user(
+            username="status_active_student",
+            password="pw123456",
+            first_name="A",
+            last_name="Active",
+            role=User.ROLE_STUDENT,
+        )
+        s1 = Student.objects.create(user=u1, document_number="DOC_STATUS_ACTIVE")
+        Enrollment.objects.create(
+            student=s1,
+            academic_year=year,
+            grade=grade,
+            status="ACTIVE",
+        )
+
+        u2 = User.objects.create_user(
+            username="status_none_student",
+            password="pw123456",
+            first_name="B",
+            last_name="None",
+            role=User.ROLE_STUDENT,
+        )
+        s2 = Student.objects.create(user=u2, document_number="DOC_STATUS_NONE")
+
+        res = self.client.get("/api/students/?current_enrollment_status=NONE&page=1&page_size=200")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results", [])
+        self.assertTrue(isinstance(results, list))
+        ids = [row["id"] for row in results]
+        self.assertIn(s2.pk, ids)
+        self.assertNotIn(s1.pk, ids)
 
 
 class EnrollmentListPaginationAPITest(APITestCase):
@@ -218,6 +255,44 @@ class EnrollmentReportExportAPITest(APITestCase):
         )
         # XLSX files start with PK (zip)
         self.assertTrue(res.content.startswith(b"PK"))
+
+
+class NormalizeGraduatedUsersCommandTests(TestCase):
+    def test_command_deactivates_only_graduated_without_active_enrollment(self):
+        year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        grade = Grade.objects.create(name="1", ordinal=1)
+
+        u1 = User.objects.create_user(
+            username="graduated_only_student",
+            password="pw123456",
+            first_name="A",
+            last_name="Grad",
+            role=User.ROLE_STUDENT,
+            is_active=True,
+        )
+        s1 = Student.objects.create(user=u1, document_number="DOC_GRAD_ONLY")
+        Enrollment.objects.create(student=s1, academic_year=year, grade=grade, status="GRADUATED")
+
+        # Simulate historical inconsistent data (graduated enrollment but user still active).
+        User.objects.filter(pk=u1.pk).update(is_active=True)
+
+        u2 = User.objects.create_user(
+            username="active_student",
+            password="pw123456",
+            first_name="B",
+            last_name="Active",
+            role=User.ROLE_STUDENT,
+            is_active=True,
+        )
+        s2 = Student.objects.create(user=u2, document_number="DOC_ACTIVE")
+        Enrollment.objects.create(student=s2, academic_year=year, grade=grade, status="ACTIVE")
+
+        call_command("normalize_graduated_users", "--apply", "--print", "0")
+
+        u1.refresh_from_db()
+        u2.refresh_from_db()
+        self.assertFalse(u1.is_active)
+        self.assertTrue(u2.is_active)
 
 
 class CertificateIssuesListFiltersAPITest(APITestCase):
@@ -700,7 +775,7 @@ class StudentDirectorEditAPITest(APITestCase):
                 "phone": "3000000000",
                 "email": "maria@example.com",
                 "address": "Calle 1",
-                "is_main_guardian": True,
+                "is_main_guardian": False,
                 "is_head_of_household": True,
             },
             format="json",
@@ -720,6 +795,87 @@ class StudentDirectorEditAPITest(APITestCase):
             format="json",
         )
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class StudentDirectorVisibilityAPITest(APITestCase):
+    def setUp(self):
+        self.director = User.objects.create_user(
+            username="t_director_vis",
+            password="pw123456",
+            first_name="Dir",
+            last_name="Vis",
+            role=User.ROLE_TEACHER,
+        )
+        self.other_teacher = User.objects.create_user(
+            username="t_other_vis",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Other",
+            role=User.ROLE_TEACHER,
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+
+        self.group_directed = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.director,
+        )
+        self.group_not_directed = Group.objects.create(
+            name="B",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.other_teacher,
+        )
+
+        u1 = User.objects.create_user(
+            username="student_in_directed",
+            password="pw123456",
+            first_name="Juan",
+            last_name="Directed",
+            role=User.ROLE_STUDENT,
+        )
+        self.student_directed = Student.objects.create(user=u1, document_number="DOC_DIR_VIS")
+        Enrollment.objects.create(
+            student=self.student_directed,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_directed,
+            status="ACTIVE",
+        )
+
+        u2 = User.objects.create_user(
+            username="student_not_directed",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Other",
+            role=User.ROLE_STUDENT,
+        )
+        self.student_not_directed = Student.objects.create(user=u2, document_number="DOC_OTHER_VIS")
+        Enrollment.objects.create(
+            student=self.student_not_directed,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_not_directed,
+            status="ACTIVE",
+        )
+
+    def test_director_teacher_list_only_directed_students(self):
+        self.client.force_authenticate(user=self.director)
+        res = self.client.get("/api/students/?page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in res.data.get("results", [])]
+        self.assertIn(self.student_directed.pk, ids)
+        self.assertNotIn(self.student_not_directed.pk, ids)
+
+    def test_director_teacher_cannot_retrieve_non_directed_student(self):
+        self.client.force_authenticate(user=self.director)
+        res = self.client.get(f"/api/students/{self.student_not_directed.pk}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class PublicCertificateVerificationNotificationTest(TestCase):

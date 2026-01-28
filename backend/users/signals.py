@@ -25,6 +25,7 @@ APP_LABELS = {
     "academic",
     "communications",
     "discipline",
+    "novelties",
     "reports",
     "config",
 }
