@@ -2,12 +2,14 @@ import json
 import os
 import shutil
 import tempfile
+import logging
 from datetime import datetime
 from pathlib import Path
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from django.conf import settings
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.http import FileResponse
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -20,6 +22,8 @@ from .serializers import InstitutionSerializer, CampusSerializer
 from .permissions import KampusModelPermissions, IsAdminOrReadOnly
 from users.permissions import IsAdmin
 from core.utils.config_transfer import export_config, import_config
+
+logger = logging.getLogger(__name__)
 
 class InstitutionViewSet(viewsets.ModelViewSet):
     queryset = Institution.objects.all()
@@ -463,10 +467,20 @@ class SystemBackupsRestoreView(APIView):
         if not path.exists() or not path.is_file():
             return Response({"detail": "Backup no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 
-        if path.name.endswith(".zip"):
-            _restore_from_bundle_zip(path, flush_db=flush, flush_media=flush)
-        else:
-            _restore_from_fixture(path, flush=flush)
+        try:
+            if path.name.endswith(".zip"):
+                _restore_from_bundle_zip(path, flush_db=flush, flush_media=flush)
+            else:
+                _restore_from_fixture(path, flush=flush)
+        except (ValueError, CommandError) as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Unexpected error restoring backup '%s'", path.name)
+            detail = "Error interno restaurando el backup. Revisa logs del backend."
+            if getattr(settings, "DEBUG", False):
+                detail = f"{detail} ({type(e).__name__}: {e})"
+            return Response({"detail": detail}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
         return Response({"detail": "OK", "mode": mode, "filename": path.name}, status=status.HTTP_200_OK)
 
 
@@ -499,11 +513,18 @@ class SystemBackupsUploadView(APIView):
             for chunk in file_obj.chunks():
                 fp.write(chunk)
 
-        if out_path.name.endswith(".zip"):
-            _restore_from_bundle_zip(out_path, flush_db=flush, flush_media=flush)
-        else:
-            _restore_from_fixture(out_path, flush=flush)
-        return Response(
-            {"detail": "OK", "mode": mode, "filename": out_path.name},
-            status=status.HTTP_200_OK,
-        )
+        try:
+            if out_path.name.endswith(".zip"):
+                _restore_from_bundle_zip(out_path, flush_db=flush, flush_media=flush)
+            else:
+                _restore_from_fixture(out_path, flush=flush)
+        except (ValueError, CommandError) as e:
+            return Response({"detail": str(e), "filename": out_path.name}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.exception("Unexpected error uploading/restoring backup '%s'", out_path.name)
+            detail = "Error interno restaurando el backup. Revisa logs del backend."
+            if getattr(settings, "DEBUG", False):
+                detail = f"{detail} ({type(e).__name__}: {e})"
+            return Response({"detail": detail, "filename": out_path.name}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "OK", "mode": mode, "filename": out_path.name}, status=status.HTTP_200_OK)

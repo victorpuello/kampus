@@ -1,4 +1,4 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -75,6 +75,7 @@ from .serializers import (
     TeacherAssignmentSerializer,
     AcademicLoadSerializer,
     GradeSheetSerializer,
+    GradeSheetListSerializer,
     GradebookBulkUpsertSerializer,
     GradeSheetGradingModeSerializer,
     AchievementActivityColumnSerializer,
@@ -1161,6 +1162,130 @@ class TeacherAssignmentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=["post"], url_path="assign_grade_plan")
+    def assign_grade_plan(self, request):
+        """Bulk-assign all AcademicLoads for the group's grade to a teacher in a given year.
+
+        Intended for PRIMARY teachers where a single teacher often covers the full study plan.
+        Skips loads already assigned to another teacher and reports conflicts.
+        """
+
+        denied = self._deny_write_if_teacher(request)
+        if denied is not None:
+            return denied
+
+        from django.contrib.auth import get_user_model  # noqa: PLC0415
+        from teachers.models import Teacher as TeacherProfile  # noqa: PLC0415
+
+        teacher_id = request.data.get("teacher")
+        group_id = request.data.get("group")
+        academic_year_id = request.data.get("academic_year")
+        force = bool(request.data.get("force", False))
+
+        if not teacher_id or not group_id or not academic_year_id:
+            return Response(
+                {"detail": "teacher, group, academic_year son requeridos."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        User = get_user_model()
+        teacher_user = User.objects.filter(id=teacher_id, role="TEACHER").first()
+        if teacher_user is None:
+            return Response({"detail": "Docente inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        group = Group.objects.filter(id=group_id).select_related("grade").first()
+        if group is None:
+            return Response({"detail": "Grupo inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_year = AcademicYear.objects.filter(id=academic_year_id).first()
+        if target_year is None:
+            return Response({"detail": "Año académico inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if group.academic_year_id != target_year.id:
+            return Response(
+                {"detail": "El grupo no pertenece al año académico seleccionado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not force:
+            teacher_profile = TeacherProfile.objects.filter(user_id=teacher_user.id).first()
+            if teacher_profile is None or teacher_profile.teaching_level != "PRIMARY":
+                return Response(
+                    {
+                        "detail": "Esta acción está habilitada solo para docentes de Primaria (use force=true para omitir)."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        loads = list(
+            AcademicLoad.objects.filter(grade_id=group.grade_id)
+            .select_related("subject")
+            .order_by("subject__name")
+        )
+
+        if not loads:
+            return Response(
+                {"detail": "No hay cargas académicas definidas para este grado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        existing = (
+            TeacherAssignment.objects.filter(group_id=group.id, academic_year_id=target_year.id)
+            .values_list("academic_load_id", "teacher_id")
+        )
+        existing_by_load: dict[int, int] = {int(load_id): int(tid) for load_id, tid in existing}
+
+        to_create: list[TeacherAssignment] = []
+        skipped_existing = 0
+        skipped_taken = 0
+        conflicts = []
+
+        conflict_teacher_ids = set(existing_by_load.values())
+        conflict_teachers = {
+            u.id: u.get_full_name() or u.username
+            for u in User.objects.filter(id__in=conflict_teacher_ids)
+        }
+
+        for load in loads:
+            existing_teacher_id = existing_by_load.get(load.id)
+            if existing_teacher_id is not None:
+                if existing_teacher_id == teacher_user.id:
+                    skipped_existing += 1
+                else:
+                    skipped_taken += 1
+                    conflicts.append(
+                        {
+                            "academic_load_id": load.id,
+                            "subject": load.subject.name,
+                            "assigned_teacher_id": existing_teacher_id,
+                            "assigned_teacher_name": conflict_teachers.get(existing_teacher_id),
+                        }
+                    )
+                continue
+
+            to_create.append(
+                TeacherAssignment(
+                    teacher=teacher_user,
+                    academic_load=load,
+                    group=group,
+                    academic_year=target_year,
+                )
+            )
+
+        with transaction.atomic():
+            if to_create:
+                TeacherAssignment.objects.bulk_create(to_create)
+
+        return Response(
+            {
+                "created": len(to_create),
+                "skipped_existing": skipped_existing,
+                "skipped_taken": skipped_taken,
+                "conflicts": conflicts,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class EvaluationScaleViewSet(viewsets.ModelViewSet):
     queryset = EvaluationScale.objects.all()
@@ -1230,10 +1355,54 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
     permission_classes = [KampusModelPermissions]
     filterset_fields = ['area', 'subject', 'is_active', 'dimension']
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = getattr(self.request, "user", None)
+        role = getattr(user, "role", None)
+
+        # Requirement: teachers should only see bank achievements they created.
+        # Admin-like roles can see everything.
+        if role == "TEACHER":
+            # Backward compatibility: backups created before the `created_by` field existed
+            # will restore definitions with created_by=NULL. In that case, we allow a teacher
+            # to see only the legacy definitions that match their teaching assignments.
+            from django.db.models import Exists, OuterRef, Q
+
+            # 1) Direct match by academic_load (preferred when present)
+            assigned_load = TeacherAssignment.objects.filter(
+                teacher=user,
+                academic_load_id=OuterRef("academic_load_id"),
+            )
+
+            # 2) Fallback match by (subject, grade) when academic_load is not set
+            assigned_subject_grade = TeacherAssignment.objects.filter(
+                teacher=user,
+                academic_load__subject_id=OuterRef("subject_id"),
+                academic_load__grade_id=OuterRef("grade_id"),
+            )
+
+            qs = qs.annotate(
+                _legacy_visible_by_load=Exists(assigned_load),
+                _legacy_visible_by_subject_grade=Exists(assigned_subject_grade),
+            )
+
+            return qs.filter(
+                Q(created_by=user)
+                | (
+                    Q(created_by__isnull=True)
+                    & (Q(_legacy_visible_by_load=True) | Q(_legacy_visible_by_subject_grade=True))
+                )
+            )
+        return qs
+
+    def perform_create(self, serializer):
+        user = getattr(self.request, "user", None)
+        serializer.save(created_by=user)
+
     def get_permissions(self):
-        # Creating/editing definitions is a teacher workflow in the UI, but teachers may not
-        # have Django model add/change permissions assigned. We gate it by role instead.
-        if getattr(self, "action", None) in {"create", "update", "partial_update", "destroy"}:
+        # The achievement bank is a teacher workflow in the UI, but teachers may not
+        # have Django model permissions assigned. We gate by role instead of model perms.
+        if getattr(self, "action", None) in {"list", "retrieve", "create", "update", "partial_update", "destroy"}:
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -1242,6 +1411,18 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
         if role in {'TEACHER', 'COORDINATOR', 'ADMIN', 'SUPERADMIN'}:
             return None
         return Response({"detail": "No tienes permisos para gestionar el banco de logros."}, status=status.HTTP_403_FORBIDDEN)
+
+    def list(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_definitions(request)
+        if denied is not None:
+            return denied
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_definitions(request)
+        if denied is not None:
+            return denied
+        return super().retrieve(request, *args, **kwargs)
 
     def create(self, request, *args, **kwargs):
         denied = self._ensure_can_manage_definitions(request)
@@ -1546,6 +1727,25 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
     queryset = GradeSheet.objects.all()
     serializer_class = GradeSheetSerializer
     permission_classes = [KampusModelPermissions]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["teacher_assignment", "period"]
+    search_fields = [
+        "teacher_assignment__teacher__first_name",
+        "teacher_assignment__teacher__last_name",
+        "teacher_assignment__teacher__username",
+        "teacher_assignment__group__name",
+        "teacher_assignment__group__grade__name",
+        "teacher_assignment__academic_load__subject__name",
+        "period__name",
+        "period__academic_year__year",
+    ]
+    ordering_fields = ["updated_at", "created_at", "id"]
+    ordering = ["-updated_at", "-id"]
+
+    def get_serializer_class(self):
+        if getattr(self, "action", None) == "list":
+            return GradeSheetListSerializer
+        return super().get_serializer_class()
 
     def _enforce_teacher_current_period(self, *, user, period: Period):
         """Teachers can only work with the *current* period.
@@ -1571,7 +1771,16 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         return None
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related(
+            "teacher_assignment",
+            "teacher_assignment__teacher",
+            "teacher_assignment__group",
+            "teacher_assignment__group__grade",
+            "teacher_assignment__academic_load",
+            "teacher_assignment__academic_load__subject",
+            "period",
+            "period__academic_year",
+        )
         user = getattr(self.request, "user", None)
         if not user or not user.is_authenticated:
             return qs.none()

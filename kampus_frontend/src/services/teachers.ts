@@ -16,6 +16,7 @@ export interface Teacher {
   assigned_hours: number;
   hiring_date: string | null;
   photo?: string | null;
+  photo_thumb?: string | null;
 }
 
 export interface CreateTeacherData {

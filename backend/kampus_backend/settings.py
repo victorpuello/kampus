@@ -31,6 +31,19 @@ SECRET_KEY = os.getenv(
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
 
+# Upload limits
+#
+# Large system backups (db fixtures or full bundles) can easily be hundreds of MB.
+# Django raises RequestDataTooBig (a SuspiciousOperation) when request bodies exceed
+# DATA_UPLOAD_MAX_MEMORY_SIZE, which may surface as a 500 depending on DEBUG/server.
+# Make this configurable and default to a safe value for local/dev.
+KAMPUS_MAX_UPLOAD_MB = int(os.getenv("KAMPUS_MAX_UPLOAD_MB", "1024"))
+DATA_UPLOAD_MAX_MEMORY_SIZE = KAMPUS_MAX_UPLOAD_MB * 1024 * 1024
+
+# Threshold for keeping uploaded files in-memory before streaming to a temp file.
+# This is NOT a max upload size.
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.getenv("KAMPUS_FILE_UPLOAD_IN_MEMORY_MB", "10")) * 1024 * 1024
+
 ALLOWED_HOSTS = (
     os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
     if os.getenv("DJANGO_ALLOWED_HOSTS")

@@ -1,6 +1,9 @@
 from django.test import TestCase
 from academic.models import AchievementDefinition
 
+from rest_framework import status
+from rest_framework.test import APITestCase
+
 
 class AcademicYearEnrollmentStatusTest(TestCase):
     def test_auto_closing_year_retires_enrollments(self):
@@ -50,3 +53,60 @@ class AchievementDefinitionModelTest(TestCase):
         # but my logic overrides if not self.code. If self.code is present, it keeps it.)
         def3 = AchievementDefinition.objects.create(code="MANUAL-001", description="Manual Code")
         self.assertEqual(def3.code, "MANUAL-001")
+
+
+class AchievementDefinitionVisibilityAPITest(APITestCase):
+    def setUp(self):
+        from users.models import User
+
+        self.teacher1 = User.objects.create_user(
+            username="t1",
+            password="pw123456",
+            first_name="Teacher",
+            last_name="One",
+            role=getattr(User, "ROLE_TEACHER", "TEACHER"),
+        )
+        self.teacher2 = User.objects.create_user(
+            username="t2",
+            password="pw123456",
+            first_name="Teacher",
+            last_name="Two",
+            role=getattr(User, "ROLE_TEACHER", "TEACHER"),
+        )
+        self.admin = User.objects.create_user(
+            username="admin_api",
+            password="pw123456",
+            first_name="Admin",
+            last_name="User",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+
+        self.d1 = AchievementDefinition.objects.create(description="D1", created_by=self.teacher1)
+        self.d2 = AchievementDefinition.objects.create(description="D2", created_by=self.teacher2)
+        # Simulate legacy definitions without created_by
+        self.d3 = AchievementDefinition.objects.create(description="Legacy")
+
+    def test_teacher_only_sees_own_definitions(self):
+        self.client.force_authenticate(user=self.teacher1)
+        res = self.client.get("/api/achievement-definitions/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = sorted([item["id"] for item in res.json()])
+        self.assertEqual(ids, [self.d1.id])
+
+    def test_admin_sees_all_definitions(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.get("/api/achievement-definitions/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = sorted([item["id"] for item in res.json()])
+        self.assertEqual(ids, sorted([self.d1.id, self.d2.id, self.d3.id]))
+
+    def test_created_by_is_set_on_create(self):
+        self.client.force_authenticate(user=self.teacher1)
+        res = self.client.post(
+            "/api/achievement-definitions/",
+            {"description": "New def"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        obj = AchievementDefinition.objects.get(id=res.json()["id"])
+        self.assertEqual(obj.created_by_id, self.teacher1.id)

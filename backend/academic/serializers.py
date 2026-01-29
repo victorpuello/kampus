@@ -381,11 +381,12 @@ class AchievementDefinitionSerializer(serializers.ModelSerializer):
     grade_name = serializers.CharField(source="grade.name", read_only=True)
     subject_name = serializers.CharField(source="subject.name", read_only=True)
     dimension_name = serializers.CharField(source="dimension.name", read_only=True)
+    created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True)
 
     class Meta:
         model = AchievementDefinition
         fields = "__all__"
-        read_only_fields = ["code"]
+        read_only_fields = ["code", "created_by"]
 
     def validate(self, attrs):
         request = self.context.get("request")
@@ -584,6 +585,113 @@ class GradeSheetSerializer(serializers.ModelSerializer):
     class Meta:
         model = GradeSheet
         fields = "__all__"
+
+
+class GradeSheetListSerializer(serializers.ModelSerializer):
+    teacher_id = serializers.SerializerMethodField()
+    teacher_name = serializers.SerializerMethodField()
+    group_id = serializers.SerializerMethodField()
+    group_name = serializers.SerializerMethodField()
+    grade_id = serializers.SerializerMethodField()
+    grade_name = serializers.SerializerMethodField()
+    academic_load_id = serializers.SerializerMethodField()
+    subject_name = serializers.SerializerMethodField()
+    academic_year_id = serializers.SerializerMethodField()
+    academic_year_name = serializers.SerializerMethodField()
+    period_name = serializers.SerializerMethodField()
+    period_is_closed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GradeSheet
+        fields = [
+            "id",
+            "teacher_assignment",
+            "period",
+            "grading_mode",
+            "created_at",
+            "updated_at",
+            "teacher_id",
+            "teacher_name",
+            "group_id",
+            "group_name",
+            "grade_id",
+            "grade_name",
+            "academic_load_id",
+            "subject_name",
+            "academic_year_id",
+            "academic_year_name",
+            "period_name",
+            "period_is_closed",
+        ]
+
+    def _ta(self, obj: GradeSheet):
+        return getattr(obj, "teacher_assignment", None)
+
+    def get_teacher_id(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        teacher = getattr(ta, "teacher", None)
+        return getattr(teacher, "id", None)
+
+    def get_teacher_name(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        teacher = getattr(ta, "teacher", None)
+        if not teacher:
+            return None
+        first = (getattr(teacher, "first_name", "") or "").strip()
+        last = (getattr(teacher, "last_name", "") or "").strip()
+        full = (first + " " + last).strip()
+        return full or getattr(teacher, "username", None)
+
+    def get_group_id(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        group = getattr(ta, "group", None)
+        return getattr(group, "id", None)
+
+    def get_group_name(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        group = getattr(ta, "group", None)
+        return getattr(group, "name", None)
+
+    def get_grade_id(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        group = getattr(ta, "group", None)
+        grade = getattr(group, "grade", None)
+        return getattr(grade, "id", None)
+
+    def get_grade_name(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        group = getattr(ta, "group", None)
+        grade = getattr(group, "grade", None)
+        return getattr(grade, "name", None)
+
+    def get_academic_load_id(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        academic_load = getattr(ta, "academic_load", None)
+        return getattr(academic_load, "id", None)
+
+    def get_subject_name(self, obj: GradeSheet):
+        ta = self._ta(obj)
+        academic_load = getattr(ta, "academic_load", None)
+        subject = getattr(academic_load, "subject", None)
+        return getattr(subject, "name", None)
+
+    def get_academic_year_id(self, obj: GradeSheet):
+        period = getattr(obj, "period", None)
+        academic_year = getattr(period, "academic_year", None)
+        return getattr(academic_year, "id", None)
+
+    def get_academic_year_name(self, obj: GradeSheet):
+        period = getattr(obj, "period", None)
+        academic_year = getattr(period, "academic_year", None)
+        return getattr(academic_year, "year", None)
+
+    def get_period_name(self, obj: GradeSheet):
+        period = getattr(obj, "period", None)
+        return getattr(period, "name", None)
+
+    def get_period_is_closed(self, obj: GradeSheet):
+        period = getattr(obj, "period", None)
+        return getattr(period, "is_closed", None)
 
 
 class AchievementGradeSerializer(serializers.ModelSerializer):

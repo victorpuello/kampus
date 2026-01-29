@@ -153,6 +153,11 @@ class Group(models.Model):
     classroom = models.CharField(max_length=50, blank=True, null=True)
     capacity = models.PositiveIntegerField(default=40, verbose_name="Cupo Máximo")
 
+    # Multigrade groups can share a director across multiple grades.
+    # This flag is also used by the UI to handle workload calculations where
+    # a teacher may teach the same hour simultaneously to multiple grades.
+    is_multigrade = models.BooleanField(default=False)
+
     class Meta:
         unique_together = ("name", "grade", "academic_year")
 
@@ -313,6 +318,15 @@ class AchievementDefinition(models.Model):
     academic_load = models.ForeignKey(AcademicLoad, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
     dimension = models.ForeignKey(Dimension, related_name="achievement_definitions", on_delete=models.SET_NULL, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="achievement_definitions_created",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Usuario que creó este logro en el banco.",
+    )
 
     def save(self, *args, **kwargs):
         if not self.code:

@@ -5,6 +5,12 @@ from django.core.validators import FileExtensionValidator
 import hashlib
 import json
 import uuid
+import logging
+
+from core.utils.image_thumbs import WebpThumbSpec, build_webp_thumb_content, make_thumb_name
+
+
+logger = logging.getLogger(__name__)
 
 
 def certificate_pdf_upload_to(instance, filename: str) -> str:
@@ -53,6 +59,13 @@ class Student(models.Model):
 
     # New fields for Enrollment Module
     photo = models.ImageField(upload_to='student_photos/', blank=True, null=True, verbose_name="Foto")
+    photo_thumb = models.ImageField(
+        upload_to='student_photos/thumbs/',
+        blank=True,
+        null=True,
+        editable=False,
+        verbose_name="Miniatura",
+    )
     financial_status = models.CharField(
         max_length=20,
         choices=(('SOLVENT', 'Paz y Salvo'), ('DEBT', 'En Mora')),
@@ -62,6 +75,76 @@ class Student(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.get_full_name()} ({self.user.username})"
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and set(update_fields).issubset({"photo_thumb"}):
+            return super().save(*args, **kwargs)
+
+        old_photo_name = None
+        old_thumb_name = None
+        if self.pk:
+            old = Student.objects.filter(pk=self.pk).only("photo", "photo_thumb").first()
+            if old:
+                old_photo_name = old.photo.name if old.photo else None
+                old_thumb_name = old.photo_thumb.name if old.photo_thumb else None
+
+        result = super().save(*args, **kwargs)
+
+        new_photo_name = self.photo.name if self.photo else None
+        photo_changed = old_photo_name != new_photo_name
+
+        # If the original photo is removed, clear the thumb too.
+        if not self.photo:
+            if old_thumb_name:
+                try:
+                    self.photo_thumb.storage.delete(old_thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting student photo thumb %s", old_thumb_name)
+
+            if self.photo_thumb:
+                self.photo_thumb = None
+                super().save(update_fields=["photo_thumb"])
+            return result
+
+        # Regenerate when photo changed or thumb missing.
+        if photo_changed or not self.photo_thumb:
+            if old_thumb_name:
+                try:
+                    self.photo_thumb.storage.delete(old_thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting student photo thumb %s", old_thumb_name)
+
+            try:
+                if not self.photo.storage.exists(self.photo.name):
+                    logger.warning(
+                        "Student photo missing in storage; skipping thumb generation (student_id=%s, name=%s)",
+                        self.pk,
+                        self.photo.name,
+                    )
+                    return result
+                self.photo.open("rb")
+                content = build_webp_thumb_content(self.photo.file, WebpThumbSpec(max_size=256))
+                thumb_name = make_thumb_name(self.photo.name, "student_photos/thumbs")
+                try:
+                    if self.photo_thumb.storage.exists(thumb_name):
+                        self.photo_thumb.storage.delete(thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting existing thumb name %s", thumb_name)
+                self.photo_thumb.save(thumb_name, content, save=False)
+                super().save(update_fields=["photo_thumb"])
+            except Exception:
+                logger.exception("Failed generating student photo thumbnail (student_id=%s)", self.pk)
+
+        return result
+
+    def delete(self, *args, **kwargs):
+        if self.photo_thumb:
+            try:
+                self.photo_thumb.delete(save=False)
+            except Exception:
+                logger.exception("Failed deleting student photo thumb on delete (student_id=%s)", self.pk)
+        return super().delete(*args, **kwargs)
 
 
 class FamilyMember(models.Model):

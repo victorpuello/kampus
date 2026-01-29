@@ -208,6 +208,51 @@ class EnrollmentPartialUpdateAPITest(APITestCase):
         self.assertEqual(self.enrollment.group_id, self.group_b.id)
 
 
+class EnrollmentDeletePermissionsAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_delete_enr",
+            password="admin123",
+            email="admin_delete_enr@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.superadmin = User.objects.create_superuser(
+            username="superadmin_delete_enr",
+            password="admin123",
+            email="superadmin_delete_enr@example.com",
+            role=getattr(User, "ROLE_SUPERADMIN", "SUPERADMIN"),
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+        u = User.objects.create_user(
+            username="student_delete_enr",
+            password="pw123456",
+            first_name="Delete",
+            last_name="Student",
+            role=User.ROLE_STUDENT,
+        )
+        self.student = Student.objects.create(user=u, document_number="DOC_DELETE_ENR")
+        self.enrollment = Enrollment.objects.create(
+            student=self.student,
+            academic_year=self.year,
+            grade=self.grade,
+            status="ACTIVE",
+        )
+
+    def test_admin_cannot_delete_enrollment(self):
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.delete(f"/api/enrollments/{self.enrollment.id}/")
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Enrollment.objects.filter(id=self.enrollment.id).exists())
+
+    def test_superadmin_can_delete_enrollment(self):
+        self.client.force_authenticate(user=self.superadmin)
+        res = self.client.delete(f"/api/enrollments/{self.enrollment.id}/")
+        self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Enrollment.objects.filter(id=self.enrollment.id).exists())
+
+
 class EnrollmentReportExportAPITest(APITestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser(
@@ -875,6 +920,101 @@ class StudentDirectorVisibilityAPITest(APITestCase):
     def test_director_teacher_cannot_retrieve_non_directed_student(self):
         self.client.force_authenticate(user=self.director)
         res = self.client.get(f"/api/students/{self.student_not_directed.pk}/")
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class StudentAssignedTeacherVisibilityAPITest(APITestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user(
+            username="t_assigned_vis",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Asignado",
+            role=User.ROLE_TEACHER,
+        )
+
+        self.other_teacher = User.objects.create_user(
+            username="t_assigned_vis_2",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Otro",
+            role=User.ROLE_TEACHER,
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+
+        self.group_assigned = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.other_teacher,
+        )
+        self.group_other = Group.objects.create(
+            name="B",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.other_teacher,
+        )
+
+        # Teacher teaches group_assigned via TeacherAssignment
+        TeacherAssignment.objects.create(
+            teacher=self.teacher,
+            academic_load=None,
+            group=self.group_assigned,
+            academic_year=self.year,
+        )
+
+        u1 = User.objects.create_user(
+            username="student_assigned_only",
+            password="pw123456",
+            first_name="Juan",
+            last_name="Asignado",
+            role=User.ROLE_STUDENT,
+        )
+        self.student_assigned = Student.objects.create(user=u1, document_number="DOC_ASSIGNED_ONLY")
+        Enrollment.objects.create(
+            student=self.student_assigned,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_assigned,
+            status="ACTIVE",
+        )
+
+        u2 = User.objects.create_user(
+            username="student_unassigned",
+            password="pw123456",
+            first_name="Ana",
+            last_name="No",
+            role=User.ROLE_STUDENT,
+        )
+        self.student_unassigned = Student.objects.create(user=u2, document_number="DOC_UNASSIGNED")
+        Enrollment.objects.create(
+            student=self.student_unassigned,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_other,
+            status="ACTIVE",
+        )
+
+    def test_assigned_teacher_list_students_for_assigned_group(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get("/api/students/?page=1&page_size=100")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = [row["id"] for row in res.data.get("results", [])]
+        self.assertIn(self.student_assigned.pk, ids)
+        self.assertNotIn(self.student_unassigned.pk, ids)
+
+    def test_assigned_teacher_can_retrieve_assigned_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(f"/api/students/{self.student_assigned.pk}/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+    def test_assigned_teacher_cannot_retrieve_unassigned_student(self):
+        self.client.force_authenticate(user=self.teacher)
+        res = self.client.get(f"/api/students/{self.student_unassigned.pk}/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
 

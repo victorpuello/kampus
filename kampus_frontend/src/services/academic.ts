@@ -78,6 +78,7 @@ export interface Group {
   campus_name?: string;
   shift: string;
   classroom?: string;
+  is_multigrade?: boolean;
   capacity: number;
   enrolled_count: number;
 }
@@ -91,6 +92,7 @@ export type GroupUpsertPayload = {
   shift: string;
   classroom?: string;
   capacity?: number;
+  is_multigrade?: boolean;
 }
 export interface Area { id: number; name: string; description: string }
 export interface Subject { id: number; name: string; area: number; area_name?: string; }
@@ -109,6 +111,25 @@ export interface TeacherAssignment {
   academic_year: number;
   academic_year_year?: number;
   hours_per_week?: number | null;
+}
+
+export type AssignGradePlanPayload = {
+  teacher: number
+  group: number
+  academic_year: number
+  force?: boolean
+}
+
+export type AssignGradePlanResponse = {
+  created: number
+  skipped_existing: number
+  skipped_taken: number
+  conflicts: Array<{
+    academic_load_id: number
+    subject: string
+    assigned_teacher_id: number
+    assigned_teacher_name?: string | null
+  }>
 }
 
 export interface EvaluationScale { 
@@ -212,6 +233,34 @@ export interface GradebookBlockedItem {
 }
 
 export type GradeSheetGradingMode = 'ACHIEVEMENT' | 'ACTIVITIES'
+
+export interface PaginatedResponse<T> {
+  count: number
+  next: string | null
+  previous: string | null
+  results: T[]
+}
+
+export type GradeSheetListItem = {
+  id: number
+  teacher_assignment: number
+  period: number
+  grading_mode: GradeSheetGradingMode
+  created_at: string
+  updated_at: string
+  teacher_id: number | null
+  teacher_name: string | null
+  group_id: number | null
+  group_name: string | null
+  grade_id: number | null
+  grade_name: string | null
+  academic_load_id: number | null
+  subject_name: string | null
+  academic_year_id: number | null
+  academic_year_name: string | null
+  period_name: string | null
+  period_is_closed: boolean | null
+}
 
 export interface GradebookActivityColumn {
   id: number
@@ -459,6 +508,8 @@ export const academicApi = {
   listMyAssignments: (params?: { academic_year?: number | '' }) =>
     api.get<TeacherAssignment[]>('/api/teacher-assignments/me/', { params }),
   createAssignment: (data: Omit<TeacherAssignment, 'id' | 'teacher_name' | 'academic_load_name' | 'group_name'>) => api.post<TeacherAssignment>('/api/teacher-assignments/', data),
+  assignGradePlan: (data: AssignGradePlanPayload) =>
+    api.post<AssignGradePlanResponse>('/api/teacher-assignments/assign_grade_plan/', data),
   deleteAssignment: (id: number) => api.delete(`/api/teacher-assignments/${id}/`),
 
   // Gradebook
@@ -470,6 +521,8 @@ export const academicApi = {
     api.get<{ results: GradebookAvailableSheet[] }>('/api/grade-sheets/available/', {
       params: { period: periodId },
     }),
+  listGradeSheets: (params?: { page?: number; page_size?: number; search?: string; ordering?: string }) =>
+    api.get<PaginatedResponse<GradeSheetListItem>>('/api/grade-sheets/', { params }),
   resetGradeSheet: (gradeSheetId: number) => api.post<{ detail: string }>(`/api/grade-sheets/${gradeSheetId}/reset/`),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
     api.post<GradebookBulkUpsertResponse>('/api/grade-sheets/bulk-upsert/', data),

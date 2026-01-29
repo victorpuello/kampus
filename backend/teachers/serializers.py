@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from .models import Teacher
 import unicodedata
+from collections import defaultdict
 
 User = get_user_model()
 
@@ -43,6 +44,7 @@ class TeacherSerializer(serializers.ModelSerializer):
             "assigned_hours",
             "hiring_date",
             "photo",
+            "photo_thumb",
         ]
 
     def get_assigned_hours(self, obj):
@@ -56,15 +58,45 @@ class TeacherSerializer(serializers.ModelSerializer):
             
         if not target_year:
             return 0
-            
-        total_hours = TeacherAssignment.objects.filter(
-            teacher=obj.user,
-            academic_year=target_year
-        ).aggregate(
-            total=Sum('academic_load__hours_per_week')
-        )['total']
-        
-        return total_hours or 0
+
+        # Multigrade handling: when a teacher teaches the same subject in the same time slot
+        # for multiple grades (multigrade groups), hours should not be double-counted.
+        assignments = (
+            TeacherAssignment.objects.filter(teacher=obj.user, academic_year=target_year)
+            .select_related(
+                "academic_load",
+                "academic_load__subject",
+                "group",
+            )
+        )
+
+        standalone_total = 0
+        buckets: dict[tuple, list[tuple[int, int | None]]] = defaultdict(list)
+
+        for ta in assignments:
+            hours = int(getattr(ta.academic_load, "hours_per_week", 0) or 0)
+            group = ta.group
+
+            if not group or not getattr(group, "is_multigrade", False):
+                standalone_total += hours
+                continue
+
+            subject_id = ta.academic_load.subject_id
+            base_key = (subject_id, group.shift, group.campus_id)
+            key = (*base_key, group.classroom) if group.classroom else (*base_key, group.name)
+
+            buckets[key].append((hours, getattr(group, "grade_id", None)))
+
+        total = standalone_total
+
+        for items in buckets.values():
+            grade_ids = {grade_id for _hours, grade_id in items}
+            if len(grade_ids) >= 2:
+                total += max(hours for hours, _grade_id in items)
+            else:
+                total += sum(hours for hours, _grade_id in items)
+
+        return total
 
     def generate_username(self, first_name, last_name):
         def normalize(text):

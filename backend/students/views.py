@@ -249,12 +249,12 @@ class StudentViewSet(viewsets.ModelViewSet):
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
     def get_permissions(self):
-        # Directors (teachers) can manage students in their directed groups,
+        # Teachers can view students in their directed OR assigned groups,
         # regardless of Django model-permissions.
         if getattr(self.request.user, 'role', None) == 'TEACHER':
             action = getattr(self, 'action', None)
             if action in {'list', 'retrieve'}:
-                return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
+                return [IsAuthenticated(), IsTeacherAssignedOrDirectorOfStudent()]
             if action in {'update', 'partial_update'}:
                 return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
         return super().get_permissions()
@@ -275,7 +275,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             return qs.none()
 
         if user is not None and getattr(user, 'role', None) == 'TEACHER':
-            allowed_ids = _director_student_ids(user)
+            allowed_ids = _teacher_managed_student_ids(user)
             if not allowed_ids:
                 return qs.none()
             qs = qs.filter(pk__in=allowed_ids)
@@ -1176,8 +1176,12 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         return super().partial_update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        if getattr(request.user, 'role', None) in {'TEACHER', 'PARENT', 'STUDENT'}:
-            return Response({"detail": "No tienes permisos para gestionar matrículas."}, status=status.HTTP_403_FORBIDDEN)
+        role = getattr(request.user, 'role', None)
+        if role != getattr(User, 'ROLE_SUPERADMIN', 'SUPERADMIN'):
+            return Response(
+                {"detail": "No tienes permisos para eliminar matrículas."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         return super().destroy(request, *args, **kwargs)
 
     @action(detail=False, methods=['get'], url_path='my')

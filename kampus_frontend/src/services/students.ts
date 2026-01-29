@@ -64,6 +64,7 @@ export interface Student {
 
   // New fields
   photo?: string
+  photo_thumb?: string
   financial_status?: 'SOLVENT' | 'DEBT'
   
   // Socioeconomic

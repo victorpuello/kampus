@@ -1,5 +1,11 @@
 from django.conf import settings
 from django.db import models
+import logging
+
+from core.utils.image_thumbs import WebpThumbSpec, build_webp_thumb_content, make_thumb_name
+
+
+logger = logging.getLogger(__name__)
 
 
 class TeacherStatisticsAIAnalysis(models.Model):
@@ -140,10 +146,84 @@ class Teacher(models.Model):
         verbose_name="Foto",
     )
 
+    photo_thumb = models.ImageField(
+        upload_to="teacher_photos/thumbs/",
+        blank=True,
+        null=True,
+        editable=False,
+        verbose_name="Miniatura",
+    )
+
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None and set(update_fields).issubset({"photo_thumb"}):
+            return super().save(*args, **kwargs)
+
+        old_photo_name = None
+        old_thumb_name = None
+        if self.pk:
+            old = Teacher.objects.filter(pk=self.pk).only("photo", "photo_thumb").first()
+            if old:
+                old_photo_name = old.photo.name if old.photo else None
+                old_thumb_name = old.photo_thumb.name if old.photo_thumb else None
+
         if self.document_number == "":
             self.document_number = None
-        return super().save(*args, **kwargs)
+
+        result = super().save(*args, **kwargs)
+
+        new_photo_name = self.photo.name if self.photo else None
+        photo_changed = old_photo_name != new_photo_name
+
+        if not self.photo:
+            if old_thumb_name:
+                try:
+                    self.photo_thumb.storage.delete(old_thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting teacher photo thumb %s", old_thumb_name)
+
+            if self.photo_thumb:
+                self.photo_thumb = None
+                super().save(update_fields=["photo_thumb"])
+            return result
+
+        if photo_changed or not self.photo_thumb:
+            if old_thumb_name:
+                try:
+                    self.photo_thumb.storage.delete(old_thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting teacher photo thumb %s", old_thumb_name)
+
+            try:
+                if not self.photo.storage.exists(self.photo.name):
+                    logger.warning(
+                        "Teacher photo missing in storage; skipping thumb generation (teacher_id=%s, name=%s)",
+                        self.pk,
+                        self.photo.name,
+                    )
+                    return result
+                self.photo.open("rb")
+                content = build_webp_thumb_content(self.photo.file, WebpThumbSpec(max_size=256))
+                thumb_name = make_thumb_name(self.photo.name, "teacher_photos/thumbs")
+                try:
+                    if self.photo_thumb.storage.exists(thumb_name):
+                        self.photo_thumb.storage.delete(thumb_name)
+                except Exception:
+                    logger.exception("Failed deleting existing thumb name %s", thumb_name)
+                self.photo_thumb.save(thumb_name, content, save=False)
+                super().save(update_fields=["photo_thumb"])
+            except Exception:
+                logger.exception("Failed generating teacher photo thumbnail (teacher_id=%s)", self.pk)
+
+        return result
+
+    def delete(self, *args, **kwargs):
+        if self.photo_thumb:
+            try:
+                self.photo_thumb.delete(save=False)
+            except Exception:
+                logger.exception("Failed deleting teacher photo thumb on delete (teacher_id=%s)", self.pk)
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return f"{self.user.get_full_name()} - {self.title}"

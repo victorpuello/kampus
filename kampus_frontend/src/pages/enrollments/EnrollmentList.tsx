@@ -13,6 +13,7 @@ export default function EnrollmentList() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const isTeacher = user?.role === 'TEACHER'
+  const isSuperAdmin = user?.role === 'SUPERADMIN'
   const [enrollments, setEnrollments] = useState<Enrollment[]>([])
   const [years, setYears] = useState<AcademicYear[]>([])
   const [grades, setGrades] = useState<Grade[]>([])
@@ -145,6 +146,7 @@ export default function EnrollmentList() {
   }
 
   const requestDeleteEnrollment = (enrollment: Enrollment) => {
+    if (!isSuperAdmin) return
     const student = typeof enrollment.student === 'number' ? null : enrollment.student
     setDeleteTarget({
       id: enrollment.id,
@@ -154,7 +156,7 @@ export default function EnrollmentList() {
   }
 
   const confirmDeleteEnrollment = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget || !isSuperAdmin) return
 
     setDeleteConfirmLoading(true)
     setRowBusyId(deleteTarget.id)
@@ -515,15 +517,17 @@ export default function EnrollmentList() {
                           >
                             Editar
                           </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => requestDeleteEnrollment(enrollment)}
-                            disabled={rowBusyId === enrollment.id}
-                            className="w-full sm:w-auto text-red-600 hover:text-red-700 dark:text-red-300"
-                          >
-                            Eliminar
-                          </Button>
+                          {isSuperAdmin && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => requestDeleteEnrollment(enrollment)}
+                              disabled={rowBusyId === enrollment.id}
+                              className="w-full sm:w-auto text-red-600 hover:text-red-700 dark:text-red-300"
+                            >
+                              Eliminar
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             onClick={() => navigate(`/students/${student.id}`)}
@@ -768,18 +772,20 @@ export default function EnrollmentList() {
                                 >
                                   Editar
                                 </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    requestDeleteEnrollment(enrollment)
-                                  }}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300"
-                                  disabled={rowBusyId === enrollment.id}
-                                >
-                                  Eliminar
-                                </Button>
+                                {isSuperAdmin && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      requestDeleteEnrollment(enrollment)
+                                    }}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                                    disabled={rowBusyId === enrollment.id}
+                                  >
+                                    Eliminar
+                                  </Button>
+                                )}
                                 <Button 
                                   variant="ghost" 
                                   size="sm" 
@@ -868,26 +874,28 @@ export default function EnrollmentList() {
         </CardContent>
       </Card>
 
-      <ConfirmationModal
-        isOpen={deleteConfirmOpen}
-        onClose={() => {
-          if (deleteConfirmLoading) return
-          setDeleteConfirmOpen(false)
-          setDeleteTarget(null)
-        }}
-        onConfirm={() => {
-          void confirmDeleteEnrollment()
-        }}
-        title="Eliminar matrícula"
-        description={
-          deleteTarget
-            ? `¿Seguro que deseas eliminar la matrícula de ${deleteTarget.studentName}? Esta acción no se puede deshacer.`
-            : '¿Seguro que deseas eliminar esta matrícula? Esta acción no se puede deshacer.'
-        }
-        confirmText={deleteConfirmLoading ? 'Eliminando…' : 'Eliminar'}
-        cancelText="Cancelar"
-        loading={deleteConfirmLoading}
-      />
+      {isSuperAdmin && (
+        <ConfirmationModal
+          isOpen={deleteConfirmOpen}
+          onClose={() => {
+            if (deleteConfirmLoading) return
+            setDeleteConfirmOpen(false)
+            setDeleteTarget(null)
+          }}
+          onConfirm={() => {
+            void confirmDeleteEnrollment()
+          }}
+          title="Eliminar matrícula"
+          description={
+            deleteTarget
+              ? `¿Seguro que deseas eliminar la matrícula de ${deleteTarget.studentName}? Esta acción no se puede deshacer.`
+              : '¿Seguro que deseas eliminar esta matrícula? Esta acción no se puede deshacer.'
+          }
+          confirmText={deleteConfirmLoading ? 'Eliminando…' : 'Eliminar'}
+          cancelText="Cancelar"
+          loading={deleteConfirmLoading}
+        />
+      )}
     </div>
   )
 }

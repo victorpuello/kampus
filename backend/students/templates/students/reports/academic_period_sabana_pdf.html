@@ -45,18 +45,19 @@
     }
     .brand-icon {
       display: table-cell;
-      width: 44px;
+      width: 56px;
+      height: 56px;
       vertical-align: bottom;
       padding-right: 10px;
     }
     .brand-icon img {
       display: block;
-      width: auto;
-      height: 34px;
+      width: 56px;
+      height: 56px;
       object-fit: contain;
     }
     .brand-icon .fallback {
-      font-size: 24px;
+      font-size: 32px;
       color: #1f2937;
       opacity: 0.8;
       line-height: 1;
@@ -231,7 +232,6 @@
               <img
                 src="{{ institution_logo_src }}"
                 alt="Escudo"
-                style="height: {{ institution.pdf_logo_height_px|default:60 }}px;"
               />
             {% else %}
               <div class="fallback">🏛</div>

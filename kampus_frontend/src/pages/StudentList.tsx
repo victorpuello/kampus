@@ -438,9 +438,9 @@ export default function StudentList() {
                   <div className="flex items-start gap-3">
                     <div className="shrink-0 h-12 w-12 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
                       <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
-                        {((s.photo ?? '').trim() ? (
+                        {(((s.photo_thumb ?? s.photo ?? '').trim()) ? (
                           <img
-                            src={s.photo}
+                            src={s.photo_thumb ?? s.photo}
                             alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
                             className="h-full w-full object-cover"
                             loading="lazy"
@@ -584,9 +584,9 @@ export default function StudentList() {
                         <div className="flex items-center">
                           <div className="shrink-0 h-14 w-14 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
                             <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
-                              {((s.photo ?? '').trim() ? (
+                              {(((s.photo_thumb ?? s.photo ?? '').trim()) ? (
                                 <img
-                                  src={s.photo}
+                                  src={s.photo_thumb ?? s.photo}
                                   alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
                                   className="h-full w-full object-cover"
                                   loading="lazy"

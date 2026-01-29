@@ -6,6 +6,7 @@ import {
   type Grade,
   type GradebookAvailableSheet,
   type GradebookResponse,
+  type GradeSheetListItem,
   type GradeSheetGradingMode,
   type GradebookActivityColumn,
   type Group,
@@ -63,6 +64,9 @@ export default function Grades() {
   const location = useLocation()
   const navigate = useNavigate()
 
+  const teacherMode = user?.role === 'TEACHER'
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -79,6 +83,13 @@ export default function Grades() {
   const [availableSheets, setAvailableSheets] = useState<GradebookAvailableSheet[]>([])
   const [loadingSheets, setLoadingSheets] = useState(false)
   const [sheetsPage, setSheetsPage] = useState(1)
+
+  const [adminSheets, setAdminSheets] = useState<GradeSheetListItem[]>([])
+  const [adminSheetsCount, setAdminSheetsCount] = useState(0)
+  const [adminSheetsLoading, setAdminSheetsLoading] = useState(false)
+  const [adminSheetsPage, setAdminSheetsPage] = useState(1)
+  const [adminSheetsSearch, setAdminSheetsSearch] = useState('')
+  const [adminSheetsDebouncedSearch, setAdminSheetsDebouncedSearch] = useState('')
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingGradebook, setLoadingGradebook] = useState(false)
@@ -105,6 +116,70 @@ export default function Grades() {
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
   }, [])
+
+  const loadAdminGradeSheets = useCallback(
+    async (opts?: { page?: number; search?: string }) => {
+      if (!isAdmin) return
+
+      const page = opts?.page ?? adminSheetsPage
+      const search = opts?.search ?? adminSheetsDebouncedSearch
+
+      setAdminSheetsLoading(true)
+      try {
+        const res = await academicApi.listGradeSheets({
+          page,
+          page_size: 20,
+          search: search.trim() ? search.trim() : undefined,
+          ordering: '-updated_at',
+        })
+
+        const data = res.data as unknown
+        const results: GradeSheetListItem[] = Array.isArray(data)
+          ? (data as GradeSheetListItem[])
+          : (((data as { results?: unknown })?.results ?? []) as GradeSheetListItem[])
+        const count: number = Array.isArray(data)
+          ? results.length
+          : typeof (data as { count?: unknown })?.count === 'number'
+            ? ((data as { count: number }).count as number)
+            : results.length
+
+        setAdminSheets(results)
+        setAdminSheetsCount(count)
+      } catch (e) {
+        console.error(e)
+        setAdminSheets([])
+        setAdminSheetsCount(0)
+        showToast('No se pudieron cargar las planillas', 'error')
+      } finally {
+        setAdminSheetsLoading(false)
+      }
+    },
+    [adminSheetsDebouncedSearch, adminSheetsPage, isAdmin, showToast]
+  )
+
+  const handleOpenAdminSheet = useCallback(
+    (sheet: GradeSheetListItem) => {
+      setSelectedGradeId(null)
+      setSelectedGroupId(null)
+      setSelectedAcademicLoadId(null)
+
+      setSelectedTeacherAssignmentId(sheet.teacher_assignment)
+      setSelectedPeriodId(sheet.period)
+      setGradebook(null)
+    },
+    [setGradebook]
+  )
+
+  useEffect(() => {
+    if (!isAdmin) return
+    const timeoutId = window.setTimeout(() => {
+      setAdminSheetsDebouncedSearch(adminSheetsSearch)
+    }, 300)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [adminSheetsSearch, isAdmin])
 
   const getFilenameFromContentDisposition = (value?: string) => {
     if (!value) return null
@@ -430,10 +505,11 @@ export default function Grades() {
   }, [selectedGroupId, visibleAssignments])
 
   const selectedAssignment = useMemo(() => {
-    if (user?.role === 'TEACHER') {
-      if (!selectedTeacherAssignmentId) return null
+    if (selectedTeacherAssignmentId) {
       return visibleAssignments.find((a) => a.id === selectedTeacherAssignmentId) ?? null
     }
+
+    if (user?.role === 'TEACHER') return null
 
     if (!selectedGroupId || !selectedAcademicLoadId) return null
     return (
@@ -939,7 +1015,14 @@ export default function Grades() {
 
       const filteredAssignments = assignmentsRes.data
 
-      if (filteredAssignments.length > 0) {
+      if (isAdmin) {
+        // Admin should not auto-open any grade sheet.
+        setSelectedGradeId(null)
+        setSelectedGroupId(null)
+        setSelectedAcademicLoadId(null)
+      }
+
+      if (filteredAssignments.length > 0 && !isAdmin) {
         const firstAssignment = filteredAssignments[0]
         const firstGroup = groupsRes.data.find((g) => g.id === firstAssignment.group)
 
@@ -964,7 +1047,7 @@ export default function Grades() {
     } finally {
       setLoadingInit(false)
     }
-  }, [selectedPeriodId, showToast, user?.role])
+  }, [isAdmin, selectedPeriodId, showToast, user?.role])
 
   useEffect(() => {
     if (user?.role !== 'TEACHER') return
@@ -987,7 +1070,6 @@ export default function Grades() {
     if (teacherAssignmentId !== selectedTeacherAssignmentId) setSelectedTeacherAssignmentId(teacherAssignmentId)
   }, [location.search, periods, selectedPeriodId, selectedTeacherAssignmentId, user?.role])
 
-  const teacherMode = user?.role === 'TEACHER'
   const showingCards = teacherMode && !selectedTeacherAssignmentId
 
   const canResetSheet = useMemo(() => {
@@ -1402,6 +1484,18 @@ export default function Grades() {
   useEffect(() => {
     loadInit()
   }, [loadInit])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    if (gradebook) return
+    setAdminSheetsPage(1)
+  }, [adminSheetsDebouncedSearch, gradebook, isAdmin])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    if (gradebook) return
+    loadAdminGradeSheets({ page: adminSheetsPage })
+  }, [adminSheetsPage, gradebook, isAdmin, loadAdminGradeSheets])
 
   useEffect(() => {
     const onKeyDown = () => {
@@ -1857,6 +1951,156 @@ export default function Grades() {
 
   if (loadingInit) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
 
+  if (isAdmin && !gradebook) {
+    const totalPages = Math.max(1, Math.ceil(adminSheetsCount / 20))
+    const currentPage = Math.min(adminSheetsPage, totalPages)
+
+    return (
+      <div className="space-y-6">
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          isVisible={toast.isVisible}
+          onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
+        />
+
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <div className="p-2 bg-blue-100 dark:bg-blue-950/30 rounded-lg">
+                <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+              </div>
+              Calificaciones
+            </h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-1">
+              Selecciona una planilla para abrirla.
+            </p>
+          </div>
+        </div>
+
+        <Card className="shadow-lg border border-slate-200 dark:border-slate-800">
+          <CardHeader className="space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+              <CardTitle className="text-slate-900 dark:text-slate-100">Planillas de calificaciones</CardTitle>
+              <div className="w-full md:max-w-sm">
+                <Input
+                  placeholder="Buscar (docente, grupo, grado, asignatura, periodo…)"
+                  value={adminSheetsSearch}
+                  onChange={(e) => setAdminSheetsSearch(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+              <span>{adminSheetsCount} resultados</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => loadAdminGradeSheets({ page: adminSheetsPage, search: adminSheetsDebouncedSearch })}
+                disabled={adminSheetsLoading}
+              >
+                {adminSheetsLoading ? 'Actualizando…' : 'Actualizar'}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold">Periodo</th>
+                    <th className="px-6 py-4 font-semibold">Año</th>
+                    <th className="px-6 py-4 font-semibold">Grado</th>
+                    <th className="px-6 py-4 font-semibold">Grupo</th>
+                    <th className="px-6 py-4 font-semibold">Asignatura</th>
+                    <th className="px-6 py-4 font-semibold">Docente</th>
+                    <th className="px-6 py-4 font-semibold">Actualizado</th>
+                    <th className="px-6 py-4 font-semibold">Estado</th>
+                    <th className="px-6 py-4 font-semibold text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {adminSheetsLoading && adminSheets.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
+                        Cargando…
+                      </td>
+                    </tr>
+                  ) : adminSheets.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
+                        No se encontraron planillas.
+                      </td>
+                    </tr>
+                  ) : (
+                    adminSheets.map((s) => (
+                      <tr
+                        key={s.id}
+                        className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="font-medium text-slate-900 dark:text-slate-100">{s.period_name ?? s.period}</div>
+                        </td>
+                        <td className="px-6 py-4">{s.academic_year_name ?? '-'}</td>
+                        <td className="px-6 py-4">{s.grade_name ?? '-'}</td>
+                        <td className="px-6 py-4">{s.group_name ?? '-'}</td>
+                        <td className="px-6 py-4">{s.subject_name ?? '-'}</td>
+                        <td className="px-6 py-4">{s.teacher_name ?? '-'}</td>
+                        <td className="px-6 py-4">
+                          {s.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}
+                        </td>
+                        <td className="px-6 py-4">
+                          {s.period_is_closed === null
+                            ? '-'
+                            : s.period_is_closed
+                              ? 'Cerrado'
+                              : 'Abierto'}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <Button size="sm" onClick={() => handleOpenAdminSheet(s)}>
+                            Abrir
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {adminSheetsCount > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
+                <div className="text-sm text-slate-500 dark:text-slate-400">
+                  Página {currentPage} de {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    disabled={currentPage <= 1}
+                    onClick={() => setAdminSheetsPage(Math.max(1, currentPage - 1))}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setAdminSheetsPage(Math.min(totalPages, currentPage + 1))}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <Toast
@@ -1953,6 +2197,19 @@ export default function Grades() {
                 ))}
               </select>
             </div>
+
+            {isAdmin && gradebook ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedTeacherAssignmentId(null)
+                  setSelectedPeriodId(null)
+                  setGradebook(null)
+                }}
+              >
+                Volver al listado
+              </Button>
+            ) : null}
 
             <Button
               onClick={handleSave}

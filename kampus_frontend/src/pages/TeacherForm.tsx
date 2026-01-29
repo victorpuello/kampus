@@ -145,6 +145,11 @@ export default function TeacherForm() {
     academic_load: ''
   })
 
+  const [autoAssignPrimaryPlan, setAutoAssignPrimaryPlan] = useState(true)
+  const [autoAssignedGroups, setAutoAssignedGroups] = useState<Set<string>>(() => new Set())
+
+  const isPrimaryTeacher = formData.teaching_level === 'PRIMARY'
+
   const loadAssignmentData = useCallback(async () => {
     try {
       const [yearsRes, groupsRes, gradesRes, assignmentsRes, loadsRes] = await Promise.all([
@@ -201,6 +206,34 @@ export default function TeacherForm() {
     } catch (error: unknown) {
       console.error(error)
       showToast(getErrorMessage(error, 'Error al agregar asignación'), 'error')
+    }
+  }
+
+  const handleAssignGradePlan = async (groupIdRaw?: string) => {
+    const groupId = groupIdRaw ?? newAssignment.group
+    if (!selectedYear || !groupId) {
+      showToast('Selecciona año y grupo', 'error')
+      return
+    }
+
+    try {
+      const res = await academicApi.assignGradePlan({
+        teacher: Number(id),
+        academic_year: Number(selectedYear),
+        group: Number(groupId),
+      })
+
+      const { created, skipped_existing, skipped_taken } = res.data
+      const msgParts = []
+      if (created) msgParts.push(`${created} creadas`)
+      if (skipped_existing) msgParts.push(`${skipped_existing} ya existían`)
+      if (skipped_taken) msgParts.push(`${skipped_taken} ya asignadas a otro docente`)
+      showToast(`Plan del grado: ${msgParts.join(' • ') || 'sin cambios'}`, skipped_taken ? 'warning' : 'success')
+
+      await loadAssignmentData()
+    } catch (error: unknown) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'Error al asignar plan del grado'), 'error')
     }
   }
 
@@ -268,10 +301,61 @@ export default function TeacherForm() {
   const calculateAssignedHours = () => {
     if (!selectedYear) return 0
     const yearAssignments = assignments.filter(a => a.academic_year === Number(selectedYear))
-    return yearAssignments.reduce((total, assignment) => {
-      const load = academicLoads.find(l => l.id === assignment.academic_load)
-      return total + (load?.hours_per_week || 0)
-    }, 0)
+
+    // Multigrade handling:
+    // Some teachers teach the same hour simultaneously to multiple groups (different grades).
+    // In that case, the UI should not count those hours multiple times.
+    // We rely on the Group.is_multigrade flag (set in AcademicConfigPanel) and bucket by
+    // subject + shift + campus + classroom.
+    // If classroom is missing, we fall back to including the group name to reduce the risk
+    // of collapsing unrelated multigrade groups.
+    const loadById = new Map<number, AcademicLoad>()
+    for (const l of academicLoads) loadById.set(l.id, l)
+
+    const groupById = new Map<number, Group>()
+    for (const g of groups) groupById.set(g.id, g)
+
+    type BucketItem = { hours: number; gradeId: number; assignmentId: number }
+    const buckets = new Map<string, BucketItem[]>()
+    const standalone: BucketItem[] = []
+
+    for (const a of yearAssignments) {
+      const load = loadById.get(a.academic_load)
+      const group = groupById.get(a.group)
+      const hours = load?.hours_per_week || 0
+
+      if (!load || !group || !group.is_multigrade) {
+        standalone.push({ hours, gradeId: group?.grade ?? -1, assignmentId: a.id })
+        continue
+      }
+
+      const subjectId = load.subject
+      const baseKey = `${subjectId}|${group.shift}|${group.campus ?? ''}`
+      const key = group.classroom
+        ? `${baseKey}|${group.classroom}`
+        : `${baseKey}|${group.name}`
+      const item: BucketItem = { hours, gradeId: group.grade, assignmentId: a.id }
+      const arr = buckets.get(key) || []
+      arr.push(item)
+      buckets.set(key, arr)
+    }
+
+    let total = 0
+
+    // Count non-bucketed items normally
+    for (const it of standalone) total += it.hours
+
+    // Count bucketed items: if they span multiple grades, count only once (max hours)
+    for (const items of buckets.values()) {
+      const gradeSet = new Set(items.map(i => i.gradeId))
+      if (gradeSet.size >= 2) {
+        total += Math.max(...items.map(i => i.hours))
+      } else {
+        total += items.reduce((sum, i) => sum + i.hours, 0)
+      }
+    }
+
+    return total
   }
 
   useEffect(() => {
@@ -711,7 +795,21 @@ export default function TeacherForm() {
                   <select
                     id="teacher-assignment-group"
                     value={newAssignment.group}
-                    onChange={(e) => setNewAssignment(prev => ({ ...prev, group: e.target.value, academic_load: '' }))}
+                    onChange={async (e) => {
+                      const nextGroup = e.target.value
+                      setNewAssignment(prev => ({ ...prev, group: nextGroup, academic_load: '' }))
+
+                      if (isSelectedYearClosed) return
+                      if (!isPrimaryTeacher) return
+                      if (!autoAssignPrimaryPlan) return
+                      if (!nextGroup) return
+
+                      // Avoid re-triggering for the same group during this session.
+                      if (autoAssignedGroups.has(nextGroup)) return
+                      setAutoAssignedGroups(prev => new Set([...prev, nextGroup]))
+
+                      await handleAssignGradePlan(nextGroup)
+                    }}
                     disabled={isSelectedYearClosed}
                     className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
@@ -720,6 +818,18 @@ export default function TeacherForm() {
                       <option key={g.id} value={g.id}>{g.grade_name} - {g.name}</option>
                     ))}
                   </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Automático (Primaria)</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={autoAssignPrimaryPlan}
+                      onChange={(e) => setAutoAssignPrimaryPlan(e.target.checked)}
+                      disabled={!isPrimaryTeacher || isSelectedYearClosed}
+                    />
+                    <span className="text-sm text-slate-600">Cargar todas las asignaturas al elegir grupo</span>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="teacher-assignment-academic-load">Asignatura</Label>
@@ -736,9 +846,21 @@ export default function TeacherForm() {
                     ))}
                   </select>
                 </div>
-                <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load || isSelectedYearClosed}>
-                  <Plus className="mr-2 h-4 w-4" /> Agregar
-                </Button>
+                <div className="flex gap-2">
+                  {isPrimaryTeacher && (
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAssignGradePlan()}
+                      disabled={!newAssignment.group || isSelectedYearClosed}
+                      title="Asigna automáticamente todas las asignaturas del plan del grado"
+                    >
+                      <Plus className="mr-2 h-4 w-4" /> Plan completo
+                    </Button>
+                  )}
+                  <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load || isSelectedYearClosed}>
+                    <Plus className="mr-2 h-4 w-4" /> Agregar
+                  </Button>
+                </div>
               </div>
 
               <div className="space-y-4">

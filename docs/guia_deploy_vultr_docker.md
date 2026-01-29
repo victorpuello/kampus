@@ -652,6 +652,25 @@ docker compose -f docker-compose.prod.yml exec backend python manage.py migrate
 
 # Recolectar estáticos
 docker compose -f docker-compose.prod.yml exec backend python manage.py collectstatic --noinput
+
+# (Opcional, recomendado) Regenerar miniaturas WebP de fotos (post-deploy)
+#
+# Kampus genera automáticamente miniaturas WebP (256px) para fotos de estudiantes y docentes
+# cuando se sube/actualiza una foto. Después de un deploy grande o una restauración de datos,
+# puedes ejecutar este comando una sola vez para backfill.
+#
+# Nota: si existen registros con rutas de foto antiguas cuyo archivo ya no está en el volumen
+# de media, se contarán como `skipped_missing` y el comando no fallará.
+docker compose -f docker-compose.prod.yml exec backend python manage.py backfill_photo_thumbs --target all
+
+# Si necesitas regenerar todo (cambio de calidad/tamaño o corrección):
+# docker compose -f docker-compose.prod.yml exec backend python manage.py backfill_photo_thumbs --target all --force
+
+# Para hacerlo por lotes (útil si hay muchísimas fotos):
+# docker compose -f docker-compose.prod.yml exec backend python manage.py backfill_photo_thumbs --target all --limit 500
+
+# Verificar soporte WebP en el contenedor (una sola vez):
+# docker compose -f docker-compose.prod.yml exec backend python -c "from PIL import features; print('webp', features.check('webp'))"
 ```
 
 ### Ver logs de la aplicación

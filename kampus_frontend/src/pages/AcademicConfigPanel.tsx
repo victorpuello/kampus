@@ -1313,7 +1313,8 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
         academic_year: parseInt(groupInput.academic_year),
         director: groupInput.director ? parseInt(groupInput.director) : null,
         shift: groupInput.shift,
-        classroom: groupInput.classroom
+        classroom: groupInput.classroom,
+        is_multigrade: !!isMultigrade
       }
 
       if (editingGroupId) {
@@ -1354,7 +1355,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       academic_year: group.academic_year.toString()
     })
     setEditingGroupId(group.id)
-    setIsMultigrade(false) // Reset, user can check if needed
+    setIsMultigrade(!!group.is_multigrade)
     setIsGroupModalOpen(true)
   }
 

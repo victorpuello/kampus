@@ -373,7 +373,7 @@ class AttendanceSessionViewSet(viewsets.ModelViewSet):
 
             photo_url = None
             try:
-                photo = getattr(e.student, "photo", None)
+                photo = getattr(e.student, "photo_thumb", None) or getattr(e.student, "photo", None)
                 if photo and getattr(photo, "url", None):
                     photo_url = request.build_absolute_uri(photo.url)
             except Exception:

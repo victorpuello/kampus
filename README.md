@@ -158,6 +158,13 @@ Recomendaciones:
 
 Runbook: ver [docs/runbook_verificacion_qr.md](docs/runbook_verificacion_qr.md).
 
+## 🖼️ Miniaturas de fotos (deploy)
+
+Kampus genera miniaturas WebP (256px) para fotos de estudiantes y docentes para mejorar el rendimiento (especialmente en listados).
+
+Después de un deploy grande o una restauración de datos, puede ser útil ejecutar el backfill una sola vez.
+Guía y comandos: ver `Mantenimiento y Actualización` en [docs/guia_deploy_vultr_docker.md](docs/guia_deploy_vultr_docker.md).
+
 ---
 
 ## 📂 Estructura del Proyecto

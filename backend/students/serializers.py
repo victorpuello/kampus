@@ -195,6 +195,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "emergency_contact_relationship",
             # New fields
             "photo",
+            "photo_thumb",
             "financial_status",
             # Relations
             "family_members",
