@@ -25,6 +25,8 @@ import PlanningModule from './pages/planning/PlanningModule'
 import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
 import Grades from './pages/Grades'
+import PreschoolGrades from './pages/PreschoolGrades'
+import PreschoolGradebook from './pages/PreschoolGradebook'
 import TeacherAssignments from './pages/TeacherAssignments'
 import NotificationsPage from './pages/Notifications'
 import GradeEditRequests from './pages/GradeEditRequests'
@@ -90,6 +92,8 @@ export default function App() {
             <Route path="/campuses/:id/edit" element={<CampusForm />} />
             <Route path="/planning" element={<PlanningModule />} />
             <Route path="/grades" element={<Grades />} />
+            <Route path="/grades/preschool" element={<PreschoolGrades />} />
+            <Route path="/grades/preschool/:teacherAssignmentId/:periodId" element={<PreschoolGradebook />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/account" element={<AccountSettings />} />
             <Route path="/discipline/cases" element={<DisciplineCases />} />

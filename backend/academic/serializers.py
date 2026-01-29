@@ -724,6 +724,33 @@ class GradebookBulkUpsertSerializer(serializers.Serializer):
     grades = GradebookCellUpsertSerializer(many=True)
 
 
+class PreschoolGradebookLabelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EvaluationScale
+        fields = [
+            "id",
+            "name",
+            "description",
+            "order",
+            "internal_numeric_value",
+            "scale_type",
+            "applies_to_level",
+            "is_default",
+        ]
+
+
+class PreschoolGradebookCellUpsertSerializer(serializers.Serializer):
+    enrollment = serializers.IntegerField()
+    achievement = serializers.IntegerField()
+    qualitative_scale = serializers.IntegerField(required=False, allow_null=True)
+
+
+class PreschoolGradebookBulkUpsertSerializer(serializers.Serializer):
+    teacher_assignment = serializers.IntegerField()
+    period = serializers.IntegerField()
+    grades = PreschoolGradebookCellUpsertSerializer(many=True)
+
+
 class GradeSheetGradingModeSerializer(serializers.Serializer):
     teacher_assignment = serializers.IntegerField()
     period = serializers.IntegerField()

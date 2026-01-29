@@ -80,7 +80,11 @@ import traceback
 
 from .filters import StudentFilter
 
-from .academic_period_report import compute_certificate_studies_rows, generate_academic_period_report_pdf
+from .academic_period_report import (
+    compute_certificate_studies_rows,
+    generate_academic_period_report_pdf,
+    generate_preschool_academic_period_report_pdf,
+)
 
 from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 from students.reports import sort_enrollments_for_enrollment_list
@@ -1568,7 +1572,25 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             return Response(out, status=status.HTTP_202_ACCEPTED)
 
         try:
-            pdf_bytes = generate_academic_period_report_pdf(enrollment=enrollment, period=period)
+            level_type = None
+            try:
+                level_type = getattr(getattr(getattr(enrollment.grade, "level", None), "level_type", None), "upper", lambda: None)()
+            except Exception:
+                level_type = None
+            if not level_type:
+                try:
+                    level_type = getattr(
+                        getattr(getattr(getattr(enrollment.group, "grade", None), "level", None), "level_type", None),
+                        "upper",
+                        lambda: None,
+                    )()
+                except Exception:
+                    level_type = None
+
+            if level_type in {"PRESCHOOL", "PREESCOLAR"}:
+                pdf_bytes = generate_preschool_academic_period_report_pdf(enrollment=enrollment, period=period)
+            else:
+                pdf_bytes = generate_academic_period_report_pdf(enrollment=enrollment, period=period)
             filename = f"informe-academico-enrollment-{enrollment.id}-period-{period.id}.pdf"
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'

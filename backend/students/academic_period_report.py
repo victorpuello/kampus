@@ -272,6 +272,311 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
     }
 
 
+def _preschool_labels_for_year(academic_year_id: int):
+    """Return qualitative labels for preschool, with backward-compatible fallback.
+
+    Priority:
+    1) QUALITATIVE + applies_to_level=PRESCHOOL
+    2) QUALITATIVE + applies_to_level IS NULL
+
+    If any exist with is_default=true, only those are used.
+    """
+
+    preschool = EvaluationScale.objects.filter(
+        academic_year_id=academic_year_id,
+        scale_type="QUALITATIVE",
+        applies_to_level__in=["PRESCHOOL", "PREESCOLAR"],
+    )
+    base = preschool
+    if not base.exists():
+        base = EvaluationScale.objects.filter(
+            academic_year_id=academic_year_id,
+            scale_type="QUALITATIVE",
+            applies_to_level__isnull=True,
+        )
+
+    defaults = base.filter(is_default=True)
+    qs = defaults if defaults.exists() else base
+    return qs.order_by("order", "id")
+
+
+def _preschool_scale_equivalences(academic_year_id: int) -> str:
+    labels = list(_preschool_labels_for_year(academic_year_id))
+    names = [str(getattr(s, "name", "") or "").strip() for s in labels]
+    names = [n for n in names if n]
+    return " · ".join(names)
+
+
+def _build_preschool_rows_for_enrollment(
+    *,
+    enrollment: Enrollment,
+    selected_period: Period,
+    year_periods: List[Period],
+    assignments: List[TeacherAssignment],
+    gradesheet_id_by_ta_period: Dict[Tuple[int, int], int],
+    achievements_by_ta_period: Dict[Tuple[int, int], List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Build rows for a preschool qualitative report.
+
+    Output rows are meant for the dedicated preschool PDF template.
+    """
+
+    period_id = selected_period.id
+
+    def _strip_trailing_dimension_line(text: str) -> str:
+        import unicodedata
+
+        raw = str(text or "")
+        lines = [ln.rstrip() for ln in raw.splitlines()]
+
+        while lines and not lines[-1].strip():
+            lines.pop()
+
+        if lines:
+            last = lines[-1].strip()
+            # Remove common bullet prefixes.
+            last = last.lstrip("-•*·:; ")
+
+            # Normalize accents so "Dimensión" and "Dimension" behave the same.
+            last_norm = unicodedata.normalize("NFKD", last)
+            last_norm = "".join(ch for ch in last_norm if not unicodedata.combining(ch))
+            last_norm = last_norm.strip().lower()
+
+            if last_norm.startswith("dimension"):
+                lines.pop()
+                while lines and not lines[-1].strip():
+                    lines.pop()
+
+        return "\n".join(lines).strip()
+
+    # Collect achievements (selected period only).
+    items: List[Dict[str, Any]] = []
+    achievement_ids: set[int] = set()
+    gradesheet_ids: set[int] = set()
+
+    for ta in assignments:
+        gs_id = gradesheet_id_by_ta_period.get((ta.id, period_id))
+        if not gs_id:
+            continue
+        achievements = achievements_by_ta_period.get((ta.id, period_id), [])
+        if not achievements:
+            continue
+
+        gradesheet_ids.add(gs_id)
+        subject_name = ""
+        try:
+            if ta.academic_load and ta.academic_load.subject:
+                subject_name = ta.academic_load.subject.name or ""
+        except Exception:
+            subject_name = ""
+
+        for a in achievements:
+            ach_id = int(a.get("id") or 0)
+            if not ach_id:
+                continue
+            achievement_ids.add(ach_id)
+
+            items.append(
+                {
+                    "gradesheet_id": gs_id,
+                    "achievement_id": ach_id,
+                    "description": _strip_trailing_dimension_line(str(a.get("description") or "")),
+                    "subject_name": str(subject_name or "").strip(),
+                }
+            )
+
+    if not items:
+        return []
+
+    # Fetch qualitative labels per (gradesheet, achievement) for this enrollment.
+    grade_qs = (
+        AchievementGrade.objects.filter(
+            enrollment_id=enrollment.id,
+            gradesheet_id__in=list(gradesheet_ids),
+            achievement_id__in=list(achievement_ids),
+        )
+        .select_related("qualitative_scale")
+        .only("gradesheet_id", "achievement_id", "qualitative_scale_id", "qualitative_scale__name")
+    )
+    label_by_cell: Dict[Tuple[int, int], str] = {}
+    for g in grade_qs:
+        name = ""
+        if getattr(g, "qualitative_scale_id", None):
+            try:
+                name = str(getattr(g.qualitative_scale, "name", "") or "").strip()
+            except Exception:
+                name = ""
+        label_by_cell[(g.gradesheet_id, g.achievement_id)] = name
+
+    # Sort by (subject, achievement id) for stable output.
+    def sort_key(it: Dict[str, Any]):
+        return (
+            (it.get("subject_name") or "").lower(),
+            int(it.get("achievement_id") or 0),
+        )
+
+    items_sorted = sorted(items, key=sort_key)
+
+    rows: List[Dict[str, Any]] = []
+    last_subject_key: str | None = None
+    for it in items_sorted:
+        subject_key = (it.get("subject_name") or "").strip() or "General"
+
+        if subject_key != last_subject_key:
+            rows.append({"row_type": "SUBJECT", "title": subject_key})
+            last_subject_key = subject_key
+
+        label = label_by_cell.get((int(it["gradesheet_id"]), int(it["achievement_id"])), "")
+        rows.append(
+            {
+                "row_type": "ACHIEVEMENT",
+                "subject_name": it.get("subject_name") or "",
+                "description": it.get("description") or "",
+                "label": label,
+            }
+        )
+
+    return rows
+
+
+def build_preschool_academic_period_report_context(enrollment: Enrollment, period: Period) -> Dict[str, Any]:
+    """Context for a preschool qualitative report card.
+
+    Uses the same *visual design* as the regular report, but a different structure.
+    """
+
+    year_periods = _year_periods(enrollment.academic_year_id)
+    assignments = _teacher_assignments(enrollment.group_id, enrollment.academic_year_id) if enrollment.group_id else []
+
+    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods) if assignments else {}
+    achievements_by_ta_period, _dim_percentage_by_id = (
+        _precompute_achievements(assignments, year_periods, enrollment.group_id)
+        if assignments and enrollment.group_id
+        else ({}, {})
+    )
+
+    rows = _build_preschool_rows_for_enrollment(
+        enrollment=enrollment,
+        selected_period=period,
+        year_periods=year_periods,
+        assignments=assignments,
+        gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
+        achievements_by_ta_period=achievements_by_ta_period,
+    )
+
+    institution = Institution.objects.first() or Institution()
+    director_name = ""
+    if enrollment.group and getattr(enrollment.group, "director", None):
+        director_name = enrollment.group.director.get_full_name()
+
+    return {
+        "institution": institution,
+        "student_name": enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else "",
+        "student_code": getattr(enrollment.student, "document_number", "") or "",
+        "group_name": _group_label(enrollment.group),
+        "shift_name": _shift_label(enrollment.group),
+        "period_name": getattr(period, "name", "") or str(period.id),
+        "year_name": getattr(enrollment.academic_year, "year", ""),
+        "director_name": director_name,
+        "report_date": datetime.now().strftime("%d/%m/%Y"),
+        "rows": rows,
+        "observations": "",
+        "scale_equivalences": _preschool_scale_equivalences(enrollment.academic_year_id),
+        "overall_score": "",
+        "overall_scale": "",
+        "rank_position": None,
+        "rank_total": None,
+        "rank_badge_label": "",
+    }
+
+
+def generate_preschool_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
+    ctx = build_preschool_academic_period_report_context(enrollment=enrollment, period=period)
+
+    html_string = render_to_string("students/reports/academic_period_report_preschool_pdf.html", ctx)
+    try:
+        return render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Error generating PDF") from exc
+
+
+def build_preschool_academic_period_group_report_context(
+    enrollments: Iterable[Enrollment],
+    period: Period,
+) -> Dict[str, Any]:
+    enrollments = list(enrollments)
+    if not enrollments:
+        raise ValueError("No enrollments")
+
+    academic_year_id = enrollments[0].academic_year_id
+    group = enrollments[0].group
+
+    year_periods = _year_periods(academic_year_id)
+    assignments = _teacher_assignments(group.id, academic_year_id) if group else []
+
+    gradesheet_id_by_ta_period = _precompute_gradesheets(assignments, year_periods) if assignments else {}
+    achievements_by_ta_period, _dim_percentage_by_id = (
+        _precompute_achievements(assignments, year_periods, group.id) if assignments and group else ({}, {})
+    )
+
+    institution = Institution.objects.first() or Institution()
+    pages: List[Dict[str, Any]] = []
+    for enrollment in enrollments:
+        director_name = ""
+        if enrollment.group and getattr(enrollment.group, "director", None):
+            director_name = enrollment.group.director.get_full_name()
+
+        rows = _build_preschool_rows_for_enrollment(
+            enrollment=enrollment,
+            selected_period=period,
+            year_periods=year_periods,
+            assignments=assignments,
+            gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
+            achievements_by_ta_period=achievements_by_ta_period,
+        )
+
+        pages.append(
+            {
+                "enrollment_id": enrollment.id,
+                "institution": institution,
+                "student_name": enrollment.student.user.get_full_name()
+                if enrollment.student and enrollment.student.user
+                else "",
+                "student_code": getattr(enrollment.student, "document_number", "") or "",
+                "group_name": _group_label(enrollment.group),
+                "shift_name": _shift_label(enrollment.group),
+                "period_name": getattr(period, "name", "") or str(period.id),
+                "year_name": getattr(enrollment.academic_year, "year", ""),
+                "director_name": director_name,
+                "report_date": datetime.now().strftime("%d/%m/%Y"),
+                "rows": rows,
+                "overall_score": "",
+                "overall_scale": "",
+                "rank_position": None,
+                "rank_total": None,
+                "rank_badge_label": "",
+                "observations": "",
+                "scale_equivalences": _preschool_scale_equivalences(academic_year_id),
+                "final_status": getattr(enrollment, "final_status", "") or "",
+            }
+        )
+
+    return {"pages": pages}
+
+
+def generate_preschool_academic_period_group_report_pdf(
+    enrollments: Iterable[Enrollment],
+    period: Period,
+) -> bytes:
+    ctx = build_preschool_academic_period_group_report_context(enrollments=enrollments, period=period)
+    html_string = render_to_string("students/reports/academic_period_report_group_preschool_pdf.html", ctx)
+
+    try:
+        return render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("Error generating PDF") from exc
+
+
 def _precompute_achievements(
     assignments: List[TeacherAssignment],
     year_periods: List[Period],

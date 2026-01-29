@@ -226,6 +226,12 @@ class EvaluationScale(models.Model):
         ('NUMERIC', 'Numérica (Básica/Media)'),
         ('QUALITATIVE', 'Cualitativa (Preescolar)'),
     )
+
+    LEVEL_CHOICES = (
+        ("PRESCHOOL", "Preescolar"),
+        ("BASIC", "Básica"),
+        ("MIDDLE", "Media"),
+    )
     academic_year = models.ForeignKey(
         AcademicYear, related_name="evaluation_scales", on_delete=models.CASCADE
     )
@@ -234,6 +240,24 @@ class EvaluationScale(models.Model):
     max_score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
     description = models.TextField(blank=True)
     scale_type = models.CharField(max_length=20, choices=SCALE_TYPES, default='NUMERIC')
+
+    # Qualitative selection helpers (used by Preschool).
+    applies_to_level = models.CharField(
+        max_length=20,
+        choices=LEVEL_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Nivel al que aplica (ej. PRESCHOOL).",
+    )
+    is_default = models.BooleanField(default=False, help_text="Escala por defecto para el nivel/año.")
+    order = models.PositiveIntegerField(default=1, help_text="Orden para etiquetas cualitativas.")
+    internal_numeric_value = models.DecimalField(
+        max_digits=4,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Equivalente numérico interno (opcional).",
+    )
 
     def __str__(self) -> str:
         if self.scale_type == 'NUMERIC':
@@ -411,9 +435,11 @@ class GradeSheet(models.Model):
 
     GRADING_MODE_ACHIEVEMENT = "ACHIEVEMENT"
     GRADING_MODE_ACTIVITIES = "ACTIVITIES"
+    GRADING_MODE_QUALITATIVE = "QUALITATIVE"
     GRADING_MODE_CHOICES = (
         (GRADING_MODE_ACHIEVEMENT, "Tradicional (nota por logro)"),
         (GRADING_MODE_ACTIVITIES, "Actividades (promedio hacia logro)"),
+        (GRADING_MODE_QUALITATIVE, "Preescolar (cualitativa)"),
     )
 
     grading_mode = models.CharField(
@@ -640,6 +666,17 @@ class AchievementGrade(models.Model):
         Achievement, related_name="achievement_grades", on_delete=models.CASCADE
     )
     score = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+
+    # Preschool qualitative grading:
+    # - Stores a label-like EvaluationScale row (scale_type=QUALITATIVE).
+    # - Numeric `score` remains optional for internal compatibility only.
+    qualitative_scale = models.ForeignKey(
+        EvaluationScale,
+        related_name="achievement_grades_qualitative",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

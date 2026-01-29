@@ -220,6 +220,39 @@ export interface GradebookCell {
   score: number | string | null;
 }
 
+export interface PreschoolLabel {
+  id: number
+  name: string
+  description: string
+  order: number
+  internal_numeric_value: string | null
+  scale_type: 'QUALITATIVE' | 'NUMERIC'
+  applies_to_level: 'PRESCHOOL' | 'BASIC' | 'MIDDLE' | null
+  is_default: boolean
+}
+
+export interface PreschoolGradebookCell {
+  enrollment: number
+  achievement: number
+  qualitative_scale: number | null
+}
+
+export interface PreschoolGradebookResponse {
+  gradesheet: GradebookResponse['gradesheet']
+  period: { id: number; name: string; is_closed: boolean }
+  teacher_assignment: { id: number; group: number; academic_load: number }
+  achievements: GradebookAchievement[]
+  students: GradebookStudent[]
+  cells: PreschoolGradebookCell[]
+  labels: PreschoolLabel[]
+}
+
+export interface PreschoolGradebookBulkUpsertResponse {
+  requested: number
+  updated: number
+  blocked?: { enrollment: number; achievement: number; reason: string }[]
+}
+
 export interface GradebookComputed {
   enrollment_id: number;
   final_score: number | string;
@@ -425,6 +458,12 @@ export interface GradebookCellUpsert {
   score: number | null;
 }
 
+export interface PreschoolGradebookCellUpsert {
+  enrollment: number
+  achievement: number
+  qualitative_scale: number | null
+}
+
 export const academicApi = {
   // Years
   listYears: () => api.get<AcademicYear[]>('/api/academic-years/'),
@@ -526,6 +565,23 @@ export const academicApi = {
   resetGradeSheet: (gradeSheetId: number) => api.post<{ detail: string }>(`/api/grade-sheets/${gradeSheetId}/reset/`),
   bulkUpsertGradebook: (data: { teacher_assignment: number; period: number; grades: GradebookCellUpsert[] }) =>
     api.post<GradebookBulkUpsertResponse>('/api/grade-sheets/bulk-upsert/', data),
+
+  // Gradebook (Preschool qualitative)
+  listPreschoolLabels: (params: { academic_year?: number; period?: number }) =>
+    api.get<{ results: PreschoolLabel[] }>('/api/preschool-gradebook/labels/', { params }),
+  listAvailablePreschoolGradeSheets: (periodId: number) =>
+    api.get<{ results: GradebookAvailableSheet[] }>('/api/preschool-gradebook/available/', {
+      params: { period: periodId },
+    }),
+  getPreschoolGradebook: (teacherAssignmentId: number, periodId: number) =>
+    api.get<PreschoolGradebookResponse>('/api/preschool-gradebook/gradebook/', {
+      params: { teacher_assignment: teacherAssignmentId, period: periodId },
+    }),
+  bulkUpsertPreschoolGradebook: (data: {
+    teacher_assignment: number
+    period: number
+    grades: PreschoolGradebookCellUpsert[]
+  }) => api.post<PreschoolGradebookBulkUpsertResponse>('/api/preschool-gradebook/bulk-upsert/', data),
 
   // Gradebook (Activities mode)
   setGradeSheetGradingMode: (data: {

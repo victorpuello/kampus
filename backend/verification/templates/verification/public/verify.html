@@ -144,32 +144,59 @@
         {% endif %}
 
         {% if payload.rows and doc_type == 'REPORT_CARD' %}
-          <table>
-            <thead>
-              <tr>
-                <th>Asignatura</th>
-                <th class="num">P1</th>
-                <th class="num">P2</th>
-                <th class="num">P3</th>
-                <th class="num">P4</th>
-                <th class="num">Final</th>
-                <th>Desempeño</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for r in payload.rows %}
-              <tr>
-                <td>{{ r.title|default:'—' }}</td>
-                <td class="num">{{ r.p1_score|default:'—' }}</td>
-                <td class="num">{{ r.p2_score|default:'—' }}</td>
-                <td class="num">{{ r.p3_score|default:'—' }}</td>
-                <td class="num">{{ r.p4_score|default:'—' }}</td>
-                <td class="num">{{ r.final_score|default:'—' }}</td>
-                <td>{{ r.final_scale|default:'—' }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          {% with first=payload.rows.0 %}
+            {% if first.label or first.row_type %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Dimensión / Logro</th>
+                    <th>Valoración</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in payload.rows %}
+                    {% if r.row_type == 'DIMENSION' or r.row_type == 'SUBJECT' %}
+                      <tr>
+                        <td colspan="2" style="font-weight:800; background:#f1f5f9;">{{ r.title|default:'—' }}</td>
+                      </tr>
+                    {% else %}
+                      <tr>
+                        <td>{{ r.title|default:'—' }}</td>
+                        <td style="font-weight:800;">{{ r.label|default:'—' }}</td>
+                      </tr>
+                    {% endif %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asignatura</th>
+                    <th class="num">P1</th>
+                    <th class="num">P2</th>
+                    <th class="num">P3</th>
+                    <th class="num">P4</th>
+                    <th class="num">Final</th>
+                    <th>Desempeño</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for r in payload.rows %}
+                  <tr>
+                    <td>{{ r.title|default:'—' }}</td>
+                    <td class="num">{{ r.p1_score|default:'—' }}</td>
+                    <td class="num">{{ r.p2_score|default:'—' }}</td>
+                    <td class="num">{{ r.p3_score|default:'—' }}</td>
+                    <td class="num">{{ r.p4_score|default:'—' }}</td>
+                    <td class="num">{{ r.final_score|default:'—' }}</td>
+                    <td>{{ r.final_scale|default:'—' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          {% endwith %}
         {% elif payload.rows %}
           <table>
             <thead>

@@ -84,8 +84,18 @@ class TeacherAssignmentAdmin(admin.ModelAdmin):
 
 @admin.register(EvaluationScale)
 class EvaluationScaleAdmin(admin.ModelAdmin):
-    list_display = ("name", "min_score", "max_score", "academic_year", "scale_type")
-    list_filter = ("academic_year", "scale_type")
+    list_display = (
+        "name",
+        "academic_year",
+        "scale_type",
+        "applies_to_level",
+        "is_default",
+        "order",
+        "min_score",
+        "max_score",
+        "internal_numeric_value",
+    )
+    list_filter = ("academic_year", "scale_type", "applies_to_level", "is_default")
 
 
 @admin.register(EvaluationComponent)

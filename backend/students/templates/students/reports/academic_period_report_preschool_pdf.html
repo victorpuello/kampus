@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page {
+      /* Legal: 216mm x 356mm */
+      size: 216mm 356mm;
+      margin: 14mm 12mm 16mm 12mm;
+
+      @bottom-center {
+        content: "Plataforma de Gestión Académica Kampus";
+        font-size: 9px;
+        color: #9ca3af;
+      }
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, "Noto Sans", sans-serif;
+      color: #111827;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    .page {
+      page-break-after: always;
+    }
+    .page:last-child { page-break-after: auto; }
+
+    .avoid-break { page-break-inside: avoid; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+
+    tr.area-row { page-break-after: avoid; break-after: avoid; }
+
+    /* Layout */
+    .header {
+      display: table;
+      width: 100%;
+      border-bottom: 2px solid #111827;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+      table-layout: fixed;
+    }
+    .header-left { display: table-cell; vertical-align: middle; width: 72%; }
+    .header-right { display: table-cell; vertical-align: middle; width: 28%; text-align: right; }
+
+    .logo {
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      display: inline-block;
+      overflow: hidden;
+      vertical-align: middle;
+      text-align: center;
+      line-height: 56px;
+      margin-right: 12px;
+      color: #9ca3af;
+      font-weight: 900;
+    }
+    .logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+    .inst { display: inline-block; vertical-align: middle; width: calc(100% - 76px); }
+    .inst-name {
+      font-size: 16px;
+      font-weight: 900;
+      text-transform: uppercase;
+      margin: 0;
+      line-height: 1.15;
+      word-break: break-word;
+    }
+    .inst-line {
+      font-size: 11px;
+      color: #6b7280;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 3px 0 0;
+    }
+    .inst-meta {
+      margin-top: 4px;
+      font-size: 10px;
+      color: #9ca3af;
+    }
+    .inst-meta span { margin-right: 10px; }
+
+    .period-kicker {
+      font-size: 10px;
+      font-weight: 900;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      margin: 0 0 2px;
+    }
+    .period-number {
+      font-size: 34px;
+      font-weight: 900;
+      color: #111827;
+      line-height: 1;
+      margin: 0;
+    }
+    .period-year {
+      margin-top: 4px;
+      font-size: 10px;
+      color: #9ca3af;
+    }
+
+    .student-card {
+      background: #f9fafb;
+      border: 1px solid #f3f4f6;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+
+    .row { display: table; width: 100%; table-layout: fixed; }
+    .col { display: table-cell; vertical-align: top; }
+    .k { font-size: 10px; color: #9ca3af; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
+    .v { margin-top: 3px; font-size: 12px; font-weight: 700; color: #111827; }
+    .v-lg { margin-top: 3px; font-size: 14px; font-weight: 900; text-transform: uppercase; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1e3a8a;
+      font-size: 10px;
+      font-weight: 900;
+    }
+    .divider { border-top: 1px solid #e5e7eb; margin-top: 10px; padding-top: 10px; }
+
+    table.grades {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+    }
+    table.grades thead th {
+      border-bottom: 2px solid #111827;
+      padding: 8px 6px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6b7280;
+      text-align: center;
+      font-weight: 900;
+    }
+    table.grades thead th.subject {
+      text-align: left;
+      color: #111827;
+      letter-spacing: 0.05em;
+    }
+    table.grades tbody td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 10px 6px;
+      vertical-align: top;
+      font-size: 12px;
+    }
+
+    td.subject { padding-left: 6px; }
+    tr.area-row td {
+      border-bottom: 1px solid #e5e7eb;
+      background: #eff6ff;
+      padding-top: 8px;
+      padding-bottom: 8px;
+    }
+    .area-title {
+      font-weight: 900;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #111827;
+    }
+
+    tr.achievement-row td {
+      padding-top: 6px;
+      padding-bottom: 6px;
+      font-size: 11px;
+    }
+
+    .achievement-title {
+      font-weight: 400;
+      color: #1f2937;
+      text-transform: none;
+      font-size: 11px;
+    }
+    .achievement-meta {
+      margin-top: 4px;
+      font-size: 10px;
+      color: #6b7280;
+      font-style: italic;
+      line-height: 1.25;
+    }
+
+    .grade-cell {
+      text-align: center;
+      vertical-align: middle;
+      padding: 10px 4px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .grade-final {
+      background: #f9fafb;
+      font-weight: 900;
+      font-size: 12px;
+      border-left: 1px solid #f3f4f6;
+    }
+
+    .muted { color: #9ca3af; }
+
+    .footer {
+      margin-top: 16px;
+    }
+    .summary {
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 10px;
+      color: #6b7280;
+      margin-bottom: 14px;
+    }
+    .summary strong { color: #111827; }
+
+    .sign-grid { display: table; width: 100%; table-layout: fixed; margin-top: 18px; }
+    .sign-col { display: table-cell; width: 50%; text-align: center; }
+    .sign-line { width: 75%; margin: 0 auto 6px; border-bottom: 1px solid #111827; height: 18px; }
+    .sign-name { font-weight: 900; font-size: 11px; text-transform: uppercase; color: #111827; }
+    .sign-role { font-size: 9px; color: #6b7280; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; margin-top: 2px; }
+
+    .qr-wrap {
+      margin-top: 10px;
+      text-align: right;
+      page-break-inside: avoid;
+    }
+    .qr-wrap img {
+      height: 78px;
+      width: 78px;
+      border: 1px solid #e5e7eb;
+      padding: 3px;
+      background: #fff;
+    }
+    .qr-text {
+      margin-top: 4px;
+      font-size: 9px;
+      color: #374151;
+    }
+    .verify-link { color: #2563eb; text-decoration: underline; font-weight: 900; }
+    .verify-url, .verify-token {
+      font-family: "Courier New", Courier, monospace;
+      font-size: 9px;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      hyphens: none;
+    }
+    .verify-url { white-space: normal; }
+    .verify-token { white-space: nowrap; overflow-wrap: normal; }
+
+    /* Extra guards for long words in content */
+    .v, .v-lg, .achievement-title { overflow-wrap: anywhere; word-break: break-word; }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    {% include "students/reports/_academic_period_report_preschool_page.html" %}
+  </div>
+</body>
+</html>

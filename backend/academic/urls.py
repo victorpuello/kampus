@@ -20,6 +20,7 @@ from .views import (
     AcademicLoadViewSet,
     DimensionViewSet,
     GradeSheetViewSet,
+    PreschoolGradebookViewSet,
     EditRequestViewSet,
     EditGrantViewSet,
 )
@@ -47,6 +48,7 @@ router.register(r"achievements", AchievementViewSet, basename="achievement")
 router.register(r"achievement-definitions", AchievementDefinitionViewSet, basename="achievementdefinition")
 router.register(r"performance-indicators", PerformanceIndicatorViewSet, basename="performanceindicator")
 router.register(r"grade-sheets", GradeSheetViewSet, basename="gradesheet")
+router.register(r"preschool-gradebook", PreschoolGradebookViewSet, basename="preschool-gradebook")
 router.register(r"edit-requests", EditRequestViewSet, basename="editrequest")
 router.register(r"edit-grants", EditGrantViewSet, basename="editgrant")
 

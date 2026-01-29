@@ -129,7 +129,9 @@ def sanitize_public_payload(doc_type: str, payload: dict[str, Any] | None) -> di
             if isinstance(value, list):
                 out_rows: list[dict[str, Any]] = []
                 allowed_row_keys = (
+                    "row_type",
                     "title",
+                    "label",
                     "absences",
                     "p1_score",
                     "p2_score",

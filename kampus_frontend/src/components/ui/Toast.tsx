@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
-import { X, CheckCircle, AlertCircle } from 'lucide-react'
+import { X, CheckCircle, AlertCircle, AlertTriangle } from 'lucide-react'
 
-export type ToastType = 'success' | 'error' | 'info'
+export type ToastType = 'success' | 'error' | 'info' | 'warning'
 
 interface ToastProps {
   message: string
@@ -32,13 +32,16 @@ export function Toast({
   const bgColors = {
     success: 'bg-green-50 border-green-200 text-green-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-200',
     error: 'bg-red-50 border-red-200 text-red-800 dark:bg-red-950/40 dark:border-red-900 dark:text-red-200',
-    info: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-200'
+    info: 'bg-blue-50 border-blue-200 text-blue-800 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-200',
+    warning:
+      'bg-yellow-50 border-yellow-200 text-yellow-900 dark:bg-yellow-950/30 dark:border-yellow-900 dark:text-yellow-200'
   }
 
   const icons = {
     success: <CheckCircle className="h-5 w-5 text-green-500 dark:text-emerald-300" />,
     error: <AlertCircle className="h-5 w-5 text-red-500 dark:text-red-300" />,
-    info: <AlertCircle className="h-5 w-5 text-blue-500 dark:text-blue-300" />
+    info: <AlertCircle className="h-5 w-5 text-blue-500 dark:text-blue-300" />,
+    warning: <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-300" />
   }
 
   return (

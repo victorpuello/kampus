@@ -48,6 +48,8 @@ export default function DashboardLayout() {
   const [expandedMenus, setExpandedMenus] = useState<string[]>([])
   const [expandedChildGroups, setExpandedChildGroups] = useState<string[]>([])
   const [teacherHasDirectedGroup, setTeacherHasDirectedGroup] = useState<boolean>(false)
+  const [teacherHasPreschoolAssignments, setTeacherHasPreschoolAssignments] = useState<boolean>(false)
+  const [teacherHasNonPreschoolAssignments, setTeacherHasNonPreschoolAssignments] = useState<boolean>(false)
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [unreadNotificationItems, setUnreadNotificationItems] = useState<Notification[]>([])
@@ -185,6 +187,68 @@ export default function DashboardLayout() {
       } catch {
         if (!mounted) return
         setTeacherHasDirectedGroup(false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [isTeacher, user?.id])
+
+  useEffect(() => {
+    let mounted = true
+
+    if (!isTeacher || !user?.id) {
+      setTeacherHasPreschoolAssignments(false)
+      setTeacherHasNonPreschoolAssignments(false)
+      return
+    }
+
+    ;(async () => {
+      try {
+        const [yearsRes, levelsRes, gradesRes] = await Promise.all([
+          academicApi.listYears(),
+          academicApi.listLevels(),
+          academicApi.listGrades(),
+        ])
+
+        const activeYear = yearsRes.data.find((y) => y.status === 'ACTIVE')
+        if (!activeYear) {
+          if (!mounted) return
+          setTeacherHasPreschoolAssignments(false)
+          setTeacherHasNonPreschoolAssignments(false)
+          return
+        }
+
+        const assignmentsRes = await academicApi.listMyAssignments({ academic_year: activeYear.id })
+
+        const levelTypeById = new Map<number, string>()
+        for (const l of levelsRes.data) levelTypeById.set(l.id, l.level_type)
+
+        const gradeLevelByGradeId = new Map<number, number | null>()
+        for (const g of gradesRes.data) gradeLevelByGradeId.set(g.id, g.level)
+
+        const groupIds = Array.from(new Set(assignmentsRes.data.map((a) => a.group)))
+        const groups = await Promise.all(groupIds.map((id) => academicApi.getGroup(id).then((r) => r.data).catch(() => null)))
+
+        let hasPreschool = false
+        let hasNonPreschool = false
+
+        for (const group of groups.filter((g): g is NonNullable<typeof g> => g !== null)) {
+          const levelId = gradeLevelByGradeId.get(group.grade) ?? null
+          if (!levelId) continue
+          const levelType = levelTypeById.get(levelId)
+          if (levelType === 'PRESCHOOL') hasPreschool = true
+          else hasNonPreschool = true
+        }
+
+        if (!mounted) return
+        setTeacherHasPreschoolAssignments(hasPreschool)
+        setTeacherHasNonPreschoolAssignments(hasNonPreschool)
+      } catch {
+        if (!mounted) return
+        setTeacherHasPreschoolAssignments(false)
+        setTeacherHasNonPreschoolAssignments(false)
       }
     })()
 
@@ -347,7 +411,14 @@ export default function DashboardLayout() {
         icon: GraduationCap,
         children: [
           { name: 'Planeación', href: '/planning' },
-          { name: 'Calificaciones', href: '/grades' },
+          ...(teacherHasPreschoolAssignments && !teacherHasNonPreschoolAssignments
+            ? [{ name: 'Calificaciones', href: '/grades/preschool' }]
+            : [
+                { name: 'Calificaciones', href: '/grades' },
+                ...(teacherHasPreschoolAssignments
+                  ? [{ name: 'Preescolar (Cualitativa)', href: '/grades/preschool' }]
+                  : []),
+              ]),
           { name: 'Asistencias', href: '/attendance' },
           { name: 'Asignación', href: '/my-assignment' },
           { name: 'Convivencia', href: '/discipline/cases' },
@@ -449,7 +520,16 @@ export default function DashboardLayout() {
         ],
       },
     ]
-  }, [canManageRbac, isAdministrativeStaff, isParent, isTeacher, teacherHasDirectedGroup, unreadNotifications])
+  }, [
+    canManageRbac,
+    isAdministrativeStaff,
+    isParent,
+    isTeacher,
+    teacherHasDirectedGroup,
+    teacherHasNonPreschoolAssignments,
+    teacherHasPreschoolAssignments,
+    unreadNotifications,
+  ])
 
   useEffect(() => {
     // Ensure the active submenu is expanded so the user can see where they are.
@@ -866,7 +946,17 @@ export default function DashboardLayout() {
           >
             <Menu className="w-6 h-6" />
           </button>
-          <span className="font-semibold text-slate-900 dark:text-slate-100">Kampus</span>
+          <Link
+            to="/"
+            className="font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+            aria-label="Ir al dashboard"
+            onClick={() => {
+              setIsSidebarOpen(false)
+              setUserMenuOpen(false)
+            }}
+          >
+            Kampus
+          </Link>
           <div className="w-6" /> {/* Spacer for centering */}
         </header>
 

@@ -1,0 +1,141 @@
+<header class="header">
+  <div class="header-left">
+    <span class="logo">
+      {% if institution and institution.pdf_show_logo and institution.logo %}
+        <img src="{{ institution.logo.url }}" alt="Logo" />
+      {% else %}
+        IE
+      {% endif %}
+    </span>
+    <div class="inst">
+      <p class="inst-name">{{ institution.name|default:"Institución Educativa" }}</p>
+      {% if institution.pdf_header_line2 %}
+        <p class="inst-line">{{ institution.pdf_header_line2 }}</p>
+      {% endif %}
+      <div class="inst-meta">
+        {% if institution.dane_code %}<span>DANE: {{ institution.dane_code }}</span>{% endif %}
+        {% if institution.nit %}<span>NIT: {{ institution.nit }}</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="period-kicker">Periodo</div>
+    <div class="period-number">
+      {% if period_name %}{% if period_name|length == 1 %}0{{ period_name }}{% else %}{{ period_name }}{% endif %}{% else %}--{% endif %}
+    </div>
+    <div class="period-year">Año Lectivo {{ year_name|default:"" }}</div>
+  </div>
+</header>
+
+<section class="student-card avoid-break">
+  <div class="row">
+    <div class="col" style="width: 50%; padding-right: 8px;">
+      <div class="k">Estudiante</div>
+      <div class="v-lg">{{ student_name|default:"-" }}</div>
+      {% if student_code %}
+        <div class="k" style="margin-top: 8px;">Documento</div>
+        <div class="v">{{ student_code }}</div>
+      {% endif %}
+    </div>
+
+    <div class="col" style="width: 16%; padding-right: 8px;">
+      <div class="k">Grado / Grupo</div>
+      <div class="v">{{ group_name|default:"-" }}</div>
+    </div>
+
+    <div class="col" style="width: 16%; padding-right: 8px;">
+      <div class="k">Jornada</div>
+      <div class="v">{{ shift_name|default:"-" }}</div>
+    </div>
+
+    <div class="col" style="width: 18%; text-align: right;">
+      <div class="k">Fecha</div>
+      <div class="v"><span class="pill" style="max-width: 100%;">{{ report_date|default:"" }}</span></div>
+    </div>
+  </div>
+
+  <div class="divider">
+    <span class="k">Director de Grupo:</span>
+    <span class="v" style="display:inline; font-size: 11px; font-weight: 800; color:#374151;"> {{ director_name|default:"-" }}</span>
+  </div>
+</section>
+
+<table class="grades">
+  <thead>
+    <tr>
+      <th class="subject" style="width: 68%;">Dimensión / Logro</th>
+      <th style="width: 32%; background:#f3f4f6; color:#111827;">Valoración</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% if rows and rows|length > 0 %}
+      {% for row in rows %}
+        {% if row.row_type == 'SUBJECT' %}
+          <tr class="avoid-break achievement-row">
+            <td class="subject" colspan="2" style="background:#f9fafb;">
+              <div class="achievement-title" style="font-weight: 800;">{{ row.title|default:"" }}</div>
+            </td>
+          </tr>
+        {% else %}
+          <tr class="avoid-break achievement-row">
+            <td class="subject">
+              <div class="achievement-title">• {{ row.description|default:"" }}</div>
+            </td>
+            <td class="grade-cell grade-final">
+              {% if row.label %}
+                {{ row.label }}
+              {% else %}
+                <span class="muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endif %}
+      {% endfor %}
+    {% else %}
+      <tr>
+        <td colspan="2" class="muted" style="padding: 12px 6px;">
+          No hay logros configurados para este periodo.
+        </td>
+      </tr>
+    {% endif %}
+  </tbody>
+</table>
+
+<div class="footer">
+  <div class="summary avoid-break">
+    <div style="display: table; width: 100%; table-layout: fixed;">
+      <div style="display: table-cell; width: 100%; vertical-align: top;">
+        <span style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;">Escala cualitativa:</span>
+        <span style="margin-left: 6px;">{{ scale_equivalences|default:"" }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="sign-grid avoid-break">
+    <div class="sign-col" style="width: 100%;">
+      <div class="sign-line"></div>
+      <div class="sign-name">{{ director_name|default:"" }}</div>
+      <div class="sign-role">Director de grupo</div>
+    </div>
+  </div>
+
+  {% if qr_image_src or verify_url %}
+    <div class="qr-wrap">
+      {% if qr_image_src %}
+        <img src="{{ qr_image_src }}" alt="QR verificación" />
+      {% endif %}
+      {% if verify_url %}
+        <div class="qr-text">
+          <span style="font-weight:900;">Verificación:</span>
+          <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
+        </div>
+        {% if verify_url_prefix and verify_token %}
+          <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
+          <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
+        {% else %}
+          <div class="qr-text verify-url">{{ verify_url }}</div>
+        {% endif %}
+      {% endif %}
+    </div>
+  {% endif %}
+</div>

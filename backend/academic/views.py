@@ -53,7 +53,10 @@ from .models import (
     EditGrantItem,
 )
 
-from students.academic_period_report import generate_academic_period_group_report_pdf
+from students.academic_period_report import (
+    generate_academic_period_group_report_pdf,
+    generate_preschool_academic_period_group_report_pdf,
+)
 from students.models import Enrollment
 from core.permissions import KampusModelPermissions
 from .serializers import (
@@ -77,6 +80,8 @@ from .serializers import (
     GradeSheetSerializer,
     GradeSheetListSerializer,
     GradebookBulkUpsertSerializer,
+    PreschoolGradebookBulkUpsertSerializer,
+    PreschoolGradebookLabelSerializer,
     GradeSheetGradingModeSerializer,
     AchievementActivityColumnSerializer,
     ActivityColumnsBulkUpsertSerializer,
@@ -861,7 +866,16 @@ class GroupViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            pdf_bytes = generate_academic_period_group_report_pdf(enrollments=enrollments, period=period)
+            level_type = None
+            try:
+                level_type = getattr(getattr(getattr(group.grade, "level", None), "level_type", None), "upper", lambda: None)()
+            except Exception:
+                level_type = None
+
+            if level_type in {"PRESCHOOL", "PREESCOLAR"}:
+                pdf_bytes = generate_preschool_academic_period_group_report_pdf(enrollments=enrollments, period=period)
+            else:
+                pdf_bytes = generate_academic_period_group_report_pdf(enrollments=enrollments, period=period)
             filename = f"informe-academico-grupo-{group.id}-period-{period.id}.pdf"
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'inline; filename="{filename}"'
@@ -2985,6 +2999,538 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 "requested": len(grades),
                 "updated": len(to_upsert),
                 "computed": computed,
+                "blocked": blocked,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PreschoolGradebookViewSet(viewsets.ViewSet):
+    """Preescolar: planilla cualitativa (SIEE) por logro.
+
+    API dedicada para no mezclar con la planilla numérica.
+    - Solo para docentes.
+    - Solo para asignaciones cuyo grupo sea de nivel preescolar.
+    - Reutiliza las mismas reglas de bloqueo (periodo cerrado, ventana de edición, grants).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _require_teacher(self, request):
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated:
+            return Response({"detail": "No autenticado."}, status=status.HTTP_401_UNAUTHORIZED)
+        if getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Solo docentes."}, status=status.HTTP_403_FORBIDDEN)
+        return None
+
+    def _enforce_teacher_current_period(self, *, user, period: Period):
+        today = timezone.localdate()
+        if today < period.start_date or today > period.end_date:
+            return Response(
+                {
+                    "error": "Solo se pueden diligenciar planillas del periodo actual.",
+                    "code": "PERIOD_NOT_CURRENT",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _get_teacher_assignment(self, *, user, teacher_assignment_id: int) -> TeacherAssignment:
+        return (
+            TeacherAssignment.objects.filter(teacher=user)
+            .select_related(
+                "academic_year",
+                "group",
+                "group__grade",
+                "group__grade__level",
+                "academic_load",
+                "academic_load__subject",
+            )
+            .get(id=teacher_assignment_id)
+        )
+
+    def _ensure_preschool_assignment(self, teacher_assignment: TeacherAssignment):
+        group = getattr(teacher_assignment, "group", None)
+        grade = getattr(group, "grade", None) if group is not None else None
+        level = getattr(grade, "level", None) if grade is not None else None
+        level_type = getattr(level, "level_type", None) if level is not None else None
+
+        if level_type != "PRESCHOOL":
+            return Response(
+                {"detail": "Esta planilla aplica solo para grupos de preescolar."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+    def _teacher_allowed_enrollment_ids_after_deadline(
+        self,
+        *,
+        user,
+        period: Period,
+        teacher_assignment: TeacherAssignment,
+    ) -> set[int] | None:
+        effective_deadline = period.grades_edit_until
+        if effective_deadline is None:
+            return None
+        if timezone.now() <= effective_deadline:
+            return None
+
+        active_grants = EditGrant.objects.filter(
+            granted_to=user,
+            scope=EditRequest.SCOPE_GRADES,
+            period_id=period.id,
+            teacher_assignment_id=teacher_assignment.id,
+            valid_until__gte=timezone.now(),
+        )
+
+        has_full = active_grants.filter(grant_type=EditRequest.TYPE_FULL).exists()
+        if has_full:
+            return None
+
+        return set(
+            EditGrantItem.objects.filter(grant__in=active_grants).values_list("enrollment_id", flat=True)
+        )
+
+    def _valid_achievements_for_assignment_period(
+        self,
+        *,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+    ):
+        base_achievements = Achievement.objects.filter(
+            academic_load=teacher_assignment.academic_load,
+            period=period,
+        )
+
+        group_achievements = base_achievements.filter(group=teacher_assignment.group)
+        if group_achievements.exists():
+            return group_achievements
+        return base_achievements.filter(group__isnull=True)
+
+    def _get_preschool_labels(self, *, academic_year_id: int):
+        preschool = EvaluationScale.objects.filter(
+            academic_year_id=academic_year_id,
+            scale_type="QUALITATIVE",
+            applies_to_level="PRESCHOOL",
+        )
+
+        # Backward-compatible fallback: if scales were created before applies_to_level
+        # existed (or not configured), allow QUALITATIVE scales with applies_to_level=NULL.
+        base = preschool
+        if not base.exists():
+            base = EvaluationScale.objects.filter(
+                academic_year_id=academic_year_id,
+                scale_type="QUALITATIVE",
+                applies_to_level__isnull=True,
+            )
+
+        defaults = base.filter(is_default=True)
+        qs = defaults if defaults.exists() else base
+        return qs.order_by("order", "id")
+
+    @action(detail=False, methods=["get"], url_path="labels")
+    def labels(self, request):
+        teacher_resp = self._require_teacher(request)
+        if teacher_resp is not None:
+            return teacher_resp
+
+        academic_year_id_raw = request.query_params.get("academic_year")
+        period_id_raw = request.query_params.get("period")
+
+        academic_year_id = None
+        if academic_year_id_raw not in (None, ""):
+            try:
+                academic_year_id = int(str(academic_year_id_raw))
+            except Exception:
+                return Response({"detail": "academic_year inválido"}, status=status.HTTP_400_BAD_REQUEST)
+        elif period_id_raw not in (None, ""):
+            try:
+                p = Period.objects.only("id", "academic_year_id").get(id=int(str(period_id_raw)))
+                academic_year_id = int(p.academic_year_id)
+            except Period.DoesNotExist:
+                return Response({"detail": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+            except Exception:
+                return Response({"detail": "period inválido"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"detail": "academic_year o period es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        labels_qs = self._get_preschool_labels(academic_year_id=academic_year_id)
+        return Response({"results": PreschoolGradebookLabelSerializer(labels_qs, many=True).data})
+
+    @action(detail=False, methods=["get"], url_path="available")
+    def available(self, request):
+        teacher_resp = self._require_teacher(request)
+        if teacher_resp is not None:
+            return teacher_resp
+
+        period_id = request.query_params.get("period")
+        if not period_id:
+            return Response({"error": "period es requerido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
+        tas = (
+            TeacherAssignment.objects.filter(
+                academic_year_id=period.academic_year_id,
+                teacher=request.user,
+                group__grade__level__level_type="PRESCHOOL",
+            )
+            .select_related(
+                "group",
+                "group__grade",
+                "academic_load",
+                "academic_load__subject",
+            )
+            .order_by("group__grade__name", "group__name", "academic_load__subject__name")
+        )
+
+        from students.models import Enrollment
+
+        items = []
+        for ta in tas:
+            enrollments_qs = Enrollment.objects.filter(
+                academic_year_id=ta.academic_year_id,
+                group_id=ta.group_id,
+                status="ACTIVE",
+            )
+            students_count = enrollments_qs.count()
+
+            achievements_qs = self._valid_achievements_for_assignment_period(
+                teacher_assignment=ta,
+                period=period,
+            )
+            achievement_ids = list(achievements_qs.values_list("id", flat=True))
+            achievements_count = len(achievement_ids)
+
+            total = students_count * achievements_count
+
+            gradesheet_id = (
+                GradeSheet.objects.filter(teacher_assignment_id=ta.id, period_id=period.id)
+                .values_list("id", flat=True)
+                .first()
+            )
+
+            filled = 0
+            if gradesheet_id and total > 0 and achievement_ids:
+                filled = (
+                    AchievementGrade.objects.filter(
+                        gradesheet_id=gradesheet_id,
+                        enrollment__in=enrollments_qs,
+                        achievement_id__in=achievement_ids,
+                        qualitative_scale__isnull=False,
+                    )
+                    .only("id")
+                    .count()
+                )
+
+            percent = int(round((filled / total) * 100)) if total > 0 else 0
+            is_complete = total > 0 and filled >= total
+
+            items.append(
+                {
+                    "teacher_assignment_id": ta.id,
+                    "group_id": ta.group_id,
+                    "group_name": ta.group.name,
+                    "grade_id": ta.group.grade_id,
+                    "grade_name": ta.group.grade.name,
+                    "academic_load_id": ta.academic_load_id,
+                    "subject_name": ta.academic_load.subject.name if ta.academic_load_id else None,
+                    "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+                    "students_count": students_count,
+                    "achievements_count": achievements_count,
+                    "completion": {
+                        "filled": filled,
+                        "total": total,
+                        "percent": percent,
+                        "is_complete": is_complete,
+                    },
+                }
+            )
+
+        return Response({"results": items})
+
+    @action(detail=False, methods=["get"], url_path="gradebook")
+    def gradebook(self, request):
+        teacher_resp = self._require_teacher(request)
+        if teacher_resp is not None:
+            return teacher_resp
+
+        teacher_assignment_id = request.query_params.get("teacher_assignment")
+        period_id = request.query_params.get("period")
+        if not teacher_assignment_id or not period_id:
+            return Response(
+                {"error": "teacher_assignment y period son requeridos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(
+                user=request.user,
+                teacher_assignment_id=int(teacher_assignment_id),
+            )
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        preschool_resp = self._ensure_preschool_assignment(teacher_assignment)
+        if preschool_resp is not None:
+            return preschool_resp
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        if getattr(gradesheet, "grading_mode", None) != GradeSheet.GRADING_MODE_QUALITATIVE:
+            gradesheet.grading_mode = GradeSheet.GRADING_MODE_QUALITATIVE
+            gradesheet.save(update_fields=["grading_mode", "updated_at"])
+
+        achievements = (
+            self._valid_achievements_for_assignment_period(
+                teacher_assignment=teacher_assignment,
+                period=period,
+            )
+            .select_related("dimension")
+            .order_by("id")
+        )
+
+        from students.models import Enrollment
+
+        enrollments = (
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+                status="ACTIVE",
+            )
+            .select_related("student__user")
+            .order_by("student__user__last_name", "student__user__first_name")
+        )
+
+        existing_grades = AchievementGrade.objects.filter(
+            gradesheet=gradesheet,
+            enrollment__in=enrollments,
+            achievement__in=achievements,
+        ).only("enrollment_id", "achievement_id", "qualitative_scale_id")
+
+        qualitative_by_cell = {
+            (g.enrollment_id, g.achievement_id): g.qualitative_scale_id for g in existing_grades
+        }
+
+        achievement_payload = [
+            {
+                "id": a.id,
+                "description": a.description,
+                "dimension": a.dimension_id,
+                "dimension_name": a.dimension.name if a.dimension else None,
+                "percentage": a.percentage,
+            }
+            for a in achievements
+        ]
+
+        student_payload = [
+            {
+                "enrollment_id": e.id,
+                "student_id": e.student_id,
+                "student_name": e.student.user.get_full_name(),
+            }
+            for e in enrollments
+        ]
+
+        cell_payload = [
+            {
+                "enrollment": e.id,
+                "achievement": a.id,
+                "qualitative_scale": qualitative_by_cell.get((e.id, a.id)),
+            }
+            for e in enrollments
+            for a in achievements
+        ]
+
+        labels_qs = self._get_preschool_labels(academic_year_id=teacher_assignment.academic_year_id)
+
+        payload = {
+            "gradesheet": GradeSheetSerializer(gradesheet).data,
+            "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+            "teacher_assignment": {
+                "id": teacher_assignment.id,
+                "group": teacher_assignment.group_id,
+                "academic_load": teacher_assignment.academic_load_id,
+            },
+            "achievements": achievement_payload,
+            "students": student_payload,
+            "cells": cell_payload,
+            "labels": PreschoolGradebookLabelSerializer(labels_qs, many=True).data,
+        }
+
+        return Response(payload)
+
+    @action(detail=False, methods=["post"], url_path="bulk-upsert")
+    def bulk_upsert(self, request):
+        teacher_resp = self._require_teacher(request)
+        if teacher_resp is not None:
+            return teacher_resp
+
+        serializer = PreschoolGradebookBulkUpsertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        teacher_assignment_id = serializer.validated_data["teacher_assignment"]
+        period_id = serializer.validated_data["period"]
+        grades = serializer.validated_data["grades"]
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(
+                user=request.user,
+                teacher_assignment_id=int(teacher_assignment_id),
+            )
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        preschool_resp = self._ensure_preschool_assignment(teacher_assignment)
+        if preschool_resp is not None:
+            return preschool_resp
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        if period.is_closed:
+            return Response(
+                {"error": "El periodo está cerrado; no se pueden registrar notas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if period.academic_year_id != teacher_assignment.academic_year_id:
+            return Response(
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
+
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        if getattr(gradesheet, "grading_mode", None) != GradeSheet.GRADING_MODE_QUALITATIVE:
+            gradesheet.grading_mode = GradeSheet.GRADING_MODE_QUALITATIVE
+            gradesheet.save(update_fields=["grading_mode", "updated_at"])
+
+        from students.models import Enrollment
+
+        valid_enrollments = set(
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+            ).values_list("id", flat=True)
+        )
+
+        achievements_qs = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        valid_achievement_ids = set(achievements_qs.values_list("id", flat=True))
+
+        labels_qs = self._get_preschool_labels(academic_year_id=teacher_assignment.academic_year_id)
+        label_by_id = {int(s.id): s for s in labels_qs}
+
+        allowed_enrollment_ids = self._teacher_allowed_enrollment_ids_after_deadline(
+            user=request.user,
+            period=period,
+            teacher_assignment=teacher_assignment,
+        )
+
+        blocked = []
+        allowed_by_cell: dict[tuple[int, int], AchievementGrade] = {}
+        for g in grades:
+            enrollment_id = int(g["enrollment"])
+            achievement_id = int(g["achievement"])
+            qualitative_scale_id = g.get("qualitative_scale")
+
+            if enrollment_id not in valid_enrollments:
+                return Response(
+                    {"error": f"Enrollment inválido: {enrollment_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if achievement_id not in valid_achievement_ids:
+                return Response(
+                    {"error": f"Achievement inválido: {achievement_id}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            if qualitative_scale_id is not None:
+                try:
+                    qualitative_scale_id = int(qualitative_scale_id)
+                except Exception:
+                    return Response(
+                        {"error": "qualitative_scale inválido"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if qualitative_scale_id not in label_by_id:
+                    return Response(
+                        {"error": f"Etiqueta cualitativa inválida: {qualitative_scale_id}"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            if allowed_enrollment_ids is not None and enrollment_id not in allowed_enrollment_ids:
+                blocked.append(
+                    {
+                        "enrollment": enrollment_id,
+                        "achievement": achievement_id,
+                        "reason": "EDIT_WINDOW_CLOSED",
+                    }
+                )
+                continue
+
+            internal_score = None
+            if qualitative_scale_id is not None:
+                internal_score = getattr(label_by_id.get(int(qualitative_scale_id)), "internal_numeric_value", None)
+
+            allowed_by_cell[(enrollment_id, achievement_id)] = AchievementGrade(
+                gradesheet=gradesheet,
+                enrollment_id=enrollment_id,
+                achievement_id=achievement_id,
+                qualitative_scale_id=qualitative_scale_id,
+                score=internal_score,
+            )
+
+        to_upsert = list(allowed_by_cell.values())
+        if to_upsert:
+            with transaction.atomic():
+                AchievementGrade.objects.bulk_create(
+                    to_upsert,
+                    update_conflicts=True,
+                    unique_fields=["gradesheet", "enrollment", "achievement"],
+                    update_fields=["qualitative_scale", "score", "updated_at"],
+                )
+
+        return Response(
+            {
+                "requested": len(grades),
+                "updated": len(to_upsert),
                 "blocked": blocked,
             },
             status=status.HTTP_200_OK,

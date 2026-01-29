@@ -17,6 +17,8 @@ from academic.reports import build_grade_report_sheet_context
 from students.academic_period_report import (
     build_academic_period_group_report_context,
     build_academic_period_report_context,
+    build_preschool_academic_period_group_report_context,
+    build_preschool_academic_period_report_context,
 )
 from students.academic_period_sabana_report import build_academic_period_sabana_context
 from students.models import Enrollment
@@ -68,7 +70,10 @@ def _render_report_html(job: ReportJob) -> str:
             "student",
             "student__user",
             "grade",
+            "grade__level",
             "group",
+            "group__grade",
+            "group__grade__level",
             "group__director",
             "academic_year",
         ).get(id=enrollment_id)
@@ -77,28 +82,60 @@ def _render_report_html(job: ReportJob) -> str:
         from verification.models import VerifiableDocument  # noqa: PLC0415
         from verification.services import build_public_verify_url, get_or_create_for_report_job  # noqa: PLC0415
 
-        ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
+        level_type = None
+        try:
+            level_type = getattr(getattr(getattr(enrollment.grade, "level", None), "level_type", None), "upper", lambda: None)()
+        except Exception:
+            level_type = None
+        if not level_type:
+            try:
+                level_type = getattr(
+                    getattr(getattr(getattr(enrollment.group, "grade", None), "level", None), "level_type", None),
+                    "upper",
+                    lambda: None,
+                )()
+            except Exception:
+                level_type = None
+
+        is_preschool = level_type in {"PRESCHOOL", "PREESCOLAR"}
+        if is_preschool:
+            ctx = build_preschool_academic_period_report_context(enrollment=enrollment, period=period)
+        else:
+            ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
 
         rows_public = []
         for r in (ctx.get("rows") or [])[:80]:
             if not isinstance(r, dict):
                 continue
-            rows_public.append(
-                {
-                    "title": r.get("title", ""),
-                    "absences": r.get("absences", ""),
-                    "p1_score": r.get("p1_score", ""),
-                    "p2_score": r.get("p2_score", ""),
-                    "p3_score": r.get("p3_score", ""),
-                    "p4_score": r.get("p4_score", ""),
-                    "final_score": r.get("final_score", ""),
-                    "p1_scale": r.get("p1_scale", ""),
-                    "p2_scale": r.get("p2_scale", ""),
-                    "p3_scale": r.get("p3_scale", ""),
-                    "p4_scale": r.get("p4_scale", ""),
-                    "final_scale": r.get("final_scale", ""),
-                }
-            )
+            if is_preschool:
+                row_type = str(r.get("row_type") or "").strip().upper()
+                if row_type in {"SUBJECT", "DIMENSION"}:
+                    rows_public.append({"row_type": row_type, "title": r.get("title", "")})
+                else:
+                    rows_public.append(
+                        {
+                            "row_type": "ACHIEVEMENT",
+                            "title": r.get("description", "") or r.get("title", ""),
+                            "label": r.get("label", ""),
+                        }
+                    )
+            else:
+                rows_public.append(
+                    {
+                        "title": r.get("title", ""),
+                        "absences": r.get("absences", ""),
+                        "p1_score": r.get("p1_score", ""),
+                        "p2_score": r.get("p2_score", ""),
+                        "p3_score": r.get("p3_score", ""),
+                        "p4_score": r.get("p4_score", ""),
+                        "final_score": r.get("final_score", ""),
+                        "p1_scale": r.get("p1_scale", ""),
+                        "p2_scale": r.get("p2_scale", ""),
+                        "p3_scale": r.get("p3_scale", ""),
+                        "p4_scale": r.get("p4_scale", ""),
+                        "final_scale": r.get("final_scale", ""),
+                    }
+                )
 
         vdoc = get_or_create_for_report_job(
             job_id=job.id,
@@ -125,6 +162,8 @@ def _render_report_html(job: ReportJob) -> str:
         ctx["verify_token"] = vdoc.token
         ctx["verify_url_prefix"] = verify_url_prefix
         ctx["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
+        if is_preschool:
+            return render_to_string("students/reports/academic_period_report_preschool_pdf.html", ctx)
         return render_to_string("students/reports/academic_period_report_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_GROUP:
@@ -133,14 +172,23 @@ def _render_report_html(job: ReportJob) -> str:
         group_id = (job.params or {}).get("group_id")
         period_id = (job.params or {}).get("period_id")
 
-        group = Group.objects.select_related("academic_year", "director").get(id=group_id)
+        group = Group.objects.select_related("academic_year", "director", "grade", "grade__level").get(id=group_id)
         period = Period.objects.select_related("academic_year").get(id=period_id)
+
+        group_level_type = None
+        try:
+            group_level_type = getattr(getattr(getattr(group.grade, "level", None), "level_type", None), "upper", lambda: None)()
+        except Exception:
+            group_level_type = None
+
+        is_preschool_group = group_level_type in {"PRESCHOOL", "PREESCOLAR"}
 
         enrollments = (
             Enrollment.objects.select_related(
                 "student",
                 "student__user",
                 "grade",
+                "grade__level",
                 "group",
                 "group__director",
                 "academic_year",
@@ -152,7 +200,10 @@ def _render_report_html(job: ReportJob) -> str:
         from verification.payload_policy import sanitize_public_payload  # noqa: PLC0415
         from verification.services import build_public_verify_url  # noqa: PLC0415
 
-        ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
+        if is_preschool_group:
+            ctx = build_preschool_academic_period_group_report_context(enrollments=enrollments, period=period)
+        else:
+            ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
 
         # One verification token per student/page.
         pages = ctx.get("pages") or []
@@ -168,22 +219,36 @@ def _render_report_html(job: ReportJob) -> str:
                 for r in (page.get("rows") or [])[:80]:
                     if not isinstance(r, dict):
                         continue
-                    rows_public.append(
-                        {
-                            "title": r.get("title", ""),
-                            "absences": r.get("absences", ""),
-                            "p1_score": r.get("p1_score", ""),
-                            "p2_score": r.get("p2_score", ""),
-                            "p3_score": r.get("p3_score", ""),
-                            "p4_score": r.get("p4_score", ""),
-                            "final_score": r.get("final_score", ""),
-                            "p1_scale": r.get("p1_scale", ""),
-                            "p2_scale": r.get("p2_scale", ""),
-                            "p3_scale": r.get("p3_scale", ""),
-                            "p4_scale": r.get("p4_scale", ""),
-                            "final_scale": r.get("final_scale", ""),
-                        }
-                    )
+
+                    if is_preschool_group:
+                        row_type = str(r.get("row_type") or "").strip().upper()
+                        if row_type in {"SUBJECT", "DIMENSION"}:
+                            rows_public.append({"row_type": row_type, "title": r.get("title", "")})
+                        else:
+                            rows_public.append(
+                                {
+                                    "row_type": "ACHIEVEMENT",
+                                    "title": r.get("description", "") or r.get("title", ""),
+                                    "label": r.get("label", ""),
+                                }
+                            )
+                    else:
+                        rows_public.append(
+                            {
+                                "title": r.get("title", ""),
+                                "absences": r.get("absences", ""),
+                                "p1_score": r.get("p1_score", ""),
+                                "p2_score": r.get("p2_score", ""),
+                                "p3_score": r.get("p3_score", ""),
+                                "p4_score": r.get("p4_score", ""),
+                                "final_score": r.get("final_score", ""),
+                                "p1_scale": r.get("p1_scale", ""),
+                                "p2_scale": r.get("p2_scale", ""),
+                                "p3_scale": r.get("p3_scale", ""),
+                                "p4_scale": r.get("p4_scale", ""),
+                                "final_scale": r.get("final_scale", ""),
+                            }
+                        )
 
                 public_payload = sanitize_public_payload(
                     VerifiableDocument.DocType.REPORT_CARD,
@@ -229,6 +294,8 @@ def _render_report_html(job: ReportJob) -> str:
                 page["verify_url_prefix"] = verify_url_prefix
                 page["qr_image_src"] = _qr_png_data_uri(verify_url) if verify_url else ""
 
+        if is_preschool_group:
+            return render_to_string("students/reports/academic_period_report_group_preschool_pdf.html", ctx)
         return render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.ACADEMIC_PERIOD_SABANA:
