@@ -122,39 +122,14 @@ def _director_student_ids(user):
 
 
 def _teacher_managed_student_ids(user):
-    """Student IDs a teacher can manage (director or assigned teacher).
+    """Student IDs a teacher can manage.
 
-    Uses ACTIVE academic year when available. If no ACTIVE year exists,
-    falls back to any group where the user is director or has a TeacherAssignment.
+    Business rule: teachers can only manage/view students from groups
+    where they are the director. If the teacher has no directed groups,
+    they should see no students.
     """
 
-    if user is None or getattr(user, "role", None) != "TEACHER":
-        return set()
-
-    active_year = AcademicYear.objects.filter(status="ACTIVE").first()
-
-    directed_groups = Group.objects.filter(director=user)
-    assigned_group_ids = TeacherAssignment.objects.filter(teacher=user).values_list("group_id", flat=True)
-    assigned_groups = Group.objects.filter(id__in=assigned_group_ids)
-
-    if active_year:
-        directed_groups = directed_groups.filter(academic_year=active_year)
-        assigned_groups = assigned_groups.filter(academic_year=active_year)
-
-    allowed_groups = directed_groups | assigned_groups
-    if not allowed_groups.exists():
-        return set()
-
-    year_filter = Q(group__in=allowed_groups, status="ACTIVE")
-    if active_year:
-        year_filter &= Q(academic_year=active_year)
-
-    managed_student_ids = (
-        Enrollment.objects.filter(year_filter)
-        .values_list("student_id", flat=True)
-        .distinct()
-    )
-    return set(managed_student_ids)
+    return _director_student_ids(user)
 
 
 class IsTeacherDirectorOfStudent(BasePermission):
@@ -172,7 +147,7 @@ class IsTeacherDirectorOfStudent(BasePermission):
 
 
 class IsTeacherAssignedOrDirectorOfStudent(BasePermission):
-    """Teacher can access only students from their directed OR assigned groups."""
+    """Teacher can access only students from their directed groups."""
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -182,7 +157,7 @@ class IsTeacherAssignedOrDirectorOfStudent(BasePermission):
         user = getattr(request, "user", None)
         if not user or getattr(user, "role", None) != "TEACHER":
             return False
-        return getattr(obj, "pk", None) in _teacher_managed_student_ids(user)
+        return getattr(obj, "pk", None) in _director_student_ids(user)
 
 
 class IsTeacherDirectorOfRelatedStudent(BasePermission):
@@ -216,7 +191,7 @@ class IsTeacherDirectorOfRelatedStudent(BasePermission):
 
 
 class IsTeacherAssignedOrDirectorOfRelatedStudent(BasePermission):
-    """Teacher can access objects that point to a student in their directed/assigned groups."""
+    """Teacher can access objects that point to a student in their directed groups."""
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
@@ -229,7 +204,7 @@ class IsTeacherAssignedOrDirectorOfRelatedStudent(BasePermission):
                 student_id = int(raw)
             except Exception:
                 return False
-            return student_id in _teacher_managed_student_ids(user)
+            return student_id in _director_student_ids(user)
 
         return True
 
@@ -238,7 +213,7 @@ class IsTeacherAssignedOrDirectorOfRelatedStudent(BasePermission):
         if not user or getattr(user, "role", None) != "TEACHER":
             return False
         student_id = getattr(obj, "student_id", None)
-        return student_id in _teacher_managed_student_ids(user)
+        return student_id in _director_student_ids(user)
 
 
 
@@ -253,12 +228,12 @@ class StudentViewSet(viewsets.ModelViewSet):
     search_fields = ['user__first_name', 'user__last_name', 'document_number']
 
     def get_permissions(self):
-        # Teachers can view students in their directed OR assigned groups,
+        # Teachers can view students only in their directed groups,
         # regardless of Django model-permissions.
         if getattr(self.request.user, 'role', None) == 'TEACHER':
             action = getattr(self, 'action', None)
             if action in {'list', 'retrieve'}:
-                return [IsAuthenticated(), IsTeacherAssignedOrDirectorOfStudent()]
+                return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
             if action in {'update', 'partial_update'}:
                 return [IsAuthenticated(), IsTeacherDirectorOfStudent()]
         return super().get_permissions()
@@ -279,7 +254,7 @@ class StudentViewSet(viewsets.ModelViewSet):
             return qs.none()
 
         if user is not None and getattr(user, 'role', None) == 'TEACHER':
-            allowed_ids = _teacher_managed_student_ids(user)
+            allowed_ids = _director_student_ids(user)
             if not allowed_ids:
                 return qs.none()
             qs = qs.filter(pk__in=allowed_ids)

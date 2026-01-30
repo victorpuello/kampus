@@ -999,18 +999,18 @@ class StudentAssignedTeacherVisibilityAPITest(APITestCase):
             status="ACTIVE",
         )
 
-    def test_assigned_teacher_list_students_for_assigned_group(self):
+    def test_assigned_teacher_list_is_empty_when_not_director(self):
         self.client.force_authenticate(user=self.teacher)
         res = self.client.get("/api/students/?page=1&page_size=100")
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         ids = [row["id"] for row in res.data.get("results", [])]
-        self.assertIn(self.student_assigned.pk, ids)
+        self.assertNotIn(self.student_assigned.pk, ids)
         self.assertNotIn(self.student_unassigned.pk, ids)
 
-    def test_assigned_teacher_can_retrieve_assigned_student(self):
+    def test_assigned_teacher_cannot_retrieve_assigned_student(self):
         self.client.force_authenticate(user=self.teacher)
         res = self.client.get(f"/api/students/{self.student_assigned.pk}/")
-        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_assigned_teacher_cannot_retrieve_unassigned_student(self):
         self.client.force_authenticate(user=self.teacher)
