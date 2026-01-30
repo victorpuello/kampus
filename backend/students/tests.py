@@ -922,6 +922,23 @@ class StudentDirectorVisibilityAPITest(APITestCase):
         res = self.client.get(f"/api/students/{self.student_not_directed.pk}/")
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_director_teacher_list_can_include_completion_and_group_summary(self):
+        self.client.force_authenticate(user=self.director)
+        res = self.client.get("/api/students/?page=1&page_size=100&include_completion=1")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("group_completion", res.data)
+        self.assertIn("results", res.data)
+
+        results = res.data.get("results") or []
+        self.assertTrue(len(results) >= 1)
+        first = results[0]
+        self.assertIn("completion", first)
+        completion = first.get("completion")
+        # Director list includes ACTIVE enrollments, so percent should be computed.
+        self.assertIsNotNone(completion)
+        self.assertIn("percent", completion)
+        self.assertIsInstance(completion.get("percent"), int)
+
 
 class StudentAssignedTeacherVisibilityAPITest(APITestCase):
     def setUp(self):

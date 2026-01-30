@@ -35,6 +35,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_CACHE_URL=redis://redis:6379/1
       - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
       - KAMPUS_PRIVATE_REPORTS_DIR=reports
       - KAMPUS_RUN_MIGRATIONS=true
@@ -62,6 +63,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_CACHE_URL=redis://redis:6379/1
       - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
       - KAMPUS_PRIVATE_REPORTS_DIR=reports
       - KAMPUS_RUN_MIGRATIONS=false
@@ -89,6 +91,7 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_CACHE_URL=redis://redis:6379/1
       - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
       - KAMPUS_PRIVATE_REPORTS_DIR=reports
       - KAMPUS_REPORT_JOBS_TTL_HOURS=24

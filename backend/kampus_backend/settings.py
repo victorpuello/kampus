@@ -240,6 +240,30 @@ CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
 
+# Cache
+#
+# In Docker we provide KAMPUS_CACHE_URL (Redis). In local/dev without Redis, we
+# fall back to LocMemCache.
+KAMPUS_CACHE_URL = (os.getenv("KAMPUS_CACHE_URL") or "").strip()
+KAMPUS_CACHE_DEFAULT_TIMEOUT_SECONDS = int(os.getenv("KAMPUS_CACHE_DEFAULT_TIMEOUT_SECONDS", "21600"))
+
+if KAMPUS_CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": KAMPUS_CACHE_URL,
+            "TIMEOUT": KAMPUS_CACHE_DEFAULT_TIMEOUT_SECONDS,
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "kampus-locmem",
+            "TIMEOUT": KAMPUS_CACHE_DEFAULT_TIMEOUT_SECONDS,
+        }
+    }
+
 # Reports (async PDF jobs)
 REPORT_JOBS_TTL_HOURS = int(os.getenv("KAMPUS_REPORT_JOBS_TTL_HOURS", "24"))
 

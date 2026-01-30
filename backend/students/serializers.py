@@ -141,6 +141,7 @@ class StudentSerializer(serializers.ModelSerializer):
     current_enrollment_status = serializers.CharField(read_only=True)
     current_grade_ordinal = serializers.IntegerField(read_only=True)
     current_grade_name = serializers.CharField(read_only=True)
+    completion = serializers.SerializerMethodField()
     # Write-only fields for User creation
     first_name = serializers.CharField(write_only=True, required=False)
     last_name = serializers.CharField(write_only=True, required=False)
@@ -160,6 +161,7 @@ class StudentSerializer(serializers.ModelSerializer):
             "current_enrollment_status",
             "current_grade_ordinal",
             "current_grade_name",
+            "completion",
             "user",
             "first_name",
             "last_name",
@@ -202,6 +204,15 @@ class StudentSerializer(serializers.ModelSerializer):
             "novelties",
             "documents",
         ]
+
+    def get_completion(self, obj):
+        mapping = self.context.get("completion_by_student_id") if isinstance(self.context, dict) else None
+        if not mapping:
+            return None
+        try:
+            return mapping.get(int(getattr(obj, "pk", 0)))
+        except Exception:
+            return None
 
     def generate_username(self, first_name, last_name):
         def normalize(text):

@@ -282,6 +282,7 @@ class StudentNovelty(models.Model):
 class StudentDocument(models.Model):
     DOCUMENT_TYPES = (
         ('IDENTITY', 'Documento de Identidad'),
+        ('GUARDIAN_IDENTITY', 'Documento de identidad del acudiente'),
         ('VACCINES', 'Carnet de Vacunas'),
         ('EPS', 'Certificado EPS'),
         ('ACADEMIC', 'Certificado Académico Anterior'),

@@ -165,6 +165,57 @@ export interface TeacherStatisticsAIResponse {
   updated_at?: string | null
 }
 
+export type TrafficLight = 'green' | 'yellow' | 'red' | 'grey'
+
+export interface DirectorComplianceSummary {
+  avg_percent: number | null
+  traffic_light: TrafficLight
+  students_total: number
+  students_computable: number
+  students_missing_enrollment: number
+  complete_100_count: number
+}
+
+export interface DirectorComplianceRow {
+  group: {
+    id: number
+    name: string
+    grade_id: number
+    grade_name: string
+    campus_id: number | null
+    campus_name: string | null
+    shift: string
+  }
+  director: {
+    id: number
+    full_name: string
+    email: string
+    photo_thumb?: string | null
+    photo?: string | null
+  }
+  summary: DirectorComplianceSummary
+}
+
+export interface DirectorComplianceResponse {
+  count: number
+  next: string | null
+  previous: string | null
+  academic_year: { id: number; year: number; status: string }
+  results: DirectorComplianceRow[]
+  totals: {
+    groups_total: number
+    groups_with_students: number
+    avg_percent: number | null
+    traffic_light: TrafficLight
+  }
+  counts_by_light?: {
+    green: number
+    yellow: number
+    red: number
+    grey: number
+  }
+}
+
 const hasFile = (data: Record<string, unknown>): boolean =>
   Object.values(data).some((v) => v instanceof File)
 
@@ -192,6 +243,14 @@ const toFormData = (data: Record<string, unknown>): FormData => {
 export const teachersApi = {
   getAll: (yearId?: number) => api.get<Teacher[]>('/api/teachers/', { params: { year_id: yearId } }),
   getById: (id: number) => api.get<Teacher>(`/api/teachers/${id}/`),
+  directorCompliance: (params: {
+    director_id?: number
+    group_id?: number
+    search?: string
+    page?: number
+    page_size?: number
+  }) =>
+    api.get<DirectorComplianceResponse>('/api/teachers/director-compliance/', { params }),
   myStatistics: (params: {
     year_id?: number
     period_id?: number

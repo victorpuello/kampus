@@ -37,6 +37,7 @@ import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
 import PapPlans from './pages/PapPlans'
 import PromotionWorkflow from './pages/PromotionWorkflow'
 import TeacherStatistics from './pages/TeacherStatistics'
+import DirectorCompliance from './pages/DirectorCompliance'
 import SystemSettings from './pages/SystemSettings'
 import AdministrativeCertificates from './pages/AdministrativeCertificates'
 import AdministrativeCertificatesPreview from './pages/AdministrativeCertificatesPreview'
@@ -107,6 +108,7 @@ export default function App() {
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
+            <Route path="/teachers/director-compliance" element={<DirectorCompliance />} />
             <Route path="/attendance" element={<AttendanceHome />} />
             <Route path="/attendance/deletion-requests" element={<AttendanceDeletionRequests />} />
             <Route path="/attendance/sessions/:id" element={<AttendanceSession />} />

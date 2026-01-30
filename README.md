@@ -26,6 +26,7 @@
 ### 👥 Comunidad Educativa
 - **Perfiles de Usuario**: Rectores, Coordinadores, Docentes, Estudiantes y Acudientes.
 - **Hoja de Vida del Estudiante**: Información personal, familiar, médica y académica.
+- **Progreso de diligenciamiento**: % global de completitud de la ficha del estudiante (visible para directores de grupo y roles administrativos).
 - **Gestión de Matrículas**: Proceso de inscripción y seguimiento.
 
 ### 🧾 Convivencia (Observador del Estudiante)
@@ -38,6 +39,9 @@
 - Interfaz moderna y responsiva (Mobile-first).
 - Panel de configuración centralizado.
 - Navegación intuitiva y rápida (SPA).
+
+### 📈 Monitoreo (Administrativos)
+- **Monitoreo de directores**: vista de cumplimiento por grupo director (promedio + semáforo) para roles administrativos.
 
 ### 📝 Calificaciones (Planilla)
 - Planilla de notas con modo híbrido: **Tradicional** (nota por logro) y **Actividades** (subcolumnas por logro con promedio automático; vacíos=1.0).
@@ -84,12 +88,20 @@ docker-compose up --build
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:5173`
 - Postgres: `localhost:5432`
+- Redis: `localhost:6379`
 
 > El stack incluye un servicio `backend_scheduler` para tareas automáticas (p. ej. alertas por vencimiento de descargos).
 
 Notas para desarrollo local (Docker):
 - Si defines `KAMPUS_RUN_MIGRATIONS=true`, el contenedor del backend ejecuta migraciones al iniciar.
 - Si defines `KAMPUS_CREATE_SUPERUSER=true`, el contenedor crea un superusuario de desarrollo (por defecto `admin` / `admin123`).
+
+Notas de cache (Docker):
+- El stack incluye Redis y el backend usa `KAMPUS_CACHE_URL` para cachear cálculos costosos (por ejemplo, completitud de ficha por estudiante + año académico activo).
+
+Docs relacionados:
+- `docs/implementacion_progreso_ficha_estudiante_responsive.md`
+- `docs/sprint_indicador_progreso_directores.md`
 
 ### Opción manual: Backend
 

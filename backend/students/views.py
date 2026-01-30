@@ -331,9 +331,81 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         try:
+            user = getattr(request, "user", None)
+            role = getattr(user, "role", None)
+            include_completion = str(request.query_params.get("include_completion") or "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "y",
+                "si",
+                "sí",
+            }
+
+            if role == "TEACHER" and include_completion:
+                from students.completion import compute_completion_for_students  # noqa: PLC0415
+
+                qs = self.filter_queryset(self.get_queryset())
+                all_ids = list(qs.values_list("pk", flat=True))
+                completion_by_id, group_summary = compute_completion_for_students([int(x) for x in all_ids])
+
+                page = self.paginate_queryset(qs)
+                context = self.get_serializer_context()
+                context["completion_by_student_id"] = completion_by_id
+
+                if page is not None:
+                    serializer = self.get_serializer(page, many=True, context=context)
+                    resp = self.get_paginated_response(serializer.data)
+                    try:
+                        resp.data["group_completion"] = group_summary
+                    except Exception:
+                        pass
+                    return resp
+
+                serializer = self.get_serializer(qs, many=True, context=context)
+                data = {"count": len(all_ids), "next": None, "previous": None, "results": serializer.data, "group_completion": group_summary}
+                return Response(data)
+
             return super().list(request, *args, **kwargs)
         except Exception as e:
             print("ERROR IN STUDENT LIST:")
+            traceback.print_exc()
+            return Response({"error": str(e), "traceback": traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Return student detail.
+
+        Completion is computed ONLY for:
+        - Group directors (TEACHER role, already scoped by permissions/queryset)
+        - Admin users (ADMIN/SUPERADMIN)
+
+        For other roles, completion is not computed and will be null.
+        """
+
+        from django.http import Http404
+        from rest_framework.exceptions import APIException
+
+        try:
+            user = getattr(request, "user", None)
+            role = getattr(user, "role", None)
+
+            # If the role is not eligible, do not compute completion.
+            if role not in {"TEACHER", "ADMIN", "SUPERADMIN"}:
+                return super().retrieve(request, *args, **kwargs)
+
+            instance = self.get_object()
+            from students.completion import compute_completion_for_students  # noqa: PLC0415
+
+            completion_by_id, _group_summary = compute_completion_for_students([int(instance.pk)])
+            context = self.get_serializer_context()
+            context["completion_by_student_id"] = completion_by_id
+            serializer = self.get_serializer(instance, context=context)
+            return Response(serializer.data)
+        except (Http404, APIException):
+            # Preserve the original status code (e.g. permissions-scoped 404s).
+            raise
+        except Exception as e:
+            print("ERROR IN STUDENT RETRIEVE:")
             traceback.print_exc()
             return Response({"error": str(e), "traceback": traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 

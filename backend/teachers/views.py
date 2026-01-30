@@ -15,9 +15,10 @@ from rest_framework.response import Response
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from .models import Teacher, TeacherStatisticsAIAnalysis
 from .serializers import TeacherSerializer
+from .pagination import DirectorCompliancePagination
 from core.permissions import KampusModelPermissions
 from core.models import Institution
-from users.permissions import IsOwnerOrAdmin, IsAdmin
+from users.permissions import IsOwnerOrAdmin, IsAdmin, IsAdministrativeStaff
 
 from academic.models import (
     AcademicYear,
@@ -32,6 +33,7 @@ from academic.promotion import PASSING_SCORE_DEFAULT, _compute_subject_final_for
 from academic.ai import AIService, AIConfigError, AIProviderError
 from discipline.models import DisciplineCase
 from students.models import Enrollment
+from students.completion import compute_completion_for_students, aggregate_group_summary_for_student_ids
 
 from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 
@@ -458,6 +460,182 @@ class TeacherViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context['year_id'] = self.request.query_params.get('year_id')
         return context
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="director-compliance",
+        permission_classes=[IsAuthenticated, IsAdministrativeStaff],
+    )
+    def director_compliance(self, request):
+        """Admin monitoring: profile completion by directed group.
+
+        Returns one row per directed group in the active academic year.
+        """
+
+        active_year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).first() or AcademicYear.objects.order_by("-year").first()
+        if active_year is None:
+            return Response({"detail": "No hay años lectivos configurados."}, status=status.HTTP_400_BAD_REQUEST)
+
+        director_id_raw = request.query_params.get("director_id")
+        group_id_raw = request.query_params.get("group_id")
+        search_raw = request.query_params.get("search")
+
+        groups_qs = (
+            Group.objects.select_related("grade", "campus", "director")
+            .filter(academic_year=active_year, director__isnull=False)
+            .order_by("grade__name", "name", "id")
+        )
+
+        if director_id_raw not in (None, ""):
+            try:
+                groups_qs = groups_qs.filter(director_id=int(str(director_id_raw)))
+            except Exception:
+                return Response({"detail": "director_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if group_id_raw not in (None, ""):
+            try:
+                groups_qs = groups_qs.filter(id=int(str(group_id_raw)))
+            except Exception:
+                return Response({"detail": "group_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+        q = (str(search_raw or "")).strip()
+        if q:
+            groups_qs = groups_qs.filter(
+                Q(name__icontains=q)
+                | Q(grade__name__icontains=q)
+                | Q(campus__name__icontains=q)
+                | Q(director__email__icontains=q)
+                | Q(director__first_name__icontains=q)
+                | Q(director__last_name__icontains=q)
+            )
+
+        groups = list(groups_qs)
+        group_ids = [int(g.id) for g in groups]
+
+        group_student_ids: dict[int, list[int]] = {gid: [] for gid in group_ids}
+        all_student_ids: set[int] = set()
+
+        if group_ids:
+            for gid, sid in (
+                Enrollment.objects.filter(
+                    academic_year=active_year,
+                    status="ACTIVE",
+                    group_id__in=group_ids,
+                )
+                .values_list("group_id", "student_id")
+                .iterator()
+            ):
+                gid_int = int(gid)
+                sid_int = int(sid)
+                group_student_ids.setdefault(gid_int, []).append(sid_int)
+                all_student_ids.add(sid_int)
+
+        completion_by_id: dict[int, dict] = {}
+        if all_student_ids:
+            completion_by_id, _group_summary_unused = compute_completion_for_students(list(all_student_ids))
+
+        director_user_ids = [int(getattr(getattr(g, "director", None), "id", 0) or 0) for g in groups]
+        director_user_ids = [uid for uid in director_user_ids if uid]
+        teacher_by_user_id: dict[int, Teacher] = {}
+        if director_user_ids:
+            for t in Teacher.objects.filter(user_id__in=director_user_ids).only("user_id", "photo", "photo_thumb"):
+                teacher_by_user_id[int(t.user_id)] = t
+
+        def _file_url_or_none(f):
+            if not f:
+                return None
+            try:
+                url = f.url
+            except Exception:
+                return None
+            try:
+                return request.build_absolute_uri(url)
+            except Exception:
+                return url
+
+        results: list[dict] = []
+        group_avgs: list[int] = []
+        for g in groups:
+            gid = int(g.id)
+            student_ids = group_student_ids.get(gid, [])
+
+            if student_ids:
+                summary = aggregate_group_summary_for_student_ids(completion_by_id, student_ids)
+            else:
+                summary = {
+                    "avg_percent": None,
+                    "traffic_light": "grey",
+                    "students_total": 0,
+                    "students_computable": 0,
+                    "students_missing_enrollment": 0,
+                    "complete_100_count": 0,
+                }
+
+            avg = summary.get("avg_percent")
+            if isinstance(avg, int):
+                group_avgs.append(avg)
+
+            director = getattr(g, "director", None)
+            director_teacher = teacher_by_user_id.get(int(getattr(director, "id", 0) or 0))
+            director_payload = {
+                "id": int(getattr(director, "id", 0) or 0),
+                "full_name": (getattr(director, "get_full_name", lambda: "")() or "").strip(),
+                "email": str(getattr(director, "email", "") or ""),
+                "photo_thumb": _file_url_or_none(getattr(director_teacher, "photo_thumb", None)),
+                "photo": _file_url_or_none(getattr(director_teacher, "photo", None)),
+            }
+
+            results.append(
+                {
+                    "group": {
+                        "id": gid,
+                        "name": str(getattr(g, "name", "") or ""),
+                        "grade_id": int(getattr(g, "grade_id", 0) or 0),
+                        "grade_name": str(getattr(getattr(g, "grade", None), "name", "") or ""),
+                        "campus_id": int(getattr(g, "campus_id", 0) or 0) if getattr(g, "campus_id", None) else None,
+                        "campus_name": str(getattr(getattr(g, "campus", None), "name", "") or "") if getattr(g, "campus_id", None) else None,
+                        "shift": str(getattr(g, "shift", "") or ""),
+                    },
+                    "director": director_payload,
+                    "summary": summary,
+                }
+            )
+
+        overall_avg = int(round(sum(group_avgs) / len(group_avgs))) if group_avgs else None
+        overall_light = "grey"
+        if overall_avg is not None:
+            if overall_avg >= 90:
+                overall_light = "green"
+            elif overall_avg >= 70:
+                overall_light = "yellow"
+            else:
+                overall_light = "red"
+
+        counts_by_light = {"green": 0, "yellow": 0, "red": 0, "grey": 0}
+        for r in results:
+            light = str(((r.get("summary") or {}).get("traffic_light") or "grey")).lower()
+            if light == "green":
+                counts_by_light["green"] += 1
+            elif light == "yellow":
+                counts_by_light["yellow"] += 1
+            elif light == "red":
+                counts_by_light["red"] += 1
+            else:
+                counts_by_light["grey"] += 1
+
+        paginator = DirectorCompliancePagination()
+        page = paginator.paginate_queryset(results, request, view=self)
+        resp = paginator.get_paginated_response(page)
+        resp.data["academic_year"] = {"id": int(active_year.id), "year": int(active_year.year), "status": str(active_year.status)}
+        resp.data["totals"] = {
+            "groups_total": len(results),
+            "groups_with_students": sum(1 for r in results if (r.get("summary") or {}).get("students_total", 0) > 0),
+            "avg_percent": overall_avg,
+            "traffic_light": overall_light,
+        }
+        resp.data["counts_by_light"] = counts_by_light
+        return resp
 
     @action(detail=False, methods=["get"], url_path="me/statistics")
     def me_statistics(self, request):

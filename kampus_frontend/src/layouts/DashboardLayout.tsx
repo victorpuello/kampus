@@ -457,6 +457,7 @@ export default function DashboardLayout() {
       { name: 'Asistencias', href: '/attendance' },
       { name: 'Convivencia', href: '/discipline/cases' },
       { name: 'Docentes', href: '/teachers' },
+      ...(isAdministrativeStaff ? [{ name: 'Monitoreo directores', href: '/teachers/director-compliance' }] : []),
     ]
 
     const usersChildren: NavigationChild[] = [

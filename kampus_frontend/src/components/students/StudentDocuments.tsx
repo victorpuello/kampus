@@ -84,6 +84,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
   const getDocTypeName = (type: string) => {
     const types: Record<string, string> = {
       'IDENTITY': 'Documento de Identidad',
+      'GUARDIAN_IDENTITY': 'Documento de identidad del acudiente',
       'VACCINES': 'Carnet de Vacunas',
       'EPS': 'Certificado EPS',
       'ACADEMIC': 'Certificado Académico',
@@ -110,6 +111,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                   onChange={(e) => setDocType(e.target.value)}
                 >
                   <option value="IDENTITY">Documento de Identidad</option>
+                  <option value="GUARDIAN_IDENTITY">Documento de identidad del acudiente</option>
                   <option value="VACCINES">Carnet de Vacunas</option>
                   <option value="EPS">Certificado EPS</option>
                   <option value="ACADEMIC">Certificado Académico</option>

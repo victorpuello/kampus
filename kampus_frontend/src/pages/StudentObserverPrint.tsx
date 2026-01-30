@@ -246,8 +246,10 @@ export default function StudentObserverPrint() {
     }
   }
 
+  const topPadClass = actionError ? 'pt-40 sm:pt-24' : 'pt-28 sm:pt-16'
+
   return (
-    <div className="print-root text-slate-800 bg-slate-100 min-h-screen">
+    <div className={`print-root text-slate-800 bg-slate-100 min-h-screen ${topPadClass}`}>
       <style>{`
         body {
           -webkit-print-color-adjust: exact;
@@ -287,6 +289,7 @@ export default function StudentObserverPrint() {
 
           .print-root {
             background: white !important;
+            padding-top: 0 !important;
           }
 
           .page {
@@ -329,12 +332,12 @@ export default function StudentObserverPrint() {
           <span className="text-sm font-semibold text-slate-700 truncate">Vista previa del Observador</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <button
             onClick={() => void handleDownloadPdf()}
             disabled={downloadingPdf}
             className={
-              'inline-flex items-center gap-2 text-sm font-semibold px-4 py-2 rounded-md shadow ' +
+              'inline-flex w-full sm:w-auto justify-center items-center gap-2 text-sm font-semibold px-4 py-2 rounded-md shadow ' +
               (downloadingPdf
                 ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                 : 'bg-blue-700 hover:bg-blue-800 text-white')
@@ -345,20 +348,18 @@ export default function StudentObserverPrint() {
 
           <button
             onClick={() => window.print()}
-            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold px-4 py-2 rounded-md shadow"
+            className="inline-flex w-full sm:w-auto justify-center items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold px-4 py-2 rounded-md shadow"
           >
             <Printer className="h-4 w-4" /> Imprimir
           </button>
         </div>
+
+        {actionError ? (
+          <div className="w-full rounded-md bg-red-50 text-red-700 text-sm border border-red-100 px-3 py-2">
+            {actionError}
+          </div>
+        ) : null}
       </div>
-
-      {actionError ? (
-        <div className="no-print fixed top-[64px] left-0 w-full px-4 py-2 bg-red-50 text-red-700 text-sm border-b border-red-100 z-40">
-          {actionError}
-        </div>
-      ) : null}
-
-      <div className={actionError ? 'h-28 no-print' : 'h-16 no-print'} />
 
       {/* PAGE 1 */}
       <div className="page">
@@ -477,7 +478,43 @@ export default function StudentObserverPrint() {
             Información Familiar
           </h2>
 
-          <div className="overflow-hidden border border-slate-200 rounded-lg">
+          {/* Mobile cards (screen only) */}
+          <div className="sm:hidden print:hidden space-y-3">
+            {data.family_members.length > 0 ? (
+              data.family_members.map((fm) => (
+                <div key={fm.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold uppercase text-slate-500">{fm.relationship || 'Familiar'}</div>
+                      <div className="text-sm font-extrabold text-slate-900 wrap-break-word">{fm.full_name || '-'}</div>
+                      <div className="mt-2 text-xs text-slate-600 space-y-1">
+                        <div><span className="font-semibold">Documento:</span> {fm.document_number || '-'}</div>
+                        <div><span className="font-semibold">Teléfono:</span> {fm.phone || '-'}</div>
+                      </div>
+                    </div>
+                    <div className="shrink-0">
+                      {fm.is_main_guardian ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-50 text-green-700 border border-green-200 px-2 py-1 text-xs font-bold">
+                          ✓ Acudiente
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-slate-50 text-slate-600 border border-slate-200 px-2 py-1 text-xs font-semibold">
+                          No acudiente
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 italic">
+                No hay familiares registrados.
+              </div>
+            )}
+          </div>
+
+          {/* Table (print + tablet/desktop) */}
+          <div className="hidden sm:block print:block overflow-hidden border border-slate-200 rounded-lg">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-500 font-bold uppercase text-[11px]">
                 <tr>
@@ -525,7 +562,58 @@ export default function StudentObserverPrint() {
             Historial de Matrícula
           </h2>
 
-          <div className="overflow-hidden border border-slate-200 rounded-lg">
+          {/* Mobile cards (screen only) */}
+          <div className="sm:hidden print:hidden space-y-3">
+            {data.enrollments.length > 0 ? (
+              data.enrollments.map((en) => (
+                <div key={en.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold uppercase text-slate-500">Año</div>
+                      <div className="text-sm font-extrabold text-slate-900">{en.academic_year ?? '-'}</div>
+                    </div>
+                    <div className="shrink-0">
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold border border-slate-200 bg-slate-50 text-slate-700">
+                        {en.status || '-'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-slate-600">
+                    <div>
+                      <div className="font-bold uppercase text-slate-500">Grado</div>
+                      <div className="text-slate-800">{en.grade_name || '-'}</div>
+                    </div>
+                    <div>
+                      <div className="font-bold uppercase text-slate-500">Grupo</div>
+                      <div className="text-slate-800">{en.group_name || '-'}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="font-bold uppercase text-slate-500">Sede</div>
+                      <div className="text-slate-800">{en.campus_name || '-'}</div>
+                    </div>
+                    <div className="col-span-2">
+                      <div className="font-bold uppercase text-slate-500">Promoción</div>
+                      {en.final_status ? (
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold bg-green-100 text-green-800">
+                          {en.final_status}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-sm text-slate-500 italic">
+                No hay historial de matrícula.
+              </div>
+            )}
+          </div>
+
+          {/* Table (print + tablet/desktop) */}
+          <div className="hidden sm:block print:block overflow-hidden border border-slate-200 rounded-lg">
             <table className="min-w-full text-[11px]">
               <thead className="bg-slate-100 text-slate-600 font-bold uppercase">
                 <tr>
@@ -709,7 +797,7 @@ export default function StudentObserverPrint() {
         </section>
 
         <section className="mt-12 pt-8 border-t border-slate-300 avoid-break">
-          <div className="grid grid-cols-3 gap-8 text-center">
+          <div className="grid grid-cols-1 sm:grid-cols-3 print:grid-cols-3 gap-8 text-center">
             <div>
               <div className="h-16 border-b border-slate-400 mb-2" />
               <p className="text-xs font-bold text-slate-600 uppercase">Firma del Director de grupo</p>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { studentsApi } from '../services/students'
 import type { Student } from '../services/students'
+import type { GroupCompletionSummary } from '../services/students'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { GraduationCap, Plus, Search, User, UserCheck, Users } from 'lucide-react'
@@ -23,6 +24,7 @@ export default function StudentList() {
   const [newNoveltyModalInitial, setNewNoveltyModalInitial] = useState<{ studentId?: number; typeId?: number }>({})
 
   const [data, setData] = useState<Student[]>([])
+  const [groupCompletion, setGroupCompletion] = useState<GroupCompletionSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -64,6 +66,12 @@ export default function StudentList() {
     if (key === 'GRADUATED') return 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/40'
     if (!key) return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
     return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
+  }
+
+  const progressBarColor = (percent: number): string => {
+    if (percent >= 90) return 'bg-emerald-500'
+    if (percent >= 70) return 'bg-amber-500'
+    return 'bg-red-500'
   }
 
   const openNewNoveltyModal = (opts: { studentId: number; typeId?: number }) => {
@@ -162,6 +170,7 @@ export default function StudentList() {
         page_size: pageSize,
         search: searchParam,
         current_enrollment_status: statusParam,
+        ...(isTeacher ? { include_completion: 1 } : {}),
       })
       .then((res) => {
         if (!mounted) return
@@ -169,6 +178,7 @@ export default function StudentList() {
         setCount(res.data.count)
         setHasNext(Boolean(res.data.next))
         setHasPrevious(Boolean(res.data.previous))
+        setGroupCompletion((res.data as unknown as { group_completion?: GroupCompletionSummary }).group_completion ?? null)
       })
       .catch(() => {
         if (mounted) setError('No se pudo cargar la lista')
@@ -216,8 +226,55 @@ export default function StudentList() {
     )
   }
 
+  const trafficLight = groupCompletion?.traffic_light
+  const trafficLightClass = (() => {
+    if (trafficLight === 'green') return 'bg-emerald-500'
+    if (trafficLight === 'yellow') return 'bg-amber-500'
+    if (trafficLight === 'red') return 'bg-red-500'
+    return 'bg-slate-400'
+  })()
+
   return (
     <div className="space-y-6">
+      {isTeacher && teacherHasDirectedGroup === true && groupCompletion && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Progreso del grupo</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <span className={`inline-block h-3 w-3 rounded-full ${trafficLightClass}`} />
+                <div>
+                  <div className="text-sm text-slate-500 dark:text-slate-400">Promedio de cumplimiento</div>
+                  <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                    {groupCompletion.avg_percent === null ? 'N/D' : `${groupCompletion.avg_percent}%`}
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <div className="text-slate-500 dark:text-slate-400">Estudiantes</div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{groupCompletion.students_total}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <div className="text-slate-500 dark:text-slate-400">Computables</div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{groupCompletion.students_computable}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <div className="text-slate-500 dark:text-slate-400">Sin matrícula activa</div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{groupCompletion.students_missing_enrollment}</div>
+                </div>
+                <div className="rounded-lg border border-slate-200 dark:border-slate-800 p-3">
+                  <div className="text-slate-500 dark:text-slate-400">100%</div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{groupCompletion.complete_100_count}</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -483,6 +540,26 @@ export default function StudentList() {
                           {s.user?.email || '-'}
                         </div>
                       </div>
+
+                      {isTeacher ? (
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+                            <span>Progreso ficha</span>
+                            <span className="font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
+                              {s.completion?.percent === null || s.completion?.percent === undefined ? 'N/D' : `${s.completion.percent}%`}
+                            </span>
+                          </div>
+                          <div className="mt-2 h-2 w-full rounded bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full ${progressBarColor(Number(s.completion?.percent ?? 0))}`}
+                              style={{ width: `${Math.min(100, Math.max(0, Number(s.completion?.percent ?? 0)))}%` }}
+                            />
+                          </div>
+                          {s.completion?.message ? (
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{s.completion.message}</div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -550,6 +627,11 @@ export default function StudentList() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Contacto
                   </th>
+                  {isTeacher ? (
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
+                      Progreso
+                    </th>
+                  ) : null}
                   <th className="px-6 py-4 text-right text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
                     Acciones
                   </th>
@@ -558,13 +640,13 @@ export default function StudentList() {
               <tbody className="bg-white divide-y divide-slate-200 dark:bg-slate-900 dark:divide-slate-800">
                 {loading && data.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
+                    <td colSpan={isTeacher ? 6 : 5} className="px-6 py-12 text-center text-slate-500 dark:text-slate-400">
                       Cargando…
                     </td>
                   </tr>
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center">
+                    <td colSpan={isTeacher ? 6 : 5} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center justify-center space-y-3">
                         <div className="p-4 bg-slate-100 rounded-full dark:bg-slate-800">
                           <GraduationCap className="h-8 w-8 text-slate-400" />
@@ -624,6 +706,24 @@ export default function StudentList() {
                         <div className="text-sm text-slate-900 dark:text-slate-100">{s.phone || '-'}</div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">{s.user?.email || '-'}</div>
                       </td>
+                      {isTeacher ? (
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="h-2 w-28 rounded bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                              <div
+                                className={`h-full ${progressBarColor(Number(s.completion?.percent ?? 0))}`}
+                                style={{ width: `${Math.min(100, Math.max(0, Number(s.completion?.percent ?? 0)))}%` }}
+                              />
+                            </div>
+                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 tabular-nums">
+                              {s.completion?.percent === null || s.completion?.percent === undefined ? 'N/D' : `${s.completion.percent}%`}
+                            </div>
+                          </div>
+                          {s.completion?.message ? (
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{s.completion.message}</div>
+                          ) : null}
+                        </td>
+                      ) : null}
                       <td className="px-6 py-4 text-right">
                         <div
                           className="relative inline-flex items-center justify-end gap-2"

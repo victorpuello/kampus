@@ -377,8 +377,19 @@ export default function TeacherList() {
                     className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900 dark:border-slate-800"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="h-11 w-11 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm shadow-sm border border-blue-200 shrink-0 dark:from-blue-950/40 dark:to-blue-900/30 dark:text-blue-200 dark:border-blue-900/40">
-                        {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
+                      <div className="h-11 w-11 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm shadow-sm border border-blue-200 shrink-0 overflow-hidden dark:from-blue-950/40 dark:to-blue-900/30 dark:text-blue-200 dark:border-blue-900/40">
+                        {(((t.photo_thumb ?? t.photo ?? '').trim()) ? (
+                          <img
+                            src={t.photo_thumb ?? t.photo ?? ''}
+                            alt={`${t.user.last_name ?? ''} ${t.user.first_name ?? ''}`.trim() || t.user.username || 'Foto del docente'}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <>
+                            {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
+                          </>
+                        ))}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-slate-900 uppercase truncate dark:text-slate-100">
@@ -530,8 +541,19 @@ export default function TeacherList() {
                     <tr key={t.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200">
-                            {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
+                          <div className="h-10 w-10 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center mr-3 text-blue-700 font-bold text-sm shadow-sm border border-blue-200 overflow-hidden">
+                            {(((t.photo_thumb ?? t.photo ?? '').trim()) ? (
+                              <img
+                                src={t.photo_thumb ?? t.photo ?? ''}
+                                alt={`${t.user.last_name ?? ''} ${t.user.first_name ?? ''}`.trim() || t.user.username || 'Foto del docente'}
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <>
+                                {(t.user.last_name || '')[0]}{(t.user.first_name || '')[0]}
+                              </>
+                            ))}
                           </div>
                           <div>
                             <div className="font-medium text-slate-900 uppercase dark:text-slate-100">{t.user.last_name} {t.user.first_name}</div>

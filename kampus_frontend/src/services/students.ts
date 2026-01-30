@@ -9,6 +9,29 @@ export interface PaginatedResponse<T> {
   results: T[]
 }
 
+export interface StudentCompletionSection {
+  filled: number
+  total: number
+  missing: string[]
+}
+
+export interface StudentCompletion {
+  percent: number | null
+  filled: number
+  total: number
+  sections: Record<string, StudentCompletionSection>
+  message: string | null
+}
+
+export interface GroupCompletionSummary {
+  avg_percent: number | null
+  traffic_light: 'green' | 'yellow' | 'red' | 'grey'
+  students_total: number
+  students_computable: number
+  students_missing_enrollment: number
+  complete_100_count: number
+}
+
 export interface FamilyMember {
   id: number
   full_name: string
@@ -34,7 +57,7 @@ export interface StudentNovelty {
 export interface StudentDocument {
   id: number
   student: number
-  document_type: 'IDENTITY' | 'VACCINES' | 'EPS' | 'ACADEMIC' | 'PHOTO' | 'OTHER'
+  document_type: 'IDENTITY' | 'GUARDIAN_IDENTITY' | 'VACCINES' | 'EPS' | 'ACADEMIC' | 'PHOTO' | 'OTHER'
   file: string
   description: string
   uploaded_at: string
@@ -45,6 +68,7 @@ export interface Student {
   current_enrollment_status?: string | null
   current_grade_ordinal?: number | null
   current_grade_name?: string | null
+  completion?: StudentCompletion | null
   user: User
   // Identification
   document_type: string

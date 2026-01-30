@@ -35,6 +35,8 @@ import { enrollmentsApi, type Enrollment } from '../services/enrollments'
 import { disciplineApi, type DisciplineCaseListItem } from '../services/discipline'
 import { certificatesApi, type CertificateIssueListItem } from '../services/certificates'
 import { reportsApi, type ReportJob } from '../services/reports'
+import type { StudentCompletion } from '../services/students'
+import { StudentCompletionBar } from '../components/students/StudentCompletionBar'
 
 const getErrorDetail = (err: unknown): string | undefined => {
     if (typeof err !== 'object' || err === null) return undefined
@@ -915,6 +917,16 @@ export default function StudentForm() {
     const [studentPhotoFile, setStudentPhotoFile] = useState<File | null>(null)
     const [studentPhotoPreviewUrl, setStudentPhotoPreviewUrl] = useState<string | null>(null)
 
+    const [completion, setCompletion] = useState<StudentCompletion | null>(null)
+
+    const shouldShowCompletion = useMemo(() => {
+        if (!completion) return false
+        const msg = (completion.message || '').toLowerCase()
+        // UX: hide noisy state when the system can't compute due to missing ACTIVE year.
+        if (msg.includes('no hay año académico activo')) return false
+        return true
+    }, [completion])
+
     useEffect(() => {
         return () => {
             if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
@@ -972,6 +984,7 @@ export default function StudentForm() {
         .then(res => {
           const student = res.data
                   setStudentPhotoUrl(student.photo || null)
+                                    setCompletion(student.completion || null)
           
           // Parse place_of_issue if possible
           let dept = ''
@@ -1105,6 +1118,7 @@ export default function StudentForm() {
     try {
         const res = await studentsApi.get(Number(id))
         setFamilyMembers(res.data.family_members || [])
+        setCompletion(res.data.completion || null)
     } catch (error) {
         console.error(error)
     }
@@ -1155,6 +1169,7 @@ export default function StudentForm() {
       if (isEditing) {
                 const res = await studentsApi.update(Number(id), payload)
                 setStudentPhotoUrl(res.data.photo || studentPhotoUrl)
+            setCompletion(res.data.completion || completion)
                 setStudentPhotoFile(null)
                 if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
                 setStudentPhotoPreviewUrl(null)
@@ -1163,6 +1178,7 @@ export default function StudentForm() {
       } else {
                 const res = await studentsApi.create(payload)
                 setStudentPhotoUrl(res.data.photo || null)
+            setCompletion(res.data.completion || null)
                 setStudentPhotoFile(null)
                 if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
                 setStudentPhotoPreviewUrl(null)
@@ -1186,14 +1202,14 @@ export default function StudentForm() {
         { id: 'residence', label: 'Residencia', icon: Home },
         { id: 'socioeconomic', label: 'Socioeconómico', icon: Activity },
         { id: 'support', label: 'Apoyos', icon: Heart },
-                { id: 'discipline', label: 'Convivencia', icon: FileText },
-                                { id: 'observer_annotations', label: 'Anotaciones', icon: FileText },
-                { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
-                ...(isAdministrativeStaff
-                        ? [{ id: 'certificates', label: 'Certificados', icon: GraduationCap }]
-                        : []),
         { id: 'family', label: 'Familia', icon: Users },
         { id: 'documents', label: 'Documentos', icon: FileText },
+        { id: 'academic_history', label: 'Historial académico', icon: GraduationCap },
+        ...(isAdministrativeStaff
+            ? [{ id: 'certificates', label: 'Certificados', icon: GraduationCap }]
+            : []),
+        { id: 'discipline', label: 'Convivencia', icon: FileText },
+        { id: 'observer_annotations', label: 'Anotaciones', icon: FileText },
     ]
 
     const visibleTabs = isTeacher && !(isEditing && teacherHasDirectedGroup === true)
@@ -1258,13 +1274,13 @@ export default function StudentForm() {
 
   return (
         <div className="max-w-5xl mx-auto space-y-6 px-3 py-4 sm:p-6">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <Button variant="ghost" size="sm" onClick={() => navigate('/students')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
                 <div className="flex flex-col flex-1">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
                             {isEditing ? 'Editar Estudiante' : 'Nuevo Estudiante'}
                         </h2>
                         {isEditing && studentId && (
@@ -1279,15 +1295,21 @@ export default function StudentForm() {
                                         )}
                                 </div>
                         )}
+
+                        {shouldShowCompletion && completion ? (
+                            <div className="mt-3 hidden sm:block">
+                                <StudentCompletionBar completion={completion} />
+                            </div>
+                        ) : null}
                 </div>
                 {isEditing && studentId ? (
-                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                    <div className="-mx-3 flex w-full gap-2 overflow-x-auto px-3 pb-1 sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0 sm:pb-0 sm:flex-row sm:items-center">
                         <Button
                             variant="outline"
                             size="sm"
                             onClick={() => navigate(`/students/${studentId}/observer/print`)}
                             title="Imprimir Observador"
-                            className="w-full sm:w-auto"
+                            className="shrink-0"
                         >
                             <Printer className="h-4 w-4 mr-2" />
                             Imprimir Observador
@@ -1307,7 +1329,7 @@ export default function StudentForm() {
                                         navigate(`/students/${studentId}/certifications/study/print`)
                                     }}
                                     title={!currentEnrollment ? 'Requiere matrícula activa' : 'Vista imprimible'}
-                                    className="w-full sm:w-auto"
+                                    className="shrink-0"
                                 >
                                     <GraduationCap className="h-4 w-4 mr-2" />
                                     Certificación (vista)
@@ -1318,7 +1340,7 @@ export default function StudentForm() {
                                     disabled={issuingStudyCertificatePdf || currentEnrollmentLoading || !currentEnrollment}
                                     onClick={handleIssueStudyCertificatePdf}
                                     title={!currentEnrollment ? 'Requiere matrícula activa' : 'Generar certificado oficial en PDF'}
-                                    className="w-full sm:w-auto"
+                                    className="shrink-0"
                                 >
                                     {issuingStudyCertificatePdf ? 'Generando…' : 'Generar PDF'}
                                 </Button>
@@ -1349,6 +1371,14 @@ export default function StudentForm() {
                     })}
                 </div>
             </div>
+
+            {shouldShowCompletion && completion ? (
+                <div className="sm:hidden sticky top-2 z-20 -mx-3 px-3">
+                    <div className="rounded-2xl bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:bg-slate-950/60 dark:supports-[backdrop-filter]:bg-slate-950/50">
+                        <StudentCompletionBar completion={completion} />
+                    </div>
+                </div>
+            ) : null}
 
       <div className="space-y-6">
         {error && (
