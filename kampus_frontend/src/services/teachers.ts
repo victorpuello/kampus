@@ -165,6 +165,48 @@ export interface TeacherStatisticsAIResponse {
   updated_at?: string | null
 }
 
+export interface TeacherDashboardSummaryResponse {
+  academic_year: { id: number; year: number; status: string }
+  periods: {
+    current: { id: number; name: string } | null
+    next: { id: number; name: string } | null
+  }
+  widgets: {
+    performance: {
+      students_active: number
+      gradebook_completion_percent: number
+      grade_sheets_published_percent: number
+      at_risk_students: number
+    }
+    planning: {
+      assignments_total: number
+      assignments_with_planning: number
+      completion_percent: number
+      period: { id: number; name: string } | null
+    }
+    student_records: {
+      enabled: boolean
+      students_total: number
+      students_computable: number
+      complete_100_count: number
+      avg_percent: number | null
+      traffic_light: TrafficLight
+    }
+    grade_sheets: {
+      current: {
+        period: { id: number; name: string } | null
+        pending: number
+        total_expected: number
+      }
+      next: {
+        period: { id: number; name: string } | null
+        pending: number
+        total_expected: number
+      }
+    }
+  }
+}
+
 export type TrafficLight = 'green' | 'yellow' | 'red' | 'grey'
 
 export interface DirectorComplianceSummary {
@@ -277,6 +319,8 @@ export const teachersApi = {
     director_subject_id?: number
     refresh?: 1
   }) => api.get('/api/teachers/me/statistics/ai/pdf/', { params, responseType: 'blob' }),
+  myDashboardSummary: (params?: { year_id?: number; period_id?: number }) =>
+    api.get<TeacherDashboardSummaryResponse>('/api/teachers/me/dashboard-summary/', { params }),
   create: (data: CreateTeacherData) => {
     const payload: Record<string, unknown> = data as unknown as Record<string, unknown>
     return hasFile(payload)

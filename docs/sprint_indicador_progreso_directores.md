@@ -29,6 +29,7 @@ Cada item cuenta 1 punto.
 - `birth_date`
 - `sex`
 - `blood_type`
+- `photo` (fotografía del estudiante)
 
 2) **Residencia y contacto**
 - `address`
@@ -125,12 +126,22 @@ Entonces:
 - [x] Mostrar barra/porcentaje por estudiante en mobile + desktop.
 
 ### Día 3 – Ajustes y verificación
-- [ ] Afinar umbrales del semáforo (default: verde ≥ 90, amarillo ≥ 70, rojo < 70).
+- [x] Afinar umbrales del semáforo (default: verde ≥ 90, amarillo ≥ 70, rojo < 70).
+- [x] Validación técnica automatizada completa (`backend/manage.py test students` → 52 tests OK).
 - [ ] Validar con datos reales: directores con estudiantes en preescolar/primaria.
-- [ ] Ajustar ruleset si aparecen campos institucionales adicionales.
+- [x] Ajustar ruleset si aparecen campos institucionales adicionales.
 
 ---
 
 ## Notas de implementación
 - Para evitar impacto de performance en listados generales, el cálculo se activa solo para `TEACHER` y cuando el request incluye `include_completion=1`.
 - El resumen del grupo se calcula sobre el queryset filtrado (mismos parámetros de búsqueda/filtros), pero sin paginación.
+- Umbrales del semáforo configurables por entorno:
+  - `KAMPUS_COMPLETION_TRAFFIC_LIGHT_GREEN_MIN` (default: `90`)
+  - `KAMPUS_COMPLETION_TRAFFIC_LIGHT_YELLOW_MIN` (default: `70`)
+- Ruleset extensible por entorno para campos de `Student`:
+  - `KAMPUS_COMPLETION_EXTRA_STUDENT_FIELDS` (csv), se agrega como sección `institucional`.
+- Campos excluidos del cálculo por defecto:
+  - `allergies`, `emergency_contact_name`, `emergency_contact_phone`, `emergency_contact_relationship`.
+- Campo explícitamente requerido en el cálculo:
+  - `photo` (fotografía del estudiante).

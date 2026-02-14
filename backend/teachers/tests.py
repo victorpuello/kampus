@@ -2,6 +2,7 @@ from django.test import TestCase
 from rest_framework.test import APIClient
 from rest_framework import status
 from users.models import User
+from academic.models import AcademicYear, Period
 from .models import Teacher
 
 
@@ -69,3 +70,24 @@ class TeacherTests(TestCase):
         response = self.client.get("/api/teachers/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data), 2)  # teacher and other_teacher
+
+    def test_teacher_dashboard_summary_returns_widget_payload(self):
+        year = AcademicYear.objects.create(year="2026", status=AcademicYear.STATUS_ACTIVE)
+        Period.objects.create(
+            academic_year=year,
+            name="Periodo 1",
+            start_date="2026-01-10",
+            end_date="2026-03-30",
+            is_closed=False,
+        )
+
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer " + self.teacher_token)
+        response = self.client.get("/api/teachers/me/dashboard-summary/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("academic_year", response.data)
+        self.assertIn("periods", response.data)
+        self.assertIn("widgets", response.data)
+        self.assertIn("performance", response.data["widgets"])
+        self.assertIn("planning", response.data["widgets"])
+        self.assertIn("student_records", response.data["widgets"])
+        self.assertIn("grade_sheets", response.data["widgets"])

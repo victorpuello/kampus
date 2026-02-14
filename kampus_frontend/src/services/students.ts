@@ -26,6 +26,10 @@ export interface StudentCompletion {
 export interface GroupCompletionSummary {
   avg_percent: number | null
   traffic_light: 'green' | 'yellow' | 'red' | 'grey'
+  thresholds?: {
+    green_min: number
+    yellow_min: number
+  }
   students_total: number
   students_computable: number
   students_missing_enrollment: number

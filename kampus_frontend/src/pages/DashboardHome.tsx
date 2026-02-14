@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
-import { Users, GraduationCap, BookOpen, Bell } from 'lucide-react'
+import { Users, GraduationCap, BookOpen, Bell, ClipboardCheck, BarChart3, FileSpreadsheet } from 'lucide-react'
 import { studentsApi } from '../services/students'
 import { teachersApi } from '../services/teachers'
+import type { TeacherDashboardSummaryResponse } from '../services/teachers'
 import { academicApi, type Period } from '../services/academic'
 import { notificationsApi, type Notification } from '../services/notifications'
 
@@ -23,11 +24,10 @@ export default function DashboardHome() {
   const [groupsCount, setGroupsCount] = useState<number>(0)
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0)
 
-  const [myAssignmentsCount, setMyAssignmentsCount] = useState<number>(0)
-  const [myStudentsCount, setMyStudentsCount] = useState<number>(0)
-  const [pendingSheetsCount, setPendingSheetsCount] = useState<number>(0)
   const [dashboardPeriodId, setDashboardPeriodId] = useState<number | null>(null)
   const [dashboardPeriodName, setDashboardPeriodName] = useState<string | null>(null)
+  const [nextPeriodName, setNextPeriodName] = useState<string | null>(null)
+  const [teacherSummary, setTeacherSummary] = useState<TeacherDashboardSummaryResponse | null>(null)
   const [gradeDeadlines, setGradeDeadlines] = useState<Array<{ periodId: number; periodName: string; deadline: Date; isClosed: boolean }>>([])
 
   const [recentLoading, setRecentLoading] = useState(true)
@@ -92,88 +92,28 @@ export default function DashboardHome() {
 
     try {
       if (isTeacher) {
-        const [yearsRes, periodsRes, unreadRes, assignmentsRes] = await Promise.allSettled([
-          academicApi.listYears(),
-          academicApi.listPeriods(),
+        const [summaryRes, unreadRes] = await Promise.allSettled([
+          teachersApi.myDashboardSummary(),
           notificationsApi.unreadCount(),
-          academicApi.listMyAssignments(),
         ])
 
         const unread = unreadRes.status === 'fulfilled' ? unreadRes.value.data.unread || 0 : 0
         setUnreadNotificationsCount(unread)
 
-        const assignments = assignmentsRes.status === 'fulfilled' ? assignmentsRes.value.data || [] : []
-        setMyAssignmentsCount(assignments.length)
-
-        // Determine an "active" year id for teacher dashboard. Prefer official ACTIVE year,
-        // fallback to the most frequent year from teacher assignments.
-        const years = yearsRes.status === 'fulfilled' ? yearsRes.value.data || [] : []
-        const activeYear = years.find((y) => y.status === 'ACTIVE')
-
-        let yearId: number | null = activeYear?.id ?? null
-        if (!yearId && assignments.length > 0) {
-          const counts = new Map<number, number>()
-          for (const a of assignments) counts.set(a.academic_year, (counts.get(a.academic_year) ?? 0) + 1)
-          let bestId: number | null = null
-          let bestCount = -1
-          for (const [id, c] of counts.entries()) {
-            if (c > bestCount) {
-              bestCount = c
-              bestId = id
-            }
-          }
-          yearId = bestId
+        if (summaryRes.status !== 'fulfilled') {
+          throw new Error('No se pudo cargar resumen docente')
         }
 
-        const periods = periodsRes.status === 'fulfilled' ? periodsRes.value.data || [] : []
-        const periodsForYear = yearId ? periods.filter((p) => p.academic_year === yearId) : periods
+        const summary = summaryRes.value.data
+        setTeacherSummary(summary)
 
-        const dashboardPeriod = pickDashboardPeriod(periodsForYear)
-        setDashboardPeriodId(dashboardPeriod?.id ?? null)
-        setDashboardPeriodName(dashboardPeriod?.name ?? null)
+        const currentPeriod = summary.periods.current
+        const nextPeriod = summary.periods.next
+        setDashboardPeriodId(currentPeriod?.id ?? null)
+        setDashboardPeriodName(currentPeriod?.name ?? null)
+        setNextPeriodName(nextPeriod?.name ?? null)
 
-        const deadlines = periodsForYear
-          .map((p) => ({
-            periodId: p.id,
-            periodName: p.name,
-            deadline: getGradeDeadlineForPeriod(p),
-            isClosed: p.is_closed,
-          }))
-          .filter((x) => Number.isFinite(x.deadline.getTime()))
-          .sort((a, b) => a.deadline.getTime() - b.deadline.getTime())
-
-        setGradeDeadlines(deadlines)
-
-        if (dashboardPeriod?.id) {
-          try {
-            const sheetsRes = await academicApi.listAvailableGradeSheets(dashboardPeriod.id)
-            const sheets = sheetsRes.data.results || []
-
-            const pending = sheets.filter((s) => !s.completion.is_complete).length
-            setPendingSheetsCount(pending)
-
-            const studentsByGroup = new Map<number, number>()
-            for (const s of sheets) {
-              const prev = studentsByGroup.get(s.group_id) ?? 0
-              studentsByGroup.set(s.group_id, Math.max(prev, s.students_count || 0))
-            }
-            const totalStudents = Array.from(studentsByGroup.values()).reduce((acc, n) => acc + n, 0)
-            setMyStudentsCount(totalStudents)
-          } catch {
-            setPendingSheetsCount(0)
-            setMyStudentsCount(0)
-          }
-        } else {
-          setPendingSheetsCount(0)
-          setMyStudentsCount(0)
-        }
-
-        // If nothing meaningful loaded, show error; otherwise allow partial UI.
-        const nothingLoaded =
-          unreadRes.status !== 'fulfilled' &&
-          assignmentsRes.status !== 'fulfilled' &&
-          periodsRes.status !== 'fulfilled'
-        if (nothingLoaded) setMetricsError('No se pudieron cargar los indicadores.')
+        setGradeDeadlines([])
 
         // Avoid showing admin/global metrics for teachers.
         setStudentsCount(0)
@@ -223,12 +163,11 @@ export default function DashboardHome() {
       setTeachersCount((teachersRes.data || []).length)
       setGroupsCount((groupsRes.data || []).length)
 
-      setMyAssignmentsCount(0)
-      setPendingSheetsCount(0)
-      setMyStudentsCount(0)
       setDashboardPeriodId(null)
       setDashboardPeriodName(null)
+      setNextPeriodName(null)
       setGradeDeadlines([])
+      setTeacherSummary(null)
     } catch {
       setMetricsError('No se pudieron cargar los indicadores.')
     } finally {
@@ -291,42 +230,63 @@ export default function DashboardHome() {
 
   const stats = useMemo(() => {
     if (isTeacher) {
+      const performance = teacherSummary?.widgets.performance
+      const planning = teacherSummary?.widgets.planning
+      const recordSummary = teacherSummary?.widgets.student_records
+      const sheetsSummary = teacherSummary?.widgets.grade_sheets
+
+      const recordsPercent = recordSummary?.avg_percent ?? null
+
       return [
         {
-          title: 'Mis asignaciones',
-          value: metricsLoading ? '—' : String(myAssignmentsCount),
-          description: 'Cargas asignadas (año activo si existe)',
-          icon: GraduationCap,
+          title: 'Rendimiento estudiantil',
+          value: metricsLoading ? '—' : `${performance?.gradebook_completion_percent ?? 0}%`,
+          description:
+            metricsLoading
+              ? 'Cargando...'
+              : `${performance?.students_active ?? 0} estudiantes · ${performance?.at_risk_students ?? 0} en riesgo`,
+          icon: BarChart3,
           color: 'text-emerald-600',
           bg: 'bg-emerald-100',
-          onClick: () => navigate('/my-assignment'),
+          onClick: () => navigate('/teacher-stats'),
         },
         {
-          title: 'Planillas pendientes',
-          value: metricsLoading ? '—' : String(pendingSheetsCount),
-          description: dashboardPeriodName ? `En ${dashboardPeriodName}` : 'En el periodo actual',
-          icon: BookOpen,
+          title: 'Planeación diligenciada',
+          value: metricsLoading ? '—' : `${planning?.completion_percent ?? 0}%`,
+          description:
+            metricsLoading
+              ? 'Cargando...'
+              : `${planning?.assignments_with_planning ?? 0}/${planning?.assignments_total ?? 0} asignaciones en ${planning?.period?.name ?? 'periodo actual'}`,
+          icon: ClipboardCheck,
           color: 'text-blue-600',
           bg: 'bg-blue-100',
-          onClick: () => navigate(dashboardPeriodId ? `/grades?period=${dashboardPeriodId}` : '/grades'),
+          onClick: () => navigate('/planning'),
         },
         {
-          title: 'Mis estudiantes',
-          value: metricsLoading ? '—' : String(myStudentsCount),
-          description: dashboardPeriodName ? `En mis grupos (${dashboardPeriodName})` : 'En mis grupos',
+          title: 'Diligenciamiento fichas (director)',
+          value: metricsLoading ? '—' : recordSummary?.enabled ? `${recordsPercent ?? 0}%` : 'N/A',
+          description:
+            metricsLoading
+              ? 'Cargando...'
+              : recordSummary?.enabled
+                ? `${recordSummary.complete_100_count}/${recordSummary.students_total} al 100%`
+                : 'No eres director de grupo en el año activo',
           icon: Users,
           color: 'text-purple-600',
           bg: 'bg-purple-100',
           onClick: () => navigate('/students'),
         },
         {
-          title: 'Notificaciones',
-          value: metricsLoading ? '—' : String(unreadNotificationsCount),
-          description: 'Pendientes por revisar',
-          icon: Bell,
+          title: 'Planillas pendientes',
+          value: metricsLoading ? '—' : `${sheetsSummary?.current?.pending ?? 0} · ${sheetsSummary?.next?.pending ?? 0}`,
+          description:
+            metricsLoading
+              ? 'Cargando...'
+              : `${sheetsSummary?.current?.period?.name ?? dashboardPeriodName ?? 'Actual'} / ${sheetsSummary?.next?.period?.name ?? nextPeriodName ?? 'Siguiente'}`,
+          icon: FileSpreadsheet,
           color: 'text-amber-600',
           bg: 'bg-amber-100',
-          onClick: () => navigate('/notifications'),
+          onClick: () => navigate(dashboardPeriodId ? `/grades?period=${dashboardPeriodId}` : '/grades'),
         },
       ]
     }
@@ -375,10 +335,9 @@ export default function DashboardHome() {
     dashboardPeriodName,
     isTeacher,
     metricsLoading,
-    myAssignmentsCount,
-    myStudentsCount,
+    nextPeriodName,
     navigate,
-    pendingSheetsCount,
+    teacherSummary,
     studentsCount,
     teachersCount,
     unreadNotificationsCount,
@@ -406,7 +365,7 @@ export default function DashboardHome() {
         {stats.map((stat, index) => (
           <Card
             key={index}
-            className="cursor-pointer hover:border-slate-300 transition-colors"
+            className="cursor-pointer hover:border-slate-300 hover:shadow-sm transition-all"
             onClick={stat.onClick}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6">
@@ -426,6 +385,129 @@ export default function DashboardHome() {
           </Card>
         ))}
       </div>
+
+      {isTeacher && teacherSummary ? (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle>Estado académico del periodo</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6 pt-0 space-y-4">
+              <div>
+                <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
+                  <span>Rendimiento (celdas calificadas)</span>
+                  <span className="font-semibold">{teacherSummary.widgets.performance.gradebook_completion_percent}%</span>
+                </div>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
+                  <div
+                    className="h-full bg-emerald-500"
+                    style={{ width: `${Math.min(100, Math.max(0, teacherSummary.widgets.performance.gradebook_completion_percent))}%` }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
+                  <span>Planeación diligenciada</span>
+                  <span className="font-semibold">{teacherSummary.widgets.planning.completion_percent}%</span>
+                </div>
+                <div className="mt-2 h-2 w-full overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
+                  <div
+                    className="h-full bg-blue-500"
+                    style={{ width: `${Math.min(100, Math.max(0, teacherSummary.widgets.planning.completion_percent))}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  {teacherSummary.widgets.planning.assignments_with_planning}/{teacherSummary.widgets.planning.assignments_total} asignaciones con planeación
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Estudiantes activos</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">{teacherSummary.widgets.performance.students_active}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Estudiantes en riesgo</p>
+                  <p className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">{teacherSummary.widgets.performance.at_risk_students}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle>Planillas por periodo</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6 pt-0 space-y-3">
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {teacherSummary.widgets.grade_sheets.current.period?.name ?? 'Periodo actual'}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {teacherSummary.widgets.grade_sheets.current.pending} pendientes
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {teacherSummary.widgets.grade_sheets.next.period?.name ?? 'Siguiente periodo'}
+                </p>
+                <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                  {teacherSummary.widgets.grade_sheets.next.pending} pendientes
+                </p>
+              </div>
+
+              {teacherSummary.widgets.student_records.enabled ? (
+                <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Fichas estudiantiles completas</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    {teacherSummary.widgets.student_records.complete_100_count}/{teacherSummary.widgets.student_records.students_computable}
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 p-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                  Sin grupos dirigidos para medir fichas completas.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
+
+      {isTeacher && metricsLoading && !teacherSummary ? (
+        <div className="grid gap-4 lg:grid-cols-3 animate-pulse">
+          <Card className="lg:col-span-2">
+            <CardHeader className="p-4 sm:p-6">
+              <div className="h-5 w-48 rounded bg-slate-200 dark:bg-slate-800" />
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6 pt-0 space-y-4">
+              <div className="space-y-2">
+                <div className="h-4 w-full rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-2 w-full rounded bg-slate-200 dark:bg-slate-800" />
+              </div>
+              <div className="space-y-2">
+                <div className="h-4 w-full rounded bg-slate-200 dark:bg-slate-800" />
+                <div className="h-2 w-full rounded bg-slate-200 dark:bg-slate-800" />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="h-16 rounded-lg bg-slate-200 dark:bg-slate-800" />
+                <div className="h-16 rounded-lg bg-slate-200 dark:bg-slate-800" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="p-4 sm:p-6">
+              <div className="h-5 w-36 rounded bg-slate-200 dark:bg-slate-800" />
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6 pt-0 space-y-3">
+              <div className="h-14 rounded-lg bg-slate-200 dark:bg-slate-800" />
+              <div className="h-14 rounded-lg bg-slate-200 dark:bg-slate-800" />
+              <div className="h-14 rounded-lg bg-slate-200 dark:bg-slate-800" />
+            </CardContent>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="md:col-span-2 lg:col-span-4">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { AlertTriangle, BarChart3, ClipboardCheck, FileSpreadsheet, Users } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Pill } from '../components/ui/Pill'
@@ -598,6 +599,86 @@ export default function TeacherStatistics() {
     return { expected, gradeSheets, cells }
   }, [subject])
 
+  const kpiCards = useMemo(() => {
+    if (!stats) return []
+
+    if (tab === 'subject') {
+      const published = subject?.grade_sheets.published ?? 0
+      const expected = subject?.grade_sheets.expected ?? 0
+      const publishedPct = clampPct(published, expected)
+      const filled = subject?.gradebook_cells.filled ?? 0
+      const cellsExpected = subject?.gradebook_cells.expected ?? 0
+      const cellsPct = clampPct(filled, cellsExpected)
+
+      return [
+        {
+          key: 'students',
+          title: 'Estudiantes activos',
+          value: String(subject?.students_active ?? 0),
+          subtitle: 'En tus grupos/asignaturas',
+          icon: Users,
+        },
+        {
+          key: 'planning',
+          title: 'Planillas publicadas',
+          value: `${publishedPct}%`,
+          subtitle: `${published}/${expected} en ${stats.period.name}`,
+          icon: FileSpreadsheet,
+        },
+        {
+          key: 'cells',
+          title: 'Calificaciones diligenciadas',
+          value: `${cellsPct}%`,
+          subtitle: `${filled}/${cellsExpected} celdas`,
+          icon: ClipboardCheck,
+        },
+        {
+          key: 'assignments',
+          title: 'Asignaciones',
+          value: String(subject?.assignments ?? 0),
+          subtitle: `${subject?.groups ?? 0} grupos · ${subject?.subjects ?? 0} asignaturas`,
+          icon: BarChart3,
+        },
+      ]
+    }
+
+    const risk = directorPerformance?.risk_summary
+    const studentsTotal = risk?.students_total ?? 0
+    const atRisk = risk?.at_risk ?? 0
+    const riskPct = clampPct(atRisk, studentsTotal)
+
+    return [
+      {
+        key: 'director_students',
+        title: 'Estudiantes activos',
+        value: String(director?.totals.students_active ?? 0),
+        subtitle: `${director?.totals.groups ?? 0} grupos dirigidos`,
+        icon: Users,
+      },
+      {
+        key: 'risk',
+        title: 'Riesgo académico',
+        value: `${riskPct}%`,
+        subtitle: `${atRisk} de ${studentsTotal} en riesgo`,
+        icon: AlertTriangle,
+      },
+      {
+        key: 'cases',
+        title: 'Casos convivencia',
+        value: String(director?.totals.discipline_cases_total ?? 0),
+        subtitle: `${director?.totals.discipline_cases_open ?? 0} abiertos`,
+        icon: FileSpreadsheet,
+      },
+      {
+        key: 'subjects',
+        title: 'Asignaturas analizadas',
+        value: String((directorPerformance?.subjects_by_average || []).length),
+        subtitle: 'Ranking de desempeño',
+        icon: BarChart3,
+      },
+    ]
+  }, [director, directorPerformance, stats, subject, tab])
+
   useEffect(() => {
     if (!directorSubjectId) return
     const exists = directorSubjects.some((s) => s.subject_id === directorSubjectId)
@@ -605,51 +686,51 @@ export default function TeacherStatistics() {
   }, [directorSubjects, directorSubjectId])
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-4 sm:p-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Estadísticas docentes</h1>
-          <p className="text-slate-600 dark:text-slate-300 mt-1">Resumen de asignatura y dirección de grupo.</p>
-        </div>
+    <div className="max-w-6xl mx-auto px-3 py-4 sm:p-6 space-y-4 sm:space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Estadísticas docentes</h1>
+        <p className="text-slate-600 dark:text-slate-300 mt-1">Indicadores de rendimiento, planeación y seguimiento por periodo.</p>
+      </div>
 
-        <div className="w-full md:w-auto">
+      <Card>
+        <CardContent className="p-4 sm:p-6">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
-            <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-              value={yearId}
-              disabled={loadingMeta}
-              onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
-            >
-              <option value="">Selecciona</option>
-              {years.map((y) => (
-                <option key={y.id} value={y.id}>
-                  {y.year}
-                </option>
-              ))}
-            </select>
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                value={yearId}
+                disabled={loadingMeta}
+                onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">Selecciona</option>
+                {years.map((y) => (
+                  <option key={y.id} value={y.id}>
+                    {y.year}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex flex-col gap-1">
               <span className="text-sm text-slate-500 dark:text-slate-400">Periodo</span>
-            <select
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-              value={periodId}
-              disabled={loadingMeta || !yearId}
-              onChange={(e) => setPeriodId(e.target.value ? Number(e.target.value) : '')}
-            >
-              <option value="">Selecciona</option>
-              {filteredPeriods.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+              <select
+                className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                value={periodId}
+                disabled={loadingMeta || !yearId}
+                onChange={(e) => setPeriodId(e.target.value ? Number(e.target.value) : '')}
+              >
+                <option value="">Selecciona</option>
+                {filteredPeriods.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {stats ? (
         <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -663,8 +744,8 @@ export default function TeacherStatistics() {
         </div>
       ) : null}
 
-      <div className="mb-4 -mx-3 px-3 overflow-x-auto">
-        <div className="flex w-max min-w-full items-center gap-2">
+      <div className="-mx-3 px-3 overflow-x-auto">
+        <div className="grid grid-cols-2 w-full min-w-[280px] gap-2">
           <Button variant={tab === 'subject' ? 'default' : 'outline'} onClick={() => setTab('subject')}>
             Docente de asignatura
           </Button>
@@ -674,12 +755,52 @@ export default function TeacherStatistics() {
         </div>
       </div>
 
+      {!loadingStats && stats ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {kpiCards.map((kpi) => (
+            <Card key={kpi.key} className="hover:border-slate-300 hover:shadow-sm transition-all">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">{kpi.title}</p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">{kpi.value}</p>
+                  </div>
+                  <div className="rounded-lg bg-slate-100 p-2 dark:bg-slate-800">
+                    <kpi.icon className="h-4 w-4 text-slate-600 dark:text-slate-300" />
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{kpi.subtitle}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
+      {loadingStats ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 animate-pulse">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <Card key={`kpi-skeleton-${idx}`}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-2">
+                    <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="h-8 w-16 rounded bg-slate-200 dark:bg-slate-800" />
+                  </div>
+                  <div className="h-8 w-8 rounded-lg bg-slate-200 dark:bg-slate-800" />
+                </div>
+                <div className="h-3 w-full rounded bg-slate-200 dark:bg-slate-800" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : null}
+
       {error ? (
         <div className="text-sm text-red-600 dark:text-red-300 mb-4">{error}</div>
       ) : null}
 
       {loadingStats ? (
-        <div className="text-sm text-slate-500 dark:text-slate-400">Cargando…</div>
+        <div className="text-sm text-slate-500 dark:text-slate-400">Actualizando estadísticas…</div>
       ) : null}
 
       {!loadingStats && stats && tab === 'subject' ? (

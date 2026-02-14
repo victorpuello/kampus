@@ -12,6 +12,7 @@ import { academicApi } from '../services/academic'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { Modal } from '../components/ui/Modal'
 import { NoveltyCaseForm } from '../components/novelties/NoveltyCaseForm'
+import { StudentCompletionChecklist } from '../components/students/StudentCompletionChecklist'
 
 export default function StudentList() {
   const navigate = useNavigate()
@@ -22,6 +23,11 @@ export default function StudentList() {
 
   const [isNewNoveltyModalOpen, setIsNewNoveltyModalOpen] = useState(false)
   const [newNoveltyModalInitial, setNewNoveltyModalInitial] = useState<{ studentId?: number; typeId?: number }>({})
+  const [completionDetailsTarget, setCompletionDetailsTarget] = useState<{
+    studentId: number
+    studentName: string
+    completion: Student['completion']
+  } | null>(null)
 
   const [data, setData] = useState<Student[]>([])
   const [groupCompletion, setGroupCompletion] = useState<GroupCompletionSummary | null>(null)
@@ -69,15 +75,36 @@ export default function StudentList() {
   }
 
   const progressBarColor = (percent: number): string => {
-    if (percent >= 90) return 'bg-emerald-500'
-    if (percent >= 70) return 'bg-amber-500'
+    const greenMin = groupCompletion?.thresholds?.green_min ?? 90
+    const yellowMin = groupCompletion?.thresholds?.yellow_min ?? 70
+    if (percent >= greenMin) return 'bg-emerald-500'
+    if (percent >= yellowMin) return 'bg-amber-500'
     return 'bg-red-500'
+  }
+
+  const shouldShowMissingButton = (student: Student): boolean => {
+    const percent = student.completion?.percent
+    return percent !== 100
+  }
+
+  const hasCompletionMissingItems = (completion: Student['completion']): boolean => {
+    if (!completion?.sections) return false
+    return Object.values(completion.sections).some((section) => (section?.missing?.length ?? 0) > 0)
   }
 
   const openNewNoveltyModal = (opts: { studentId: number; typeId?: number }) => {
     if (!canCreateNovelty) return
     setNewNoveltyModalInitial({ studentId: opts.studentId, typeId: opts.typeId })
     setIsNewNoveltyModalOpen(true)
+  }
+
+  const openCompletionDetails = (student: Student) => {
+    const studentName = `${student.user?.last_name ?? ''} ${student.user?.first_name ?? ''}`.trim() || 'Estudiante'
+    setCompletionDetailsTarget({
+      studentId: student.user?.id ?? student.id,
+      studentName,
+      completion: student.completion,
+    })
   }
 
   const topErrors = useMemo(() => {
@@ -558,6 +585,20 @@ export default function StudentList() {
                           {s.completion?.message ? (
                             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{s.completion.message}</div>
                           ) : null}
+
+                          {shouldShowMissingButton(s) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-2"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openCompletionDetails(s)
+                              }}
+                            >
+                              Ver faltantes
+                            </Button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -722,6 +763,20 @@ export default function StudentList() {
                           {s.completion?.message ? (
                             <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{s.completion.message}</div>
                           ) : null}
+
+                          {shouldShowMissingButton(s) ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="mt-2 h-7 px-2 text-xs"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openCompletionDetails(s)
+                              }}
+                            >
+                              Ver faltantes
+                            </Button>
+                          ) : null}
                         </td>
                       ) : null}
                       <td className="px-6 py-4 text-right">
@@ -845,6 +900,40 @@ export default function StudentList() {
           />
         </Modal>
       ) : null}
+
+      <Modal
+        isOpen={Boolean(completionDetailsTarget)}
+        onClose={() => setCompletionDetailsTarget(null)}
+        title={completionDetailsTarget ? `Faltantes para 100% · ${completionDetailsTarget.studentName}` : 'Faltantes para 100%'}
+        size="lg"
+        footer={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => setCompletionDetailsTarget(null)}
+            >
+              Cerrar
+            </Button>
+            {hasCompletionMissingItems(completionDetailsTarget?.completion) ? (
+              <Button
+                onClick={() => {
+                  if (!completionDetailsTarget) return
+                  const targetId = completionDetailsTarget.studentId
+                  setCompletionDetailsTarget(null)
+                  navigate(`/students/${targetId}`)
+                }}
+              >
+                Ir a ficha
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <StudentCompletionChecklist
+          studentName={completionDetailsTarget?.studentName ?? 'Estudiante'}
+          completion={completionDetailsTarget?.completion}
+        />
+      </Modal>
 
       <Toast
         message={toast.message}

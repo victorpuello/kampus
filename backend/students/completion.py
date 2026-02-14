@@ -15,8 +15,15 @@ NO_ACTIVE_ENROLLMENT_MESSAGE = "Sin matrícula activa en el año actual; no se c
 NO_ACTIVE_YEAR_MESSAGE = "No hay año académico activo; no se calcula el progreso."
 
 
-COMPLETION_CACHE_KEY_PREFIX = "student_completion:v1"
+COMPLETION_CACHE_KEY_PREFIX = "student_completion:v4"
 COMPLETION_CACHE_TTL_SECONDS = int(os.getenv("KAMPUS_COMPLETION_CACHE_TTL_SECONDS", "21600"))
+
+DEFAULT_EXCLUDED_COMPLETION_FIELDS = {
+    "allergies",
+    "emergency_contact_name",
+    "emergency_contact_phone",
+    "emergency_contact_relationship",
+}
 
 
 def _completion_cache_key(student_id: int, academic_year_id: int) -> str:
@@ -47,6 +54,7 @@ SECTION_ITEMS: dict[str, list[CompletionItem]] = {
         CompletionItem("birth_date", "Fecha de nacimiento"),
         CompletionItem("sex", "Sexo"),
         CompletionItem("blood_type", "Tipo de sangre"),
+        CompletionItem("photo", "Fotografía"),
     ],
     "residencia_contacto": [
         CompletionItem("address", "Dirección"),
@@ -74,9 +82,89 @@ SECTION_ITEMS: dict[str, list[CompletionItem]] = {
 }
 
 
+def _parse_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _get_traffic_light_thresholds() -> dict[str, int]:
+    green_min = _parse_int_env("KAMPUS_COMPLETION_TRAFFIC_LIGHT_GREEN_MIN", 90)
+    yellow_min = _parse_int_env("KAMPUS_COMPLETION_TRAFFIC_LIGHT_YELLOW_MIN", 70)
+
+    green_min = max(0, min(100, green_min))
+    yellow_min = max(0, min(100, yellow_min))
+
+    if green_min < yellow_min:
+        green_min = 90
+        yellow_min = 70
+
+    return {
+        "green_min": green_min,
+        "yellow_min": yellow_min,
+    }
+
+
+def _get_extra_student_fields() -> list[CompletionItem]:
+    raw = os.getenv("KAMPUS_COMPLETION_EXTRA_STUDENT_FIELDS", "")
+    if not raw:
+        return []
+
+    configured = [part.strip() for part in raw.split(",") if part.strip()]
+    if not configured:
+        return []
+
+    already_required = {item.key for section in SECTION_ITEMS.values() for item in section}
+    extra_items: list[CompletionItem] = []
+
+    for key in configured:
+        if key in already_required:
+            continue
+        try:
+            field = Student._meta.get_field(key)
+        except Exception:
+            continue
+
+        if getattr(field, "many_to_many", False) or getattr(field, "one_to_many", False):
+            continue
+        if getattr(field, "auto_created", False):
+            continue
+
+        label = str(getattr(field, "verbose_name", key) or key)
+        extra_items.append(CompletionItem(key=key, label=label))
+
+    return extra_items
+
+
+def _get_excluded_completion_fields() -> set[str]:
+    raw = os.getenv("KAMPUS_COMPLETION_EXCLUDED_FIELDS", "")
+    configured = {part.strip() for part in raw.split(",") if part.strip()}
+    if configured:
+        return configured
+    return set(DEFAULT_EXCLUDED_COMPLETION_FIELDS)
+
+
+def _build_section_items() -> dict[str, list[CompletionItem]]:
+    excluded = _get_excluded_completion_fields()
+    sections = {key: list(items) for key, items in SECTION_ITEMS.items()}
+    for key, items in sections.items():
+        sections[key] = [item for item in items if item.key not in excluded]
+
+    extras = _get_extra_student_fields()
+    if extras:
+        sections["institucional"] = [item for item in extras if item.key not in excluded]
+    return sections
+
+
 def _is_nonempty(value: Any) -> bool:
     if value is None:
         return False
+    if hasattr(value, "name"):
+        return bool(str(getattr(value, "name", "") or "").strip())
     if isinstance(value, bool):
         # Avoid counting default booleans as "complete".
         return False
@@ -190,6 +278,8 @@ def _compute_completion_for_students_uncached(
         .distinct()
     )
 
+    completion_sections = _build_section_items()
+
     for student in students:
         sid = int(student.pk)
         enrollment = enrollment_by_student_id.get(sid)
@@ -222,7 +312,7 @@ def _compute_completion_for_students_uncached(
         total = 0
         filled = 0
 
-        for section_key, items in SECTION_ITEMS.items():
+        for section_key, items in completion_sections.items():
             section_total = 0
             section_filled = 0
             missing: list[str] = []
@@ -303,6 +393,10 @@ def aggregate_group_summary_for_student_ids(
 
 
 def _aggregate_group_summary(completion_by_id: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    thresholds = _get_traffic_light_thresholds()
+    green_min = thresholds["green_min"]
+    yellow_min = thresholds["yellow_min"]
+
     percents: list[int] = []
     missing_enrollment = 0
     complete_100 = 0
@@ -324,6 +418,7 @@ def _aggregate_group_summary(completion_by_id: dict[int, dict[str, Any]]) -> dic
         return {
             "avg_percent": None,
             "traffic_light": "grey",
+            "thresholds": thresholds,
             "students_total": len(completion_by_id),
             "students_computable": 0,
             "students_missing_enrollment": missing_enrollment,
@@ -331,9 +426,9 @@ def _aggregate_group_summary(completion_by_id: dict[int, dict[str, Any]]) -> dic
         }
 
     avg = int(round(sum(percents) / len(percents)))
-    if avg >= 90:
+    if avg >= green_min:
         light = "green"
-    elif avg >= 70:
+    elif avg >= yellow_min:
         light = "yellow"
     else:
         light = "red"
@@ -341,6 +436,7 @@ def _aggregate_group_summary(completion_by_id: dict[int, dict[str, Any]]) -> dic
     return {
         "avg_percent": avg,
         "traffic_light": light,
+        "thresholds": thresholds,
         "students_total": len(completion_by_id),
         "students_computable": len(percents),
         "students_missing_enrollment": missing_enrollment,

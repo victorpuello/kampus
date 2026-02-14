@@ -126,9 +126,253 @@ class TeacherViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), IsAdmin()]
         if self.action in ["retrieve", "update", "partial_update"]:
             return [IsAuthenticated(), IsOwnerOrAdmin()]
-        if self.action in ["me_statistics", "me_statistics_ai", "me_statistics_ai_pdf"]:
+        if self.action in ["me_statistics", "me_statistics_ai", "me_statistics_ai_pdf", "me_dashboard_summary"]:
             return [IsAuthenticated()]
         return super().get_permissions()
+
+    def _pick_current_period_for_year(self, year: AcademicYear) -> Period | None:
+        periods = list(Period.objects.filter(academic_year=year).order_by("start_date", "id"))
+        if not periods:
+            return None
+
+        today = date.today()
+        for period in periods:
+            if period.start_date and period.end_date and period.start_date <= today <= period.end_date:
+                return period
+
+        for period in periods:
+            if not bool(period.is_closed):
+                return period
+
+        return periods[-1]
+
+    def _pick_next_period_for_year(self, year: AcademicYear, current_period: Period | None) -> Period | None:
+        if current_period is None:
+            return None
+        periods = list(Period.objects.filter(academic_year=year).order_by("start_date", "id"))
+        for period in periods:
+            if int(period.id) == int(current_period.id):
+                continue
+            if period.start_date and current_period.start_date and period.start_date > current_period.start_date:
+                return period
+        return None
+
+    def _compute_grade_sheets_pending(self, assignments_qs, period: Period | None) -> dict:
+        assignments_total = assignments_qs.count()
+        if period is None:
+            return {
+                "period": None,
+                "pending": 0,
+                "total_expected": int(assignments_total),
+            }
+
+        created = GradeSheet.objects.filter(
+            teacher_assignment__in=assignments_qs,
+            period=period,
+        ).count()
+        pending = max(0, int(assignments_total) - int(created))
+        return {
+            "period": {"id": int(period.id), "name": str(period.name)},
+            "pending": int(pending),
+            "total_expected": int(assignments_total),
+        }
+
+    @action(detail=False, methods=["get"], url_path="me/dashboard-summary")
+    def me_dashboard_summary(self, request):
+        user = request.user
+        if getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Solo disponible para docentes."}, status=status.HTTP_403_FORBIDDEN)
+
+        year_id_raw = request.query_params.get("year_id")
+        period_id_raw = request.query_params.get("period_id")
+
+        if year_id_raw not in (None, ""):
+            try:
+                year = AcademicYear.objects.get(pk=int(str(year_id_raw)))
+            except Exception:
+                return Response({"detail": "year_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).first() or AcademicYear.objects.order_by("-year").first()
+
+        if year is None:
+            return Response({"detail": "No hay años lectivos configurados."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if period_id_raw not in (None, ""):
+            try:
+                current_period = Period.objects.get(pk=int(str(period_id_raw)), academic_year=year)
+            except Exception:
+                return Response({"detail": "period_id inválido"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            current_period = self._pick_current_period_for_year(year)
+
+        if current_period is None:
+            return Response({"detail": "El año lectivo no tiene periodos."}, status=status.HTTP_400_BAD_REQUEST)
+
+        next_period = self._pick_next_period_for_year(year, current_period)
+
+        assignments_qs = TeacherAssignment.objects.filter(teacher=user, academic_year=year).select_related(
+            "group",
+            "group__grade",
+            "academic_load",
+            "academic_load__subject",
+        )
+        assignments_total = assignments_qs.count()
+
+        assigned_group_ids = list(assignments_qs.values_list("group_id", flat=True).distinct())
+        students_active = 0
+        if assigned_group_ids:
+            students_active = Enrollment.objects.filter(
+                academic_year=year,
+                status="ACTIVE",
+                group_id__in=assigned_group_ids,
+            ).count()
+
+        grade_sheets_current_qs = GradeSheet.objects.filter(
+            teacher_assignment__in=assignments_qs,
+            period=current_period,
+        )
+        grade_sheets_published = grade_sheets_current_qs.filter(status=GradeSheet.STATUS_PUBLISHED).count()
+        grade_sheets_created = grade_sheets_current_qs.count()
+        grade_sheets_published_percent = int(round((grade_sheets_published / assignments_total) * 100)) if assignments_total > 0 else 0
+
+        assignment_pairs = list(assignments_qs.values_list("group_id", "academic_load_id").distinct())
+        achievements_q = Q()
+        for group_id, academic_load_id in assignment_pairs:
+            if group_id is None or academic_load_id is None:
+                continue
+            achievements_q |= Q(group_id=group_id, academic_load_id=academic_load_id)
+
+        planning_achievements_qs = Achievement.objects.filter(period=current_period)
+        if achievements_q:
+            planning_achievements_qs = planning_achievements_qs.filter(achievements_q)
+        else:
+            planning_achievements_qs = planning_achievements_qs.none()
+
+        pairs_with_planning = set(
+            planning_achievements_qs.values_list("group_id", "academic_load_id").distinct()
+        )
+        assignments_with_planning = 0
+        for pair in assignment_pairs:
+            if pair in pairs_with_planning:
+                assignments_with_planning += 1
+        planning_completion_percent = int(round((assignments_with_planning / assignments_total) * 100)) if assignments_total > 0 else 0
+
+        achievement_group_ids = list(planning_achievements_qs.values_list("group_id", flat=True).distinct())
+        enrollment_counts_by_group: dict[int, int] = {}
+        if achievement_group_ids:
+            for row in (
+                Enrollment.objects.filter(
+                    academic_year=year,
+                    status="ACTIVE",
+                    group_id__in=achievement_group_ids,
+                )
+                .values("group_id")
+                .annotate(c=models.Count("id"))
+            ):
+                gid = int(row["group_id"])
+                enrollment_counts_by_group[gid] = int(row["c"])
+
+        gradebook_cells_expected = 0
+        for gid in planning_achievements_qs.values_list("group_id", flat=True):
+            if gid is None:
+                continue
+            gradebook_cells_expected += enrollment_counts_by_group.get(int(gid), 0)
+
+        gradebook_cells_filled = AchievementGrade.objects.filter(
+            achievement__in=planning_achievements_qs,
+            enrollment__academic_year=year,
+            enrollment__status="ACTIVE",
+            score__isnull=False,
+        ).count()
+        gradebook_completion_percent = int(round((gradebook_cells_filled / gradebook_cells_expected) * 100)) if gradebook_cells_expected > 0 else 0
+
+        active_year_for_director = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).first()
+        directed_groups_qs = Group.objects.filter(director=user)
+        if active_year_for_director is not None:
+            directed_groups_qs = directed_groups_qs.filter(academic_year=active_year_for_director)
+
+        directed_group_ids = list(directed_groups_qs.values_list("id", flat=True))
+        director_student_ids = []
+        if directed_group_ids:
+            director_student_ids = list(
+                Enrollment.objects.filter(
+                    status="ACTIVE",
+                    group_id__in=directed_group_ids,
+                )
+                .values_list("student_id", flat=True)
+                .distinct()
+            )
+
+        student_records_widget = {
+            "enabled": bool(directed_group_ids),
+            "students_total": 0,
+            "students_computable": 0,
+            "complete_100_count": 0,
+            "avg_percent": None,
+            "traffic_light": "grey",
+        }
+
+        at_risk_students = 0
+        original_get = request._request.GET
+        try:
+            new_get = original_get.copy()
+            new_get["year_id"] = str(year.id)
+            new_get["period_id"] = str(current_period.id)
+            request._request.GET = new_get
+            stats_response = self.me_statistics(request)
+
+            if getattr(stats_response, "status_code", None) == 200 and isinstance(stats_response.data, dict):
+                risk = (((stats_response.data.get("director") or {}).get("performance") or {}).get("risk_summary") or {})
+                at_risk_students = int(risk.get("at_risk") or 0)
+        except Exception:
+            at_risk_students = 0
+        finally:
+            request._request.GET = original_get
+
+        if director_student_ids:
+            completion_by_id, _summary = compute_completion_for_students([int(sid) for sid in director_student_ids])
+            scoped = aggregate_group_summary_for_student_ids(completion_by_id, [int(sid) for sid in director_student_ids])
+            student_records_widget = {
+                "enabled": True,
+                "students_total": int(scoped.get("students_total") or 0),
+                "students_computable": int(scoped.get("students_computable") or 0),
+                "complete_100_count": int(scoped.get("complete_100_count") or 0),
+                "avg_percent": scoped.get("avg_percent"),
+                "traffic_light": str(scoped.get("traffic_light") or "grey"),
+            }
+
+        payload = {
+            "academic_year": {
+                "id": int(year.id),
+                "year": int(year.year),
+                "status": str(year.status),
+            },
+            "periods": {
+                "current": {"id": int(current_period.id), "name": str(current_period.name)} if current_period else None,
+                "next": {"id": int(next_period.id), "name": str(next_period.name)} if next_period else None,
+            },
+            "widgets": {
+                "performance": {
+                    "students_active": int(students_active),
+                    "gradebook_completion_percent": int(gradebook_completion_percent),
+                    "grade_sheets_published_percent": int(grade_sheets_published_percent),
+                    "at_risk_students": int(at_risk_students),
+                },
+                "planning": {
+                    "assignments_total": int(assignments_total),
+                    "assignments_with_planning": int(assignments_with_planning),
+                    "completion_percent": int(planning_completion_percent),
+                    "period": {"id": int(current_period.id), "name": str(current_period.name)} if current_period else None,
+                },
+                "student_records": student_records_widget,
+                "grade_sheets": {
+                    "current": self._compute_grade_sheets_pending(assignments_qs, current_period),
+                    "next": self._compute_grade_sheets_pending(assignments_qs, next_period),
+                },
+            },
+        }
+
+        return Response(payload)
 
     def _build_ai_group_context(self, stats_payload: dict) -> dict:
         subject = (stats_payload or {}).get("subject_teacher") or {}

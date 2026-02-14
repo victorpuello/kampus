@@ -9,6 +9,7 @@ from students.serializers import StudentSerializer
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.core.management import call_command
+from django.core.cache import cache
 from academic.models import AcademicYear, Grade, Group
 from academic.models import TeacherAssignment
 from reports.models import ReportJob
@@ -938,6 +939,118 @@ class StudentDirectorVisibilityAPITest(APITestCase):
         self.assertIsNotNone(completion)
         self.assertIn("percent", completion)
         self.assertIsInstance(completion.get("percent"), int)
+
+    def test_director_group_summary_uses_configurable_traffic_light_thresholds(self):
+        self.client.force_authenticate(user=self.director)
+        cache.clear()
+
+        with patch.dict(
+            "os.environ",
+            {
+                "KAMPUS_COMPLETION_TRAFFIC_LIGHT_GREEN_MIN": "88",
+                "KAMPUS_COMPLETION_TRAFFIC_LIGHT_YELLOW_MIN": "55",
+            },
+            clear=False,
+        ):
+            res = self.client.get("/api/students/?page=1&page_size=100&include_completion=1")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        summary = res.data.get("group_completion") or {}
+        self.assertEqual(summary.get("thresholds"), {"green_min": 88, "yellow_min": 55})
+        self.assertIn(summary.get("traffic_light"), {"green", "yellow", "red", "grey"})
+
+    def test_director_completion_requires_student_photo(self):
+        self.client.force_authenticate(user=self.director)
+
+        user = User.objects.create_user(
+            username="student_no_photo_completion",
+            password="pw123456",
+            first_name="Sin",
+            last_name="Foto",
+            role=User.ROLE_STUDENT,
+        )
+        student = Student.objects.create(
+            user=user,
+            document_type="CC",
+            document_number="DOC_NO_PHOTO_COMPLETION",
+            place_of_issue="Bogotá",
+            nationality="Colombiana",
+            birth_date="2015-01-01",
+            sex="M",
+            blood_type="O+",
+            address="Calle 1",
+            neighborhood="Centro",
+            phone="3000000000",
+            living_with="Padre",
+            stratum="2",
+            ethnicity="Ninguna",
+            sisben_score="A1",
+            eps="Nueva EPS",
+        )
+        Enrollment.objects.create(
+            student=student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_directed,
+            status="ACTIVE",
+        )
+
+        cache.clear()
+        res = self.client.get(
+            "/api/students/?page=1&page_size=100&include_completion=1&search=DOC_NO_PHOTO_COMPLETION"
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results") or []
+        self.assertEqual(len(results), 1)
+
+        completion = (results[0] or {}).get("completion") or {}
+        identificacion = (completion.get("sections") or {}).get("identificacion") or {}
+        self.assertIn("photo", identificacion.get("missing") or [])
+
+    def test_director_completion_can_include_extra_institutional_fields(self):
+        self.client.force_authenticate(user=self.director)
+
+        user = User.objects.create_user(
+            username="student_extra_completion",
+            password="pw123456",
+            first_name="Extra",
+            last_name="Completion",
+            role=User.ROLE_STUDENT,
+        )
+        student = Student.objects.create(
+            user=user,
+            document_number="DOC_EXTRA_COMPLETION",
+            financial_status="SOLVENT",
+        )
+        Enrollment.objects.create(
+            student=student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group_directed,
+            status="ACTIVE",
+        )
+
+        cache.clear()
+        with patch.dict(
+            "os.environ",
+            {"KAMPUS_COMPLETION_EXTRA_STUDENT_FIELDS": "financial_status,field_does_not_exist"},
+            clear=False,
+        ):
+            res = self.client.get(
+                "/api/students/?page=1&page_size=100&include_completion=1&search=DOC_EXTRA_COMPLETION"
+            )
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        results = res.data.get("results") or []
+        self.assertEqual(len(results), 1)
+
+        completion = (results[0] or {}).get("completion") or {}
+        sections = completion.get("sections") or {}
+        institutional = sections.get("institucional") or {}
+
+        self.assertEqual(institutional.get("total"), 1)
+        self.assertEqual(institutional.get("filled"), 1)
+        self.assertEqual(institutional.get("missing"), [])
 
 
 class StudentAssignedTeacherVisibilityAPITest(APITestCase):
