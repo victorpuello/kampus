@@ -1,7 +1,8 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from core.models import Campus
+from core.models import Campus, Institution
 import uuid
 
 
@@ -163,6 +164,214 @@ class Group(models.Model):
 
     def __str__(self) -> str:
         return f"{self.grade} - {self.name} ({self.academic_year})"
+
+
+class CommissionRuleConfig(models.Model):
+    OPERATOR_OR = "OR"
+    OPERATOR_AND = "AND"
+    OPERATOR_CHOICES = (
+        (OPERATOR_OR, "OR"),
+        (OPERATOR_AND, "AND"),
+    )
+
+    institution = models.ForeignKey(
+        Institution,
+        related_name="commission_rule_configs",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        related_name="commission_rule_configs",
+        on_delete=models.CASCADE,
+    )
+    subjects_threshold = models.PositiveSmallIntegerField(default=2)
+    areas_threshold = models.PositiveSmallIntegerField(default=2)
+    operator = models.CharField(max_length=3, choices=OPERATOR_CHOICES, default=OPERATOR_OR)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("institution", "academic_year")
+        ordering = ["-academic_year__year", "id"]
+
+    def __str__(self) -> str:
+        institution_name = self.institution.name if self.institution_id else "Global"
+        return f"Regla comisión {institution_name} - {self.academic_year.year}"
+
+
+class Commission(models.Model):
+    TYPE_EVALUATION = "EVALUATION"
+    TYPE_PROMOTION = "PROMOTION"
+    TYPE_CHOICES = (
+        (TYPE_EVALUATION, "Comisión de Evaluación"),
+        (TYPE_PROMOTION, "Comisión de Promoción"),
+    )
+
+    STATUS_DRAFT = "DRAFT"
+    STATUS_IN_PROGRESS = "IN_PROGRESS"
+    STATUS_CLOSED = "CLOSED"
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Borrador"),
+        (STATUS_IN_PROGRESS, "En curso"),
+        (STATUS_CLOSED, "Cerrada"),
+    )
+
+    institution = models.ForeignKey(
+        Institution,
+        related_name="commissions",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    academic_year = models.ForeignKey(
+        AcademicYear,
+        related_name="commissions",
+        on_delete=models.CASCADE,
+    )
+    period = models.ForeignKey(
+        Period,
+        related_name="commissions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    group = models.ForeignKey(
+        Group,
+        related_name="commissions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    commission_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    title = models.CharField(max_length=200, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="commissions_created",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="commissions_closed",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def clean(self):
+        if self.commission_type == self.TYPE_EVALUATION and self.period_id is None:
+            raise ValidationError({"period": "La comisión de evaluación requiere un periodo."})
+
+        if self.commission_type == self.TYPE_PROMOTION and self.period_id is not None:
+            raise ValidationError({"period": "La comisión de promoción no debe tener periodo."})
+
+        if self.period_id and self.period.academic_year_id != self.academic_year_id:
+            raise ValidationError({"period": "El periodo no corresponde al año académico seleccionado."})
+
+        if self.group_id and self.group.academic_year_id != self.academic_year_id:
+            raise ValidationError({"group": "El grupo no corresponde al año académico seleccionado."})
+
+    def __str__(self) -> str:
+        return f"{self.get_commission_type_display()} {self.academic_year.year}"
+
+
+class CommissionStudentDecision(models.Model):
+    DECISION_PENDING = "PENDING"
+    DECISION_COMMITMENT = "COMMITMENT"
+    DECISION_FOLLOW_UP = "FOLLOW_UP"
+    DECISION_CLOSED = "CLOSED"
+    DECISION_CHOICES = (
+        (DECISION_PENDING, "Pendiente"),
+        (DECISION_COMMITMENT, "Compromiso"),
+        (DECISION_FOLLOW_UP, "Seguimiento"),
+        (DECISION_CLOSED, "Cerrado"),
+    )
+
+    commission = models.ForeignKey(
+        Commission,
+        related_name="student_decisions",
+        on_delete=models.CASCADE,
+    )
+    enrollment = models.ForeignKey(
+        "students.Enrollment",
+        related_name="commission_decisions",
+        on_delete=models.CASCADE,
+    )
+    failed_subjects_count = models.PositiveSmallIntegerField(default=0)
+    failed_areas_count = models.PositiveSmallIntegerField(default=0)
+    is_flagged = models.BooleanField(default=False)
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
+    notes = models.TextField(blank=True)
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="commission_student_decisions",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("commission", "enrollment")
+        ordering = ["-is_flagged", "enrollment_id"]
+
+    def __str__(self) -> str:
+        return f"Decisión comisión {self.commission_id} - matrícula {self.enrollment_id}"
+
+
+class CommitmentActa(models.Model):
+    STATUS_GENERATED = "GENERATED"
+    STATUS_CHOICES = (
+        (STATUS_GENERATED, "Generada"),
+    )
+
+    decision = models.OneToOneField(
+        CommissionStudentDecision,
+        related_name="commitment_acta",
+        on_delete=models.CASCADE,
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_GENERATED)
+    title = models.CharField(max_length=200)
+    commitments = models.TextField(blank=True)
+    student_name = models.CharField(max_length=200)
+    guardian_name = models.CharField(max_length=200, blank=True)
+    director_name = models.CharField(max_length=200, blank=True)
+    observer_annotation = models.ForeignKey(
+        "students.ObserverAnnotation",
+        related_name="commission_actas",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="commitment_actas_generated",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    generated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-generated_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"Acta compromiso {self.decision_id}"
 
 
 class Area(models.Model):

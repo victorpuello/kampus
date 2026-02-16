@@ -188,6 +188,59 @@ class AIService:
             logger.exception("Error generating group state analysis")
             raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
 
+    def generate_commitments_blocks(self, context: dict) -> dict:
+        """Genera compromisos diferenciados para estudiante, acudiente e institución.
+
+        Retorna JSON con listas en español:
+        {
+          "student_commitments": [..],
+          "guardian_commitments": [..],
+          "institution_commitments": [..]
+        }
+        """
+        self._ensure_available()
+
+        prompt = f"""
+Actúa como orientador escolar y coordinador académico en Colombia.
+
+Con base en el siguiente contexto, genera compromisos claros, medibles y accionables.
+
+REGLAS ESTRICTAS:
+- Responde SOLO con un objeto JSON válido.
+- Usa exactamente estas claves: "student_commitments", "guardian_commitments", "institution_commitments".
+- Cada clave debe contener un arreglo de 4 frases cortas en español.
+- No repitas frases entre secciones.
+- No incluyas texto adicional fuera del JSON.
+
+Contexto (JSON):
+{json.dumps(context, ensure_ascii=False)}
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+
+            required = {"student_commitments", "guardian_commitments", "institution_commitments"}
+            if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
+                raise AIParseError(
+                    "AI response JSON missing required keys: student_commitments, guardian_commitments, institution_commitments."
+                )
+
+            for key in required:
+                values = payload.get(key)
+                if not isinstance(values, list) or len(values) == 0:
+                    raise AIParseError(f"AI response key '{key}' must be a non-empty list.")
+                payload[key] = [str(item).strip() for item in values if str(item).strip()]
+                if not payload[key]:
+                    raise AIParseError(f"AI response key '{key}' did not include valid items.")
+
+            return payload
+        except Exception as e:
+            logger.exception("Error generating commitments blocks")
+            if isinstance(e, AIServiceError):
+                raise
+            raise AIProviderError(str(e)) from e
+
 
 class AIServiceError(Exception):
     pass

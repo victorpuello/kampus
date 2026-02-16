@@ -8,6 +8,7 @@ import {
   Menu, 
   X,
   Bell,
+  Star,
   GraduationCap,
   Building2,
   FileText,
@@ -22,6 +23,7 @@ import { cn } from '../lib/utils'
 import { academicApi } from '../services/academic'
 import { emitNotificationsUpdated, notificationsApi, onNotificationsUpdated, type Notification } from '../services/notifications'
 import { applyThemeMode, getInitialThemeMode, resolveTheme, toggleThemeMode as toggleThemeModeUtil, type ThemeMode } from '../theme/theme'
+import { Input } from '../components/ui/Input'
 
 type NavigationLinkChild = { name: string; href: string }
 type NavigationGroupChild = { name: string; children: NavigationLinkChild[] }
@@ -34,6 +36,12 @@ type NavigationItem =
       badgeCount?: number
       children?: never
     }
+
+type SidebarLink = {
+  href: string
+  name: string
+  context: string
+}
   | {
       name: string
       icon: ComponentType<{ className?: string }>
@@ -51,9 +59,12 @@ export default function DashboardLayout() {
   const [teacherHasPreschoolAssignments, setTeacherHasPreschoolAssignments] = useState<boolean>(false)
   const [teacherHasNonPreschoolAssignments, setTeacherHasNonPreschoolAssignments] = useState<boolean>(false)
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0)
+  const [sidebarSearch, setSidebarSearch] = useState('')
+  const [favoritePaths, setFavoritePaths] = useState<string[]>([])
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [unreadNotificationItems, setUnreadNotificationItems] = useState<Notification[]>([])
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null)
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
@@ -106,6 +117,7 @@ export default function DashboardLayout() {
 
   const EXPANDED_MENU_STORAGE_KEY = 'kampus.sidebar.expandedMenu'
   const COLLAPSED_SIDEBAR_STORAGE_KEY = 'kampus.sidebar.collapsed'
+  const FAVORITE_SIDEBAR_PATHS_STORAGE_KEY = 'kampus.sidebar.favoritePaths'
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 1024px)')
@@ -143,11 +155,75 @@ export default function DashboardLayout() {
     }
   }, [])
 
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(FAVORITE_SIDEBAR_PATHS_STORAGE_KEY)
+      if (!stored) {
+        setFavoritePaths([])
+        return
+      }
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed)) {
+        setFavoritePaths(parsed.filter((v): v is string => typeof v === 'string'))
+      }
+    } catch {
+      setFavoritePaths([])
+    }
+  }, [])
+
   const toggleSidebarCollapsed = () => {
     setIsSidebarCollapsed((prev) => {
       const next = !prev
       try {
         localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, next ? 'true' : 'false')
+      } catch {
+        // ignore
+      }
+      return next
+    })
+  }
+
+  const focusSidebarSearch = () => {
+    window.setTimeout(() => {
+      sidebarSearchInputRef.current?.focus()
+      sidebarSearchInputRef.current?.select()
+    }, 0)
+  }
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      if ((e.ctrlKey || e.metaKey) && key === 'k') {
+        e.preventDefault()
+
+        if (!isDesktop) {
+          setIsSidebarOpen(true)
+          focusSidebarSearch()
+          return
+        }
+
+        if (isCollapsed) {
+          setIsSidebarCollapsed(false)
+          try {
+            localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, 'false')
+          } catch {
+            // ignore
+          }
+        }
+
+        focusSidebarSearch()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isDesktop, isCollapsed])
+
+  const toggleFavoritePath = (href: string) => {
+    setFavoritePaths((prev) => {
+      const next = prev.includes(href) ? prev.filter((p) => p !== href) : [...prev, href]
+      try {
+        localStorage.setItem(FAVORITE_SIDEBAR_PATHS_STORAGE_KEY, JSON.stringify(next))
       } catch {
         // ignore
       }
@@ -508,6 +584,7 @@ export default function DashboardLayout() {
             ],
           },
           { name: 'Promoción anual', href: '/promotion' },
+          { name: 'Comisiones', href: '/commissions' },
           { name: 'PAP', href: '/pap' },
         ],
       },
@@ -531,6 +608,74 @@ export default function DashboardLayout() {
     teacherHasPreschoolAssignments,
     unreadNotifications,
   ])
+
+  const filteredNavigation: NavigationItem[] = useMemo(() => {
+    const term = sidebarSearch.trim().toLowerCase()
+    if (!term) return navigation
+
+    return navigation.flatMap((item) => {
+      if ('href' in item) {
+        return item.name.toLowerCase().includes(term) ? [item] : []
+      }
+
+      const parentMatches = item.name.toLowerCase().includes(term)
+      if (parentMatches) return [item]
+
+      const filteredChildren: NavigationChild[] = item.children.flatMap((child) => {
+        if ('href' in child) {
+          return child.name.toLowerCase().includes(term) ? [child] : []
+        }
+
+        const groupMatches = child.name.toLowerCase().includes(term)
+        if (groupMatches) return [child]
+
+        const filteredGrandchildren = child.children.filter((grandChild) =>
+          grandChild.name.toLowerCase().includes(term)
+        )
+
+        if (filteredGrandchildren.length === 0) return []
+        return [{ ...child, children: filteredGrandchildren }]
+      })
+
+      if (filteredChildren.length === 0) return []
+      return [{ ...item, children: filteredChildren }]
+    })
+  }, [navigation, sidebarSearch])
+
+  const sidebarLinks = useMemo<SidebarLink[]>(() => {
+    const links: SidebarLink[] = []
+
+    navigation.forEach((item) => {
+      if ('href' in item) {
+        links.push({ href: item.href, name: item.name, context: 'General' })
+        return
+      }
+
+      item.children.forEach((child) => {
+        if ('href' in child) {
+          links.push({ href: child.href, name: child.name, context: item.name })
+          return
+        }
+
+        child.children.forEach((grandChild) => {
+          links.push({
+            href: grandChild.href,
+            name: grandChild.name,
+            context: `${item.name} / ${child.name}`,
+          })
+        })
+      })
+    })
+
+    return links
+  }, [navigation])
+
+  const favoriteLinks = useMemo(
+    () => favoritePaths
+      .map((href) => sidebarLinks.find((link) => link.href === href))
+      .filter((link): link is SidebarLink => Boolean(link)),
+    [favoritePaths, sidebarLinks]
+  )
 
   useEffect(() => {
     // Ensure the active submenu is expanded so the user can see where they are.
@@ -647,8 +792,70 @@ export default function DashboardLayout() {
           </div>
 
           {/* Navigation */}
-          <nav className={cn('flex-1 py-6 space-y-1 overflow-y-auto', isCollapsed ? 'px-2 lg:px-2' : 'px-4 lg:px-4')}>
-            {navigation.map((item) => {
+          <nav className={cn('flex-1 py-6 space-y-3 overflow-y-auto', isCollapsed ? 'px-2 lg:px-2' : 'px-4 lg:px-4')}>
+            {!isCollapsed && (
+              <div className="px-1">
+                <div className="relative">
+                  <Input
+                    ref={sidebarSearchInputRef}
+                    value={sidebarSearch}
+                    onChange={(e) => setSidebarSearch(e.target.value)}
+                    placeholder="Buscar en menú..."
+                    className="h-9 pr-16"
+                    aria-label="Buscar en el menú lateral"
+                  />
+                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+                    Ctrl+K
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!isCollapsed && favoriteLinks.length > 0 && (
+              <div className="space-y-1">
+                <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Favoritos
+                </div>
+                {favoriteLinks.map((link) => {
+                  const active = isPathActive(link.href)
+                  return (
+                    <div key={`fav-${link.href}`} className="group flex items-center gap-1">
+                      <Link
+                        to={link.href}
+                        onClick={() => setIsSidebarOpen(false)}
+                        className={cn(
+                          'flex-1 rounded-lg px-3 py-2 text-sm transition-colors',
+                          active
+                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                        )}
+                        title={`${link.context} · ${link.name}`}
+                        aria-current={active ? 'page' : undefined}
+                      >
+                        <div className="truncate font-medium">{link.name}</div>
+                        <div className="truncate text-[11px] text-slate-500 dark:text-slate-400">{link.context}</div>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          toggleFavoritePath(link.href)
+                        }}
+                        className="rounded-md p-2 text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                        aria-label={`Quitar ${link.name} de favoritos`}
+                        title="Quitar de favoritos"
+                      >
+                        <Star className="h-4 w-4 fill-current" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            <div className="space-y-1">
+            {filteredNavigation.map((item) => {
               if (item.children) {
                 const isExpanded = expandedMenus.includes(item.name)
                 const isActive = item.children.some((child) => isChildActive(child))
@@ -695,21 +902,41 @@ export default function DashboardLayout() {
                         {item.children.map((child) => {
                           if ('href' in child) {
                             const active = isPathActive(child.href)
+                            const isFavorite = favoritePaths.includes(child.href)
                             return (
-                              <Link
-                                key={child.name}
-                                to={child.href}
-                                onClick={() => setIsSidebarOpen(false)}
-                                className={cn(
-                                  "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                                  active
-                                    ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
-                                    : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
-                                )}
-                                aria-current={active ? 'page' : undefined}
-                              >
-                                {child.name}
-                              </Link>
+                              <div key={child.name} className="group flex items-center gap-1">
+                                <Link
+                                  to={child.href}
+                                  onClick={() => setIsSidebarOpen(false)}
+                                  className={cn(
+                                    "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                    active
+                                      ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
+                                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+                                  )}
+                                  aria-current={active ? 'page' : undefined}
+                                >
+                                  {child.name}
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    toggleFavoritePath(child.href)
+                                  }}
+                                  className={cn(
+                                    'rounded-md p-1.5 transition-colors',
+                                    isFavorite
+                                      ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                                      : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800'
+                                  )}
+                                  aria-label={isFavorite ? `Quitar ${child.name} de favoritos` : `Agregar ${child.name} a favoritos`}
+                                  title={isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                                >
+                                  <Star className={cn('h-4 w-4', isFavorite && 'fill-current')} />
+                                </button>
+                              </div>
                             )
                           }
 
@@ -740,21 +967,41 @@ export default function DashboardLayout() {
                                 <div id={groupDomId} className="mt-1 space-y-1">
                                   {child.children.map((grandChild) => {
                                     const active = isPathActive(grandChild.href)
+                                    const isFavorite = favoritePaths.includes(grandChild.href)
                                     return (
-                                      <Link
-                                        key={grandChild.name}
-                                        to={grandChild.href}
-                                        onClick={() => setIsSidebarOpen(false)}
-                                        className={cn(
-                                          "block px-4 py-2 text-sm font-medium rounded-lg transition-colors",
-                                          active
-                                            ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
-                                            : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
-                                        )}
-                                        aria-current={active ? 'page' : undefined}
-                                      >
-                                        {grandChild.name}
-                                      </Link>
+                                      <div key={grandChild.name} className="group flex items-center gap-1">
+                                        <Link
+                                          to={grandChild.href}
+                                          onClick={() => setIsSidebarOpen(false)}
+                                          className={cn(
+                                            "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                            active
+                                              ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
+                                              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+                                          )}
+                                          aria-current={active ? 'page' : undefined}
+                                        >
+                                          {grandChild.name}
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.preventDefault()
+                                            e.stopPropagation()
+                                            toggleFavoritePath(grandChild.href)
+                                          }}
+                                          className={cn(
+                                            'rounded-md p-1.5 transition-colors',
+                                            isFavorite
+                                              ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                                              : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800'
+                                          )}
+                                          aria-label={isFavorite ? `Quitar ${grandChild.name} de favoritos` : `Agregar ${grandChild.name} a favoritos`}
+                                          title={isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                                        >
+                                          <Star className={cn('h-4 w-4', isFavorite && 'fill-current')} />
+                                        </button>
+                                      </div>
                                     )
                                   })}
                                 </div>
@@ -769,32 +1016,55 @@ export default function DashboardLayout() {
               }
 
               const isActive = isPathActive(item.href)
+              const isFavorite = favoritePaths.includes(item.href)
               return (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  onClick={() => setIsSidebarOpen(false)}
-                  className={cn(
-                    "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
-                    isCollapsed && 'justify-center',
-                    isActive 
-                      ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
-                      : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                <div key={item.name} className={cn('group flex items-center gap-1', isCollapsed && 'justify-center')}>
+                  <Link
+                    to={item.href}
+                    onClick={() => setIsSidebarOpen(false)}
+                    className={cn(
+                      "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                      isCollapsed ? 'justify-center w-full' : 'flex-1',
+                      isActive 
+                        ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                    )}
+                    aria-current={isActive ? 'page' : undefined}
+                    aria-label={item.name}
+                    title={item.name}
+                  >
+                    <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
+                    {!isCollapsed && <span className="flex-1">{item.name}</span>}
+                    {!isCollapsed && !!item.badgeCount && item.badgeCount > 0 && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
+                        {item.badgeCount}
+                      </span>
+                    )}
+                  </Link>
+                  {!isCollapsed && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        toggleFavoritePath(item.href)
+                      }}
+                      className={cn(
+                        'rounded-md p-1.5 transition-colors',
+                        isFavorite
+                          ? 'text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                          : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:text-slate-500 dark:hover:text-slate-300 dark:hover:bg-slate-800'
+                      )}
+                      aria-label={isFavorite ? `Quitar ${item.name} de favoritos` : `Agregar ${item.name} a favoritos`}
+                      title={isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+                    >
+                      <Star className={cn('h-4 w-4', isFavorite && 'fill-current')} />
+                    </button>
                   )}
-                  aria-current={isActive ? 'page' : undefined}
-                  aria-label={item.name}
-                  title={item.name}
-                >
-                  <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
-                  {!isCollapsed && <span className="flex-1">{item.name}</span>}
-                  {!isCollapsed && !!item.badgeCount && item.badgeCount > 0 && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
-                      {item.badgeCount}
-                    </span>
-                  )}
-                </Link>
+                </div>
               )
             })}
+            </div>
           </nav>
 
           {/* User Profile & Logout */}

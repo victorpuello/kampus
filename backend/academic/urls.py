@@ -24,6 +24,12 @@ from .views import (
     EditRequestViewSet,
     EditGrantViewSet,
 )
+from .commission_views import (
+    CommissionRuleConfigViewSet,
+    CommissionViewSet,
+    CommissionStudentDecisionViewSet,
+    CommitmentActaViewSet,
+)
 
 router = DefaultRouter()
 router.register(r"academic-years", AcademicYearViewSet, basename="academicyear")
@@ -51,6 +57,10 @@ router.register(r"grade-sheets", GradeSheetViewSet, basename="gradesheet")
 router.register(r"preschool-gradebook", PreschoolGradebookViewSet, basename="preschool-gradebook")
 router.register(r"edit-requests", EditRequestViewSet, basename="editrequest")
 router.register(r"edit-grants", EditGrantViewSet, basename="editgrant")
+router.register(r"commission-rule-configs", CommissionRuleConfigViewSet, basename="commission-rule-config")
+router.register(r"commissions", CommissionViewSet, basename="commission")
+router.register(r"commission-decisions", CommissionStudentDecisionViewSet, basename="commission-decision")
+router.register(r"commission-actas", CommitmentActaViewSet, basename="commission-acta")
 
 urlpatterns = [
     path("", include(router.urls)),

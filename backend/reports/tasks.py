@@ -14,6 +14,7 @@ from django.template.loader import render_to_string
 
 from academic.models import Period
 from academic.reports import build_grade_report_sheet_context
+from academic.reports import build_commitment_acta_context
 from students.academic_period_report import (
     build_academic_period_group_report_context,
     build_academic_period_report_context,
@@ -317,6 +318,30 @@ def _render_report_html(job: ReportJob) -> str:
         case = DisciplineCase.objects.get(id=case_id)
         ctx = build_case_acta_context(case=case, generated_by=job.created_by)
         return render_to_string("discipline/case_acta.html", ctx)
+
+    if job.report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA:
+        from academic.models import CommissionStudentDecision  # noqa: PLC0415
+
+        decision_id = (job.params or {}).get("decision_id")
+        decision = (
+            CommissionStudentDecision.objects.select_related(
+                "commission",
+                "commission__period",
+                "commission__academic_year",
+                "enrollment",
+                "enrollment__student",
+                "enrollment__student__user",
+                "enrollment__grade",
+                "enrollment__group",
+                "enrollment__group__director",
+                "enrollment__campus",
+                "enrollment__campus__institution",
+                "commitment_acta",
+            )
+            .get(id=decision_id)
+        )
+        ctx = build_commitment_acta_context(decision=decision, generated_by=job.created_by)
+        return render_to_string("academic/reports/commission_commitment_acta.html", ctx)
 
     if job.report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
         from academic.models import Group  # noqa: PLC0415
@@ -1003,6 +1028,9 @@ def generate_report_job_pdf(self, job_id: int) -> None:
         elif job.report_type == ReportJob.ReportType.DISCIPLINE_CASE_ACTA:
             params = job.params or {}
             out_filename = f"caso-{params.get('case_id')}-acta.pdf"
+        elif job.report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA:
+            params = job.params or {}
+            out_filename = f"comision-acta-decision-{params.get('decision_id')}.pdf"
         elif job.report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
             params = job.params or {}
             out_filename = f"planilla_asistencia_grupo-{params.get('group_id')}.pdf"

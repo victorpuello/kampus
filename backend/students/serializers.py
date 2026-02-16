@@ -1,7 +1,9 @@
+import json
+import unicodedata
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ObserverAnnotation
-import unicodedata
 
 User = get_user_model()
 
@@ -74,6 +76,43 @@ class ObserverAnnotationSerializer(serializers.ModelSerializer):
 
     def get_deleted_by_name(self, obj) -> str:
         return self._full_name(getattr(obj, "deleted_by", None))
+
+    def _format_commitments_value(self, value: str) -> str:
+        raw = (value or "").strip()
+        if not raw:
+            return raw
+
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return raw
+
+        if not isinstance(parsed, dict):
+            return raw
+
+        sections = [
+            ("Compromisos del estudiante", parsed.get("student_commitments") or []),
+            ("Compromisos del acudiente", parsed.get("guardian_commitments") or []),
+            ("Compromisos de la institución", parsed.get("institution_commitments") or []),
+        ]
+
+        lines: list[str] = []
+        for title, items in sections:
+            if not isinstance(items, list):
+                continue
+            clean_items = [str(item).strip() for item in items if str(item).strip()]
+            if not clean_items:
+                continue
+            lines.append(f"{title}:")
+            lines.extend([f"- {item}" for item in clean_items])
+            lines.append("")
+
+        return "\n".join(lines).strip() or raw
+
+    def to_representation(self, instance):
+        response = super().to_representation(instance)
+        response["commitments"] = self._format_commitments_value(str(response.get("commitments") or ""))
+        return response
 
 
 class StudentNoveltySerializer(serializers.ModelSerializer):

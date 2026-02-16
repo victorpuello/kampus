@@ -20,6 +20,10 @@ from .models import (
     StudentGrade,
     Subject,
     TeacherAssignment,
+    CommissionRuleConfig,
+    Commission,
+    CommissionStudentDecision,
+    CommitmentActa,
 )
 
 
@@ -217,4 +221,64 @@ class DimensionAdmin(admin.ModelAdmin):
     list_display = ("name", "percentage", "academic_year", "is_active")
     list_filter = ("academic_year", "is_active")
     search_fields = ("name",)
+
+
+@admin.register(CommissionRuleConfig)
+class CommissionRuleConfigAdmin(admin.ModelAdmin):
+    list_display = (
+        "academic_year",
+        "institution",
+        "subjects_threshold",
+        "areas_threshold",
+        "operator",
+        "is_active",
+    )
+    list_filter = ("academic_year", "institution", "operator", "is_active")
+
+
+@admin.register(Commission)
+class CommissionAdmin(admin.ModelAdmin):
+    list_display = (
+        "commission_type",
+        "status",
+        "academic_year",
+        "period",
+        "group",
+        "created_by",
+        "created_at",
+    )
+    list_filter = ("commission_type", "status", "academic_year", "period", "group")
+    search_fields = ("title", "notes")
+
+
+@admin.register(CommissionStudentDecision)
+class CommissionStudentDecisionAdmin(admin.ModelAdmin):
+    list_display = (
+        "commission",
+        "enrollment",
+        "failed_subjects_count",
+        "failed_areas_count",
+        "is_flagged",
+        "decision",
+        "decided_by",
+    )
+    list_filter = ("commission", "is_flagged", "decision")
+    search_fields = (
+        "enrollment__student__user__first_name",
+        "enrollment__student__user__last_name",
+        "enrollment__student__document_number",
+    )
+
+
+@admin.register(CommitmentActa)
+class CommitmentActaAdmin(admin.ModelAdmin):
+    list_display = (
+        "decision",
+        "student_name",
+        "guardian_name",
+        "director_name",
+        "generated_by",
+        "generated_at",
+    )
+    search_fields = ("student_name", "guardian_name", "director_name", "title")
 

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { coreApi, type ConfigImportResult, type Institution, type User } from '../services/core'
+import { coreApi, type Institution, type User } from '../services/core'
 import { reportsApi, type ReportJob } from '../services/reports'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
-import { Download, Save, Upload, Building2, Users } from 'lucide-react'
+import { Save, Upload, Building2, Users } from 'lucide-react'
 import { useAuthStore } from '../store/auth'
 
 export default function InstitutionSettings() {
@@ -17,6 +17,7 @@ export default function InstitutionSettings() {
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
   const [institution, setInstitution] = useState<Institution | null>(null)
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const [logoFile, setLogoFile] = useState<File | null>(null)
@@ -40,16 +41,6 @@ export default function InstitutionSettings() {
     type: 'info',
     isVisible: false
   })
-
-  const [exportingConfig, setExportingConfig] = useState(false)
-  const [includeMedia, setIncludeMedia] = useState(false)
-
-  const [importingConfig, setImportingConfig] = useState(false)
-  const [importFile, setImportFile] = useState<File | null>(null)
-  const [dryRunImport, setDryRunImport] = useState(true)
-  const [overwriteImport, setOverwriteImport] = useState(false)
-  const [confirmOverwrite, setConfirmOverwrite] = useState(false)
-  const [lastImportResult, setLastImportResult] = useState<ConfigImportResult | null>(null)
 
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
@@ -95,69 +86,6 @@ export default function InstitutionSettings() {
       return decodeURIComponent(raw)
     } catch {
       return raw
-    }
-  }
-
-  const handleExportConfig = async () => {
-    setExportingConfig(true)
-    try {
-      const res = await coreApi.exportConfig(includeMedia)
-      const blob = res.data as Blob
-      const headers = res.headers as Record<string, string | undefined>
-      const cd = headers?.['content-disposition']
-      const filename =
-        getFilenameFromContentDisposition(cd) ||
-        `kampus_config_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
-
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      window.URL.revokeObjectURL(url)
-
-      showToast('Exportación descargada correctamente', 'success')
-    } catch (err) {
-      console.error(err)
-      showToast('Error al exportar la configuración', 'error')
-    } finally {
-      setExportingConfig(false)
-    }
-  }
-
-  const handleImportConfig = async () => {
-    if (!importFile) {
-      showToast('Selecciona un archivo JSON para importar', 'error')
-      return
-    }
-    if (overwriteImport && !confirmOverwrite) {
-      showToast('Debes confirmar el borrado antes de usar overwrite', 'error')
-      return
-    }
-
-    setImportingConfig(true)
-    try {
-      const res = await coreApi.importConfig(importFile, {
-        dryRun: dryRunImport,
-        overwrite: overwriteImport,
-        confirmOverwrite,
-      })
-      setLastImportResult(res.data)
-      showToast(dryRunImport ? 'Validación completada' : 'Importación completada', 'success')
-    } catch (err: unknown) {
-      console.error(err)
-      const maybe = err as { response?: { data?: unknown } }
-      const data = maybe.response?.data
-      const detail =
-        typeof data === 'object' && data !== null && 'detail' in data
-          ? (data as { detail?: string }).detail
-          : undefined
-
-      showToast(detail || 'Error al importar la configuración', 'error')
-    } finally {
-      setImportingConfig(false)
     }
   }
 
@@ -235,6 +163,10 @@ export default function InstitutionSettings() {
         setClearLogo(false)
         setClearLetterhead(false)
         setClearRectorSignature(false)
+        setLogoFile(null)
+        setLetterheadFile(null)
+        setRectorSignatureFile(null)
+        setIsDirty(false)
       }
     } catch (err) {
       console.error(err)
@@ -269,6 +201,7 @@ export default function InstitutionSettings() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
+    setIsDirty(true)
   }
 
   const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -276,6 +209,7 @@ export default function InstitutionSettings() {
     if (file) {
       setClearLogo(false)
       setLogoFile(file)
+      setIsDirty(true)
       const reader = new FileReader()
       reader.onloadend = () => {
         setLogoPreview(reader.result as string)
@@ -288,6 +222,7 @@ export default function InstitutionSettings() {
     setClearLogo(true)
     setLogoFile(null)
     setLogoPreview(null)
+    setIsDirty(true)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -296,6 +231,7 @@ export default function InstitutionSettings() {
     if (file) {
       setClearLetterhead(false)
       setLetterheadFile(file)
+      setIsDirty(true)
       const reader = new FileReader()
       reader.onloadend = () => {
         setLetterheadPreview(reader.result as string)
@@ -308,6 +244,7 @@ export default function InstitutionSettings() {
     setClearLetterhead(true)
     setLetterheadFile(null)
     setLetterheadPreview(null)
+    setIsDirty(true)
     if (letterheadInputRef.current) letterheadInputRef.current.value = ''
   }
 
@@ -324,6 +261,7 @@ export default function InstitutionSettings() {
 
     setClearRectorSignature(false)
     setRectorSignatureFile(file)
+    setIsDirty(true)
     const reader = new FileReader()
     reader.onloadend = () => {
       setRectorSignaturePreview(reader.result as string)
@@ -335,12 +273,14 @@ export default function InstitutionSettings() {
     setClearRectorSignature(true)
     setRectorSignatureFile(null)
     setRectorSignaturePreview(null)
+    setIsDirty(true)
     if (rectorSignatureInputRef.current) rectorSignatureInputRef.current.value = ''
   }
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, checked } = e.target
     setFormData(prev => ({ ...prev, [name]: checked }))
+    setIsDirty(true)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -390,7 +330,7 @@ export default function InstitutionSettings() {
         showToast('Institución creada correctamente', 'success')
       }
       
-      loadInstitution()
+      await loadInstitution()
     } catch (err) {
       console.error(err)
       showToast('Error al guardar la institución', 'error')
@@ -488,118 +428,171 @@ export default function InstitutionSettings() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="flex items-center gap-4">
-        <Building2 className="h-8 w-8 text-slate-700 dark:text-slate-200" />
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-            Configuración de la Institución
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400">Administra la información básica de tu institución educativa.</p>
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
+        <div className="flex items-start gap-4">
+          <div className="rounded-lg bg-slate-100 p-2.5 dark:bg-slate-900">
+            <Building2 className="h-6 w-6 text-slate-700 dark:text-slate-200" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+              Configuración de la Institución
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Actualiza los datos institucionales, responsables y elementos usados en certificados y reportes.
+            </p>
+          </div>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Respaldo de configuración</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                Exporta la configuración institucional y académica a un archivo JSON.
-              </p>
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeMedia}
-                  onChange={(e) => setIncludeMedia(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
-                />
-                <span className="text-sm text-slate-700 dark:text-slate-200">Incluir archivos (logo) en el JSON</span>
-              </label>
-              <Button type="button" onClick={handleExportConfig} disabled={exportingConfig}>
-                <Download className="mr-2 h-4 w-4" />
-                {exportingConfig ? 'Exportando...' : 'Exportar configuración'}
-              </Button>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-sm text-slate-600 dark:text-slate-300">
-                Importa un archivo JSON previamente exportado.
-              </p>
-              <div className="space-y-2">
-                <Label htmlFor="config-file">Archivo JSON</Label>
-                <Input
-                  id="config-file"
-                  type="file"
-                  accept="application/json,.json"
-                  onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={dryRunImport}
-                    onChange={(e) => setDryRunImport(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
-                  />
-                  <span className="text-sm text-slate-700 dark:text-slate-200">Solo validar (dry-run)</span>
-                </label>
-                <label className="flex items-center space-x-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={overwriteImport}
-                    onChange={(e) => {
-                      const next = e.target.checked
-                      setOverwriteImport(next)
-                      if (!next) setConfirmOverwrite(false)
-                    }}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
-                  />
-                  <span className="text-sm text-slate-700 dark:text-slate-200">Borrar configuración existente (overwrite)</span>
-                </label>
-                {overwriteImport && (
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={confirmOverwrite}
-                      onChange={(e) => setConfirmOverwrite(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
-                    />
-                    <span className="text-sm text-slate-700 dark:text-slate-200">
-                      Confirmo que se borrará la configuración actual
-                    </span>
-                  </label>
-                )}
-              </div>
-
-              <Button type="button" variant="outline" onClick={handleImportConfig} disabled={importingConfig}>
-                <Upload className="mr-2 h-4 w-4" />
-                {importingConfig ? 'Importando...' : 'Importar configuración'}
-              </Button>
-
-              {lastImportResult && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
-                  <p className="font-medium">Resultado</p>
-                  <p className="mt-1">Dry-run: {lastImportResult.dry_run ? 'Sí' : 'No'}</p>
-                  <p>Overwrite: {lastImportResult.overwrite ? 'Sí' : 'No'}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       <form onSubmit={handleSubmit} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Información General</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="name">Nombre de la Institución *</Label>
+              <Input
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleChange}
+                placeholder="Ej: Institución Educativa San José"
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="dane_code">Código DANE</Label>
+              <Input
+                id="dane_code"
+                name="dane_code"
+                value={formData.dane_code}
+                onChange={handleChange}
+                placeholder="Ej: 123456789012"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nit">NIT</Label>
+              <Input
+                id="nit"
+                name="nit"
+                value={formData.nit}
+                onChange={handleChange}
+                placeholder="Ej: 900123456-1"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Contacto</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="address">Dirección</Label>
+              <Input
+                id="address"
+                name="address"
+                value={formData.address}
+                onChange={handleChange}
+                placeholder="Ej: Calle 10 # 20-30, Barrio Centro"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Teléfono</Label>
+              <Input
+                id="phone"
+                name="phone"
+                value={formData.phone}
+                onChange={handleChange}
+                placeholder="Ej: (601) 123 4567"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="email">Correo Electrónico</Label>
+              <Input
+                id="email"
+                name="email"
+                type="email"
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="Ej: contacto@institucion.edu.co"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="website">Sitio Web</Label>
+              <Input
+                id="website"
+                name="website"
+                type="url"
+                value={formData.website}
+                onChange={handleChange}
+                placeholder="Ej: https://www.institucion.edu.co"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Personal Directivo
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="rector">Rector *</Label>
+              <select
+                id="rector"
+                name="rector"
+                value={formData.rector}
+                onChange={handleChange}
+                required
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
+              >
+                <option value="">Seleccione un rector</option>
+                {rectorsList.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.first_name} {user.last_name} ({user.username})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Solo usuarios con rol Administrador o Docente pueden ser rector.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="secretary">Secretario/a (Opcional)</Label>
+              <select
+                id="secretary"
+                name="secretary"
+                value={formData.secretary}
+                onChange={handleChange}
+                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
+              >
+                <option value="">Sin secretario asignado</option>
+                {secretariesList.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.first_name} {user.last_name} ({user.username})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Solo usuarios con rol Secretaría pueden ser asignados.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Logo / Escudo</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-6">
-              <div 
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
+              <div
                 className="h-32 w-32 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -621,7 +614,7 @@ export default function InstitutionSettings() {
               />
               <div className="text-sm text-slate-500 dark:text-slate-400">
                 <p>Haz clic en el recuadro para subir el escudo o logo de la institución.</p>
-                <p className="mt-1">Formatos: PNG, JPG, GIF. Tamaño máximo: 2MB</p>
+                <p className="mt-1">Formatos: PNG, JPG, GIF. Tamaño máximo: 2MB.</p>
                 <div className="mt-3">
                   <Button
                     type="button"
@@ -644,7 +637,7 @@ export default function InstitutionSettings() {
           <CardContent className="space-y-6">
             <div className="space-y-2">
               <Label>Imagen de membrete (opcional)</Label>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
                 <div
                   className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
                   onClick={() => letterheadInputRef.current?.click()}
@@ -821,152 +814,22 @@ export default function InstitutionSettings() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Información General</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="name">Nombre de la Institución *</Label>
-              <Input
-                id="name"
-                name="name"
-                value={formData.name}
-                onChange={handleChange}
-                placeholder="Ej: Institución Educativa San José"
-                required
-              />
+        <div className="sticky bottom-0 z-10 -mx-2 mt-2 border-t border-slate-200 bg-white/95 px-2 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+          <div className="flex items-center justify-between gap-3">
+            <div
+              className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                isDirty
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-900 dark:text-slate-300'
+              }`}
+            >
+              {isDirty ? 'Cambios sin guardar' : 'Sin cambios'}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="dane_code">Código DANE</Label>
-              <Input
-                id="dane_code"
-                name="dane_code"
-                value={formData.dane_code}
-                onChange={handleChange}
-                placeholder="Ej: 123456789012"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nit">NIT</Label>
-              <Input
-                id="nit"
-                name="nit"
-                value={formData.nit}
-                onChange={handleChange}
-                placeholder="Ej: 900123456-1"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Contacto</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="address">Dirección</Label>
-              <Input
-                id="address"
-                name="address"
-                value={formData.address}
-                onChange={handleChange}
-                placeholder="Ej: Calle 10 # 20-30, Barrio Centro"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="phone">Teléfono</Label>
-              <Input
-                id="phone"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="Ej: (601) 123 4567"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="email">Correo Electrónico</Label>
-              <Input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="Ej: contacto@institucion.edu.co"
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="website">Sitio Web</Label>
-              <Input
-                id="website"
-                name="website"
-                type="url"
-                value={formData.website}
-                onChange={handleChange}
-                placeholder="Ej: https://www.institucion.edu.co"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Personal Directivo
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="rector">Rector *</Label>
-              <select
-                id="rector"
-                name="rector"
-                value={formData.rector}
-                onChange={handleChange}
-                required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
-              >
-                <option value="">Seleccione un rector</option>
-                {rectorsList.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.first_name} {user.last_name} ({user.username})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Solo usuarios con rol Administrador o Docente pueden ser rector.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="secretary">Secretario/a (Opcional)</Label>
-              <select
-                id="secretary"
-                name="secretary"
-                value={formData.secretary}
-                onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
-              >
-                <option value="">Sin secretario asignado</option>
-                {secretariesList.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.first_name} {user.last_name} ({user.username})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Solo usuarios con rol Secretaría pueden ser asignados.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button type="submit" disabled={saving}>
-            <Save className="mr-2 h-4 w-4" />
-            {saving ? 'Guardando...' : 'Guardar Cambios'}
-          </Button>
+            <Button type="submit" disabled={saving || !isDirty}>
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? 'Guardando...' : 'Guardar Cambios'}
+            </Button>
+          </div>
         </div>
       </form>
     </div>

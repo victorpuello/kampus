@@ -24,6 +24,7 @@ class ReportJob(models.Model):
 		CERTIFICATE_STUDIES = "CERTIFICATE_STUDIES", "Certificado de estudios"
 		STUDY_CERTIFICATION = "STUDY_CERTIFICATION", "Certificación académica (constancia de estudio)"
 		OBSERVER_REPORT = "OBSERVER_REPORT", "Observador del estudiante"
+		ACADEMIC_COMMISSION_ACTA = "ACADEMIC_COMMISSION_ACTA", "Acta de compromiso académico"
 
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_jobs"

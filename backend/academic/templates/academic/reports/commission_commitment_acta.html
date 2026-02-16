@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acta de compromiso académico</title>
+  <style>
+    @page { size: A4; margin: 1.8cm 1.6cm 1.8cm 1.6cm; }
+    body {
+      font-family: Arial, sans-serif;
+      color: #1f2937;
+      font-size: 12px;
+      line-height: 1.45;
+      margin: 0;
+    }
+    h1, h2, h3, h4, h5, p { margin: 0; }
+    .page { min-height: 100%; }
+    .header {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .header-left,
+    .header-center,
+    .header-right {
+      display: table-cell;
+      vertical-align: top;
+    }
+    .header-left {
+      width: 42px;
+      text-align: center;
+      color: #9ca3af;
+      font-size: 20px;
+      font-weight: 700;
+    }
+    .header-logo {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 999px;
+      display: block;
+      margin: 0 auto;
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+    }
+    .header-center {
+      padding: 0 10px;
+    }
+    .header-right {
+      width: 140px;
+      text-align: right;
+    }
+    .institution-title {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: #111827;
+    }
+    .institution-subtitle {
+      font-size: 10px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+    .institution-meta {
+      font-size: 9px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+    .acta-badge {
+      display: inline-block;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .acta-year {
+      margin-top: 5px;
+      font-size: 9px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .main-title-wrap {
+      text-align: center;
+      margin: 0 0 10px 0;
+    }
+    .main-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #111827;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+    .main-subtitle {
+      margin-top: 4px;
+      font-size: 9px;
+      color: #6b7280;
+      font-style: italic;
+    }
+    .card {
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+    .card-head {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 6px;
+      margin-bottom: 6px;
+    }
+    .card-head-left,
+    .card-head-right {
+      display: table-cell;
+      vertical-align: top;
+    }
+    .card-head-right { text-align: right; }
+    .muted-label {
+      font-size: 9px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+    }
+    .student-name {
+      margin-top: 1px;
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #111827;
+    }
+    .course-name {
+      margin-top: 1px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #374151;
+    }
+    .card-meta {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      font-size: 10px;
+      color: #4b5563;
+    }
+    .card-meta-left,
+    .card-meta-right {
+      display: table-cell;
+      vertical-align: top;
+    }
+    .card-meta-right { text-align: right; }
+
+    .section-title {
+      margin-top: 8px;
+      margin-bottom: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #111827;
+    }
+    .section-title.alert { color: #991b1b; }
+
+    .subject-tags { margin-top: 3px; }
+    .tag {
+      display: inline-block;
+      border: 1px solid #fecaca;
+      background: #fef2f2;
+      color: #b91c1c;
+      border-radius: 999px;
+      padding: 2px 8px;
+      margin: 0 5px 5px 0;
+      font-size: 10px;
+      font-weight: 600;
+    }
+    .subject-empty {
+      font-size: 10px;
+      color: #6b7280;
+      border: 1px dashed #d1d5db;
+      border-radius: 999px;
+      padding: 2px 8px;
+      display: inline-block;
+    }
+
+    .intro { margin: 6px 0 8px 0; text-align: justify; font-size: 11px; }
+    .situation {
+      margin-top: 3px;
+      text-align: justify;
+      font-size: 10px;
+      color: #4b5563;
+    }
+
+    .commitments-grid {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      margin-top: 6px;
+    }
+    .commitment-col {
+      display: table-cell;
+      vertical-align: top;
+      width: 33.333%;
+      padding-right: 8px;
+    }
+    .commitment-col:last-child { padding-right: 0; }
+    .col-head {
+      border-top: 2px solid #1e3a8a;
+      padding-top: 4px;
+      margin-bottom: 4px;
+    }
+    .col-head.gray { border-top-color: #6b7280; }
+    .col-head.light { border-top-color: #d1d5db; }
+    .col-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #111827;
+    }
+    .col-subtitle {
+      font-size: 9px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      margin-top: 1px;
+    }
+    ul.compact {
+      margin: 0;
+      padding-left: 14px;
+      font-size: 10px;
+      color: #374151;
+      list-style-type: disc;
+    }
+    ul.compact li {
+      margin: 2px 0;
+      break-inside: avoid;
+      -webkit-column-break-inside: avoid;
+    }
+    ol.compact {
+      margin: 0;
+      padding-left: 16px;
+      font-size: 10px;
+      color: #374151;
+    }
+    ol.compact li { margin: 2px 0; }
+
+    .closing {
+      margin-top: 8px;
+      text-align: justify;
+      font-size: 10.5px;
+    }
+    .signatures {
+      margin-top: 10px;
+      border-top: 1px solid #f3f4f6;
+      padding-top: 8px;
+    }
+    .signatures-note {
+      text-align: center;
+      font-size: 10px;
+      color: #6b7280;
+      margin-bottom: 8px;
+      font-style: italic;
+    }
+    .avoid-break {
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .signature-row { display: table; width: 100%; table-layout: fixed; }
+    .signature-cell { display: table-cell; width: 50%; padding: 0 8px; text-align: center; vertical-align: bottom; }
+    .line { border-top: 1px solid #9ca3af; margin: 18px 0 4px 0; }
+    .sign-role {
+      font-size: 9px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+    .sign-name { font-size: 10px; font-weight: 700; color: #111827; text-transform: uppercase; }
+    .footer-note {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 8px;
+      color: #d1d5db;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-left">
+        {% if institution.logo %}
+          <img src="{{ institution.logo.url }}" alt="Logo institucional" class="header-logo" />
+        {% else %}
+          🏫
+        {% endif %}
+      </div>
+      <div class="header-center">
+        <h1 class="institution-title">{{ institution.name|default:"Institución Educativa" }}</h1>
+        <p class="institution-subtitle">San Bernardo del Viento - Córdoba</p>
+        <p class="institution-meta">
+          {% if institution.dane_code %}DANE: {{ institution.dane_code }}{% endif %}
+          {% if institution.dane_code and institution.nit %} | {% endif %}
+          {% if institution.nit %}NIT: {{ institution.nit }}{% endif %}
+        </p>
+      </div>
+      <div class="header-right">
+        <div class="acta-badge">Acta N° {{ acta.id|stringformat:"03d" }}</div>
+        <p class="acta-year">Año Lectivo {{ academic_year }}</p>
+      </div>
+    </header>
+
+    <div class="main-title-wrap">
+      <h2 class="main-title">Compromiso Académico y Convivencial</h2>
+      <p class="main-subtitle">
+        "La educación es un proceso compartido. Este documento formaliza la ruta de mejora para garantizar el éxito escolar."
+      </p>
+    </div>
+
+    <section class="card avoid-break">
+      <div class="card-head">
+        <div class="card-head-left">
+          <span class="muted-label">Estudiante</span>
+          <h3 class="student-name">{{ student_name|default:"-" }}</h3>
+        </div>
+        <div class="card-head-right">
+          <span class="muted-label">Curso</span>
+          <h3 class="course-name">{{ grade_name|default:"-" }}</h3>
+        </div>
+      </div>
+
+      <div class="card-meta">
+        <div class="card-meta-left">
+          <strong>Director de Grupo:</strong> {{ director_name|default:"-" }}
+        </div>
+        <div class="card-meta-right">
+          <strong>Fecha de Reunión:</strong> {{ meeting_day }} de {{ meeting_month_name }} de {{ meeting_year }}
+        </div>
+      </div>
+    </section>
+
+    <p class="intro">
+      En la {{ institution.name|default:"Institución Educativa" }}, siendo el día {{ meeting_day }} del mes de {{ meeting_month_name }} de {{ meeting_year }},
+      se lleva a cabo una reunión entre el estudiante, su acudiente y el docente orientador, con el fin de establecer compromisos académicos
+      debido al bajo rendimiento evidenciado durante el {{ period_name|default:"periodo" }}.
+    </p>
+
+    <section class="avoid-break">
+      <h4 class="section-title alert">Asignaturas con Dificultad</h4>
+      <div class="subject-tags">
+        {% if failed_subject_names %}
+          {% for subject_name in failed_subject_names %}
+            <span class="tag">{{ subject_name }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="subject-empty">Sin asignaturas detalladas para esta decisión.</span>
+        {% endif %}
+      </div>
+
+      <p class="situation">
+        <strong>Situación observada:</strong> El estudiante presenta bajo rendimiento en las asignaturas mencionadas anteriormente,
+        evidenciado en su nota final del periodo. Se hace necesario establecer compromisos para mejorar su desempeño académico en el próximo periodo.
+      </p>
+    </section>
+
+    <section class="commitments-grid avoid-break">
+      <div class="commitment-col">
+        <div class="col-head">
+          <p class="col-title">El Estudiante</p>
+          <p class="col-subtitle">Se compromete a:</p>
+        </div>
+        <ul class="compact">
+          {% for item in student_commitments %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="commitment-col">
+        <div class="col-head gray">
+          <p class="col-title">La Familia</p>
+          <p class="col-subtitle">Se compromete a:</p>
+        </div>
+        <ul class="compact">
+          {% for item in guardian_commitments %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="commitment-col">
+        <div class="col-head light">
+          <p class="col-title">La Institución</p>
+          <p class="col-subtitle">Se compromete a:</p>
+        </div>
+        <ul class="compact">
+          {% for item in institution_commitments %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+
+    <p class="closing">
+      Dado en San Bernardo del Viento, a los {{ meeting_day }} días del mes de {{ meeting_month_name }} del año {{ meeting_year }}.
+    </p>
+
+    <div class="signatures avoid-break">
+      <p class="signatures-note">
+        En señal de aceptación y compromiso, firman:
+      </p>
+
+      <div class="signature-row">
+        <div class="signature-cell">
+          <div class="line"></div>
+          <div class="sign-name">{{ student_name|default:" " }}</div>
+          <div class="sign-role">Estudiante</div>
+        </div>
+        <div class="signature-cell">
+          <div class="line"></div>
+          <div class="sign-name">{{ guardian_name|default:" " }}</div>
+          <div class="sign-role">Acudiente</div>
+        </div>
+      </div>
+
+      <div class="signature-row">
+        <div class="signature-cell">
+          <div class="line"></div>
+          <div class="sign-name">{{ director_name|default:" " }}</div>
+          <div class="sign-role">Director de Grupo</div>
+        </div>
+        <div class="signature-cell">
+          <div class="line"></div>
+          <div class="sign-name">{{ rector_name|default:" " }}</div>
+          <div class="sign-role">Rector</div>
+        </div>
+      </div>
+
+      <div class="footer-note">Documento oficial del sistema de gestión académica Kampus</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -45,6 +45,101 @@ export interface CloseWithPromotionResponse {
   snapshots: { created: number; updated: number }
 }
 
+export type CommissionType = 'EVALUATION' | 'PROMOTION'
+export type CommissionStatus = 'DRAFT' | 'IN_PROGRESS' | 'CLOSED'
+
+export interface CommissionRuleConfig {
+  id: number
+  institution: number | null
+  institution_name?: string
+  academic_year: number
+  academic_year_year?: number
+  subjects_threshold: number
+  areas_threshold: number
+  operator: 'OR' | 'AND'
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Commission {
+  id: number
+  institution: number | null
+  academic_year: number
+  period: number | null
+  group: number | null
+  commission_type: CommissionType
+  status: CommissionStatus
+  title: string
+  notes: string
+  created_by: number | null
+  created_by_name?: string
+  closed_by: number | null
+  closed_by_name?: string
+  closed_at: string | null
+  created_at: string
+  updated_at: string
+  period_name?: string
+  group_name?: string
+}
+
+export interface CommissionDecision {
+  id: number
+  commission: number
+  enrollment: number
+  failed_subjects_count: number
+  failed_areas_count: number
+  is_flagged: boolean
+  decision: 'PENDING' | 'COMMITMENT' | 'FOLLOW_UP' | 'CLOSED'
+  notes: string
+  decided_by: number | null
+  decided_at: string | null
+  created_at: string
+  updated_at: string
+  student_id?: number
+  student_name?: string
+  student_document?: string
+  group_name?: string
+  acta_id?: number | null
+}
+
+export interface CommissionDifficultySummary {
+  total_students: number
+  total_flagged: number
+  total_not_flagged: number
+  flagged_rate: number
+  subjects_distribution: Record<string, number>
+  areas_distribution: Record<string, number>
+}
+
+export interface PaginatedCommissionDecisionsResponse {
+  count: number
+  next: string | null
+  previous: string | null
+  results: CommissionDecision[]
+  summary?: {
+    total_students: number
+    total_flagged: number
+    total_not_flagged: number
+    flagged_rate: number
+  }
+}
+
+export interface CommitmentActa {
+  id: number
+  decision: number
+  status: 'GENERATED'
+  title: string
+  commitments: string
+  student_name: string
+  guardian_name: string
+  director_name: string
+  observer_annotation: number | null
+  generated_by: number | null
+  generated_at: string
+  updated_at: string
+}
+
 export interface ApplyPromotionsResponse {
   source_academic_year: { id: number; year: number }
   target_academic_year: { id: number; year: number }
@@ -488,6 +583,56 @@ export const academicApi = {
     }
   ) =>
     api.post<ApplyPromotionsResponse>(`/api/academic-years/${sourceYearId}/apply-promotions/`, data),
+
+  // Commissions
+  listCommissionRuleConfigs: (params?: Record<string, unknown>) =>
+    api.get<CommissionRuleConfig[]>('/api/commission-rule-configs/', { params }),
+  createCommissionRuleConfig: (data: Partial<CommissionRuleConfig>) =>
+    api.post<CommissionRuleConfig>('/api/commission-rule-configs/', data),
+  updateCommissionRuleConfig: (id: number, data: Partial<CommissionRuleConfig>) =>
+    api.put<CommissionRuleConfig>(`/api/commission-rule-configs/${id}/`, data),
+
+  listCommissions: (params?: Record<string, unknown>) =>
+    api.get<Commission[]>('/api/commissions/', { params }),
+  createCommission: (data: Partial<Commission>) =>
+    api.post<Commission>('/api/commissions/', data),
+  updateCommission: (id: number, data: Partial<Commission>) =>
+    api.put<Commission>(`/api/commissions/${id}/`, data),
+  deleteCommission: (id: number) =>
+    api.delete(`/api/commissions/${id}/`),
+  startCommission: (id: number) =>
+    api.post<Commission>(`/api/commissions/${id}/start/`),
+  closeCommission: (id: number) =>
+    api.post<Commission>(`/api/commissions/${id}/close/`),
+  refreshCommissionDifficulties: (id: number) =>
+    api.post<{ created: number; updated: number; deleted: number; summary: CommissionDifficultySummary }>(`/api/commissions/${id}/refresh-difficulties/`),
+  previewCommissionDifficulties: (id: number) =>
+    api.get<{ count: number; summary: CommissionDifficultySummary; results: Array<{ enrollment_id: number; failed_subjects_count: number; failed_areas_count: number; is_flagged: boolean; decision_id: number | null; decision: string | null }> }>(`/api/commissions/${id}/preview-difficulties/`),
+
+  listCommissionDecisions: (params?: Record<string, unknown>) =>
+    api.get<PaginatedCommissionDecisionsResponse>('/api/commission-decisions/', { params }),
+  updateCommissionDecision: (id: number, data: Partial<CommissionDecision>) =>
+    api.put<CommissionDecision>(`/api/commission-decisions/${id}/`, data),
+  generateCommissionActa: (decisionId: number, data?: { title?: string; commitments?: string }) =>
+    api.post<CommitmentActa>(`/api/commission-decisions/${decisionId}/generate-acta/`, data ?? {}),
+  downloadCommissionActaPdf: (decisionId: number) =>
+    api.get<Blob>(`/api/commission-decisions/${decisionId}/acta/`, {
+      params: { format: 'pdf' },
+      responseType: 'blob',
+    }),
+  queueCommissionActaPdf: (decisionId: number) =>
+    api.get(`/api/commission-decisions/${decisionId}/acta/`, {
+      params: { format: 'pdf', async: '1' },
+    }),
+  queueCommissionActasBulk: (
+    commissionId: number,
+    data?: { only_flagged?: boolean; decision_ids?: number[] }
+  ) => api.post<{ count: number; jobs: Array<{ id: number; status: string; report_type: string; preview_url?: string; download_url?: string }> }>(
+    `/api/commissions/${commissionId}/generate-actas-async/`,
+    data ?? {}
+  ),
+  listCommissionActas: (params?: Record<string, unknown>) =>
+    api.get<CommitmentActa[]>('/api/commission-actas/', { params }),
   
   // Periods
   listPeriods: () => api.get<Period[]>('/api/periods/'),

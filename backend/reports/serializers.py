@@ -192,6 +192,27 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA:
+            decision_id = params.get("decision_id")
+            if not decision_id:
+                raise serializers.ValidationError({"params": "decision_id es requerido"})
+
+            from academic.models import CommissionStudentDecision  # noqa: PLC0415
+
+            decision = (
+                CommissionStudentDecision.objects.select_related("commission")
+                .filter(id=decision_id)
+                .first()
+            )
+            if not decision:
+                raise serializers.ValidationError({"params": "Decisión de comisión no encontrada"})
+
+            admin_roles = {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR}
+            if role not in admin_roles:
+                raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
+            return attrs
+
         if report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
             group_id = params.get("group_id")
             if not group_id:

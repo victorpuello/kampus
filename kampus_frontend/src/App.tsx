@@ -36,6 +36,7 @@ import DisciplineCases from './pages/DisciplineCases'
 import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
 import PapPlans from './pages/PapPlans'
 import PromotionWorkflow from './pages/PromotionWorkflow'
+import CommissionsWorkflow from './pages/CommissionsWorkflow'
 import TeacherStatistics from './pages/TeacherStatistics'
 import DirectorCompliance from './pages/DirectorCompliance'
 import SystemSettings from './pages/SystemSettings'
@@ -107,6 +108,7 @@ export default function App() {
             <Route path="/rbac" element={<RbacSettings />} />
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
+            <Route path="/commissions" element={<CommissionsWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
             <Route path="/teachers/director-compliance" element={<DirectorCompliance />} />
             <Route path="/attendance" element={<AttendanceHome />} />

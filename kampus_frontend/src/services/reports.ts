@@ -21,6 +21,9 @@ export type ReportJob = {
 }
 
 export const reportsApi = {
+  listJobs: (params?: Record<string, unknown>) =>
+    api.get<ReportJob[]>('/api/reports/jobs/', { params }),
+
   createJob: (payload: { report_type: string; params?: Record<string, unknown> }) =>
     api.post<ReportJob>('/api/reports/jobs/', payload),
 
