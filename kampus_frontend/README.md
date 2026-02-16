@@ -1,69 +1,74 @@
-# React + TypeScript + Vite
+# Kampus Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend SPA de Kampus construido con React, TypeScript y Vite.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- React 19 + React Router 7
+- TypeScript
+- Vite
+- Tailwind CSS
+- Axios (cliente API)
+- Zustand (estado global)
 
-## Expanding the ESLint configuration
+## Requisitos
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Node.js 20+
+- npm
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Nota: para evitar advertencias de Vite en este proyecto, usa Node.js 20.19+ o 22.12+.
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+## Configuración de entorno
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. Copia variables de entorno:
+
+```bash
+cp ../env.frontend.example .env
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+2. Variables principales:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- `VITE_API_BASE_URL` (por defecto: `http://localhost:8000`)
+- `VITE_APP_NAME`
+- `SITE_URL` (usada en build para SEO: sitemap/robots)
 
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Scripts
+
+```bash
+npm run dev      # servidor de desarrollo
+npm run lint     # lint con eslint
+npm run build    # build producción + generación de archivos SEO
+npm run preview  # servir build local
 ```
+
+## Desarrollo local
+
+Desde la raíz del repositorio:
+
+```bash
+cd kampus_frontend
+npm install
+npm run dev
+```
+
+Frontend: `http://localhost:5173`
+
+## Integración con backend
+
+- El frontend consume la API Django/DRF en `VITE_API_BASE_URL`.
+- Autenticación JWT con refresh automático y logout por evento cuando el refresh falla.
+- Cliente API principal: `src/services/api.ts`.
+
+## Comisiones (disciplina) - estado actual
+
+- La pestaña de Disciplina en Comisiones muestra registros unificados de:
+  - anotaciones del observador (`ObserverAnnotation`)
+  - casos formales de convivencia (`DisciplineCase`)
+- La UI muestra etiqueta de origen por estudiante (`Caso` / `Anotación`).
+- En estado de carga, el número de skeleton rows coincide exactamente con el `page_size` seleccionado en la pestaña.
+
+## Estructura relevante
+
+- `src/pages/CommissionsWorkflow.tsx`: flujo de comisiones y pestaña disciplina.
+- `src/services/academic.ts`: tipos y llamadas API académicas.
+- `src/services/api.ts`: cliente Axios base e interceptores de auth.
