@@ -247,6 +247,10 @@ Documento de diseño/plan: [docs/plan_modulo_novedades_estudiantes.md](docs/plan
 - **Convivencia / Observador**: auditoría, sellado/inmutabilidad, y portal de acudientes (rol PARENT) con enterado autenticado.
 - **Reportes**: nuevo PDF de **boletines/informe académico por periodo**, descargable por **grupo completo** (multipágina) o por **estudiante**.
 - **Novedades (workflow)**: módulo nuevo para tramitar/aprobar/ejecutar/revertir novedades; graduación sin comentario obligatorio y sin bloqueo por soportes.
+- **Comisiones (Disciplina)**: la pestaña de Disciplina ahora unifica fuentes de `ObserverAnnotation` y `DisciplineCase`, con etiqueta de origen por estudiante (Caso/Anotación).
+- **Acta grupal de comisión**: la sección "Estudiantes con Dificultades de Disciplina" también incluye casos formales de convivencia del periodo (además de anotaciones), evitando omisiones en el PDF.
+- **UX de carga (Disciplina)**: el número de skeleton rows en Comisiones/Disciplina ahora coincide exactamente con el `page_size` seleccionado.
+- **Formato PDF (firmas)**: la línea de firma "PADRE DE FAMILIA REP. DE GRADO" quedó ajustada al mismo ancho visual de las otras firmas.
 
 ---
 
