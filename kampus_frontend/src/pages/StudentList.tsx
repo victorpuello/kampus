@@ -303,7 +303,7 @@ export default function StudentList() {
       )}
 
       {/* Header Section */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/30">
@@ -314,7 +314,7 @@ export default function StudentList() {
           <p className="text-slate-500 dark:text-slate-400">Gestiona la información de los estudiantes matriculados.</p>
         </div>
         {!isTeacher && (
-          <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+          <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
             {canImport && (
               <>
                 <input
@@ -351,7 +351,7 @@ export default function StudentList() {
                 />
                 <Button
                   variant="outline"
-                  className="w-full md:w-auto"
+                  className="w-full sm:w-auto"
                   disabled={importing}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -360,7 +360,7 @@ export default function StudentList() {
               </>
             )}
             <Link to="/students/new">
-              <Button className="w-full md:w-auto">
+              <Button className="w-full sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
               </Button>
             </Link>
@@ -403,7 +403,7 @@ export default function StudentList() {
       )}
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -451,10 +451,10 @@ export default function StudentList() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle>Listado de Alumnos</CardTitle>
-            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
-              <div className="relative w-full md:w-64">
+            <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+              <div className="relative w-full lg:w-64">
                 <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
                 <Input
                   placeholder="Buscar estudiante..."
@@ -468,7 +468,7 @@ export default function StudentList() {
               </div>
 
               <select
-                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:min-w-40"
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value)
@@ -494,14 +494,14 @@ export default function StudentList() {
           )}
         </CardHeader>
         <CardContent>
-          {/* Mobile list */}
-          <div className="md:hidden space-y-3">
+          {/* Mobile + iPad list */}
+          <div className="xl:hidden grid grid-cols-1 gap-3 md:grid-cols-2">
             {loading && data.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 md:col-span-2">
                 Cargando…
               </div>
             ) : data.length === 0 ? (
-              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900">
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center dark:border-slate-800 dark:bg-slate-900 md:col-span-2">
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
                   <GraduationCap className="h-6 w-6 text-slate-400" />
                 </div>
@@ -511,7 +511,7 @@ export default function StudentList() {
               data.map((s, index) => (
                 <div
                   key={s.user?.id || s.document_number || index}
-                  className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                  className="group flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
                   role="button"
                   tabIndex={0}
                   onClick={() => navigate(`/students/${s.user?.id}`)}
@@ -520,17 +520,17 @@ export default function StudentList() {
                   }}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="shrink-0 h-12 w-12 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
-                      <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
+                    <div className="h-14 w-14 shrink-0 rounded-2xl bg-linear-to-br from-sky-500 via-blue-500 to-indigo-600 p-0.5 shadow-md ring-1 ring-blue-200/70 dark:ring-blue-900/40 md:h-16 md:w-16">
+                      <div className="h-full w-full rounded-[0.85rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
                         {(((s.photo_thumb ?? s.photo ?? '').trim()) ? (
                           <img
                             src={s.photo_thumb ?? s.photo}
                             alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
-                            className="h-full w-full object-cover"
+                            className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
                             loading="lazy"
                           />
                         ) : (
-                          <span className="text-slate-900/80 dark:text-white font-semibold text-sm">
+                          <span className="text-base font-semibold tracking-wide text-slate-900/80 dark:text-white md:text-lg">
                             {(s.user?.last_name?.[0] || '')}
                             {(s.user?.first_name?.[0] || '')}
                           </span>
@@ -538,11 +538,11 @@ export default function StudentList() {
                       </div>
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-slate-900 uppercase dark:text-slate-100 truncate">
+                      <div className="truncate font-semibold uppercase text-slate-900 dark:text-slate-100 md:text-base">
                         {s.user?.last_name} {s.user?.first_name}
                       </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate">@{s.user?.username}</div>
-                      <div className="mt-2 grid grid-cols-1 gap-1 text-sm">
+                      <div className="truncate text-xs text-slate-500 dark:text-slate-400 md:text-sm">@{s.user?.username}</div>
+                      <div className="mt-2 grid grid-cols-1 gap-1 text-sm md:grid-cols-2 md:gap-2">
                         <div className="text-slate-700 dark:text-slate-200">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Documento: </span>
                           <span className="font-mono">{s.document_number || '-'}</span>
@@ -562,7 +562,7 @@ export default function StudentList() {
                           <span className="text-xs text-slate-500 dark:text-slate-400">Tel: </span>
                           {s.phone || '-'}
                         </div>
-                        <div className="text-slate-700 dark:text-slate-200 truncate">
+                        <div className="truncate text-slate-700 dark:text-slate-200 md:col-span-2">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Email: </span>
                           {s.user?.email || '-'}
                         </div>
@@ -604,7 +604,7 @@ export default function StudentList() {
                     </div>
                   </div>
 
-                  <div className="mt-3">
+                  <div className="mt-auto pt-3">
                     {canCreateNovelty ? (
                       <div className="flex gap-2">
                         <Button
@@ -652,7 +652,7 @@ export default function StudentList() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
+          <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -700,22 +700,22 @@ export default function StudentList() {
                   data.map((s, index) => (
                     <tr 
                       key={s.user?.id || s.document_number || index} 
-                      className="hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer dark:hover:bg-slate-800/60"
+                      className="group hover:bg-blue-50/50 transition-colors duration-150 cursor-pointer dark:hover:bg-slate-800/60"
                       onClick={() => navigate(`/students/${s.user?.id}`)}
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center">
-                          <div className="shrink-0 h-14 w-14 rounded-xl bg-linear-to-br from-blue-500 to-indigo-600 p-0.5 shadow-sm ring-1 ring-slate-900/10 dark:ring-white/10">
-                            <div className="h-full w-full rounded-[0.65rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
+                          <div className="h-14 w-14 shrink-0 rounded-2xl bg-linear-to-br from-sky-500 via-blue-500 to-indigo-600 p-0.5 shadow-md ring-1 ring-blue-200/70 dark:ring-blue-900/40">
+                            <div className="h-full w-full rounded-[0.85rem] bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center">
                               {(((s.photo_thumb ?? s.photo ?? '').trim()) ? (
                                 <img
                                   src={s.photo_thumb ?? s.photo}
                                   alt={`Foto de ${s.user?.first_name ?? ''} ${s.user?.last_name ?? ''}`.trim() || 'Foto del estudiante'}
-                                  className="h-full w-full object-cover"
+                                  className="h-full w-full object-cover object-center transition-transform duration-300 group-hover:scale-105"
                                   loading="lazy"
                                 />
                               ) : (
-                                <span className="text-slate-900/80 dark:text-white font-semibold text-sm">
+                                <span className="text-sm font-semibold tracking-wide text-slate-900/80 dark:text-white">
                                   {(s.user?.last_name?.[0] || '')}{(s.user?.first_name?.[0] || '')}
                                 </span>
                               ))}
@@ -820,11 +820,11 @@ export default function StudentList() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
@@ -850,7 +850,7 @@ export default function StudentList() {
                 Anterior
               </Button>
 
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden lg:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
                     <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">

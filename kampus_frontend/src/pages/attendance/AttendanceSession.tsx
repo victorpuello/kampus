@@ -898,7 +898,7 @@ export default function AttendanceSession() {
                     ) : null}
                   </div>
 
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 w-full sm:w-auto">
+                  <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:flex-wrap">
                     <Button className="w-full sm:w-auto" variant="outline" onClick={load}>Actualizar</Button>
                     <Button className="w-full sm:w-auto" variant="outline" onClick={handleFlushQueue}>
                       Reintentar cola offline

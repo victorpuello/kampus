@@ -459,7 +459,7 @@ export default function PeriodPlanning() {
   });
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="p-3 sm:p-6">
       <ConfirmationModal
         isOpen={deleteConfirmId !== null}
         onClose={() => (!deletingAchievement ? setDeleteConfirmId(null) : null)}
@@ -472,14 +472,14 @@ export default function PeriodPlanning() {
         loading={deletingAchievement}
       />
 
-      <h1 className="text-2xl sm:text-2xl font-bold text-gray-800 dark:text-slate-100 mb-4 sm:mb-6">Planeación de Periodo</h1>
+      <h1 className="mb-4 text-xl font-bold text-gray-800 dark:text-slate-100 sm:mb-6 sm:text-2xl">Planeación de Periodo</h1>
       
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-xl shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 mb-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-3">
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Año Lectivo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+              className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={selectedYear}
               onChange={e => setSelectedYear(e.target.value ? Number(e.target.value) : '')}
             >
@@ -490,7 +490,7 @@ export default function PeriodPlanning() {
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Periodo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+              className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={selectedPeriod}
               onChange={e => setSelectedPeriod(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedYear}
@@ -502,7 +502,7 @@ export default function PeriodPlanning() {
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Grado</label>
             <select 
-              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+              className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={selectedGrade}
               onChange={e => {
                 const next = e.target.value ? Number(e.target.value) : ''
@@ -525,11 +525,11 @@ export default function PeriodPlanning() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 md:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Grupo</label>
             <select 
-              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+              className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={selectedGroup}
               onChange={e => {
                 const next = e.target.value ? Number(e.target.value) : ''
@@ -545,7 +545,7 @@ export default function PeriodPlanning() {
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Asignatura</label>
             <select 
-              className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+              className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               value={selectedSubject}
               onChange={e => setSelectedSubject(e.target.value ? Number(e.target.value) : '')}
               disabled={!selectedGroup}
@@ -571,7 +571,7 @@ export default function PeriodPlanning() {
               type="button"
               onClick={refreshPlanningGrants}
               disabled={loadingPlanningGrant || !selectedPeriod}
-              className="w-full sm:w-auto px-3 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium disabled:opacity-50"
+              className="min-h-11 w-full touch-manipulation rounded-lg border border-slate-200 bg-white px-3 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto"
             >
               {loadingPlanningGrant ? 'Revisando…' : 'Revisar permisos'}
             </button>
@@ -583,14 +583,14 @@ export default function PeriodPlanning() {
                 type="button"
                 onClick={() => navigate(selectedPeriod ? `/edit-requests/planning?period=${Number(selectedPeriod)}` : '/edit-requests/planning')}
                 disabled={!selectedPeriod}
-                className="px-4 py-2 bg-rose-700 text-white rounded-lg hover:bg-rose-800 shadow-sm transition-all disabled:opacity-50"
+                className="min-h-11 w-full touch-manipulation rounded-lg bg-rose-700 px-4 py-2 text-white shadow-sm transition-all hover:bg-rose-800 disabled:opacity-50 sm:w-auto"
               >
                 Ir a Solicitudes de edición
               </button>
               <button
                 type="button"
                 onClick={() => navigate('/edit-requests/planning')}
-                className="px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
+                className="min-h-11 w-full touch-manipulation rounded-lg border border-slate-200 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto"
               >
                 Ver mis solicitudes
               </button>
@@ -604,7 +604,7 @@ export default function PeriodPlanning() {
           {/* Dimension Stats Panel */}
           <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-900/40 rounded-xl p-4 mb-6">
             <h3 className="text-sm font-bold text-blue-800 dark:text-blue-200 mb-3">Estado de la Planeación por Dimensión</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 sm:gap-4">
               {dimensionStats.map(stat => (
                 <div key={stat.id} className={`bg-white dark:bg-slate-900 p-3 rounded-lg border shadow-sm dark:shadow-none flex justify-between items-center ${
                   !stat.isMinMet ? 'border-amber-300' : stat.isMaxReached ? 'border-green-500' : 'border-slate-200'
@@ -623,7 +623,7 @@ export default function PeriodPlanning() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 flex gap-4 text-xs text-slate-500 dark:text-slate-400">
+            <div className="mt-3 flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:gap-4">
               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div> Pendiente (0 logros)</div>
               <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500"></div> Correcto (1-3 logros)</div>
             </div>
@@ -634,27 +634,27 @@ export default function PeriodPlanning() {
             <button 
               onClick={() => setShowForm(true)}
               disabled={user?.role === 'TEACHER' && !planningCanEdit}
-              className="w-full sm:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
+              className="min-h-11 w-full touch-manipulation rounded-lg bg-blue-600 px-4 py-2 text-white shadow-sm transition-all hover:bg-blue-700 sm:w-auto"
             >
               <Plus size={20} /> Agregar Logro
             </button>
           </div>
 
           {showForm && (
-            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl w-full max-w-3xl my-8 max-h-[90vh] overflow-y-auto">
-                <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800">
+            <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/60 p-2 backdrop-blur-sm sm:items-center sm:p-4">
+              <div className="my-0 max-h-dvh w-full max-w-3xl overflow-y-auto rounded-t-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 sm:my-8 sm:max-h-[90vh] sm:rounded-xl">
+                <div className="sticky top-0 z-10 border-b border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-6">
                   <h3 className="text-xl font-bold text-slate-900 dark:text-slate-100">Nuevo Logro</h3>
                   <p className="text-sm text-slate-500 dark:text-slate-400">Define el logro y sus indicadores de desempeño</p>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form onSubmit={handleSubmit} className="space-y-6 p-4 sm:p-6">
+                  <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Dimensión <span className="text-red-500">*</span></label>
                       <select 
                         required
-                        className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+                        className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         value={formData.dimensionId}
                         onChange={e => {
                           setFormData({
@@ -673,7 +673,7 @@ export default function PeriodPlanning() {
                     <div>
                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Importar del Banco (Opcional)</label>
                       <select 
-                        className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+                        className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         value={formData.definitionId}
                         onChange={e => handleDefinitionChange(Number(e.target.value))}
                         disabled={!formData.dimensionId}
@@ -712,7 +712,7 @@ export default function PeriodPlanning() {
                     <textarea 
                       required
                       rows={3}
-                      className="w-full rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:border-blue-500 focus:ring-blue-500"
+                      className="w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                       value={formData.description}
                       onChange={e => setFormData({...formData, description: e.target.value})}
                       onBlur={handleDescriptionBlur}
@@ -736,8 +736,8 @@ export default function PeriodPlanning() {
                     
                     <div className="space-y-3">
                       {formData.indicators.map((ind, idx) => (
-                        <div key={ind.level} className="flex flex-col sm:flex-row gap-2 sm:gap-3 items-start">
-                          <div className={`w-full sm:w-24 shrink-0 text-xs font-bold uppercase py-2.5 px-2 rounded-lg text-center border ${
+                        <div key={ind.level} className="flex flex-col items-start gap-2 sm:flex-row sm:gap-3">
+                          <div className={`w-full shrink-0 rounded-lg border px-2 py-2.5 text-center text-xs font-bold uppercase sm:w-24 ${
                             ind.level === 'LOW' ? 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40' :
                             ind.level === 'BASIC' ? 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/25 dark:text-amber-200 dark:border-amber-900/40' :
                             ind.level === 'HIGH' ? 'bg-blue-50 text-blue-700 border-blue-100 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40' :
@@ -746,7 +746,7 @@ export default function PeriodPlanning() {
                             {ind.level === 'LOW' ? 'Bajo' : ind.level === 'BASIC' ? 'Básico' : ind.level === 'HIGH' ? 'Alto' : 'Superior'}
                           </div>
                           <textarea 
-                            className="flex-1 text-sm border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 rounded-lg focus:border-blue-500 focus:ring-blue-500 min-h-[60px]"
+                            className="min-h-[72px] flex-1 rounded-lg border-slate-300 bg-white text-sm text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                             rows={2}
                             value={ind.description}
                             onChange={e => {
@@ -761,18 +761,18 @@ export default function PeriodPlanning() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="sticky bottom-0 flex flex-col gap-3 border-t border-slate-100 bg-white pt-3 dark:border-slate-800 dark:bg-slate-900 sm:flex-row sm:justify-end sm:pt-2">
                     <button 
                       type="button"
                       onClick={() => setShowForm(false)}
-                      className="w-full sm:w-auto px-4 py-2 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 font-medium"
+                      className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto"
                     >
                       Cancelar
                     </button>
                     <button 
                       type="submit"
                       disabled={user?.role === 'TEACHER' && !planningCanEdit}
-                      className="w-full sm:w-auto px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium shadow-sm"
+                      className="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white shadow-sm hover:bg-blue-700 sm:w-auto"
                     >
                       <Save size={18} /> Guardar Planeación
                     </button>
@@ -784,7 +784,7 @@ export default function PeriodPlanning() {
 
           <div className="space-y-4">
             {achievements.map(ach => (
-              <div key={ach.id} className="bg-white dark:bg-slate-900 p-4 rounded-lg shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 border-l-4 border-blue-500">
+              <div key={ach.id} className="rounded-lg border border-slate-200 border-l-4 border-l-blue-500 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none sm:p-4">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
                   <div>
                     <div className="flex items-center gap-2 mb-1">
@@ -805,7 +805,7 @@ export default function PeriodPlanning() {
                     type="button"
                     onClick={() => handleDeleteAchievement(ach.id)}
                     disabled={user?.role === 'TEACHER' && !planningCanEdit}
-                    className="self-end sm:self-auto text-red-500 hover:text-red-700 disabled:opacity-50"
+                    className="min-h-11 min-w-11 self-end rounded-md p-2 text-red-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 dark:hover:bg-red-950/20 sm:self-auto"
                     title={user?.role === 'TEACHER' && !planningCanEdit ? 'Edición cerrada' : 'Eliminar'}
                   >
                     <Trash size={18} />

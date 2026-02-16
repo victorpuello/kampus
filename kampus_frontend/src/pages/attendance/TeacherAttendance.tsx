@@ -338,7 +338,7 @@ export default function TeacherAttendance() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Periodo</label>
                 <select
@@ -377,7 +377,7 @@ export default function TeacherAttendance() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 sm:gap-3 lg:flex-row lg:flex-wrap lg:items-center">
               <Button className="w-full sm:w-auto" onClick={handleCreate} disabled={submitting}>
                 {submitting ? 'Creando…' : 'Crear clase y tomar asistencia'}
               </Button>
@@ -431,7 +431,7 @@ export default function TeacherAttendance() {
 
               <div className="space-y-3">
                 {/* Mobile cards */}
-                <div className="md:hidden space-y-3">
+                <div className="xl:hidden space-y-3 sm:space-y-4">
                   {sessionsLoading ? (
                     <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                       Cargando clases…
@@ -444,7 +444,7 @@ export default function TeacherAttendance() {
                     sessions.map((s) => (
                       <div
                         key={s.id}
-                        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                        className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -464,7 +464,7 @@ export default function TeacherAttendance() {
                           </div>
                         </div>
 
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300">
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-3">
                           <div>
                             <span className="text-slate-500 dark:text-slate-400">Fecha:</span> {s.class_date}
                           </div>
@@ -473,6 +473,9 @@ export default function TeacherAttendance() {
                           </div>
                           <div>
                             <span className="text-slate-500 dark:text-slate-400">Clase:</span> #{s.sequence}
+                          </div>
+                          <div className="col-span-2 sm:col-span-3 text-slate-500 dark:text-slate-400">
+                            ID sesión: #{s.id}
                           </div>
                         </div>
 
@@ -519,7 +522,7 @@ export default function TeacherAttendance() {
                 </div>
 
                 {/* Desktop table */}
-                <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">

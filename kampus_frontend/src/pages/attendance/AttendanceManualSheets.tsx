@@ -141,7 +141,7 @@ export default function AttendanceManualSheets() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Año académico</label>
                 <select
@@ -158,7 +158,7 @@ export default function AttendanceManualSheets() {
                 </select>
               </div>
 
-              <div className="md:col-span-2">
+              <div className="sm:col-span-2 lg:col-span-2">
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Grupo</label>
                 <select
                   className="w-full rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm"
@@ -188,7 +188,7 @@ export default function AttendanceManualSheets() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 lg:flex-row lg:flex-wrap lg:items-center">
               <Button className="w-full sm:w-auto" onClick={handleDownload} disabled={downloading || !selectedGroupId}>
                 {downloading ? 'Generando…' : 'Descargar PDF'}
               </Button>

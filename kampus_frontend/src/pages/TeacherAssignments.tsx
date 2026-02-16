@@ -273,7 +273,7 @@ export default function TeacherAssignments() {
         <CardContent>
             <p className="text-slate-600 dark:text-slate-300">Esta pantalla es solo para docentes.</p>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver</Button>
+            <Button className="min-h-11" variant="outline" onClick={() => navigate('/')}>Volver</Button>
           </div>
         </CardContent>
       </Card>
@@ -282,16 +282,16 @@ export default function TeacherAssignments() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Asignación Académica</h2>
           <p className="text-sm text-slate-600 dark:text-slate-300">Tus grupos y asignaturas asignadas.</p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <span className="text-sm text-slate-500 dark:text-slate-400">Año</span>
+        <div className="flex flex-col items-stretch gap-2 sm:gap-3 lg:flex-row lg:flex-wrap lg:items-center">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <span className="text-sm text-slate-600 dark:text-slate-300">Año</span>
             <select
-              className="h-9 w-full sm:w-auto rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 px-2 text-sm"
+              className="h-10 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 lg:w-auto"
               value={yearId}
               disabled={loadingYears || years.length === 0}
               onChange={(e) => setYearId(e.target.value ? Number(e.target.value) : '')}
@@ -304,7 +304,7 @@ export default function TeacherAssignments() {
               ))}
             </select>
           </div>
-          <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>Ir al Dashboard</Button>
+          <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>Ir al Dashboard</Button>
         </div>
       </div>
 
@@ -324,34 +324,38 @@ export default function TeacherAssignments() {
           ) : (
             <div>
               {/* Mobile cards */}
-              <div className="md:hidden space-y-3">
+              <div className="xl:hidden space-y-3 sm:space-y-4">
                 {paginated.items.map((r) => (
                   <div
                     key={r.id}
-                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                    className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                   >
                     <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {r.subjectLabel}
                     </div>
-                    <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                       {(r.grade ? `${r.grade} · ` : '') + (r.group || '—')}
                       {r.year ? ` · ${r.year}` : ''}
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
                       <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
-                        <div className="text-slate-500 dark:text-slate-400">Área</div>
+                        <div className="text-slate-600 dark:text-slate-300">Área</div>
                         <div className="mt-0.5 font-semibold">{r.area ?? '—'}</div>
                       </div>
                       <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
-                        <div className="text-slate-500 dark:text-slate-400">Horas/semana</div>
+                        <div className="text-slate-600 dark:text-slate-300">Horas/semana</div>
                         <div className="mt-0.5 font-semibold">{r.hours ?? '—'}</div>
+                      </div>
+                      <div className="col-span-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200 sm:col-span-1">
+                        <div className="text-slate-600 dark:text-slate-300">Asignación</div>
+                        <div className="mt-0.5 font-semibold">#{r.id}</div>
                       </div>
                     </div>
 
                     <div className="mt-4 flex flex-col gap-2">
                       <Button
-                        className="w-full"
+                        className="min-h-11 w-full"
                         variant="outline"
                         onClick={() => handleOpenPlanilla('attendance', r.raw)}
                         disabled={downloading}
@@ -359,7 +363,7 @@ export default function TeacherAssignments() {
                         Imprimible: Asistencia
                       </Button>
                       <Button
-                        className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"
+                        className="min-h-11 w-full bg-cyan-600 text-white hover:bg-cyan-700"
                         onClick={() => handleOpenPlanilla('grades', r.raw)}
                         disabled={downloading}
                       >
@@ -371,9 +375,9 @@ export default function TeacherAssignments() {
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden xl:block overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
+                  <thead className="border-b border-slate-200 bg-linear-to-r from-slate-50 to-slate-100 text-xs uppercase text-slate-600 dark:border-slate-800 dark:from-slate-900 dark:to-slate-800 dark:text-slate-300">
                     <tr>
                       <th className="px-6 py-4 font-semibold">Asignatura</th>
                       <th className="px-6 py-4 font-semibold">Área</th>
@@ -396,6 +400,7 @@ export default function TeacherAssignments() {
                         <td className="px-6 py-4">
                           <div className="flex flex-col sm:flex-row justify-end gap-2">
                             <Button
+                              className="min-h-11"
                               variant="outline"
                               onClick={() => handleOpenPlanilla('attendance', r.raw)}
                               disabled={downloading}
@@ -403,7 +408,7 @@ export default function TeacherAssignments() {
                               Asistencia
                             </Button>
                             <Button
-                              className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                              className="min-h-11 bg-cyan-600 text-white hover:bg-cyan-700"
                               onClick={() => handleOpenPlanilla('grades', r.raw)}
                               disabled={downloading}
                             >
@@ -417,13 +422,13 @@ export default function TeacherAssignments() {
                 </table>
               </div>
 
-              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-4 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="text-sm text-slate-600 dark:text-slate-300">
                   Mostrando {paginated.startIdx + 1}–{paginated.endIdx} de {paginated.total}
                 </div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Button
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     variant="outline"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={paginated.page <= 1}
@@ -434,7 +439,7 @@ export default function TeacherAssignments() {
                     Página {paginated.page} de {paginated.totalPages}
                   </div>
                   <Button
-                    className="w-full sm:w-auto"
+                    className="min-h-11 w-full sm:w-auto"
                     variant="outline"
                     onClick={() => setPage((p) => Math.min(paginated.totalPages, p + 1))}
                     disabled={paginated.page >= paginated.totalPages}
@@ -449,15 +454,15 @@ export default function TeacherAssignments() {
       </Card>
 
       {isPlanillaModalOpen && selectedAssignment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
           <div
             className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
             onClick={() => {
               if (!downloading) setIsPlanillaModalOpen(false)
             }}
           />
-          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-5 sm:p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
+          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-t-2xl bg-white p-5 shadow-xl transition-all animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900 max-h-[90dvh] overflow-y-auto sm:mx-auto sm:max-h-[85vh] sm:rounded-lg sm:p-6">
+            <div className="sticky top-0 z-10 -mx-5 -mt-5 mb-4 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3 dark:border-slate-800 dark:bg-slate-900 sm:-mx-6 sm:-mt-6 sm:px-6">
               <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">
                 {planillaType === 'attendance' ? 'Descargar planilla de asistencia' : 'Descargar planilla de notas'}
               </h3>
@@ -512,7 +517,7 @@ export default function TeacherAssignments() {
                       ))}
                     </select>
                     {periodsForYear.length === 0 && (
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">No hay períodos configurados para este año.</p>
+                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">No hay períodos configurados para este año.</p>
                     )}
                   </div>
 
@@ -525,18 +530,18 @@ export default function TeacherAssignments() {
                       value={gradeNoteColumns}
                       onChange={(e) => setGradeNoteColumns(Math.max(3, Math.min(7, Number(e.target.value || 3))))}
                     />
-                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Mínimo 3 y máximo 7. Esto controla cuántas columnas “Nota 1…Nota N” aparecen antes de “Def.”</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Mínimo 3 y máximo 7. Esto controla cuántas columnas “Nota 1…Nota N” aparecen antes de “Def.”</p>
                   </div>
                 </>
               )}
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsPlanillaModalOpen(false)} disabled={downloading}>
+              <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => setIsPlanillaModalOpen(false)} disabled={downloading}>
                 Cancelar
               </Button>
               <Button
-                className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white"
+                className="min-h-11 w-full sm:w-auto bg-cyan-600 text-white hover:bg-cyan-700"
                 onClick={handleDownloadPlanilla}
                 disabled={downloading || (planillaType === 'grades' && periodsForYear.length > 0 && gradePeriodId === '')}
               >

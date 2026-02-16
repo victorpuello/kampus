@@ -26,7 +26,7 @@ export default function AchievementBank() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(10)
   
   const [formData, setFormData] = useState<Partial<AchievementDefinition>>({
     code: '',
@@ -268,14 +268,14 @@ export default function AchievementBank() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Banco de Logros</h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona los logros académicos institucionales</p>
         </div>
         <button 
           onClick={() => { setShowForm(true); setEditingId(null); setFormData({ code: '', description: '', is_active: true }); }}
-          className="w-full md:w-auto bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 hover:bg-blue-700 shadow-sm transition-all"
+          className="min-h-11 w-full touch-manipulation rounded-lg bg-blue-600 px-4 py-2 text-white shadow-sm transition-all hover:bg-blue-700 md:w-auto"
         >
           <Plus size={20} /> Nuevo Logro
         </button>
@@ -315,8 +315,8 @@ export default function AchievementBank() {
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-all">
-          <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 sm:p-6 rounded-xl w-full max-w-2xl shadow-2xl border border-white/20 dark:border-slate-700/50 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm transition-all sm:items-center">
+          <div className="max-h-dvh w-full max-w-2xl overflow-y-auto rounded-t-xl border border-white/20 bg-white/95 p-4 shadow-2xl backdrop-blur-md dark:border-slate-700/50 dark:bg-slate-900/95 sm:max-h-[90vh] sm:rounded-xl sm:p-6">
             <h2 className="text-xl font-bold mb-4 text-gray-800 dark:text-slate-100">{editingId ? 'Editar Logro' : 'Nuevo Logro'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -334,7 +334,7 @@ export default function AchievementBank() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Estado</label>
                   <select 
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block h-11 w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     value={formData.is_active ? 'true' : 'false'}
                     onChange={e => setFormData({...formData, is_active: e.target.value === 'true'})}
                   >
@@ -361,7 +361,7 @@ export default function AchievementBank() {
                 <textarea 
                   required
                   rows={3}
-                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={formData.description}
                   onChange={e => setFormData({...formData, description: e.target.value})}
                 />
@@ -372,7 +372,7 @@ export default function AchievementBank() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Área <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block h-11 w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     value={formData.area || ''}
                     onChange={e => setFormData({...formData, area: e.target.value ? Number(e.target.value) : undefined, subject: undefined})}
                   >
@@ -384,7 +384,7 @@ export default function AchievementBank() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Asignatura <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block h-11 w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     value={formData.subject || ''}
                     onChange={e => {
                       const nextId = e.target.value ? Number(e.target.value) : undefined
@@ -407,7 +407,7 @@ export default function AchievementBank() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Grado <span className="text-red-500">*</span></label>
                   <select 
                     required
-                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                    className="mt-1 block h-11 w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     value={formData.grade || ''}
                     onChange={e => {
                       const nextGrade = e.target.value ? Number(e.target.value) : undefined
@@ -432,7 +432,7 @@ export default function AchievementBank() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">Dimensión (Opcional)</label>
                 <select 
-                  className="mt-1 block w-full rounded-md border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm focus:border-blue-500 focus:ring-blue-500 border p-2"
+                  className="mt-1 block h-11 w-full rounded-md border border-gray-300 bg-white p-2 text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={formData.dimension || ''}
                   onChange={e => setFormData({...formData, dimension: e.target.value ? Number(e.target.value) : undefined})}
                 >
@@ -449,13 +449,13 @@ export default function AchievementBank() {
                 <button 
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="px-4 py-2 text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700"
+                  className="min-h-11 w-full rounded-lg bg-gray-100 px-4 py-2 text-gray-700 hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:w-auto"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
-                  className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                  className="min-h-11 w-full rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 sm:w-auto"
                 >
                   Guardar
                 </button>
@@ -467,9 +467,9 @@ export default function AchievementBank() {
 
       <Card className="border-slate-200 dark:border-slate-800 shadow-sm">
         <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de Logros</CardTitle>
-            <div className="relative w-full md:w-72">
+            <div className="relative w-full lg:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input 
                 placeholder="Buscar por código, descripción..." 
@@ -522,8 +522,8 @@ export default function AchievementBank() {
             </div>
           ) : (
             <>
-              {/* Mobile cards */}
-              <div className="md:hidden p-4 space-y-3">
+              {/* Mobile + Tablet cards */}
+              <div className="xl:hidden grid grid-cols-1 md:grid-cols-2 gap-3 p-4">
                 {pagedDefinitions.map((def) => {
                   const meta = [def.area_name, def.grade_name, def.subject_name].filter(Boolean).join(' / ') || 'General'
                   const statusClass = def.is_active
@@ -533,36 +533,16 @@ export default function AchievementBank() {
                   return (
                     <div
                       key={def.id}
-                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm dark:shadow-none"
+                      className="flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{def.code}</div>
-                          <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}`}>
-                            {def.is_active ? 'Activo' : 'Inactivo'}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(def)}
-                            className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            aria-label="Editar"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(def.id)}
-                            className="px-3 py-2 rounded-lg border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-200 bg-rose-50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/30"
-                            aria-label="Eliminar"
-                          >
-                            <Trash size={16} />
-                          </button>
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{def.code}</div>
+                        <div className={`mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusClass}`}>
+                          {def.is_active ? 'Activo' : 'Inactivo'}
                         </div>
                       </div>
 
-                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-line line-clamp-3">
+                      <div className="mt-3 text-sm text-slate-700 dark:text-slate-200 whitespace-pre-line line-clamp-4 md:line-clamp-5">
                         {def.description}
                       </div>
 
@@ -577,13 +557,34 @@ export default function AchievementBank() {
                           <span className="text-xs text-slate-400">Sin dimensión</span>
                         )}
                       </div>
+
+                      <div className="mt-auto pt-3">
+                        <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(def)}
+                            className="min-h-11 min-w-11 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                            aria-label="Editar"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(def.id)}
+                            className="min-h-11 min-w-11 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-700 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-200 dark:hover:bg-rose-950/30"
+                            aria-label="Eliminar"
+                          >
+                            <Trash size={16} />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )
                 })}
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden xl:block overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                     <tr>
@@ -617,8 +618,8 @@ export default function AchievementBank() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => handleEdit(def)} className="p-1 hover:bg-blue-50 dark:hover:bg-blue-950/30 text-slate-400 hover:text-blue-600 dark:hover:text-blue-300 rounded transition-colors"><Edit size={16} /></button>
-                            <button onClick={() => handleDelete(def.id)} className="p-1 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-300 rounded transition-colors"><Trash size={16} /></button>
+                            <button onClick={() => handleEdit(def)} className="min-h-11 min-w-11 rounded p-1 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/30 dark:hover:text-blue-300"><Edit size={16} /></button>
+                            <button onClick={() => handleDelete(def.id)} className="min-h-11 min-w-11 rounded p-1 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30 dark:hover:text-red-300"><Trash size={16} /></button>
                           </div>
                         </td>
                       </tr>
@@ -636,7 +637,7 @@ export default function AchievementBank() {
                 <div className="flex items-center justify-between sm:justify-end gap-2">
                   <button
                     type="button"
-                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
                   >
@@ -653,7 +654,7 @@ export default function AchievementBank() {
                           {showEllipsis ? <span className="px-1 text-slate-400">…</span> : null}
                           <button
                             type="button"
-                            className={`h-9 w-9 text-xs rounded-lg border ${
+                            className={`h-11 w-11 rounded-lg border text-xs ${
                               p === page
                                 ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/25 dark:text-blue-200'
                                 : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
@@ -669,7 +670,7 @@ export default function AchievementBank() {
 
                   <button
                     type="button"
-                    className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 disabled:opacity-50"
+                    className="min-h-11 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                     disabled={page >= totalPages}
                   >

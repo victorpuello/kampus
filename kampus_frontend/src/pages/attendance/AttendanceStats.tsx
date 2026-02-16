@@ -104,7 +104,7 @@ export default function AttendanceStats() {
           <div className="space-y-4">
             {error ? <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-200">{error}</div> : null}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-2">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Periodo</label>
                 <select
@@ -138,7 +138,7 @@ export default function AttendanceStats() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
               <Button className="w-full sm:w-auto" onClick={handleFetch} disabled={fetching}>
                 {fetching ? 'Generando…' : 'Generar reporte'}
               </Button>
@@ -156,14 +156,14 @@ export default function AttendanceStats() {
                 </div>
 
                 {/* Mobile cards */}
-                <div className="md:hidden space-y-3">
+                <div className="xl:hidden space-y-3 sm:space-y-4">
                   {data.students.map((s) => (
                     <div
                       key={s.enrollment_id}
-                      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                      className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900"
                     >
                       <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{s.student_full_name}</div>
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:gap-3">
                         <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
                           <div className="text-slate-500 dark:text-slate-400">Ausencias</div>
                           <div className="text-sm font-semibold">{s.absences}</div>
@@ -186,7 +186,7 @@ export default function AttendanceStats() {
                 </div>
 
                 {/* Desktop table */}
-                <div className="hidden md:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                <div className="hidden xl:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-900">
                       <tr>

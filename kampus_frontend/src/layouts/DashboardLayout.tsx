@@ -1,5 +1,5 @@
 import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { 
   LayoutDashboard, 
@@ -70,6 +70,7 @@ export default function DashboardLayout() {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const location = useLocation()
+  const navigate = useNavigate()
 
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => getInitialThemeMode())
   const resolvedTheme = useMemo(() => resolveTheme(themeMode), [themeMode])
@@ -145,6 +146,18 @@ export default function DashboardLayout() {
     legacyMq.addListener(handler)
     return () => legacyMq.removeListener(handler)
   }, [])
+
+  useEffect(() => {
+    if (isDesktop) {
+      document.body.style.overflow = ''
+      return
+    }
+
+    document.body.style.overflow = isSidebarOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [isDesktop, isSidebarOpen])
 
   const isCollapsed = isDesktop && isSidebarCollapsed
 
@@ -777,7 +790,7 @@ export default function DashboardLayout() {
       {/* Sidebar */}
       <div className={cn(
         "fixed inset-y-0 left-0 z-50 bg-white shadow-lg transform transition-all duration-200 ease-in-out lg:translate-x-0 dark:bg-slate-900 dark:shadow-black/30",
-        'w-64',
+        'w-[86vw] max-w-sm md:w-80 lg:w-64',
         isCollapsed ? 'lg:w-20' : 'lg:w-64',
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
@@ -825,7 +838,7 @@ export default function DashboardLayout() {
                     value={sidebarSearch}
                     onChange={(e) => setSidebarSearch(e.target.value)}
                     placeholder="Buscar en menú..."
-                    className="h-9 pr-16"
+                    className="h-10 pr-16"
                     aria-label="Buscar en el menú lateral"
                   />
                   <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
@@ -937,7 +950,7 @@ export default function DashboardLayout() {
                                   onFocus={() => handleRouteIntent(child.href)}
                                   onClick={() => setIsSidebarOpen(false)}
                                   className={cn(
-                                    "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                    "block flex-1 px-4 py-2.5 lg:py-2 text-sm font-medium rounded-lg transition-colors",
                                     active
                                       ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
                                       : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
@@ -1004,7 +1017,7 @@ export default function DashboardLayout() {
                                           onFocus={() => handleRouteIntent(grandChild.href)}
                                           onClick={() => setIsSidebarOpen(false)}
                                           className={cn(
-                                            "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
+                                            "block flex-1 px-4 py-2.5 lg:py-2 text-sm font-medium rounded-lg transition-colors",
                                             active
                                               ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
                                               : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
@@ -1241,17 +1254,17 @@ export default function DashboardLayout() {
         )}
       >
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
+        <header className="lg:hidden flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
           <button 
             onClick={() => setIsSidebarOpen(true)}
-            className="text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
+            className="-m-2 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
             aria-label="Abrir menú"
           >
             <Menu className="w-6 h-6" />
           </button>
           <Link
             to="/"
-            className="font-semibold text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
+            className="rounded px-2 py-1 text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-slate-100"
             aria-label="Ir al dashboard"
             onClick={() => {
               setIsSidebarOpen(false)
@@ -1260,11 +1273,27 @@ export default function DashboardLayout() {
           >
             Kampus
           </Link>
-          <div className="w-6" /> {/* Spacer for centering */}
+          <button
+            type="button"
+            className="relative -m-2 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            aria-label="Ir a notificaciones"
+            onClick={() => {
+              setIsSidebarOpen(false)
+              setUserMenuOpen(false)
+              navigate('/notifications')
+            }}
+          >
+            <Bell className="w-6 h-6" />
+            {!!unreadNotifications && unreadNotifications > 0 ? (
+              <span className="absolute -right-1 -top-1 inline-flex min-w-[1.1rem] items-center justify-center rounded-full border border-blue-200 bg-blue-50 px-1 text-[10px] font-semibold leading-4 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200">
+                {unreadNotifications > 99 ? '99+' : unreadNotifications}
+              </span>
+            ) : null}
+          </button>
         </header>
 
         {/* Page Content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 lg:p-8 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 lg:p-8 overflow-auto">
           <div className="w-full mx-auto">
             <Outlet />
           </div>

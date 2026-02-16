@@ -345,11 +345,24 @@ export default function DashboardHome() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
-        <p className="text-sm sm:text-base text-slate-500">
-          Bienvenido de nuevo, {user?.first_name || user?.username}. Aquí tienes un resumen de hoy.
-        </p>
+      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
+          <p className="text-sm sm:text-base text-slate-500">
+            Bienvenido de nuevo, {user?.first_name || user?.username}. Aquí tienes un resumen de hoy.
+          </p>
+        </div>
+
+        {isTeacher ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto">
+            <Button className="w-full min-h-11 sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/grades')}>
+              Ir a calificaciones
+            </Button>
+            <Button className="w-full min-h-11 sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
+              Ver notificaciones
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {metricsError && (
@@ -361,11 +374,11 @@ export default function DashboardHome() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat, index) => (
           <Card
             key={index}
-            className="cursor-pointer hover:border-slate-300 hover:shadow-sm transition-all"
+            className="cursor-pointer touch-manipulation hover:border-slate-300 hover:shadow-sm active:scale-[0.99] transition-all"
             onClick={stat.onClick}
           >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6">
@@ -387,8 +400,8 @@ export default function DashboardHome() {
       </div>
 
       {isTeacher && teacherSummary ? (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          <Card className="lg:col-span-2 xl:col-span-2">
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>Estado académico del periodo</CardTitle>
             </CardHeader>
@@ -475,8 +488,8 @@ export default function DashboardHome() {
       ) : null}
 
       {isTeacher && metricsLoading && !teacherSummary ? (
-        <div className="grid gap-4 lg:grid-cols-3 animate-pulse">
-          <Card className="lg:col-span-2">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 animate-pulse">
+          <Card className="lg:col-span-2 xl:col-span-2">
             <CardHeader className="p-4 sm:p-6">
               <div className="h-5 w-48 rounded bg-slate-200 dark:bg-slate-800" />
             </CardHeader>
@@ -509,8 +522,8 @@ export default function DashboardHome() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="md:col-span-2 lg:col-span-4">
+      <div className="grid gap-4 lg:grid-cols-3 xl:grid-cols-7">
+        <Card className="lg:col-span-2 xl:col-span-4">
           <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
             <CardTitle>Actividad Reciente</CardTitle>
             <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
@@ -521,9 +534,9 @@ export default function DashboardHome() {
             {recentLoading ? (
               <div className="text-sm text-slate-500">Cargando actividad…</div>
             ) : recentNotifications.length === 0 ? (
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="text-sm text-slate-500">Sin actividad reciente.</div>
-                <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={loadRecent}>
+                <Button className="w-full min-h-11 sm:w-auto" variant="outline" size="sm" onClick={loadRecent}>
                   Actualizar
                 </Button>
               </div>
@@ -533,7 +546,7 @@ export default function DashboardHome() {
                   <button
                     key={n.id}
                     type="button"
-                    className="w-full text-left p-3 sm:p-4 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
+                    className="w-full min-h-20 text-left p-3 sm:p-4 rounded-lg border border-slate-200 hover:bg-slate-50 active:bg-slate-100/70 touch-manipulation transition-colors"
                     onClick={() => navigate('/notifications')}
                   >
                     <div className="flex items-start gap-3">
@@ -552,7 +565,7 @@ export default function DashboardHome() {
             )}
           </CardContent>
         </Card>
-        <div className="md:col-span-2 lg:col-span-3 space-y-4">
+        <div className="lg:col-span-1 xl:col-span-3 space-y-4">
           <Card>
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>Accesos Rápidos</CardTitle>
@@ -563,7 +576,7 @@ export default function DashboardHome() {
                   <button
                     key={a.to}
                     type="button"
-                    className="w-full flex items-center justify-between p-3 text-sm font-medium text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors dark:text-slate-200 dark:bg-slate-900/40 dark:hover:bg-slate-800/60"
+                    className="w-full min-h-12 touch-manipulation flex items-center justify-between p-3 text-sm font-medium text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200/60 transition-colors dark:text-slate-200 dark:bg-slate-900/40 dark:hover:bg-slate-800/60 dark:active:bg-slate-800/80"
                     onClick={() => navigate(a.to)}
                   >
                     <span className="flex flex-col items-start">

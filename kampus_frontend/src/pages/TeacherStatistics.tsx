@@ -744,15 +744,13 @@ export default function TeacherStatistics() {
         </div>
       ) : null}
 
-      <div className="-mx-3 px-3 overflow-x-auto">
-        <div className="grid grid-cols-2 w-full min-w-[280px] gap-2">
-          <Button variant={tab === 'subject' ? 'default' : 'outline'} onClick={() => setTab('subject')}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Button className="min-h-11 w-full whitespace-normal text-center leading-tight" variant={tab === 'subject' ? 'default' : 'outline'} onClick={() => setTab('subject')}>
             Docente de asignatura
           </Button>
-          <Button variant={tab === 'director' ? 'default' : 'outline'} onClick={() => setTab('director')}>
+          <Button className="min-h-11 w-full whitespace-normal text-center leading-tight" variant={tab === 'director' ? 'default' : 'outline'} onClick={() => setTab('director')}>
             Director de grupo
           </Button>
-        </div>
       </div>
 
       {!loadingStats && stats ? (
@@ -804,7 +802,7 @@ export default function TeacherStatistics() {
       ) : null}
 
       {!loadingStats && stats && tab === 'subject' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader>
               <CardTitle>Asignaciones</CardTitle>
@@ -923,18 +921,20 @@ export default function TeacherStatistics() {
               <CardTitle>Rendimiento académico</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
                   <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2">
                     <span className="text-sm text-slate-500 dark:text-slate-400">Vista</span>
                     <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 lg:mx-0 lg:px-0">
                       <Button
+                        className="min-h-11"
                         variant={directorMode === 'period' ? 'default' : 'outline'}
                         onClick={() => setDirectorMode('period')}
                       >
                         Periodo
                       </Button>
                       <Button
+                        className="min-h-11"
                         variant={directorMode === 'accumulated' ? 'default' : 'outline'}
                         onClick={() => setDirectorMode('accumulated')}
                       >
@@ -988,27 +988,27 @@ export default function TeacherStatistics() {
             </CardContent>
           </Card>
 
-          <div className="-mx-3 px-3 overflow-x-auto">
-            <div className="flex w-max min-w-full items-center gap-2">
-            <Button variant={directorSubtab === 'resumen' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('resumen')}>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <Button className="min-h-11 w-full whitespace-normal text-center leading-tight" variant={directorSubtab === 'resumen' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('resumen')}>
               Resumen
             </Button>
             <Button
+              className="min-h-11 w-full whitespace-normal text-center leading-tight"
               variant={directorSubtab === 'asignaturas' ? 'default' : 'outline'}
               onClick={() => setDirectorSubtab('asignaturas')}
             >
               Asignaturas
             </Button>
             <Button
+              className="min-h-11 w-full whitespace-normal text-center leading-tight"
               variant={directorSubtab === 'estudiantes' ? 'default' : 'outline'}
               onClick={() => setDirectorSubtab('estudiantes')}
             >
               Estudiantes
             </Button>
-            <Button variant={directorSubtab === 'ia' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('ia')}>
+            <Button className="min-h-11 w-full whitespace-normal text-center leading-tight" variant={directorSubtab === 'ia' ? 'default' : 'outline'} onClick={() => setDirectorSubtab('ia')}>
               IA
             </Button>
-            </div>
           </div>
 
           {directorSubtab === 'resumen' ? (
@@ -1115,7 +1115,7 @@ export default function TeacherStatistics() {
                   )
                 })()}
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
+                <div className="mb-4 grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
                   <div>
                     <div className="text-slate-500 dark:text-slate-400">Estudiantes</div>
                     <div className="text-slate-900 font-medium dark:text-slate-100">{directorPerformance.subject_detail.students}</div>
@@ -1148,7 +1148,40 @@ export default function TeacherStatistics() {
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="xl:hidden space-y-3 sm:space-y-4">
+                  {(directorPerformance.subject_detail.students_rows || []).length === 0 ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      No hay datos para el detalle.
+                    </div>
+                  ) : (
+                    (directorPerformance.subject_detail.students_rows || []).map((r) => (
+                      <div
+                        key={r.enrollment_id}
+                        className={
+                          'rounded-lg border p-4 sm:p-5 ' +
+                          (r.failed
+                            ? 'border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/25'
+                            : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900')
+                        }
+                      >
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.student_name}</div>
+                        <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                          {(r.grade_name || '').trim() ? `${r.grade_name} - ${r.group_name}` : r.group_name || '—'}
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-sm text-slate-600 dark:text-slate-300">Nota: {r.score}</span>
+                          {r.failed ? (
+                            <Pill text="En riesgo" className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/50" />
+                          ) : (
+                            <Pill text="OK" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40" />
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="hidden xl:block overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-900">
                       <tr>
@@ -1204,7 +1237,33 @@ export default function TeacherStatistics() {
                   <CardTitle>Asignaturas (mejor promedio)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="xl:hidden space-y-3 sm:space-y-4">
+                    {(directorPerformance?.subjects_by_average || []).length === 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        No hay datos académicos para mostrar.
+                      </div>
+                    ) : (
+                      (directorPerformance?.subjects_by_average || []).slice(0, 10).map((s) => (
+                        <div key={s.subject_id} className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{s.subject_name}</div>
+                          <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{s.area_name || '—'} · {s.students} estudiantes</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Pill text={`Prom: ${s.average}`} className="bg-sky-50 text-sky-700 border-sky-200" />
+                            {(() => {
+                              const fr = Number(s.failure_rate)
+                              const t = toneForPct(Math.max(0, 100 - (isFinite(fr) ? fr : 0)))
+                              return <Pill text={`Pérdida: ${s.failure_rate}%`} className={t.pill} />
+                            })()}
+                            <span className="text-xs text-slate-600 dark:text-slate-300">
+                              Celdas {s.gradebook_cells.filled}/{s.gradebook_cells.expected} ({pct(s.gradebook_cells.filled, s.gradebook_cells.expected)})
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="hidden xl:block overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                         <thead className="bg-slate-50 dark:bg-slate-900">
                         <tr>
@@ -1256,7 +1315,29 @@ export default function TeacherStatistics() {
                   <CardTitle>Asignaturas (mayor pérdida)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="xl:hidden space-y-3 sm:space-y-4">
+                    {(directorPerformance?.subjects_by_failure_rate || []).length === 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        No hay datos académicos para mostrar.
+                      </div>
+                    ) : (
+                      (directorPerformance?.subjects_by_failure_rate || []).slice(0, 10).map((s) => (
+                        <div key={s.subject_id} className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{s.subject_name}</div>
+                          <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">{s.area_name || '—'} · {s.students} estudiantes</div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Pill text={`Prom: ${s.average}`} className="bg-sky-50 text-sky-700 border-sky-200" />
+                            <Pill text={`Pérdida: ${s.failure_rate}%`} className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/50" />
+                            <span className="text-xs text-slate-600 dark:text-slate-300">
+                              Celdas {s.gradebook_cells.filled}/{s.gradebook_cells.expected} ({pct(s.gradebook_cells.filled, s.gradebook_cells.expected)})
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="hidden xl:block overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                         <thead className="bg-slate-50 dark:bg-slate-900">
                         <tr>
@@ -1308,7 +1389,28 @@ export default function TeacherStatistics() {
                 <CardTitle>Mejores estudiantes</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
+                <div className="xl:hidden space-y-3 sm:space-y-4">
+                  {(directorPerformance?.top_students || []).length === 0 ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      No hay datos de estudiantes.
+                    </div>
+                  ) : (
+                    (directorPerformance?.top_students || []).map((r) => (
+                      <div key={r.enrollment_id} className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.student_name}</div>
+                        <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                          {(r.grade_name || '').trim() ? `${r.grade_name} - ${r.group_name}` : r.group_name || '—'}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <Pill text={`Prom: ${r.average}`} className="bg-sky-50 text-sky-700 border-sky-200" />
+                          <span className="text-xs text-slate-600 dark:text-slate-300">Reprobadas: {r.failed_subjects}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="hidden xl:block overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-900">
                       <tr>
@@ -1350,7 +1452,28 @@ export default function TeacherStatistics() {
                 <CardTitle>Estudiantes en riesgo</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
+                <div className="xl:hidden space-y-3 sm:space-y-4">
+                  {(directorPerformance?.at_risk_students || []).length === 0 ? (
+                    <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      No hay estudiantes en riesgo con el umbral actual.
+                    </div>
+                  ) : (
+                    (directorPerformance?.at_risk_students || []).map((r) => (
+                      <div key={r.enrollment_id} className="rounded-lg border border-red-200 bg-red-50 p-4 sm:p-5 dark:border-red-900/40 dark:bg-red-950/25">
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.student_name}</div>
+                        <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                          {(r.grade_name || '').trim() ? `${r.grade_name} - ${r.group_name}` : r.group_name || '—'}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <Pill text={`Prom: ${r.average}`} className="bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/50" />
+                          <span className="text-xs text-slate-600 dark:text-slate-300">Reprobadas: {r.failed_subjects}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="hidden xl:block overflow-x-auto">
                   <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                     <thead className="bg-slate-50 dark:bg-slate-900">
                       <tr>
@@ -1398,7 +1521,7 @@ export default function TeacherStatistics() {
                   <CardTitle>Totales</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div className="grid grid-cols-2 gap-3 text-sm lg:grid-cols-4">
                     <div>
                       <div className="text-slate-500 dark:text-slate-400">Grupos</div>
                       <div className="text-slate-900 font-medium dark:text-slate-100">{director?.totals.groups ?? 0}</div>
@@ -1424,7 +1547,26 @@ export default function TeacherStatistics() {
                   <CardTitle>Grupos a cargo</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
+                  <div className="xl:hidden space-y-3 sm:space-y-4">
+                    {(director?.groups || []).length === 0 ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        No tienes grupos asignados como director en este año.
+                      </div>
+                    ) : (
+                      (director?.groups || []).map((g) => (
+                        <div key={g.group_id} className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+                          <div className="text-sm font-medium text-slate-900 dark:text-slate-100">{g.grade_name} - {g.group_name}</div>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-700 dark:text-slate-200">
+                            <div>Estudiantes: <span className="font-medium">{g.students_active}</span></div>
+                            <div>Casos: <span className="font-medium">{g.discipline_cases_total}</span></div>
+                            <div className="col-span-2">Abiertos: <span className="font-medium">{g.discipline_cases_open}</span></div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="hidden xl:block overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                         <thead className="bg-slate-50 dark:bg-slate-900">
                         <tr>
