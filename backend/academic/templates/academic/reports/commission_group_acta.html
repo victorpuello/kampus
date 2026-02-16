@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Acta de Comisión - {{ grade_group_label }}</title>
+  <style>
+    @page { size: A4; margin: 18mm 20mm; }
+
+    body {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", Arial, sans-serif;
+      color: #1f2937;
+      font-size: 11px;
+      line-height: 1.4;
+      background: #f3f4f6;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    h1, h2, h3, h4, p, ul { margin: 0; }
+
+    .page {
+      background: #ffffff;
+      min-height: 100%;
+      padding: 0;
+    }
+
+    .avoid-break { page-break-inside: avoid; break-inside: avoid; }
+
+    .font-serif { font-family: "Playfair Display", Georgia, "Times New Roman", serif; }
+
+    .header {
+      text-align: center;
+      border-bottom: 2px solid #f3f4f6;
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      object-fit: contain;
+      display: block;
+      margin: 0 auto 6px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      background: #ffffff;
+    }
+
+    .institution-title {
+      font-size: 15px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #111827;
+    }
+
+    .institution-sub {
+      font-size: 9px;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1.1px;
+      margin-top: 2px;
+    }
+
+    .institution-meta {
+      font-size: 8px;
+      color: #9ca3af;
+      margin-top: 2px;
+    }
+
+    .main-title {
+      margin-top: 10px;
+      font-size: 17px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #1e3a8a;
+      letter-spacing: 0.5px;
+    }
+
+    .badges { margin-top: 5px; }
+
+    .badge {
+      display: inline-block;
+      background: #f3f4f6;
+      color: #4b5563;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      padding: 3px 8px;
+      margin: 2px 3px;
+    }
+    .badge.primary {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+      color: #1e40af;
+    }
+
+    .legal-box {
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 10px;
+      font-size: 10px;
+      color: #4b5563;
+      font-style: italic;
+      text-align: justify;
+    }
+
+    .grid-2 { display: table; width: 100%; table-layout: fixed; }
+    .cell { display: table-cell; vertical-align: top; }
+
+    .field-label {
+      display: block;
+      font-size: 8px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      font-weight: 700;
+      margin-bottom: 1px;
+    }
+
+    .field-value { font-size: 11px; color: #111827; font-weight: 700; }
+
+    .section-title {
+      margin: 12px 0 5px;
+      padding-bottom: 2px;
+      border-bottom: 1px solid #e5e7eb;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.7px;
+      color: #111827;
+    }
+
+    .section-label {
+      float: right;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      color: #6b7280;
+      border-radius: 4px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      margin-top: -1px;
+    }
+    .section-label.red { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .section-label.green { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+    .section-label.orange { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 10px;
+      margin-top: 3px;
+    }
+
+    th, td {
+      padding: 5px 4px;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: top;
+    }
+
+    th {
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #6b7280;
+      font-size: 8px;
+      text-align: left;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .case-index {
+      color: #9ca3af;
+      font-weight: 700;
+      width: 28px;
+      font-family: Consolas, monospace;
+    }
+
+    .student-name {
+      font-weight: 700;
+      color: #111827;
+      text-transform: uppercase;
+    }
+
+    .tag-code {
+      display: inline-block;
+      border: 1px solid #e5e7eb;
+      background: #f3f4f6;
+      color: #4b5563;
+      border-radius: 4px;
+      padding: 1px 4px;
+      margin-right: 4px;
+      margin-bottom: 3px;
+      font-size: 8px;
+      font-family: Consolas, monospace;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .status-pill {
+      display: inline-block;
+      border-radius: 4px;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border: 1px solid #fecaca;
+      color: #b91c1c;
+      background: #fef2f2;
+    }
+
+    .legend {
+      margin-top: 4px;
+      font-size: 8px;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .best-grid {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    .best-cell {
+      display: table-cell;
+      width: 50%;
+      padding-right: 8px;
+      vertical-align: top;
+    }
+
+    .best-card {
+      border: 1px solid #bbf7d0;
+      background: #f0fdf4;
+      border-radius: 6px;
+      padding: 8px;
+      margin-bottom: 8px;
+    }
+
+    .best-index {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      line-height: 16px;
+      text-align: center;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #166534;
+      font-size: 8px;
+      font-weight: 700;
+      margin-right: 4px;
+    }
+
+    .best-note {
+      margin-top: 2px;
+      margin-left: 21px;
+      color: #4b5563;
+      font-size: 9px;
+    }
+
+    .best-average {
+      float: right;
+      text-align: right;
+      color: #166534;
+      font-weight: 700;
+    }
+
+    .split {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      margin-top: 8px;
+    }
+
+    .split-col {
+      display: table-cell;
+      width: 50%;
+      vertical-align: top;
+      padding-right: 10px;
+    }
+
+    .list-bullets {
+      margin: 0;
+      padding-left: 16px;
+      font-size: 10px;
+      color: #374151;
+    }
+
+    .list-bullets li {
+      margin: 3px 0;
+    }
+
+    .commitments-box {
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 10px;
+      color: #374151;
+    }
+
+    .summary-box {
+      border: 1px solid #dbeafe;
+      background: #eff6ff;
+      color: #1e3a8a;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 10px;
+      text-align: justify;
+      margin-bottom: 8px;
+    }
+
+    .signatures {
+      margin-top: 14px;
+      padding-top: 8px;
+      border-top: 1px solid #f3f4f6;
+    }
+
+    .signature-grid {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+
+    .signature-cell {
+      display: table-cell;
+      width: 50%;
+      text-align: center;
+      vertical-align: bottom;
+      padding: 0 10px;
+    }
+
+    .sign-line {
+      margin: 20px 0 4px;
+      border-top: 1px solid #374151;
+    }
+
+    .sign-name {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #111827;
+    }
+
+    .sign-role {
+      font-size: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #9ca3af;
+    }
+
+    @media print {
+      body {
+        background: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      {% if institution.logo %}
+        <img src="{{ institution.logo.url }}" alt="Logo institucional" class="logo" />
+      {% else %}
+        <div style="font-size:22px; color:#9ca3af; margin-bottom:3px;">🏫</div>
+      {% endif %}
+      <h1 class="institution-title">{{ institution.name|default:"Institución Educativa" }}</h1>
+      <p class="institution-sub">{{ institution.city|default:"San Bernardo del Viento" }} - {{ institution.state|default:"Córdoba" }}</p>
+      <p class="institution-meta">
+        {% if institution.dane_code %}DANE: {{ institution.dane_code }}{% endif %}
+        {% if institution.dane_code and institution.nit %} | {% endif %}
+        {% if institution.nit %}NIT: {{ institution.nit }}{% endif %}
+      </p>
+
+      <h2 class="main-title font-serif">Acta de Comisión de Evaluación y Promoción</h2>
+      <div class="badges">
+        <span class="badge">Acta No. {{ acta_number }}</span>
+        <span class="badge">Periodo {{ period_name|default:"General" }}</span>
+        <span class="badge primary">{{ grade_group_label }}</span>
+      </div>
+    </header>
+
+    <section class="legal-box avoid-break">
+      Teniendo en cuenta el decreto 1290 de abril 16 de 2009 en su artículo: 11 inciso 5 (responsabilidades de establecimiento educativos),
+      14 inciso 2 (derecho de los padres de familia) y el 15 inciso 3 (deberes de los padres de familia). En la
+      {{ institution.name|default:"Institución Educativa" }}, siendo el día {{ meeting_day }} de {{ meeting_month_name }} de {{ meeting_year }},
+      se reúne la Comisión de Evaluación con el fin de analizar el rendimiento académico de los estudiantes del grado
+      {{ grade_name|default:grade_group_label }} durante el {{ period_legal_phrase|default:"periodo académico" }} del presente año,
+      conforme a los lineamientos del Sistema Institucional de Evaluación de los Estudiantes (SIEE).
+    </section>
+
+    <section class="avoid-break" style="margin-bottom: 8px;">
+      <div class="grid-2">
+        <div class="cell">
+          <span class="field-label">Fecha de Reunión</span>
+          <span class="field-value">{{ meeting_day }} de {{ meeting_month_name }} de {{ meeting_year }}</span>
+        </div>
+        <div class="cell" style="text-align: right;">
+          <span class="field-label">Lugar</span>
+          <span class="field-value">{{ meeting_place }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h3 class="section-title">
+        1. Estudiantes con Bajo Rendimiento Académico
+        <span class="section-label red">Reporte de Reprobación</span>
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 28px;">#</th>
+            <th style="width: 40%;">Estudiante</th>
+            <th>Asig. Perdidas (Cód.)</th>
+            <th style="width: 72px; text-align: right;">Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for student in low_performance_students %}
+            <tr>
+              <td class="case-index">{{ student.index|stringformat:"02d" }}</td>
+              <td class="student-name">{{ student.student_name }}</td>
+              <td>
+                {% for code in student.subject_codes %}
+                  <span class="tag-code">{{ code }}</span>
+                {% empty %}
+                  <span class="tag-code">N/A</span>
+                {% endfor %}
+              </td>
+              <td style="text-align: right;"><span class="status-pill">{{ student.status_label|default:"Reportado" }}</span></td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" style="color:#6b7280;">No se registran estudiantes con bajo rendimiento en la comisión.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="legend">* MATE: Matemáticas | QUIM: Química | INGL: Inglés | LENG: Lengua Cast. | FILO: Filosofía | FISI: Física | SOCI: Sociales | TECN: Tecnología</p>
+    </section>
+
+    <section>
+      <h3 class="section-title">
+        2. Estudiantes con Mejor Desempeño Académico
+        <span class="section-label green">Cuadro de Honor</span>
+      </h3>
+      <div class="best-grid">
+        {% for student in best_performance_students %}
+          <div class="best-cell">
+            <div class="best-card">
+              <div>
+                <span class="best-index">{{ student.index }}</span>
+                <span class="student-name" style="font-size:10px;">{{ student.student_name }}</span>
+                <span class="best-average">{{ student.average_label|default:"N/D" }}</span>
+              </div>
+              <p class="best-note">{{ student.highlight }}</p>
+            </div>
+          </div>
+        {% empty %}
+          <div class="best-cell" style="width:100%;">
+            <div class="best-card">No hay estudiantes destacados registrados para esta comisión.</div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <h3 class="section-title" style="margin-top:6px;">Resumen Ejecutivo IA</h3>
+      <div class="summary-box">
+        {{ executive_summary }}
+      </div>
+    </section>
+
+    <section>
+      <h3 class="section-title">
+        3. Estudiantes con Dificultades de Disciplina
+        <span class="section-label orange">Seguimiento Convivencial</span>
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40%;">Estudiante</th>
+            <th>Observación / Falta Recurrente</th>
+            <th style="width:78px; text-align:center;">Nivel</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in discipline_students %}
+            <tr>
+              <td class="student-name">{{ row.student_name }}</td>
+              <td style="color:#4b5563;">{{ row.observation }}</td>
+              <td style="text-align:center;"><span class="tag-code" style="background:#fff7ed; border-color:#fed7aa; color:#9a3412;">{{ row.level }}</span></td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3" style="color:#6b7280;">Sin reportes convivenciales relevantes en esta comisión.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="avoid-break">
+      <div class="split">
+        <div class="split-col">
+          <h3 class="section-title" style="margin-top:0;">4. Observaciones Generales</h3>
+          <ul class="list-bullets">
+            {% for observation in general_observations %}
+              <li>{{ observation }}</li>
+            {% empty %}
+              <li>Fortalecer seguimiento académico y convivencial por parte de la comisión.</li>
+            {% endfor %}
+          </ul>
+        </div>
+        <div class="split-col" style="padding-right:0;">
+          <h3 class="section-title" style="margin-top:0;">5. Compromisos Acordados</h3>
+          <div class="commitments-box">
+            <ul class="list-bullets" style="padding-left:14px;">
+              {% for commitment in agreed_commitments %}
+                <li>{{ commitment }}</li>
+              {% empty %}
+                <li>Definir acciones remediales y cronograma de seguimiento institucional.</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+      <p style="margin-top:8px; font-size:10px; color:#6b7280; font-style:italic;">{{ closing_text }}</p>
+    </section>
+
+    <section class="signatures avoid-break">
+      <p style="text-align:center; font-size:9px; color:#9ca3af; text-transform:uppercase; margin-bottom:8px;">
+        Dado en {{ meeting_place }} a los {{ meeting_day }} días del mes de {{ meeting_month_name }} de {{ meeting_year }}
+      </p>
+
+      <div class="signature-grid">
+        <div class="signature-cell">
+          <div class="sign-line"></div>
+          <div class="sign-name">{{ attendees.0.name|default:"Director de Grupo" }}</div>
+          <div class="sign-role">{{ attendees.0.role|default:"Comisión de Evaluación" }}</div>
+        </div>
+        <div class="signature-cell">
+          <div class="sign-line"></div>
+          <div class="sign-name">{{ attendees.1.name|default:"Docente Representante" }}</div>
+          <div class="sign-role">{{ attendees.1.role|default:"Comisión de Evaluación" }}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:8px; text-align:center;">
+        <div style="display:inline-block; width:50%; padding:0 10px; text-align:center; vertical-align:bottom;">
+          <div class="sign-line"></div>
+          <div class="sign-name">PADRE DE FAMILIA REP. DE GRADO</div>
+          <div class="sign-role">Comisión de Evaluación</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

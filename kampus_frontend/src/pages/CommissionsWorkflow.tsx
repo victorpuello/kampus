@@ -6,7 +6,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
-import { academicApi, type AcademicYear, type Commission, type CommissionDecision, type Group, type Period } from '../services/academic'
+import { academicApi, type AcademicYear, type Commission, type CommissionDecision, type CommissionDisciplineStudent, type Group, type Period } from '../services/academic'
 import { reportsApi, type ReportJob } from '../services/reports'
 import { useAuthStore } from '../store/auth'
 
@@ -19,7 +19,7 @@ const EMPTY_FORM = {
   notes: '',
 }
 
-type CommissionTabKey = 'create' | 'commissions' | 'decisions' | 'jobs'
+type CommissionTabKey = 'create' | 'commissions' | 'decisions' | 'discipline' | 'jobs'
 
 type CommissionPreconditionItem = {
   reason_code: string
@@ -184,14 +184,18 @@ export default function CommissionsWorkflow() {
   const [loading, setLoading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [loadingDecisions, setLoadingDecisions] = useState(false)
+  const [loadingDiscipline, setLoadingDiscipline] = useState(false)
+  const [disciplineStudents, setDisciplineStudents] = useState<CommissionDisciplineStudent[]>([])
   const [viewingCommissionId, setViewingCommissionId] = useState<number | null>(null)
   const [deletingCommissionId, setDeletingCommissionId] = useState<number | null>(null)
   const [commissionPendingDeleteId, setCommissionPendingDeleteId] = useState<number | null>(null)
   const [jobsLoading, setJobsLoading] = useState(false)
   const [actaJobs, setActaJobs] = useState<ReportJob[]>([])
+  const [groupActaJobByCommission, setGroupActaJobByCommission] = useState<Record<number, ReportJob>>({})
   const [activeTab, setActiveTab] = useState<CommissionTabKey>('commissions')
   const [decisionsPage, setDecisionsPage] = useState(1)
   const [decisionsPageSize, setDecisionsPageSize] = useState(10)
+  const [disciplinePageSize, setDisciplinePageSize] = useState(10)
   const [decisionsTotalCount, setDecisionsTotalCount] = useState(0)
   const [decisionsSummary, setDecisionsSummary] = useState({
     total_students: 0,
@@ -437,6 +441,16 @@ export default function CommissionsWorkflow() {
     return null
   }
 
+  const getCommissionIdFromJob = (job: ReportJob) => {
+    const raw = job.params?.commission_id
+    if (typeof raw === 'number') return raw
+    if (typeof raw === 'string') {
+      const parsed = Number(raw)
+      return Number.isNaN(parsed) ? null : parsed
+    }
+    return null
+  }
+
   const getAllDecisionIdsForCommission = useCallback(async (commissionId: number): Promise<number[]> => {
     const allIds: number[] = []
     const pageSize = 100
@@ -461,18 +475,19 @@ export default function CommissionsWorkflow() {
     if (!silent) setJobsLoading(true)
     try {
       const allDecisionIds = await getAllDecisionIdsForCommission(commissionId)
-      if (allDecisionIds.length === 0) {
-        setActaJobs([])
-        return
-      }
-
       const decisionIds = new Set(allDecisionIds)
       const res = await reportsApi.listJobs()
       const jobs = res.data
         .filter((job) => {
-          if (job.report_type !== 'ACADEMIC_COMMISSION_ACTA') return false
-          const decisionId = getDecisionIdFromJob(job)
-          return decisionId !== null && decisionIds.has(decisionId)
+          if (job.report_type === 'ACADEMIC_COMMISSION_ACTA') {
+            const decisionId = getDecisionIdFromJob(job)
+            return decisionId !== null && decisionIds.has(decisionId)
+          }
+          if (job.report_type === 'ACADEMIC_COMMISSION_GROUP_ACTA') {
+            const commissionRef = getCommissionIdFromJob(job)
+            return commissionRef === commissionId
+          }
+          return false
         })
         .sort((a, b) => b.id - a.id)
       setActaJobs(jobs)
@@ -567,14 +582,14 @@ export default function CommissionsWorkflow() {
 
   useEffect(() => {
     const hasActiveJobs = actaJobs.some((job) => job.status === 'PENDING' || job.status === 'RUNNING')
-    if (!hasActiveJobs || decisionsTotalCount === 0 || !selectedCommissionId) return
+    if (!hasActiveJobs || !selectedCommissionId) return
 
     const intervalId = window.setInterval(() => {
       void loadCommissionActaJobs(selectedCommissionId, true)
     }, 3000)
 
     return () => window.clearInterval(intervalId)
-  }, [actaJobs, decisionsTotalCount, loadCommissionActaJobs, selectedCommissionId])
+  }, [actaJobs, loadCommissionActaJobs, selectedCommissionId])
 
   useEffect(() => {
     setForm((prev) => (prev.title === generatedCommissionTitle ? prev : { ...prev, title: generatedCommissionTitle }))
@@ -754,6 +769,91 @@ export default function CommissionsWorkflow() {
     }
   }
 
+  const pollGroupActaJob = async (commissionId: number, jobId: number) => {
+    const maxAttempts = 80
+    const delayMs = 1500
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, delayMs))
+      try {
+        const res = await reportsApi.getJob(jobId)
+        const job = res.data
+        setGroupActaJobByCommission((prev) => ({ ...prev, [commissionId]: job }))
+
+        if (job.status === 'SUCCEEDED') {
+          const file = await reportsApi.downloadJob(job.id)
+          downloadBlob(file.data, job.output_filename || `comision-grupal-${commissionId}.pdf`)
+          showToast('Acta grupal generada y descargada', 'success')
+          if (selectedCommissionId) {
+            await loadCommissionActaJobs(selectedCommissionId, true)
+          }
+          return
+        }
+
+        if (job.status === 'FAILED') {
+          try {
+            const fallback = await academicApi.downloadCommissionGroupActaPdf(commissionId)
+            downloadBlob(fallback.data, `comision-grupal-${commissionId}.pdf`)
+            showToast('El job falló, pero se descargó el PDF directamente', 'warning')
+            return
+          } catch {
+            const detail = (job.error_message || '').trim()
+            showToast(
+              detail
+                ? `No fue posible completar la generación del acta grupal: ${detail}`
+                : 'No fue posible completar la generación del acta grupal',
+              'error',
+            )
+            return
+          }
+        }
+
+        if (job.status === 'CANCELED') {
+          showToast('La generación del acta grupal fue cancelada', 'warning')
+          return
+        }
+      } catch {
+        showToast('No se pudo consultar el progreso del acta grupal', 'error')
+        return
+      }
+    }
+
+    showToast('La generación sigue en proceso. Revisa la pestaña Jobs.', 'warning')
+  }
+
+  const handleDownloadGroupActa = async (commission: Commission) => {
+    const current = groupActaJobByCommission[commission.id]
+    if (current && (current.status === 'PENDING' || current.status === 'RUNNING')) {
+      showToast(`La acta grupal ya se está generando (${current.progress ?? 0}%)`, 'info')
+      return
+    }
+
+    try {
+      const res = await academicApi.queueCommissionGroupActaPdf(commission.id)
+      const queuedJob = res.data
+      setGroupActaJobByCommission((prev) => ({ ...prev, [commission.id]: queuedJob }))
+      showToast('Generación de acta grupal iniciada', 'info')
+      void pollGroupActaJob(commission.id, queuedJob.id)
+    } catch {
+      showToast('No se pudo iniciar la generación del acta grupal', 'error')
+    }
+  }
+
+  const getGroupActaButtonLabel = (commissionId: number) => {
+    const job = groupActaJobByCommission[commissionId]
+    if (!job) return 'Acta grupal'
+    if (job.status === 'PENDING' || job.status === 'RUNNING') {
+      const progress = typeof job.progress === 'number' ? job.progress : 0
+      return `Generando ${progress}%`
+    }
+    return 'Acta grupal'
+  }
+
+  const isGroupActaGenerating = (commissionId: number) => {
+    const job = groupActaJobByCommission[commissionId]
+    return Boolean(job && (job.status === 'PENDING' || job.status === 'RUNNING'))
+  }
+
   const handleDownloadJob = async (job: ReportJob) => {
     try {
       const res = await reportsApi.downloadJob(job.id)
@@ -815,10 +915,29 @@ export default function CommissionsWorkflow() {
     return groups.filter((group) => group.academic_year === selectedYearId)
   }, [groups, selectedYearId])
 
+  const loadDisciplineStudents = useCallback(async (commissionId: number) => {
+    setLoadingDiscipline(true)
+    try {
+      const res = await academicApi.listCommissionDisciplineStudents(commissionId)
+      setDisciplineStudents(res.data.results || [])
+    } catch {
+      setDisciplineStudents([])
+      showToast('No se pudieron cargar los estudiantes con dificultades disciplinarias', 'error')
+    } finally {
+      setLoadingDiscipline(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab !== 'discipline' || !selectedCommissionId) return
+    void loadDisciplineStudents(selectedCommissionId)
+  }, [activeTab, loadDisciplineStudents, selectedCommissionId])
+
   const tabs: Array<{ key: CommissionTabKey; label: string; count?: number }> = [
     { key: 'create', label: 'Crear' },
     { key: 'commissions', label: 'Comisiones', count: commissions.length },
     { key: 'decisions', label: 'Decisiones', count: decisionsTotalCount },
+    { key: 'discipline', label: 'Disciplina', count: disciplineStudents.length },
     { key: 'jobs', label: 'Jobs', count: actaJobs.length },
   ]
 
@@ -1195,6 +1314,17 @@ export default function CommissionsWorkflow() {
                     >
                       Recalcular
                     </Button>
+                    {commission.commission_type === 'EVALUATION' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="min-h-10"
+                        onClick={() => handleDownloadGroupActa(commission)}
+                        disabled={deletingCommissionId === commission.id || isGroupActaGenerating(commission.id)}
+                      >
+                        {getGroupActaButtonLabel(commission.id)}
+                      </Button>
+                    ) : null}
                     <Button
                       variant="outline"
                       size="sm"
@@ -1273,6 +1403,16 @@ export default function CommissionsWorkflow() {
                           >
                             Recalcular
                           </Button>
+                          {commission.commission_type === 'EVALUATION' ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownloadGroupActa(commission)}
+                              disabled={deletingCommissionId === commission.id || isGroupActaGenerating(commission.id)}
+                            >
+                              {getGroupActaButtonLabel(commission.id)}
+                            </Button>
+                          ) : null}
                           <Button
                             variant="outline"
                             size="sm"
@@ -1541,6 +1681,164 @@ export default function CommissionsWorkflow() {
       </div>
       ) : null}
 
+      {activeTab === 'discipline' ? (
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <CardTitle>
+              Estudiantes con dificultades disciplinarias {selectedCommission ? `(Comisión #${selectedCommission.id})` : ''}
+            </CardTitle>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-slate-500 dark:text-slate-400" htmlFor="discipline-page-size">
+                  Filas
+                </label>
+                <select
+                  id="discipline-page-size"
+                  className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs dark:border-slate-700 dark:bg-slate-900"
+                  value={disciplinePageSize}
+                  disabled={loadingDiscipline}
+                  onChange={(e) => {
+                    setDisciplinePageSize(Number(e.target.value))
+                  }}
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!selectedCommissionId) return
+                  void loadDisciplineStudents(selectedCommissionId)
+                }}
+                disabled={loadingDiscipline || selectedCommissionId === null}
+                className="w-full sm:w-auto"
+              >
+                {loadingDiscipline ? 'Actualizando...' : 'Actualizar'}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!selectedCommissionId ? (
+            <p className="text-sm text-slate-500">Selecciona una comisión para consultar disciplina.</p>
+          ) : loadingDiscipline && disciplineStudents.length === 0 ? (
+            <>
+              <div className="space-y-3 xl:hidden">
+                {Array.from({ length: disciplinePageSize }).map((_, index) => (
+                  <div key={`discipline-mobile-skeleton-${index}`} className="animate-pulse rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <div className="h-4 w-40 rounded bg-slate-200 dark:bg-slate-700" />
+                    <div className="mt-2 h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+                    <div className="mt-2 h-3 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+                    <div className="mt-2 h-3 w-11/12 rounded bg-slate-200 dark:bg-slate-700" />
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 xl:block">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/60">
+                    <tr className="text-left text-slate-600 dark:text-slate-300">
+                      <th className="px-3 py-2 font-medium">Estudiante</th>
+                      <th className="px-3 py-2 font-medium">Registros</th>
+                      <th className="px-3 py-2 font-medium">Fuente</th>
+                      <th className="px-3 py-2 font-medium">Nivel</th>
+                      <th className="px-3 py-2 font-medium">Último registro</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.from({ length: disciplinePageSize }).map((_, index) => (
+                      <tr key={`discipline-skeleton-${index}`} className="border-t border-slate-200 dark:border-slate-800 animate-pulse">
+                        <td className="px-3 py-2"><div className="h-3 w-36 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                        <td className="px-3 py-2"><div className="h-3 w-10 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                        <td className="px-3 py-2"><div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                        <td className="px-3 py-2"><div className="h-3 w-14 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                        <td className="px-3 py-2"><div className="h-3 w-11/12 rounded bg-slate-200 dark:bg-slate-700" /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : disciplineStudents.length === 0 ? (
+            <p className="text-sm text-slate-500">No se registran eventos disciplinarios para el periodo de esta comisión.</p>
+          ) : (
+            <>
+              <div className="space-y-3 xl:hidden">
+                {disciplineStudents.map((item) => (
+                  <div key={`discipline-mobile-${item.student_id}`} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{item.student_name}</p>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300">
+                        {item.level}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                      <span className="font-medium">Registros:</span> {item.annotations_count}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(item.sources ?? []).includes('CASE') ? (
+                        <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                          Caso
+                        </span>
+                      ) : null}
+                      {(item.sources ?? []).includes('ANNOTATION') ? (
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
+                          Anotación
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">{item.latest_annotation}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800 xl:block">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-900/60">
+                    <tr className="text-left text-slate-600 dark:text-slate-300">
+                      <th className="px-3 py-2 font-medium">Estudiante</th>
+                      <th className="px-3 py-2 font-medium">Registros</th>
+                      <th className="px-3 py-2 font-medium">Fuente</th>
+                      <th className="px-3 py-2 font-medium">Nivel</th>
+                      <th className="px-3 py-2 font-medium">Último registro</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {disciplineStudents.map((item) => (
+                      <tr key={item.student_id} className="border-t border-slate-200 dark:border-slate-800">
+                        <td className="px-3 py-2">{item.student_name}</td>
+                        <td className="px-3 py-2">{item.annotations_count}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {(item.sources ?? []).includes('CASE') ? (
+                              <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                                Caso
+                              </span>
+                            ) : null}
+                            {(item.sources ?? []).includes('ANNOTATION') ? (
+                              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-300">
+                                Anotación
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">{item.level}</td>
+                        <td className="px-3 py-2">{item.latest_annotation}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+      ) : null}
+
       {activeTab === 'jobs' ? (
       <Card>
         <CardHeader>
@@ -1550,7 +1848,7 @@ export default function CommissionsWorkflow() {
               variant="outline"
               size="sm"
               onClick={() => void loadCommissionActaJobs(selectedCommissionId)}
-              disabled={jobsLoading || decisionsTotalCount === 0}
+              disabled={jobsLoading || selectedCommissionId === null}
               className="w-full sm:w-auto"
             >
               {jobsLoading ? 'Actualizando...' : 'Actualizar'}
@@ -1560,8 +1858,6 @@ export default function CommissionsWorkflow() {
         <CardContent>
           {selectedCommissionId === null ? (
             <p className="text-sm text-slate-500">Selecciona una comisión para consultar la cola de actas.</p>
-          ) : decisionsTotalCount === 0 ? (
-            <p className="text-sm text-slate-500">No hay decisiones en la comisión actual.</p>
           ) : actaJobs.length === 0 ? (
             <p className="text-sm text-slate-500">Aún no hay jobs asíncronos para esta comisión.</p>
           ) : (

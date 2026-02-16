@@ -20,6 +20,7 @@ from academic.models import (
     Subject,
     TeacherAssignment,
 )
+from discipline.models import DisciplineCase
 from notifications.models import Notification
 from reports.models import ReportJob
 from students.models import Enrollment, ObserverAnnotation, Student
@@ -617,6 +618,142 @@ class CommissionWorkflowApiTests(APITestCase):
 
         response = self.client.post(f"/api/commission-decisions/{decision.id}/generate-acta/", {}, format="json")
         self.assertEqual(response.status_code, 400)
+
+    @patch("academic.commission_views.AIService.generate_commission_group_acta_blocks")
+    def test_group_acta_renders_ai_summary_and_institutional_commitments(self, mock_group_ai):
+        self.client.force_authenticate(user=self.admin)
+        CommissionStudentDecision.objects.create(
+            commission=self.commission,
+            enrollment=self.enrollment,
+            failed_subjects_count=2,
+            failed_areas_count=1,
+            is_flagged=True,
+        )
+
+        mock_group_ai.return_value = {
+            "executive_summary": "Resumen ejecutivo IA para acta grupal.",
+            "general_observations": [
+                "Observación general IA 1.",
+                "Observación general IA 2.",
+            ],
+            "agreed_commitments": [
+                "Compromiso acordado IA 1.",
+                "Compromiso acordado IA 2.",
+            ],
+        }
+
+        response = self.client.get(f"/api/commissions/{self.commission.id}/group-acta/")
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertIn("Acta de Comisión de Evaluación y Promoción", html)
+        self.assertIn("Resumen ejecutivo IA para acta grupal.", html)
+        self.assertIn("Observación general IA 1.", html)
+        self.assertIn("Compromiso acordado IA 1.", html)
+
+    @patch("academic.commission_views.generate_report_job_pdf.delay")
+    def test_group_acta_async_creates_report_job(self, mock_delay):
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get(f"/api/commissions/{self.commission.id}/group-acta/?format=pdf&async=1")
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(response.data["report_type"], "ACADEMIC_COMMISSION_GROUP_ACTA")
+
+        job = ReportJob.objects.get(id=response.data["id"])
+        self.assertEqual(job.params.get("commission_id"), self.commission.id)
+        mock_delay.assert_called_once_with(job.id)
+
+    def test_group_acta_requires_evaluation_commission(self):
+        self.client.force_authenticate(user=self.admin)
+        promotion_commission = Commission.objects.create(
+            commission_type=Commission.TYPE_PROMOTION,
+            academic_year=self.year,
+            period=None,
+            group=self.group,
+            created_by=self.admin,
+        )
+        response = self.client.get(f"/api/commissions/{promotion_commission.id}/group-acta/")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("evaluación", str(response.data.get("detail", "")).lower())
+
+    def test_group_acta_includes_discipline_cases_in_discipline_section(self):
+        self.client.force_authenticate(user=self.admin)
+
+        DisciplineCase.objects.create(
+            enrollment=self.enrollment,
+            student=self.student,
+            occurred_at="2026-02-15T10:00:00Z",
+            narrative="Caso disciplinario visible en acta grupal.",
+        )
+
+        response = self.client.get(f"/api/commissions/{self.commission.id}/group-acta/")
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode("utf-8")
+        self.assertIn("Estudiantes con Dificultades de Disciplina", html)
+        self.assertIn(self.student.user.get_full_name().upper(), html)
+        self.assertIn("Caso disciplinario visible en acta grupal.", html)
+
+    def test_discipline_students_returns_annotations_for_commission_period(self):
+        self.client.force_authenticate(user=self.admin)
+
+        other_period = Period.objects.create(
+            academic_year=self.year,
+            name="P2",
+            start_date="2026-04-01",
+            end_date="2026-06-30",
+            is_closed=True,
+        )
+
+        ObserverAnnotation.objects.create(
+            student=self.student,
+            period=self.period,
+            annotation_type=ObserverAnnotation.TYPE_ALERT,
+            text="Interrupciones reiteradas en clase.",
+            created_by=self.admin,
+        )
+        ObserverAnnotation.objects.create(
+            student=self.student,
+            period=other_period,
+            annotation_type=ObserverAnnotation.TYPE_ALERT,
+            text="Observación de otro periodo.",
+            created_by=self.admin,
+        )
+
+        response = self.client.get(f"/api/commissions/{self.commission.id}/discipline-students/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        item = response.data["results"][0]
+        self.assertEqual(item["student_id"], self.student.pk)
+        self.assertEqual(item["annotations_count"], 1)
+        self.assertEqual(item["observer_annotations_count"], 1)
+        self.assertEqual(item["discipline_cases_count"], 0)
+        self.assertIn("ANNOTATION", item["sources"])
+        self.assertIn("Interrupciones reiteradas", item["latest_annotation"])
+
+    def test_discipline_students_includes_cases_for_commission_period(self):
+        self.client.force_authenticate(user=self.admin)
+
+        DisciplineCase.objects.create(
+            enrollment=self.enrollment,
+            student=self.student,
+            occurred_at="2026-02-15T10:00:00Z",
+            narrative="Caso disciplinario dentro del periodo.",
+        )
+        DisciplineCase.objects.create(
+            enrollment=self.enrollment,
+            student=self.student,
+            occurred_at="2026-07-15T10:00:00Z",
+            narrative="Caso fuera de periodo.",
+        )
+
+        response = self.client.get(f"/api/commissions/{self.commission.id}/discipline-students/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        item = response.data["results"][0]
+        self.assertEqual(item["student_id"], self.student.pk)
+        self.assertEqual(item["annotations_count"], 1)
+        self.assertEqual(item["observer_annotations_count"], 0)
+        self.assertEqual(item["discipline_cases_count"], 1)
+        self.assertIn("CASE", item["sources"])
+        self.assertIn("dentro del periodo", item["latest_annotation"])
 
     def test_compute_difficulties_evaluation_without_assignments_returns_not_flagged_students(self):
         results = compute_difficulties_for_commission(self.commission)

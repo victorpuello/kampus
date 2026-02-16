@@ -213,6 +213,27 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_GROUP_ACTA:
+            commission_id = params.get("commission_id")
+            if not commission_id:
+                raise serializers.ValidationError({"params": "commission_id es requerido"})
+
+            from academic.models import Commission  # noqa: PLC0415
+
+            commission = Commission.objects.filter(id=commission_id).first()
+            if not commission:
+                raise serializers.ValidationError({"params": "Comisión no encontrada"})
+            if commission.commission_type != Commission.TYPE_EVALUATION:
+                raise serializers.ValidationError(
+                    {"params": "El acta grupal solo aplica para comisiones de evaluación."}
+                )
+
+            admin_roles = {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR}
+            if role not in admin_roles:
+                raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
+            return attrs
+
         if report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
             group_id = params.get("group_id")
             if not group_id:

@@ -18,11 +18,12 @@ from rest_framework.response import Response
 from audit.services import log_event
 from notifications.models import Notification
 from notifications.services import create_notification
-from students.models import FamilyMember, ObserverAnnotation
+from students.models import Enrollment, FamilyMember, ObserverAnnotation
 from users.permissions import IsCoordinator
 from reports.models import ReportJob
 from reports.serializers import ReportJobSerializer
 from reports.tasks import generate_report_job_pdf
+from discipline.models import DisciplineCase
 
 from .ai import AIService, AIServiceError
 from .commission_services import compute_difficulties_for_commission, summarize_difficulty_results
@@ -38,7 +39,11 @@ from .models import (
     CommissionStudentDecision,
     CommitmentActa,
 )
-from .reports import build_commitment_acta_context, get_failed_subject_names_for_decision
+from .reports import (
+    build_commitment_acta_context,
+    build_commission_group_acta_context,
+    get_failed_subject_names_for_decision,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -130,6 +135,97 @@ def _format_commitments_for_observer(payload: dict[str, list[str]]) -> str:
     return "\n".join(lines).strip()
 
 
+def _resolve_group_acta_ai_blocks(
+    *,
+    commission: Commission,
+    institution_name: str,
+    grade_group_label: str,
+    period_name: str,
+    total_students: int,
+    flagged_count: int,
+    pending_count: int,
+    reprobated_count: int,
+) -> dict[str, object]:
+    default_payload: dict[str, object] = {
+        "executive_summary": (
+            "La comisión consolidó el análisis académico del grupo y priorizó intervenciones sobre los casos "
+            "con mayor nivel de riesgo para fortalecer el desempeño en el siguiente corte."
+        ),
+        "general_observations": [
+            "Fortalecer procesos de acompañamiento pedagógico y planes de mejora individual.",
+            "Dar seguimiento continuo desde dirección de grupo y orientación escolar.",
+            "Priorizar remisión al comité de apoyo pedagógico en casos de alto riesgo.",
+        ],
+        "agreed_commitments": [
+            "Docentes: implementar estrategias remediales por competencias críticas.",
+            "Directores de grupo: realizar seguimiento individual a estudiantes en riesgo.",
+            "Familias: asistir a reuniones de seguimiento y verificar cumplimiento de planes.",
+        ],
+        "institutional_commitments": [
+            "Docentes: implementar estrategias remediales por competencias críticas.",
+            "Directores de grupo: realizar seguimiento individual a estudiantes en riesgo.",
+            "Familias: asistir a reuniones de seguimiento y verificar cumplimiento de planes.",
+        ],
+    }
+
+    context = {
+        "institution_name": institution_name,
+        "commission_type": commission.commission_type,
+        "grade_group": grade_group_label,
+        "period_name": period_name,
+        "totals": {
+            "total_students": int(total_students),
+            "flagged_count": int(flagged_count),
+            "pending_count": int(pending_count),
+            "reprobated_count": int(reprobated_count),
+        },
+    }
+
+    try:
+        payload = AIService().generate_commission_group_acta_blocks(context)
+    except AIServiceError:
+        logger.warning(
+            "AI group acta generation unavailable; using defaults",
+            extra={"commission_id": commission.id},
+        )
+        return default_payload
+    except Exception:
+        logger.exception(
+            "Unexpected error generating group acta AI blocks; using defaults",
+            extra={"commission_id": commission.id},
+        )
+        return default_payload
+
+    if not isinstance(payload, dict):
+        return default_payload
+
+    executive_summary = str(payload.get("executive_summary") or "").strip()
+    observations = payload.get("general_observations")
+    commitments = payload.get("agreed_commitments")
+    if not isinstance(observations, list):
+        observations = payload.get("institutional_observations")
+    if not isinstance(commitments, list):
+        commitments = payload.get("institutional_commitments")
+    if not executive_summary:
+        return default_payload
+    if not isinstance(observations, list):
+        return default_payload
+    if not isinstance(commitments, list):
+        return default_payload
+
+    clean_observations = [str(item).strip() for item in observations if str(item).strip()]
+    clean_commitments = [str(item).strip() for item in commitments if str(item).strip()]
+    if not clean_observations or not clean_commitments:
+        return default_payload
+
+    return {
+        "executive_summary": executive_summary,
+        "general_observations": clean_observations,
+        "agreed_commitments": clean_commitments,
+        "institutional_commitments": clean_commitments,
+    }
+
+
 class CommissionDecisionPagination(pagination.PageNumberPagination):
     page_size = 10
     page_size_query_param = "page_size"
@@ -218,6 +314,219 @@ class CommissionViewSet(viewsets.ModelViewSet):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="group-acta")
+    def group_acta(self, request, pk=None):
+        commission = self.get_object()
+        if commission.commission_type != Commission.TYPE_EVALUATION:
+            return Response(
+                {"detail": "El acta grupal está disponible únicamente para comisiones de evaluación."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        want_pdf = (request.query_params.get("format") or "").lower() == "pdf"
+        want_async = (request.query_params.get("async") or "").strip().lower() in {"1", "true", "yes"}
+
+        if want_async:
+            job = ReportJob.objects.create(
+                created_by=request.user,
+                report_type=ReportJob.ReportType.ACADEMIC_COMMISSION_GROUP_ACTA,
+                params={"commission_id": int(commission.id)},
+            )
+            generate_report_job_pdf.delay(job.id)
+            out = ReportJobSerializer(job, context={"request": request}).data
+            return Response(out, status=status.HTTP_202_ACCEPTED)
+
+        total_students = commission.student_decisions.count()
+        flagged_count = commission.student_decisions.filter(is_flagged=True).count()
+        pending_count = commission.student_decisions.filter(
+            is_flagged=True,
+            decision__in=[
+                CommissionStudentDecision.DECISION_PENDING,
+                CommissionStudentDecision.DECISION_FOLLOW_UP,
+            ],
+        ).count()
+        reprobated_count = max(0, flagged_count - pending_count)
+
+        group = commission.group
+        institution_name = (
+            getattr(getattr(commission, "institution", None), "name", "")
+            or "Institución Educativa"
+        )
+        grade_name = getattr(getattr(group, "grade", None), "name", "") if group else ""
+        group_name = getattr(group, "name", "") if group else ""
+        grade_group_label = f"{grade_name} ({group_name})" if grade_name and group_name else (grade_name or group_name or "General")
+        period_name = getattr(getattr(commission, "period", None), "name", "") if commission.period_id else "Cierre anual"
+
+        ai_blocks = _resolve_group_acta_ai_blocks(
+            commission=commission,
+            institution_name=institution_name,
+            grade_group_label=grade_group_label,
+            period_name=period_name,
+            total_students=total_students,
+            flagged_count=flagged_count,
+            pending_count=pending_count,
+            reprobated_count=reprobated_count,
+        )
+
+        ctx = build_commission_group_acta_context(
+            commission=commission,
+            generated_by=request.user,
+            ai_blocks=ai_blocks,
+        )
+        html = render_to_string("academic/reports/commission_group_acta.html", ctx)
+
+        if not want_pdf:
+            response = HttpResponse(html, content_type="text/html; charset=utf-8")
+            response["Content-Disposition"] = f'inline; filename="comision-grupal-{commission.id}.html"'
+            return response
+
+        try:
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+        except WeasyPrintUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception:
+            logger.exception("Error generando PDF de acta grupal de comisión", extra={"commission_id": commission.id})
+            return Response(
+                {"detail": "No fue posible generar el PDF en este momento."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="comision-grupal-{commission.id}.pdf"'
+        return response
+
+    @action(detail=True, methods=["get"], url_path="discipline-students")
+    def discipline_students(self, request, pk=None):
+        commission = self.get_object()
+        group = commission.group
+
+        if group is None:
+            return Response(
+                {"count": 0, "results": []},
+                status=status.HTTP_200_OK,
+            )
+
+        enrollments = list(
+            Enrollment.objects.select_related("student", "student__user")
+            .filter(
+                academic_year_id=commission.academic_year_id,
+                group_id=group.id,
+                status="ACTIVE",
+            )
+            .order_by("student__user__last_name", "student__user__first_name")
+        )
+        student_ids = [int(item.student_id) for item in enrollments]
+        if not student_ids:
+            return Response({"count": 0, "results": []}, status=status.HTTP_200_OK)
+
+        annotations_qs = ObserverAnnotation.objects.select_related("student", "student__user").filter(
+            is_deleted=False,
+            student_id__in=student_ids,
+            annotation_type__in=[ObserverAnnotation.TYPE_ALERT, ObserverAnnotation.TYPE_OBSERVATION],
+        )
+
+        if commission.period_id:
+            annotations_qs = annotations_qs.filter(
+                Q(period_id=commission.period_id)
+                | Q(
+                    period__isnull=True,
+                    created_at__date__gte=commission.period.start_date,
+                    created_at__date__lte=commission.period.end_date,
+                )
+            )
+
+        annotations = list(annotations_qs.order_by("student_id", "-created_at"))
+        summary: dict[int, dict[str, object]] = {}
+        for annotation in annotations:
+            student_id = int(annotation.student_id)
+            bucket = summary.setdefault(
+                student_id,
+                {
+                    "student_id": student_id,
+                    "student_name": annotation.student.user.get_full_name().upper(),
+                    "annotations_count": 0,
+                    "observer_annotations_count": 0,
+                    "discipline_cases_count": 0,
+                    "sources": [],
+                    "latest_annotation": "",
+                    "latest_annotation_at": None,
+                    "level": "TIPO I",
+                },
+            )
+            bucket["annotations_count"] = int(bucket["annotations_count"]) + 1
+            bucket["observer_annotations_count"] = int(bucket["observer_annotations_count"]) + 1
+            if "ANNOTATION" not in bucket["sources"]:
+                bucket["sources"].append("ANNOTATION")
+            if not bucket["latest_annotation"]:
+                latest_text = (annotation.text or annotation.title or "").strip()
+                bucket["latest_annotation"] = latest_text or "Presenta anotaciones disciplinarias durante el periodo."
+                bucket["latest_annotation_at"] = timezone.localtime(annotation.created_at).isoformat()
+
+        cases_qs = DisciplineCase.objects.select_related("student", "student__user", "enrollment").filter(
+            student_id__in=student_ids,
+            enrollment__academic_year_id=commission.academic_year_id,
+            enrollment__group_id=group.id,
+        )
+        if commission.period_id:
+            cases_qs = cases_qs.filter(
+                occurred_at__date__gte=commission.period.start_date,
+                occurred_at__date__lte=commission.period.end_date,
+            )
+
+        cases = list(cases_qs.order_by("student_id", "-occurred_at"))
+        for case in cases:
+            student_id = int(case.student_id)
+            bucket = summary.setdefault(
+                student_id,
+                {
+                    "student_id": student_id,
+                    "student_name": case.student.user.get_full_name().upper(),
+                    "annotations_count": 0,
+                    "observer_annotations_count": 0,
+                    "discipline_cases_count": 0,
+                    "sources": [],
+                    "latest_annotation": "",
+                    "latest_annotation_at": None,
+                    "level": "TIPO I",
+                },
+            )
+            bucket["annotations_count"] = int(bucket["annotations_count"]) + 1
+            bucket["discipline_cases_count"] = int(bucket["discipline_cases_count"]) + 1
+            if "CASE" not in bucket["sources"]:
+                bucket["sources"].append("CASE")
+            if not bucket["latest_annotation"]:
+                narrative = (case.narrative or "").strip()
+                bucket["latest_annotation"] = narrative or "Caso disciplinario registrado durante el periodo."
+                bucket["latest_annotation_at"] = timezone.localtime(case.occurred_at).isoformat()
+
+        results: list[dict[str, object]] = []
+        for item in summary.values():
+            count = int(item.get("annotations_count", 0))
+            if count >= 5:
+                item["level"] = "TIPO III"
+            elif count >= 3:
+                item["level"] = "TIPO II"
+            else:
+                item["level"] = "TIPO I"
+            results.append(item)
+
+        results.sort(
+            key=lambda item: (
+                -int(item.get("annotations_count", 0)),
+                str(item.get("student_name", "")),
+            )
+        )
+
+        return Response(
+            {
+                "count": len(results),
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def _ensure_status(self, commission: Commission, *, allowed: set[str], message: str):
         if commission.status not in allowed:

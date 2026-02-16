@@ -1,4 +1,5 @@
 import { api } from './api'
+import type { ReportJob } from './reports'
 
 export interface AcademicYear { 
   id: number; 
@@ -101,6 +102,18 @@ export interface CommissionDecision {
   student_document?: string
   group_name?: string
   acta_id?: number | null
+}
+
+export interface CommissionDisciplineStudent {
+  student_id: number
+  student_name: string
+  annotations_count: number
+  observer_annotations_count?: number
+  discipline_cases_count?: number
+  sources?: Array<'ANNOTATION' | 'CASE'>
+  latest_annotation: string
+  latest_annotation_at?: string | null
+  level: 'TIPO I' | 'TIPO II' | 'TIPO III'
 }
 
 export interface CommissionDifficultySummary {
@@ -608,6 +621,8 @@ export const academicApi = {
     api.post<{ created: number; updated: number; deleted: number; summary: CommissionDifficultySummary }>(`/api/commissions/${id}/refresh-difficulties/`),
   previewCommissionDifficulties: (id: number) =>
     api.get<{ count: number; summary: CommissionDifficultySummary; results: Array<{ enrollment_id: number; failed_subjects_count: number; failed_areas_count: number; is_flagged: boolean; decision_id: number | null; decision: string | null }> }>(`/api/commissions/${id}/preview-difficulties/`),
+  listCommissionDisciplineStudents: (id: number) =>
+    api.get<{ count: number; results: CommissionDisciplineStudent[] }>(`/api/commissions/${id}/discipline-students/`),
 
   listCommissionDecisions: (params?: Record<string, unknown>) =>
     api.get<PaginatedCommissionDecisionsResponse>('/api/commission-decisions/', { params }),
@@ -631,6 +646,15 @@ export const academicApi = {
     `/api/commissions/${commissionId}/generate-actas-async/`,
     data ?? {}
   ),
+  downloadCommissionGroupActaPdf: (commissionId: number) =>
+    api.get<Blob>(`/api/commissions/${commissionId}/group-acta/`, {
+      params: { format: 'pdf' },
+      responseType: 'blob',
+    }),
+  queueCommissionGroupActaPdf: (commissionId: number) =>
+    api.get<ReportJob>(`/api/commissions/${commissionId}/group-acta/`, {
+      params: { format: 'pdf', async: '1' },
+    }),
   listCommissionActas: (params?: Record<string, unknown>) =>
     api.get<CommitmentActa[]>('/api/commission-actas/', { params }),
   

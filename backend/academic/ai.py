@@ -241,6 +241,74 @@ Contexto (JSON):
                 raise
             raise AIProviderError(str(e)) from e
 
+    def generate_commission_group_acta_blocks(self, context: dict) -> dict:
+        """Genera bloques de contenido para acta grupal de comisión.
+
+        Retorna JSON:
+        {
+          "executive_summary": "...",
+          "general_observations": ["...", "..."],
+          "agreed_commitments": ["...", "..."],
+          "institutional_commitments": ["...", "..."]
+        }
+        """
+        self._ensure_available()
+
+        prompt = f"""
+Actúa como coordinador académico en Colombia y redacta contenido para un acta grupal de comisión.
+
+REGLAS ESTRICTAS:
+- Responde SOLO con un objeto JSON válido.
+- Usa exactamente estas claves: "executive_summary", "general_observations" y "agreed_commitments".
+- "executive_summary": 1 párrafo corto (máximo 4 oraciones), claro y ejecutivo.
+- "general_observations": arreglo de 3 a 5 observaciones generales accionables.
+- "agreed_commitments": arreglo de 3 a 5 compromisos acordados accionables, medibles y concretos.
+- No uses nombres de estudiantes ni datos sensibles.
+- No incluyas texto fuera del JSON.
+
+Contexto (JSON):
+{json.dumps(context, ensure_ascii=False)}
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+
+            if not isinstance(payload, dict):
+                raise AIParseError("AI response must be a JSON object.")
+
+            executive_summary = str(payload.get("executive_summary", "")).strip()
+            observations = payload.get("general_observations")
+            commitments = payload.get("agreed_commitments")
+
+            if not executive_summary:
+                raise AIParseError("AI response key 'executive_summary' must be a non-empty string.")
+            if not isinstance(observations, list) or len(observations) == 0:
+                raise AIParseError("AI response key 'general_observations' must be a non-empty list.")
+            if not isinstance(commitments, list) or len(commitments) == 0:
+                raise AIParseError("AI response key 'agreed_commitments' must be a non-empty list.")
+
+            clean_observations = [str(item).strip() for item in observations if str(item).strip()]
+            if not clean_observations:
+                raise AIParseError("AI response key 'general_observations' did not include valid items.")
+
+            clean_commitments = [str(item).strip() for item in commitments if str(item).strip()]
+            if not clean_commitments:
+                raise AIParseError("AI response key 'agreed_commitments' did not include valid items.")
+
+            return {
+                "executive_summary": executive_summary,
+                "general_observations": clean_observations,
+                "agreed_commitments": clean_commitments,
+                # Backward compatibility for existing call sites that still consume this key.
+                "institutional_commitments": clean_commitments,
+            }
+        except Exception as e:
+            logger.exception("Error generating group commission acta AI blocks")
+            if isinstance(e, AIServiceError):
+                raise
+            raise AIProviderError(str(e)) from e
+
 
 class AIServiceError(Exception):
     pass

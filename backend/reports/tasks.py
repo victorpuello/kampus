@@ -14,7 +14,8 @@ from django.template.loader import render_to_string
 
 from academic.models import Period
 from academic.reports import build_grade_report_sheet_context
-from academic.reports import build_commitment_acta_context
+from academic.reports import build_commitment_acta_context, build_commission_group_acta_context
+from academic.ai import AIService, AIServiceError
 from students.academic_period_report import (
     build_academic_period_group_report_context,
     build_academic_period_report_context,
@@ -33,6 +34,89 @@ from .weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_group_acta_ai_blocks_for_job(*, commission) -> dict:
+    default_payload = {
+        "executive_summary": (
+            "La comisión consolidó el análisis académico del grupo y priorizó intervenciones sobre los casos "
+            "con mayor nivel de riesgo para fortalecer el desempeño en el siguiente corte."
+        ),
+        "general_observations": [
+            "Fortalecer procesos de acompañamiento pedagógico y planes de mejora individual.",
+            "Dar seguimiento continuo desde dirección de grupo y orientación escolar.",
+            "Priorizar remisión al comité de apoyo pedagógico en casos de alto riesgo.",
+        ],
+        "agreed_commitments": [
+            "Docentes: implementar estrategias remediales por competencias críticas.",
+            "Directores de grupo: realizar seguimiento individual a estudiantes en riesgo.",
+            "Familias: asistir a reuniones de seguimiento y verificar cumplimiento de planes.",
+        ],
+        "institutional_commitments": [
+            "Docentes: implementar estrategias remediales por competencias críticas.",
+            "Directores de grupo: realizar seguimiento individual a estudiantes en riesgo.",
+            "Familias: asistir a reuniones de seguimiento y verificar cumplimiento de planes.",
+        ],
+    }
+
+    group = commission.group
+    institution_name = getattr(getattr(commission, "institution", None), "name", "") or "Institución Educativa"
+    grade_name = getattr(getattr(group, "grade", None), "name", "") if group else ""
+    group_name = getattr(group, "name", "") if group else ""
+    grade_group_label = f"{grade_name} ({group_name})" if grade_name and group_name else (grade_name or group_name or "General")
+    period_name = getattr(getattr(commission, "period", None), "name", "") if commission.period_id else "Cierre anual"
+    total_students = commission.student_decisions.count()
+    flagged_count = commission.student_decisions.filter(is_flagged=True).count()
+    pending_count = commission.student_decisions.filter(
+        is_flagged=True,
+        decision__in=["PENDING", "FOLLOW_UP"],
+    ).count()
+    reprobated_count = max(0, flagged_count - pending_count)
+
+    context = {
+        "institution_name": institution_name,
+        "commission_type": commission.commission_type,
+        "grade_group": grade_group_label,
+        "period_name": period_name,
+        "totals": {
+            "total_students": int(total_students),
+            "flagged_count": int(flagged_count),
+            "pending_count": int(pending_count),
+            "reprobated_count": int(reprobated_count),
+        },
+    }
+
+    try:
+        payload = AIService().generate_commission_group_acta_blocks(context)
+    except AIServiceError:
+        return default_payload
+    except Exception:
+        logger.exception("Unexpected error generating group commission acta AI blocks")
+        return default_payload
+
+    if not isinstance(payload, dict):
+        return default_payload
+    executive_summary = str(payload.get("executive_summary") or "").strip()
+    observations = payload.get("general_observations")
+    commitments = payload.get("agreed_commitments")
+    if not isinstance(observations, list):
+        observations = payload.get("institutional_observations")
+    if not isinstance(commitments, list):
+        commitments = payload.get("institutional_commitments")
+    if not executive_summary or not isinstance(observations, list) or not isinstance(commitments, list):
+        return default_payload
+
+    clean_observations = [str(item).strip() for item in observations if str(item).strip()]
+    clean_commitments = [str(item).strip() for item in commitments if str(item).strip()]
+    if not clean_observations or not clean_commitments:
+        return default_payload
+
+    return {
+        "executive_summary": executive_summary,
+        "general_observations": clean_observations,
+        "agreed_commitments": clean_commitments,
+        "institutional_commitments": clean_commitments,
+    }
 
 
 def _safe_join_private(root: Path, relpath: str) -> Path:
@@ -342,6 +426,22 @@ def _render_report_html(job: ReportJob) -> str:
         )
         ctx = build_commitment_acta_context(decision=decision, generated_by=job.created_by)
         return render_to_string("academic/reports/commission_commitment_acta.html", ctx)
+
+    if job.report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_GROUP_ACTA:
+        from academic.models import Commission  # noqa: PLC0415
+
+        commission_id = (job.params or {}).get("commission_id")
+        commission = (
+            Commission.objects.select_related("institution", "academic_year", "period", "group", "group__grade", "group__director")
+            .get(id=commission_id)
+        )
+        ai_blocks = _resolve_group_acta_ai_blocks_for_job(commission=commission)
+        ctx = build_commission_group_acta_context(
+            commission=commission,
+            generated_by=job.created_by,
+            ai_blocks=ai_blocks,
+        )
+        return render_to_string("academic/reports/commission_group_acta.html", ctx)
 
     if job.report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
         from academic.models import Group  # noqa: PLC0415
@@ -1031,6 +1131,9 @@ def generate_report_job_pdf(self, job_id: int) -> None:
         elif job.report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA:
             params = job.params or {}
             out_filename = f"comision-acta-decision-{params.get('decision_id')}.pdf"
+        elif job.report_type == ReportJob.ReportType.ACADEMIC_COMMISSION_GROUP_ACTA:
+            params = job.params or {}
+            out_filename = f"comision-grupal-{params.get('commission_id')}.pdf"
         elif job.report_type == ReportJob.ReportType.ATTENDANCE_MANUAL_SHEET:
             params = job.params or {}
             out_filename = f"planilla_asistencia_grupo-{params.get('group_id')}.pdf"
