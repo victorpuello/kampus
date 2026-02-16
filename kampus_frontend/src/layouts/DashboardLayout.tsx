@@ -24,30 +24,32 @@ import { academicApi } from '../services/academic'
 import { emitNotificationsUpdated, notificationsApi, onNotificationsUpdated, type Notification } from '../services/notifications'
 import { applyThemeMode, getInitialThemeMode, resolveTheme, toggleThemeMode as toggleThemeModeUtil, type ThemeMode } from '../theme/theme'
 import { Input } from '../components/ui/Input'
+import { prefetchRouteByPath } from '../routes/prefetch'
 
 type NavigationLinkChild = { name: string; href: string }
 type NavigationGroupChild = { name: string; children: NavigationLinkChild[] }
 type NavigationChild = NavigationLinkChild | NavigationGroupChild
-type NavigationItem =
-  | {
-      name: string
-      href: string
-      icon: ComponentType<{ className?: string }>
-      badgeCount?: number
-      children?: never
-    }
+type NavigationItemLeaf = {
+  name: string
+  href: string
+  icon: ComponentType<{ className?: string }>
+  badgeCount?: number
+}
+type NavigationItemGroup = {
+  name: string
+  icon: ComponentType<{ className?: string }>
+  children: NavigationChild[]
+}
+type NavigationItem = NavigationItemLeaf | NavigationItemGroup
 
 type SidebarLink = {
   href: string
   name: string
   context: string
 }
-  | {
-      name: string
-      icon: ComponentType<{ className?: string }>
-      children: NavigationChild[]
-      href?: never
-    }
+
+const isNavigationItemGroup = (item: NavigationItem): item is NavigationItemGroup => 'children' in item
+const isNavigationChildGroup = (child: NavigationChild): child is NavigationGroupChild => 'children' in child
 
 export default function DashboardLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -181,6 +183,10 @@ export default function DashboardLayout() {
       }
       return next
     })
+  }
+
+  const handleRouteIntent = (href: string) => {
+    prefetchRouteByPath(href)
   }
 
   const focusSidebarSearch = () => {
@@ -613,58 +619,76 @@ export default function DashboardLayout() {
     const term = sidebarSearch.trim().toLowerCase()
     if (!term) return navigation
 
-    return navigation.flatMap((item) => {
-      if ('href' in item) {
-        return item.name.toLowerCase().includes(term) ? [item] : []
+    return navigation.reduce<NavigationItem[]>((acc, item) => {
+      if (!isNavigationItemGroup(item)) {
+        if (item.name.toLowerCase().includes(term)) {
+          acc.push(item)
+        }
+        return acc
       }
 
       const parentMatches = item.name.toLowerCase().includes(term)
-      if (parentMatches) return [item]
+      if (parentMatches) {
+        acc.push(item)
+        return acc
+      }
 
-      const filteredChildren: NavigationChild[] = item.children.flatMap((child) => {
-        if ('href' in child) {
-          return child.name.toLowerCase().includes(term) ? [child] : []
+      const filteredChildren = item.children.reduce<NavigationChild[]>((acc, child) => {
+        if (!isNavigationChildGroup(child)) {
+          if (child.name.toLowerCase().includes(term)) {
+            acc.push(child)
+          }
+          return acc
         }
 
         const groupMatches = child.name.toLowerCase().includes(term)
-        if (groupMatches) return [child]
+        if (groupMatches) {
+          acc.push(child)
+          return acc
+        }
 
         const filteredGrandchildren = child.children.filter((grandChild) =>
           grandChild.name.toLowerCase().includes(term)
         )
 
-        if (filteredGrandchildren.length === 0) return []
-        return [{ ...child, children: filteredGrandchildren }]
-      })
+        if (filteredGrandchildren.length > 0) {
+          acc.push({ ...child, children: filteredGrandchildren })
+        }
 
-      if (filteredChildren.length === 0) return []
-      return [{ ...item, children: filteredChildren }]
-    })
+        return acc
+      }, [])
+
+      if (filteredChildren.length > 0) {
+        acc.push({ ...item, children: filteredChildren })
+      }
+
+      return acc
+    }, [])
   }, [navigation, sidebarSearch])
 
   const sidebarLinks = useMemo<SidebarLink[]>(() => {
     const links: SidebarLink[] = []
 
     navigation.forEach((item) => {
-      if ('href' in item) {
-        links.push({ href: item.href, name: item.name, context: 'General' })
+      if (isNavigationItemGroup(item)) {
+        item.children.forEach((child) => {
+          if (!isNavigationChildGroup(child)) {
+            links.push({ href: child.href, name: child.name, context: item.name })
+            return
+          }
+
+          child.children.forEach((grandChild) => {
+            links.push({
+              href: grandChild.href,
+              name: grandChild.name,
+              context: `${item.name} / ${child.name}`,
+            })
+          })
+        })
         return
       }
 
-      item.children.forEach((child) => {
-        if ('href' in child) {
-          links.push({ href: child.href, name: child.name, context: item.name })
-          return
-        }
-
-        child.children.forEach((grandChild) => {
-          links.push({
-            href: grandChild.href,
-            name: grandChild.name,
-            context: `${item.name} / ${child.name}`,
-          })
-        })
-      })
+      links.push({ href: item.href, name: item.name, context: 'General' })
     })
 
     return links
@@ -822,6 +846,8 @@ export default function DashboardLayout() {
                     <div key={`fav-${link.href}`} className="group flex items-center gap-1">
                       <Link
                         to={link.href}
+                        onMouseEnter={() => handleRouteIntent(link.href)}
+                        onFocus={() => handleRouteIntent(link.href)}
                         onClick={() => setIsSidebarOpen(false)}
                         className={cn(
                           'flex-1 rounded-lg px-3 py-2 text-sm transition-colors',
@@ -856,7 +882,7 @@ export default function DashboardLayout() {
 
             <div className="space-y-1">
             {filteredNavigation.map((item) => {
-              if (item.children) {
+              if (isNavigationItemGroup(item)) {
                 const isExpanded = expandedMenus.includes(item.name)
                 const isActive = item.children.some((child) => isChildActive(child))
                 const menuDomId = getMenuDomId(item.name)
@@ -900,13 +926,15 @@ export default function DashboardLayout() {
                     {isExpanded && !isCollapsed && (
                       <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4 dark:border-slate-800">
                         {item.children.map((child) => {
-                          if ('href' in child) {
+                          if (!isNavigationChildGroup(child)) {
                             const active = isPathActive(child.href)
                             const isFavorite = favoritePaths.includes(child.href)
                             return (
                               <div key={child.name} className="group flex items-center gap-1">
                                 <Link
                                   to={child.href}
+                                  onMouseEnter={() => handleRouteIntent(child.href)}
+                                  onFocus={() => handleRouteIntent(child.href)}
                                   onClick={() => setIsSidebarOpen(false)}
                                   className={cn(
                                     "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
@@ -972,6 +1000,8 @@ export default function DashboardLayout() {
                                       <div key={grandChild.name} className="group flex items-center gap-1">
                                         <Link
                                           to={grandChild.href}
+                                          onMouseEnter={() => handleRouteIntent(grandChild.href)}
+                                          onFocus={() => handleRouteIntent(grandChild.href)}
                                           onClick={() => setIsSidebarOpen(false)}
                                           className={cn(
                                             "block flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors",
@@ -1021,6 +1051,8 @@ export default function DashboardLayout() {
                 <div key={item.name} className={cn('group flex items-center gap-1', isCollapsed && 'justify-center')}>
                   <Link
                     to={item.href}
+                    onMouseEnter={() => handleRouteIntent(item.href)}
+                    onFocus={() => handleRouteIntent(item.href)}
                     onClick={() => setIsSidebarOpen(false)}
                     className={cn(
                       "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",

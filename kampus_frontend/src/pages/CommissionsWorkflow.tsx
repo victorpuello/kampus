@@ -63,6 +63,30 @@ const PRECONDITION_REASON_RECOMMENDATION: Record<string, string> = {
   INCOMPLETE_GRADEBOOK: 'Diligencia los registros pendientes en las planillas incompletas.',
 }
 
+const PRECONDITION_REASON_LABEL: Record<string, string> = {
+  PERIOD_NOT_CLOSED: 'Periodo no cerrado',
+  OPEN_PERIODS_FOR_PROMOTION: 'Periodos abiertos para promoción',
+  MISSING_TEACHER_ASSIGNMENT: 'Docente sin asignación',
+  MISSING_ACHIEVEMENTS: 'Logros no configurados',
+  MISSING_GRADEBOOK: 'Planilla no creada',
+  INCOMPLETE_GRADEBOOK: 'Planilla incompleta',
+}
+
+const PRECONDITION_REASON_SEVERITY: Record<string, 'critical' | 'high' | 'medium'> = {
+  PERIOD_NOT_CLOSED: 'critical',
+  OPEN_PERIODS_FOR_PROMOTION: 'critical',
+  MISSING_TEACHER_ASSIGNMENT: 'high',
+  MISSING_ACHIEVEMENTS: 'high',
+  MISSING_GRADEBOOK: 'medium',
+  INCOMPLETE_GRADEBOOK: 'medium',
+}
+
+const PRECONDITION_SEVERITY_WEIGHT: Record<'critical' | 'high' | 'medium', number> = {
+  critical: 1,
+  high: 2,
+  medium: 3,
+}
+
 const PRECONDITION_REASON_ROUTE: Record<string, { href: string; label: string }> = {
   PERIOD_NOT_CLOSED: { href: '/academic-config', label: 'Abrir periodos' },
   OPEN_PERIODS_FOR_PROMOTION: { href: '/academic-config', label: 'Abrir periodos' },
@@ -177,6 +201,8 @@ export default function CommissionsWorkflow() {
   })
   const [form, setForm] = useState(EMPTY_FORM)
   const [preconditionsModal, setPreconditionsModal] = useState<CommissionPreconditionsPayload | null>(null)
+  const [preconditionsSearch, setPreconditionsSearch] = useState('')
+  const [expandedReasonCodes, setExpandedReasonCodes] = useState<string[]>([])
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -259,6 +285,8 @@ export default function CommissionsWorkflow() {
     return Array.from(buckets.entries())
       .map(([reasonCode, items]) => ({
         reasonCode,
+        severity: PRECONDITION_REASON_SEVERITY[reasonCode] ?? 'medium',
+        reasonLabel: PRECONDITION_REASON_LABEL[reasonCode] ?? reasonCode,
         items: [...items].sort((left, right) => {
           const leftKey = `${left.group_name}|${left.period_name}|${left.subject_name}|${left.teacher_name}`
           const rightKey = `${right.group_name}|${right.period_name}|${right.subject_name}|${right.teacher_name}`
@@ -266,27 +294,126 @@ export default function CommissionsWorkflow() {
         }),
       }))
       .sort((left, right) => {
+        const leftSeverity = PRECONDITION_SEVERITY_WEIGHT[left.severity] ?? 9
+        const rightSeverity = PRECONDITION_SEVERITY_WEIGHT[right.severity] ?? 9
+        if (leftSeverity !== rightSeverity) return leftSeverity - rightSeverity
         const leftPriority = PRECONDITION_REASON_PRIORITY[left.reasonCode] ?? 99
         const rightPriority = PRECONDITION_REASON_PRIORITY[right.reasonCode] ?? 99
         if (leftPriority !== rightPriority) return leftPriority - rightPriority
         return left.reasonCode.localeCompare(right.reasonCode, 'es-CO')
       })
   }, [preconditionsModal])
+  const filteredPreconditionGroups = useMemo(() => {
+    const term = preconditionsSearch.trim().toLowerCase()
+    if (!term) return groupedPreconditions
+
+    return groupedPreconditions
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          const haystack = [
+            group.reasonCode,
+            group.reasonLabel,
+            item.reason_message,
+            item.action_hint,
+            item.group_name,
+            item.period_name,
+            item.subject_name,
+            item.teacher_name,
+          ]
+            .join(' ')
+            .toLowerCase()
+          return haystack.includes(term)
+        }),
+      }))
+      .filter((group) => group.items.length > 0)
+  }, [groupedPreconditions, preconditionsSearch])
   const recommendedActions = useMemo(() => {
     return groupedPreconditions.map((group) => {
       const text = PRECONDITION_REASON_RECOMMENDATION[group.reasonCode] || group.items[0]?.action_hint || ''
       const route = PRECONDITION_REASON_ROUTE[group.reasonCode]
       return {
         reasonCode: group.reasonCode,
+        reasonLabel: group.reasonLabel,
+        severity: group.severity,
         text,
         href: route?.href,
         label: route?.label,
       }
-    }).filter((action) => Boolean(action.text))
+    })
+      .filter((action) => Boolean(action.text))
+      .slice(0, 3)
   }, [groupedPreconditions])
+
+  useEffect(() => {
+    if (!preconditionsModal) {
+      setPreconditionsSearch('')
+      setExpandedReasonCodes([])
+      return
+    }
+
+    const criticalCodes = groupedPreconditions
+      .filter((group) => group.severity === 'critical')
+      .map((group) => group.reasonCode)
+
+    setExpandedReasonCodes(criticalCodes)
+  }, [groupedPreconditions, preconditionsModal])
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  const getSeverityLabel = (severity: 'critical' | 'high' | 'medium') => {
+    if (severity === 'critical') return 'Crítico'
+    if (severity === 'high') return 'Alto'
+    return 'Medio'
+  }
+
+  const getSeverityClasses = (severity: 'critical' | 'high' | 'medium') => {
+    if (severity === 'critical') {
+      return 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300'
+    }
+    if (severity === 'high') {
+      return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300'
+    }
+    return 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300'
+  }
+
+  const togglePreconditionGroup = (reasonCode: string) => {
+    setExpandedReasonCodes((prev) => (
+      prev.includes(reasonCode) ? prev.filter((code) => code !== reasonCode) : [...prev, reasonCode]
+    ))
+  }
+
+  const copyPreconditionsSummary = async () => {
+    if (!preconditionsModal) return
+
+    const lines: string[] = [
+      'Prerequisitos incumplidos para crear comisión',
+      `Bloqueos: ${preconditionsModal.summary?.total_blocking_items ?? preconditionsModal.blocking_items.length}`,
+      `Grupos evaluados: ${preconditionsModal.summary?.total_groups_evaluated ?? 'N/D'}`,
+      '',
+    ]
+
+    groupedPreconditions.forEach((group) => {
+      lines.push(`${group.reasonLabel} (${group.items.length})`)
+      group.items.slice(0, 5).forEach((item) => {
+        const detail = [
+          item.group_name ? `grupo ${item.group_name}` : '',
+          item.period_name ? `periodo ${item.period_name}` : '',
+          item.subject_name ? `asignatura ${item.subject_name}` : '',
+        ].filter(Boolean).join(', ')
+        lines.push(`- ${item.reason_message}${detail ? ` (${detail})` : ''}`)
+      })
+      lines.push('')
+    })
+
+    try {
+      await navigator.clipboard.writeText(lines.join('\n').trim())
+      showToast('Resumen copiado al portapapeles', 'success')
+    } catch {
+      showToast('No se pudo copiar el resumen', 'error')
+    }
   }
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -737,93 +864,144 @@ export default function CommissionsWorkflow() {
       />
 
       {preconditionsModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-4xl rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:p-6">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">Prerequisitos pendientes</h3>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{preconditionsModal.message}</p>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setPreconditionsModal(null)}>
-                Cerrar
-              </Button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-2 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-3">
-              <div className="rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <p className="font-medium">Bloqueos</p>
-                <p>{preconditionsModal.summary?.total_blocking_items ?? preconditionsModal.blocking_items.length}</p>
-              </div>
-              <div className="rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <p className="font-medium">Grupos evaluados</p>
-                <p>{preconditionsModal.summary?.total_groups_evaluated ?? '—'}</p>
-              </div>
-              <div className="rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700">
-                <p className="font-medium">Tipos de bloqueo</p>
-                <p>{Object.keys(preconditionsModal.summary?.reasons_count || {}).length}</p>
-              </div>
-            </div>
-
-            {recommendedActions.length > 0 ? (
-              <div className="mt-4 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                <p className="text-xs font-medium text-slate-700 dark:text-slate-200">Acciones recomendadas (priorizadas)</p>
-                <ul className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-300">
-                  {recommendedActions.map((action) => (
-                    <li key={`${action.reasonCode}-${action.text}`} className="flex flex-wrap items-center gap-2">
-                      <span>• {action.text}</span>
-                      {action.href && action.label ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setPreconditionsModal(null)
-                            navigate(action.href)
-                          }}
-                        >
-                          {action.label}
-                        </Button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <div className="mt-4 max-h-[55vh] space-y-3 overflow-y-auto pr-1">
-              {groupedPreconditions.map((group) => (
-                <div key={`precondition-group-${group.reasonCode}`} className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
-                    <span className="rounded-full border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-700 dark:border-slate-600 dark:text-slate-200">
-                      {group.reasonCode}
-                    </span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{group.items.length} caso(s)</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {group.items.map((item, index) => (
-                      <div key={`${item.reason_code}-${item.group_name}-${item.subject_name}-${item.period_name}-${index}`} className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          {item.group_name ? <span>Grupo: {item.group_name}</span> : null}
-                          {item.period_name ? <span>Periodo: {item.period_name}</span> : null}
-                          {item.subject_name ? <span>Asignatura: {item.subject_name}</span> : null}
-                          {item.teacher_name ? <span>Docente: {item.teacher_name}</span> : null}
-                        </div>
-                        <p className="mt-2 text-sm text-slate-800 dark:text-slate-100">{item.reason_message}</p>
-                        {item.meta?.filled !== undefined && item.meta?.total !== undefined ? (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                            Avance registrado: {item.meta.filled}/{item.meta.total}
-                          </p>
-                        ) : null}
-                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Acción sugerida: {item.action_hint}</p>
-                      </div>
-                    ))}
-                  </div>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+          <div className="flex h-[92vh] w-full max-w-5xl flex-col rounded-t-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:h-auto sm:max-h-[90vh] sm:rounded-xl">
+            <div className="sticky top-0 z-10 border-b border-slate-200 bg-white px-4 py-4 dark:border-slate-700 dark:bg-slate-900 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">No se puede crear la comisión</h3>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{preconditionsModal.message}</p>
                 </div>
-              ))}
+                <Button variant="outline" size="sm" onClick={() => setPreconditionsModal(null)}>
+                  Cerrar
+                </Button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                  <p className="text-slate-500 dark:text-slate-400">Bloqueos</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {preconditionsModal.summary?.total_blocking_items ?? preconditionsModal.blocking_items.length}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                  <p className="text-slate-500 dark:text-slate-400">Tipos</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {Object.keys(preconditionsModal.summary?.reasons_count || {}).length}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                  <p className="text-slate-500 dark:text-slate-400">Grupos</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {preconditionsModal.summary?.total_groups_evaluated ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                  <p className="text-slate-500 dark:text-slate-400">Filtrados</p>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{filteredPreconditionGroups.length}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={preconditionsSearch}
+                  onChange={(event) => setPreconditionsSearch(event.target.value)}
+                  placeholder="Buscar por motivo, grupo, asignatura o docente"
+                  className="h-10"
+                />
+                {preconditionsSearch ? (
+                  <Button variant="outline" size="sm" onClick={() => setPreconditionsSearch('')} className="min-h-10 sm:min-h-0">
+                    Limpiar
+                  </Button>
+                ) : null}
+              </div>
             </div>
 
-            <div className="mt-4 flex justify-end">
-              <Button onClick={() => setPreconditionsModal(null)}>
+            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-6">
+              {recommendedActions.length > 0 ? (
+                <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-200">Acciones recomendadas</p>
+                  <ul className="mt-2 space-y-2 text-xs text-slate-600 dark:text-slate-300">
+                    {recommendedActions.map((action) => (
+                      <li key={`${action.reasonCode}-${action.text}`} className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full border px-2 py-0.5 font-medium ${getSeverityClasses(action.severity)}`}>
+                          {getSeverityLabel(action.severity)}
+                        </span>
+                        <span>{action.text}</span>
+                        {action.href && action.label ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setPreconditionsModal(null)
+                              navigate(action.href)
+                            }}
+                          >
+                            {action.label}
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {filteredPreconditionGroups.length === 0 ? (
+                <div className="rounded-md border border-slate-200 p-4 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                  No hay bloqueos que coincidan con tu búsqueda.
+                </div>
+              ) : filteredPreconditionGroups.map((group) => {
+                const isExpanded = expandedReasonCodes.includes(group.reasonCode)
+                return (
+                  <div key={`precondition-group-${group.reasonCode}`} className="rounded-md border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => togglePreconditionGroup(group.reasonCode)}
+                      className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-3 text-left"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${getSeverityClasses(group.severity)}`}>
+                          {getSeverityLabel(group.severity)}
+                        </span>
+                        <span className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">{group.reasonLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                        <span>{group.items.length} caso(s)</span>
+                        <span>{isExpanded ? '▲' : '▼'}</span>
+                      </div>
+                    </button>
+
+                    {isExpanded ? (
+                      <div className="space-y-2 border-t border-slate-200 px-3 py-3 dark:border-slate-700">
+                        {group.items.map((item, index) => (
+                          <div key={`${item.reason_code}-${item.group_name}-${item.subject_name}-${item.period_name}-${index}`} className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">
+                              {item.group_name ? <span>Grupo: {item.group_name}</span> : null}
+                              {item.period_name ? <span>Periodo: {item.period_name}</span> : null}
+                              {item.subject_name ? <span>Asignatura: {item.subject_name}</span> : null}
+                              {item.teacher_name ? <span>Docente: {item.teacher_name}</span> : null}
+                            </div>
+                            <p className="mt-2 text-sm text-slate-800 dark:text-slate-100">{item.reason_message}</p>
+                            {item.meta?.filled !== undefined && item.meta?.total !== undefined ? (
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                Avance registrado: {item.meta.filled}/{item.meta.total}
+                              </p>
+                            ) : null}
+                            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Acción sugerida: {item.action_hint}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="sticky bottom-0 z-10 flex flex-col-reverse gap-2 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:justify-between sm:px-6">
+              <Button variant="outline" onClick={() => void copyPreconditionsSummary()} className="w-full sm:w-auto">
+                Copiar resumen
+              </Button>
+              <Button onClick={() => setPreconditionsModal(null)} className="w-full sm:w-auto">
                 Entendido
               </Button>
             </div>

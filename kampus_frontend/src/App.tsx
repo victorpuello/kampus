@@ -1,74 +1,77 @@
 import './App.css'
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
-import Login from './pages/Login'
-import StudentList from './pages/StudentList'
-import StudentForm from './pages/StudentForm'
-import StudentObserverPrint from './pages/StudentObserverPrint'
-import StudentStudyCertificationPrint from './pages/StudentStudyCertificationPrint'
-import TeacherList from './pages/TeacherList'
-import TeacherForm from './pages/TeacherForm'
-import UserList from './pages/UserList'
-import UserForm from './pages/UserForm'
-import AcademicConfigPanel from './pages/AcademicConfigPanel'
-import InstitutionSettings from './pages/InstitutionSettings'
-import CampusList from './pages/CampusList'
-import CampusForm from './pages/CampusForm'
 import DashboardLayout from './layouts/DashboardLayout'
-import DashboardHome from './pages/DashboardHome'
-import EnrollmentList from './pages/enrollments/EnrollmentList'
-import EnrollmentWizard from './pages/enrollments/EnrollmentWizard'
-import EnrollmentExisting from './pages/enrollments/EnrollmentExisting'
-import EnrollmentReports from './pages/enrollments/EnrollmentReports'
-import EnrollmentBulkUpload from './pages/enrollments/EnrollmentBulkUpload'
-import PlanningModule from './pages/planning/PlanningModule'
-import RbacSettings from './pages/RbacSettings'
 import SeoManager from './components/SeoManager'
-import Grades from './pages/Grades'
-import PreschoolGrades from './pages/PreschoolGrades'
-import PreschoolGradebook from './pages/PreschoolGradebook'
-import TeacherAssignments from './pages/TeacherAssignments'
-import NotificationsPage from './pages/Notifications'
-import GradeEditRequests from './pages/GradeEditRequests'
-import PlanningEditRequests from './pages/PlanningEditRequests'
-import AccountSettings from './pages/AccountSettings'
-import DisciplineCases from './pages/DisciplineCases'
-import DisciplineCaseDetail from './pages/DisciplineCaseDetail'
-import PapPlans from './pages/PapPlans'
-import PromotionWorkflow from './pages/PromotionWorkflow'
-import CommissionsWorkflow from './pages/CommissionsWorkflow'
-import TeacherStatistics from './pages/TeacherStatistics'
-import DirectorCompliance from './pages/DirectorCompliance'
-import SystemSettings from './pages/SystemSettings'
-import AdministrativeCertificates from './pages/AdministrativeCertificates'
-import AdministrativeCertificatesPreview from './pages/AdministrativeCertificatesPreview'
-import AdministrativeCertificatesRevenue from './pages/AdministrativeCertificatesRevenue'
-import AttendanceHome from './pages/attendance/AttendanceHome'
-import AttendanceDeletionRequests from './pages/attendance/AttendanceDeletionRequests'
-import AttendanceSession from './pages/attendance/AttendanceSession'
-import AttendanceStats from './pages/attendance/AttendanceStats'
-import GroupsManagement from './pages/GroupsManagement'
-import GroupStudents from './pages/groups/GroupStudents'
-import PublicCertificateVerify from './pages/PublicCertificateVerify'
-import NoveltiesInbox from './pages/NoveltiesInbox'
-import NoveltyCaseDetail from './pages/NoveltyCaseDetail'
-import NoveltyCaseNew from './pages/NoveltyCaseNew'
+
+const Login = lazy(() => import('./pages/Login'))
+const StudentList = lazy(() => import('./pages/StudentList'))
+const StudentForm = lazy(() => import('./pages/StudentForm'))
+const StudentObserverPrint = lazy(() => import('./pages/StudentObserverPrint'))
+const StudentStudyCertificationPrint = lazy(() => import('./pages/StudentStudyCertificationPrint'))
+const TeacherList = lazy(() => import('./pages/TeacherList'))
+const TeacherForm = lazy(() => import('./pages/TeacherForm'))
+const UserList = lazy(() => import('./pages/UserList'))
+const UserForm = lazy(() => import('./pages/UserForm'))
+const AcademicConfigPanel = lazy(() => import('./pages/AcademicConfigPanel'))
+const InstitutionSettings = lazy(() => import('./pages/InstitutionSettings'))
+const CampusList = lazy(() => import('./pages/CampusList'))
+const CampusForm = lazy(() => import('./pages/CampusForm'))
+const DashboardHome = lazy(() => import('./pages/DashboardHome'))
+const EnrollmentList = lazy(() => import('./pages/enrollments/EnrollmentList'))
+const EnrollmentWizard = lazy(() => import('./pages/enrollments/EnrollmentWizard'))
+const EnrollmentExisting = lazy(() => import('./pages/enrollments/EnrollmentExisting'))
+const EnrollmentReports = lazy(() => import('./pages/enrollments/EnrollmentReports'))
+const EnrollmentBulkUpload = lazy(() => import('./pages/enrollments/EnrollmentBulkUpload'))
+const PlanningModule = lazy(() => import('./pages/planning/PlanningModule'))
+const RbacSettings = lazy(() => import('./pages/RbacSettings'))
+const Grades = lazy(() => import('./pages/Grades'))
+const PreschoolGrades = lazy(() => import('./pages/PreschoolGrades'))
+const PreschoolGradebook = lazy(() => import('./pages/PreschoolGradebook'))
+const TeacherAssignments = lazy(() => import('./pages/TeacherAssignments'))
+const NotificationsPage = lazy(() => import('./pages/Notifications'))
+const GradeEditRequests = lazy(() => import('./pages/GradeEditRequests'))
+const PlanningEditRequests = lazy(() => import('./pages/PlanningEditRequests'))
+const AccountSettings = lazy(() => import('./pages/AccountSettings'))
+const DisciplineCases = lazy(() => import('./pages/DisciplineCases'))
+const DisciplineCaseDetail = lazy(() => import('./pages/DisciplineCaseDetail'))
+const PapPlans = lazy(() => import('./pages/PapPlans'))
+const PromotionWorkflow = lazy(() => import('./pages/PromotionWorkflow'))
+const CommissionsWorkflow = lazy(() => import('./pages/CommissionsWorkflow'))
+const TeacherStatistics = lazy(() => import('./pages/TeacherStatistics'))
+const DirectorCompliance = lazy(() => import('./pages/DirectorCompliance'))
+const SystemSettings = lazy(() => import('./pages/SystemSettings'))
+const AdministrativeCertificates = lazy(() => import('./pages/AdministrativeCertificates'))
+const AdministrativeCertificatesPreview = lazy(() => import('./pages/AdministrativeCertificatesPreview'))
+const AdministrativeCertificatesRevenue = lazy(() => import('./pages/AdministrativeCertificatesRevenue'))
+const AttendanceHome = lazy(() => import('./pages/attendance/AttendanceHome'))
+const AttendanceDeletionRequests = lazy(() => import('./pages/attendance/AttendanceDeletionRequests'))
+const AttendanceSession = lazy(() => import('./pages/attendance/AttendanceSession'))
+const AttendanceStats = lazy(() => import('./pages/attendance/AttendanceStats'))
+const GroupsManagement = lazy(() => import('./pages/GroupsManagement'))
+const GroupStudents = lazy(() => import('./pages/groups/GroupStudents'))
+const PublicCertificateVerify = lazy(() => import('./pages/PublicCertificateVerify'))
+const NoveltiesInbox = lazy(() => import('./pages/NoveltiesInbox'))
+const NoveltyCaseDetail = lazy(() => import('./pages/NoveltyCaseDetail'))
+const NoveltyCaseNew = lazy(() => import('./pages/NoveltyCaseNew'))
 
 export default function App() {
   return (
     <BrowserRouter>
       <SeoManager />
-      <Routes>
-        <Route path="/login" element={<Login />} />
+      <Suspense fallback={<div className="p-4 text-sm text-slate-600 dark:text-slate-300">Cargando...</div>}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
 
-        {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
-        <Route path="/public/certificates/:uuid" element={<PublicCertificateVerify />} />
-        <Route path="/public/certificates/:uuid/verify" element={<PublicCertificateVerify />} />
-        
-        <Route element={<ProtectedRoute />}>
-          <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
-          <Route path="/students/:id/certifications/study/print" element={<StudentStudyCertificationPrint />} />
-          <Route element={<DashboardLayout />}>
+          {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
+          <Route path="/public/certificates/:uuid" element={<PublicCertificateVerify />} />
+          <Route path="/public/certificates/:uuid/verify" element={<PublicCertificateVerify />} />
+
+          <Route element={<ProtectedRoute />}>
+            <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
+            <Route path="/students/:id/certifications/study/print" element={<StudentStudyCertificationPrint />} />
+            <Route element={<DashboardLayout />}>
             <Route path="/" element={<DashboardHome />} />
             <Route path="/my-assignment" element={<TeacherAssignments />} />
             <Route path="/students" element={<StudentList />} />
@@ -118,10 +121,11 @@ export default function App() {
             <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />
             <Route path="/administrativos/certificados/preview" element={<AdministrativeCertificatesPreview />} />
             <Route path="/administrativos/certificados/ingresos" element={<AdministrativeCertificatesRevenue />} />
-            <Route path="/system" element={<SystemSettings />} />
+              <Route path="/system" element={<SystemSettings />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }
