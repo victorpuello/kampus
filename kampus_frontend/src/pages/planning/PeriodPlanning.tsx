@@ -23,6 +23,19 @@ export default function PeriodPlanning() {
     if (detail != null) return String(detail)
     return undefined
   }
+
+  const normalizeAchievementText = (text: string): string =>
+    text.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+
+  const retryOnceSilently = async <T,>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return await operation()
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 350))
+      return operation()
+    }
+  }
+
   const [years, setYears] = useState<AcademicYear[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -124,6 +137,7 @@ export default function PeriodPlanning() {
   });
 
   const [generatingAI, setGeneratingAI] = useState(false);
+  const [improvingDescriptionAI, setImprovingDescriptionAI] = useState(false)
 
   const loadInitialData = useCallback(async () => {
     try {
@@ -293,7 +307,13 @@ export default function PeriodPlanning() {
     refreshPlanningGrants()
   }, [refreshPlanningGrants])
 
-  const handleDefinitionChange = (defId: number) => {
+  const handleDefinitionChange = (rawDefId: string) => {
+    if (!rawDefId) {
+      setFormData(prev => ({ ...prev, definitionId: '' }))
+      return
+    }
+
+    const defId = Number(rawDefId)
     const def = definitions.find(d => d.id === defId);
     if (def) {
       setFormData(prev => ({ ...prev, definitionId: defId, description: def.description }));
@@ -329,6 +349,73 @@ export default function PeriodPlanning() {
     }
   };
 
+  const handleImproveDescriptionWithAI = async () => {
+    const description = formData.description.trim()
+    if (!description) return
+
+    setImprovingDescriptionAI(true)
+    try {
+      const res = await academicApi.improveAchievementWording(description)
+      setFormData((prev) => ({ ...prev, description: res.data.improved_text }))
+    } catch (error) {
+      console.error('Error improving description with AI', error)
+    } finally {
+      setImprovingDescriptionAI(false)
+    }
+  }
+
+  const syncDescriptionWithAchievementBank = useCallback(async (description: string) => {
+    const normalizedDescription = normalizeAchievementText(description)
+    if (!normalizedDescription || !selectedGrade || !selectedSubject || !formData.dimensionId) return
+
+    const gradeId = Number(selectedGrade)
+    const subjectId = Number(selectedSubject)
+    const dimensionId = Number(formData.dimensionId)
+    const selectedDefinitionId = formData.definitionId ? Number(formData.definitionId) : null
+    const selectedDefinition = selectedDefinitionId
+      ? definitions.find((d) => d.id === selectedDefinitionId)
+      : null
+
+    if (selectedDefinition) {
+      const wasEdited = normalizeAchievementText(selectedDefinition.description) !== normalizedDescription
+      if (!wasEdited) return
+
+      const updated = await retryOnceSilently(() =>
+        academicApi.updateAchievementDefinition(selectedDefinition.id, {
+          description,
+          dimension: dimensionId,
+          is_active: true,
+        })
+      )
+      setDefinitions((prev) => prev.map((d) => (d.id === updated.data.id ? updated.data : d)))
+      return
+    }
+
+    const alreadyExists = definitions.some(
+      (d) =>
+        d.grade === gradeId &&
+        d.subject === subjectId &&
+        d.dimension === dimensionId &&
+        normalizeAchievementText(d.description) === normalizedDescription
+    )
+    if (alreadyExists) return
+
+    const selectedSubjectObj = subjects.find((s) => s.id === subjectId)
+    if (!selectedSubjectObj) return
+
+    const created = await retryOnceSilently(() =>
+      academicApi.createAchievementDefinition({
+        description,
+        area: selectedSubjectObj.area,
+        grade: gradeId,
+        subject: subjectId,
+        dimension: dimensionId,
+        is_active: true,
+      })
+    )
+    setDefinitions((prev) => [created.data, ...prev.filter((d) => d.id !== created.data.id)])
+  }, [definitions, formData.definitionId, formData.dimensionId, selectedGrade, selectedSubject, subjects])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPeriod || !selectedSubject || !selectedGroup) return;
@@ -347,6 +434,8 @@ export default function PeriodPlanning() {
     }
 
     try {
+      const sanitizedDescription = formData.description.trim()
+
       // 1. Create Achievement with Indicators (Atomic)
       await academicApi.createAchievement({
         period: Number(selectedPeriod),
@@ -354,10 +443,16 @@ export default function PeriodPlanning() {
         group: Number(selectedGroup),
         definition: formData.definitionId ? Number(formData.definitionId) : null,
         dimension: formData.dimensionId ? Number(formData.dimensionId) : undefined,
-        description: formData.description,
+        description: sanitizedDescription,
         percentage: formData.percentage,
         indicators: formData.indicators // Send indicators nested
       });
+
+      try {
+        await syncDescriptionWithAchievementBank(sanitizedDescription)
+      } catch (bankSyncError) {
+        console.error('Achievement bank sync failed after retry', bankSyncError)
+      }
 
       setShowForm(false);
       setFormData({
@@ -675,7 +770,7 @@ export default function PeriodPlanning() {
                       <select 
                         className="h-11 w-full rounded-lg border-slate-300 bg-white text-slate-900 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                         value={formData.definitionId}
-                        onChange={e => handleDefinitionChange(Number(e.target.value))}
+                        onChange={e => handleDefinitionChange(e.target.value)}
                         disabled={!formData.dimensionId}
                       >
                         <option value="">
@@ -708,7 +803,17 @@ export default function PeriodPlanning() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1">Descripción del Logro</label>
+                    <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Descripción del Logro</label>
+                      <button
+                        type="button"
+                        onClick={handleImproveDescriptionWithAI}
+                        disabled={improvingDescriptionAI || !formData.description.trim()}
+                        className="w-full sm:w-auto text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full flex items-center justify-center gap-1.5 hover:bg-purple-200 font-medium transition-colors disabled:opacity-50"
+                      >
+                        <Wand2 size={14} /> {improvingDescriptionAI ? 'Mejorando...' : 'Mejorar con IA'}
+                      </button>
+                    </div>
                     <textarea 
                       required
                       rows={3}
