@@ -156,7 +156,7 @@ export default function EnrollmentWizard() {
           <CardTitle>Nueva Matrícula</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para crear matrículas.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para crear matrículas.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -276,17 +276,17 @@ export default function EnrollmentWizard() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto justify-start">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <Button variant="ghost" size="sm" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="min-h-11 w-full justify-start sm:w-auto">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
           Nueva Matrícula
         </h2>
       </div>
 
-      <div className="sm:hidden text-sm text-slate-600">
+      <div className="text-sm text-slate-600 dark:text-slate-300 sm:hidden">
         Paso {currentStep} de {STEPS.length} — {STEPS[Math.min(Math.max(currentStep - 1, 0), STEPS.length - 1)].title}
       </div>
 
@@ -298,20 +298,22 @@ export default function EnrollmentWizard() {
       />
 
       {/* Steps Indicator */}
-      <div className="bg-white rounded-lg shadow-sm overflow-x-auto">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-6 px-4 sm:px-10 py-4 min-w-max">
           {STEPS.map((step, index) => (
             <div key={step.id} className="flex items-center">
             <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
-              currentStep >= step.id ? 'border-blue-600 bg-blue-50 text-blue-600' : 'border-slate-300 text-slate-300'
+              currentStep >= step.id
+                ? 'border-blue-600 bg-blue-50 text-blue-600 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-300'
+                : 'border-slate-300 text-slate-300 dark:border-slate-700 dark:text-slate-500'
             }`}>
               {currentStep > step.id ? <Check className="w-6 h-6" /> : <step.icon className="w-5 h-5" />}
             </div>
-            <span className={`ml-3 font-medium hidden sm:inline ${currentStep >= step.id ? 'text-blue-900' : 'text-slate-400'}`}>
+            <span className={`ml-3 font-medium hidden sm:inline ${currentStep >= step.id ? 'text-blue-900 dark:text-blue-300' : 'text-slate-400 dark:text-slate-500'}`}>
               {step.title}
             </span>
             {index < STEPS.length - 1 && (
-              <div className={`w-10 sm:w-24 h-0.5 mx-3 sm:mx-4 ${currentStep > step.id ? 'bg-blue-600' : 'bg-slate-200'}`} />
+              <div className={`w-10 sm:w-24 h-0.5 mx-3 sm:mx-4 ${currentStep > step.id ? 'bg-blue-600 dark:bg-blue-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
             )}
             </div>
           ))}
@@ -326,7 +328,7 @@ export default function EnrollmentWizard() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleStudentSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Nombres</Label>
                   <Input 
@@ -346,7 +348,7 @@ export default function EnrollmentWizard() {
                 <div className="space-y-2">
                   <Label>Tipo Documento</Label>
                   <select 
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                     value={studentData.document_type}
                     onChange={e => setStudentData({...studentData, document_type: e.target.value})}
                   >
@@ -379,7 +381,7 @@ export default function EnrollmentWizard() {
                     onChange={e => setStudentData({...studentData, phone: e.target.value})} 
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2 lg:col-span-2">
                   <Label>Dirección</Label>
                   <Input 
                     value={studentData.address} 
@@ -387,7 +389,7 @@ export default function EnrollmentWizard() {
                   />
                 </div>
                 {/* Photo Upload Placeholder */}
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2 lg:col-span-2">
                     <Label>Foto del Estudiante (Opcional)</Label>
                     <Input 
                         type="file" 
@@ -400,8 +402,8 @@ export default function EnrollmentWizard() {
                     />
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row sm:justify-end pt-4">
-                <Button type="submit" disabled={loading} className="w-full sm:w-auto">
+              <div className="flex flex-col pt-4 sm:flex-row sm:justify-end">
+                <Button type="submit" disabled={loading} className="min-h-11 w-full sm:w-auto">
                   {loading ? 'Guardando...' : 'Siguiente'}
                 </Button>
               </div>
@@ -417,9 +419,9 @@ export default function EnrollmentWizard() {
             <CardTitle>Carga de Documentos</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="bg-blue-50 border border-blue-200 rounded-md p-4 flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
-              <div className="text-sm text-blue-800">
+            <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
+              <AlertCircle className="mt-0.5 h-5 w-5 text-blue-600 dark:text-blue-300" />
+              <div className="text-sm text-blue-800 dark:text-blue-200">
                 <p className="font-medium">Instrucciones de carga:</p>
                 <ul className="list-disc list-inside mt-1 space-y-1">
                   <li>Formatos permitidos: <strong>PDF, JPG, PNG</strong>.</li>
@@ -429,7 +431,7 @@ export default function EnrollmentWizard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               {documents.map((doc, index) => (
                 <div key={doc.type} className="border rounded-lg p-4 space-y-3">
                   <div className="flex justify-between items-start">
@@ -439,7 +441,7 @@ export default function EnrollmentWizard() {
                        doc.type === 'EPS' ? 'Certificado EPS' :
                        'Certificado Académico'}
                     </Label>
-                    {doc.uploaded && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">Cargado</span>}
+                    {doc.uploaded && <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">Cargado</span>}
                   </div>
                   
                   <div className="space-y-2">
@@ -464,7 +466,7 @@ export default function EnrollmentWizard() {
                     
                     {/* Progress Bar */}
                     {doc.file && !doc.uploaded && (
-                      <div className="w-full bg-slate-200 rounded-full h-2.5">
+                      <div className="h-2.5 w-full rounded-full bg-slate-200 dark:bg-slate-700">
                         <div 
                           className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
                           style={{ width: `${doc.progress}%` }}
@@ -473,15 +475,15 @@ export default function EnrollmentWizard() {
                     )}
                     
                     {doc.file && !doc.uploaded && doc.progress > 0 && (
-                      <p className="text-xs text-slate-500 text-right">{doc.progress}%</p>
+                      <p className="text-right text-xs text-slate-500 dark:text-slate-400">{doc.progress}%</p>
                     )}
                   </div>
                 </div>
               ))}
             </div>
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(1)} className="w-full sm:w-auto">Atrás</Button>
-              <Button onClick={handleDocumentUpload} disabled={loading} className="w-full sm:w-auto">
+            <div className="flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+              <Button variant="outline" onClick={() => setCurrentStep(1)} className="min-h-11 w-full sm:w-auto">Atrás</Button>
+              <Button onClick={handleDocumentUpload} disabled={loading} className="min-h-11 w-full sm:w-auto">
                 {loading ? 'Procesando...' : 'Siguiente'}
               </Button>
             </div>
@@ -496,11 +498,11 @@ export default function EnrollmentWizard() {
             <CardTitle>Datos de Matrícula</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label>Año Académico</Label>
                 <select 
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={academicData.academic_year}
                   onChange={e => setAcademicData({...academicData, academic_year: e.target.value})}
                 >
@@ -513,7 +515,7 @@ export default function EnrollmentWizard() {
               <div className="space-y-2">
                 <Label>Grado</Label>
                 <select 
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={academicData.grade}
                   onChange={e => setAcademicData({...academicData, grade: e.target.value, group: ''})}
                 >
@@ -534,7 +536,7 @@ export default function EnrollmentWizard() {
               <div className="space-y-2">
                 <Label>Grupo</Label>
                 <select 
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={academicData.group}
                   onChange={e => setAcademicData({...academicData, group: e.target.value})}
                   disabled={!academicData.grade || !academicData.academic_year}
@@ -548,9 +550,9 @@ export default function EnrollmentWizard() {
                 </select>
               </div>
             </div>
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-2 pt-4">
-              <Button variant="outline" onClick={() => setCurrentStep(2)} className="w-full sm:w-auto">Atrás</Button>
-              <Button onClick={handleEnrollmentSubmit} disabled={loading} className="w-full sm:w-auto">
+            <div className="flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-between">
+              <Button variant="outline" onClick={() => setCurrentStep(2)} className="min-h-11 w-full sm:w-auto">Atrás</Button>
+              <Button onClick={handleEnrollmentSubmit} disabled={loading} className="min-h-11 w-full sm:w-auto">
                 {loading ? 'Matricular' : 'Finalizar Matrícula'}
               </Button>
             </div>

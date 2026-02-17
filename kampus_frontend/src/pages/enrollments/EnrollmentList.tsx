@@ -217,7 +217,7 @@ export default function EnrollmentList() {
   return (
     <div className="space-y-6">
       {/* Header Section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-3 mb-2">
             <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
@@ -227,20 +227,20 @@ export default function EnrollmentList() {
           </div>
           <p className="text-slate-500 dark:text-slate-400">Gestión de matrículas académicas</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <Button variant="outline" onClick={() => navigate('/enrollments/reports')} className="w-full sm:w-auto">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-4">
+          <Button variant="outline" onClick={() => navigate('/enrollments/reports')} className="min-h-11 w-full lg:w-auto">
             <FileText className="mr-2 h-4 w-4" />
             Reportes
           </Button>
-          <Button variant="outline" onClick={() => navigate('/enrollments/bulk-upload')} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={() => navigate('/enrollments/bulk-upload')} className="min-h-11 w-full lg:w-auto">
             <Upload className="mr-2 h-4 w-4" />
             Carga masiva
           </Button>
-          <Button variant="outline" onClick={() => navigate('/enrollments/existing')} className="w-full sm:w-auto">
+          <Button variant="outline" onClick={() => navigate('/enrollments/existing')} className="min-h-11 w-full lg:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Matricular Antiguo
           </Button>
-          <Button onClick={() => navigate('/enrollments/new')} className="w-full sm:w-auto">
+          <Button onClick={() => navigate('/enrollments/new')} className="min-h-11 w-full lg:w-auto">
             <Plus className="mr-2 h-4 w-4" />
             Nueva Matrícula
           </Button>
@@ -248,7 +248,7 @@ export default function EnrollmentList() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
@@ -296,10 +296,10 @@ export default function EnrollmentList() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4 justify-between">
-            <div className="w-full sm:w-64">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="w-full lg:w-64">
               <select
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
               >
@@ -308,7 +308,7 @@ export default function EnrollmentList() {
                 ))}
               </select>
             </div>
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full lg:w-64">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-400" />
               <Input
                 placeholder="Buscar estudiante..."
@@ -324,7 +324,7 @@ export default function EnrollmentList() {
         </CardHeader>
         <CardContent>
           {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
+          <div className="xl:hidden space-y-3 sm:space-y-4">
             {loading ? (
               <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                 Cargando matrículas…
@@ -546,7 +546,7 @@ export default function EnrollmentList() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
+          <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
             <table className="w-full text-sm">
               <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -810,16 +810,16 @@ export default function EnrollmentList() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4">
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -835,13 +835,14 @@ export default function EnrollmentList() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={!hasPrevious || page <= 1}
               >
                 Anterior
               </Button>
 
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden lg:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
                     <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
@@ -852,6 +853,7 @@ export default function EnrollmentList() {
                       key={p}
                       variant={p === page ? 'secondary' : 'outline'}
                       size="sm"
+                      className="min-h-11 min-w-11"
                       onClick={() => setPage(p)}
                       aria-current={p === page ? 'page' : undefined}
                     >
@@ -864,6 +866,7 @@ export default function EnrollmentList() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => p + 1)}
                 disabled={!hasNext}
               >

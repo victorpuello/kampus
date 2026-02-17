@@ -256,7 +256,7 @@ export default function RbacSettings() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6" aria-busy={loading || saving}>
+    <div className="mx-auto max-w-5xl space-y-6" aria-busy={loading || saving}>
       <a
         href="#rbac-permissions"
         className="sr-only focus:not-sr-only focus:inline-block focus:rounded focus:border focus:border-slate-300 focus:bg-white focus:px-3 focus:py-2 dark:focus:border-slate-700 dark:focus:bg-slate-900 dark:focus:text-slate-100"
@@ -275,7 +275,7 @@ export default function RbacSettings() {
         onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
       />
 
-      <div>
+      <div className="space-y-1">
         <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Permisos (RBAC)</h2>
         <p className="text-slate-500 dark:text-slate-400">Asigna permisos por rol y excepciones por usuario.</p>
       </div>
@@ -285,12 +285,12 @@ export default function RbacSettings() {
           <CardTitle className="text-slate-900 dark:text-slate-100">Modo</CardTitle>
         </CardHeader>
         <CardContent>
-          <fieldset className="grid grid-cols-1 sm:grid-cols-2 gap-2" aria-describedby="rbac-mode-help">
+          <fieldset className="grid grid-cols-1 gap-2 lg:grid-cols-2" aria-describedby="rbac-mode-help">
             <legend className="sr-only">Modo de asignación</legend>
             <Button
               type="button"
               variant={mode === 'role' ? 'default' : 'outline'}
-              className="w-full"
+              className="min-h-11 w-full"
               aria-pressed={mode === 'role'}
               onClick={() => {
                 setMode('role')
@@ -304,7 +304,7 @@ export default function RbacSettings() {
             <Button
               type="button"
               variant={mode === 'user' ? 'default' : 'outline'}
-              className="w-full"
+              className="min-h-11 w-full"
               aria-pressed={mode === 'user'}
               onClick={() => {
                 setMode('user')
@@ -342,7 +342,7 @@ export default function RbacSettings() {
                   if (next) loadRolePermissions(next)
                 }}
                 aria-describedby="rbac-role-help"
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950 dark:scheme-dark"
               >
                 <option value="">Selecciona un rol</option>
                 {roles.map((r) => (
@@ -361,6 +361,7 @@ export default function RbacSettings() {
                 Usuario
               </label>
               <Input
+                className="h-11"
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
                 placeholder="Buscar usuario (nombre, username, email)"
@@ -376,7 +377,7 @@ export default function RbacSettings() {
                   if (next) loadUserPermissions(next)
                 }}
                 aria-describedby="rbac-user-help"
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950 dark:scheme-dark"
               >
                 <option value="">Selecciona un usuario</option>
                 {filteredUsers.map((u) => (
@@ -391,17 +392,17 @@ export default function RbacSettings() {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+          <div className="flex flex-col gap-2 md:flex-row md:justify-end">
             <Button
               type="button"
               variant="outline"
-              className="w-full sm:w-auto"
+              className="min-h-11 w-full md:w-auto"
               onClick={() => setSelectedPermissionIds(new Set())}
               disabled={saving}
             >
               Limpiar
             </Button>
-            <Button type="button" className="w-full sm:w-auto" onClick={onSave} disabled={saving} aria-disabled={saving}>
+            <Button type="button" className="min-h-11 w-full md:w-auto" onClick={onSave} disabled={saving} aria-disabled={saving}>
               {saving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
@@ -410,20 +411,19 @@ export default function RbacSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            <h3 id="rbac-permissions" ref={permissionsHeadingRef} tabIndex={-1}>
-              Permisos
-            </h3>
+          <CardTitle id="rbac-permissions" ref={permissionsHeadingRef} tabIndex={-1}>
+            Permisos
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 lg:grid-cols-2">
             <div>
               <label className="text-sm font-medium text-slate-700 dark:text-slate-200" htmlFor="permission-search">
                 Buscar permisos
               </label>
               <Input
                 id="permission-search"
+                className="h-11"
                 value={permissionSearch}
                 onChange={(e) => setPermissionSearch(e.target.value)}
                 placeholder="Ej: students, ver, crear, disciplina..."
@@ -441,11 +441,11 @@ export default function RbacSettings() {
           </div>
 
           {(mode === 'role' ? !!selectedRole : !!selectedUserId) && groupedPermissions.length > 0 ? (
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col gap-2 md:flex-row">
               <Button
                 type="button"
                 variant="outline"
-                className="w-full sm:w-auto"
+                className="min-h-11 w-full md:w-auto"
                 onClick={() => setExpandedGroups(new Set(allGroupKeys))}
               >
                 Expandir todo
@@ -453,7 +453,7 @@ export default function RbacSettings() {
               <Button
                 type="button"
                 variant="outline"
-                className="w-full sm:w-auto"
+                className="min-h-11 w-full md:w-auto"
                 onClick={() => setExpandedGroups(new Set())}
               >
                 Colapsar todo
@@ -476,7 +476,7 @@ export default function RbacSettings() {
                   className="rounded-lg border border-slate-200 dark:border-slate-800"
                   aria-describedby={`perm-group-help-${key.replace(/\./g, '-')}`}
                 >
-                  <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 w-full dark:border-slate-800 dark:bg-slate-900">
+                  <div className="w-full border-b border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-800 dark:bg-slate-900">
                     <div className="flex items-center justify-between gap-3">
                       <legend className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                         {getGroupLabel(key)}
@@ -484,7 +484,7 @@ export default function RbacSettings() {
 
                       <button
                         type="button"
-                        className="md:hidden text-xs font-medium rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
+                        className="lg:hidden rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
                         onClick={() =>
                           setExpandedGroups((prev) => {
                             const next = new Set(prev)
@@ -508,16 +508,16 @@ export default function RbacSettings() {
                   {expandedGroups.has(key) ? (
                     <div
                       id={`perm-group-${key.replace(/\./g, '-')}`}
-                      className="md:hidden p-4 grid grid-cols-1 gap-3"
+                      className="grid grid-cols-1 gap-4 p-4 lg:hidden"
                     >
                       {perms.map((p) => {
                         const inputId = `perm-${p.id}`
                         return (
-                          <div key={p.id} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+                          <div key={p.id} className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
                             <input
                               id={inputId}
                               type="checkbox"
-                              className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-950"
+                              className="mt-0.5 h-5 w-5 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-950"
                               checked={selectedPermissionIds.has(p.id)}
                               onChange={() => togglePermission(p.id)}
                             />
@@ -534,15 +534,15 @@ export default function RbacSettings() {
                   ) : null}
 
                   {/* Desktop (always expanded) */}
-                  <div className="hidden md:grid p-4 grid-cols-2 gap-3">
+                  <div className="hidden grid-cols-1 gap-4 p-4 lg:grid xl:grid-cols-2">
                     {perms.map((p) => {
                       const inputId = `perm-${p.id}`
                       return (
-                        <div key={p.id} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
+                        <div key={p.id} className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200">
                           <input
                             id={inputId}
                             type="checkbox"
-                            className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-950"
+                            className="mt-0.5 h-5 w-5 rounded border-slate-300 dark:border-slate-700 dark:bg-slate-950"
                             checked={selectedPermissionIds.has(p.id)}
                             onChange={() => togglePermission(p.id)}
                           />

@@ -66,7 +66,7 @@ export default function DirectorCompliance() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(10)
 
   useEffect(() => {
     let mounted = true
@@ -156,7 +156,7 @@ export default function DirectorCompliance() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
@@ -175,7 +175,7 @@ export default function DirectorCompliance() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
@@ -231,7 +231,7 @@ export default function DirectorCompliance() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <Input
                 placeholder="Director, grupo, sede..."
-                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
+                className="h-11 pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value)
@@ -257,7 +257,83 @@ export default function DirectorCompliance() {
           ) : null}
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-x-auto relative">
+          <div className="space-y-3 p-4 xl:hidden">
+            {isUpdating ? (
+              <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                Actualizando…
+              </div>
+            ) : null}
+
+            {!loading && count === 0 ? (
+              <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+                No hay datos para mostrar.
+              </div>
+            ) : (
+              rows.map((r) => {
+                const badge = trafficLightBadge(r.summary?.traffic_light || 'grey')
+                const avg = r.summary?.avg_percent ?? null
+
+                return (
+                  <div key={r.group.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div className="flex items-start gap-3">
+                      <div className="h-11 w-11 rounded-full bg-linear-to-br from-blue-100 to-blue-200 flex items-center justify-center text-blue-700 font-bold text-sm shadow-sm border border-blue-200 shrink-0 overflow-hidden dark:from-blue-950/40 dark:to-blue-900/30 dark:text-blue-200 dark:border-blue-900/40">
+                        {(((r.director.photo_thumb ?? r.director.photo ?? '').trim()) ? (
+                          <img
+                            src={r.director.photo_thumb ?? r.director.photo ?? ''}
+                            alt={(r.director.full_name || '').trim() || 'Foto del director'}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <>{initialsFromFullName(r.director.full_name)}</>
+                        ))}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{r.director.full_name || '—'}</div>
+                        {r.director.email ? (
+                          <div className="text-xs text-slate-500 dark:text-slate-400 truncate">{r.director.email}</div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">Grupo</div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{r.group.grade_name} - {r.group.name}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{r.group.shift || '—'} • {r.group.campus_name || '—'}</div>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-slate-600 dark:text-slate-300">Estudiantes</span>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100">{r.summary?.students_total ?? 0}</span>
+                      </div>
+
+                      <div>
+                        <div className="mb-1.5 flex items-center justify-between text-xs">
+                          <span className="font-medium text-slate-600 dark:text-slate-300">Promedio</span>
+                          <span className="font-semibold text-slate-900 dark:text-slate-100">{avg === null ? '—' : `${avg}%`}</span>
+                        </div>
+                        <div className="h-2.5 w-full rounded-full border border-slate-200 bg-slate-100 overflow-hidden dark:border-slate-700 dark:bg-slate-800">
+                          <div className={`h-full ${progressBarColor(avg)} transition-all`} style={{ width: `${avg ?? 0}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <span className={`text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full border ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                        <Link to={`/groups/${r.group.id}/students`} className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200">
+                          Ver estudiantes
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+
+          <div className="relative hidden overflow-x-auto xl:block">
             {isUpdating ? (
               <div className="absolute inset-0 z-10 flex items-start justify-center pt-4 bg-white/60 dark:bg-slate-950/60">
                 <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
@@ -350,16 +426,16 @@ export default function DirectorCompliance() {
               </tbody>
             </table>
           </div>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-4 pb-6">
+          <div className="mt-2 flex flex-col gap-3 px-4 pb-6 md:mt-4 md:flex-row md:items-center md:justify-between">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}–{endIndex} de {count} • Página {clampedPage} de {totalPages}
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <div className="flex items-center gap-2 justify-between sm:justify-start">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <div className="flex items-center justify-between gap-2 md:justify-start">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={pageSize}
                   disabled={loading}
                   onChange={(e) => {
@@ -373,18 +449,18 @@ export default function DirectorCompliance() {
                 </select>
               </div>
 
-              <div className="flex items-center gap-2 justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 sm:flex-none"
+                  className="min-h-11 flex-1 md:flex-none"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={loading || !hasPrevious || clampedPage <= 1}
                 >
                   Anterior
                 </Button>
 
-                <div className="hidden md:flex items-center gap-1">
+                <div className="hidden xl:flex items-center gap-1">
                   {pageNumbers.map((p, idx) =>
                     p === 'ellipsis' ? (
                       <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
@@ -395,6 +471,7 @@ export default function DirectorCompliance() {
                         key={p}
                         variant={p === clampedPage ? 'secondary' : 'outline'}
                         size="sm"
+                        className="min-h-10"
                         onClick={() => setPage(p)}
                         aria-current={p === clampedPage ? 'page' : undefined}
                         disabled={loading}
@@ -408,7 +485,7 @@ export default function DirectorCompliance() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 sm:flex-none"
+                  className="min-h-11 flex-1 md:flex-none"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={loading || !hasNext}
                 >

@@ -34,7 +34,7 @@ export default function EnrollmentReports() {
   }
 
   const selectClassName =
-    'flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+    'flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
 
   const [enrollmentFilters, setEnrollmentFilters] = useState({
     year: '',
@@ -531,7 +531,7 @@ export default function EnrollmentReports() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
         <ReportCard
           title="Reporte de Matriculados"
           description="Exporta matrículas activas por año, grado y/o grupo (CSV/XLSX) o genera PDF desde Jobs."
@@ -577,7 +577,7 @@ export default function EnrollmentReports() {
           </Button>
         }
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           <div className="space-y-2">
             <Label>Año Académico</Label>
             <select
@@ -656,16 +656,16 @@ export default function EnrollmentReports() {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-          <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+        <div className="mt-5 flex flex-col gap-2 md:flex-row">
+          <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
             <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
             CSV
           </Button>
-          <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+          <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
             <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
             XLSX
           </Button>
-          <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="w-full sm:flex-1">
+          <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
             <FileText className="w-4 h-4 mr-2 text-red-600" />
             PDF
           </Button>

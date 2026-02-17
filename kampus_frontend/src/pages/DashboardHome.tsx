@@ -522,8 +522,8 @@ export default function DashboardHome() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-3 xl:grid-cols-7">
-        <Card className="lg:col-span-2 xl:col-span-4">
+      <div className={isTeacher ? 'grid gap-4 lg:grid-cols-3 xl:grid-cols-7' : 'grid gap-4 lg:grid-cols-2'}>
+        <Card className={isTeacher ? 'lg:col-span-2 xl:col-span-4' : ''}>
           <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
             <CardTitle>Actividad Reciente</CardTitle>
             <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
@@ -565,13 +565,13 @@ export default function DashboardHome() {
             )}
           </CardContent>
         </Card>
-        <div className="lg:col-span-1 xl:col-span-3 space-y-4">
+        <div className={isTeacher ? 'lg:col-span-1 xl:col-span-3 space-y-4' : 'space-y-4'}>
           <Card>
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>Accesos Rápidos</CardTitle>
             </CardHeader>
             <CardContent className="p-4 sm:p-6 pt-0">
-              <div className="space-y-2">
+              <div className={isTeacher ? 'space-y-2' : 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1'}>
                 {quickActions.slice(0, 4).map((a) => (
                   <button
                     key={a.to}
@@ -597,6 +597,7 @@ export default function DashboardHome() {
             </CardContent>
           </Card>
 
+          {isTeacher ? (
           <Card>
             <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
               <CardTitle>Fechas importantes</CardTitle>
@@ -648,6 +649,7 @@ export default function DashboardHome() {
               )}
             </CardContent>
           </Card>
+          ) : null}
         </div>
       </div>
     </div>

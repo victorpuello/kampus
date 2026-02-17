@@ -397,19 +397,20 @@ export default function AdministrativeCertificates() {
     <>
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle className="text-slate-900 dark:text-slate-100">Certificados de estudios</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              <Link to="/administrativos/certificados/ingresos">
-                <Button variant="outline">Ingresos</Button>
+            <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:flex-wrap">
+              <Link to="/administrativos/certificados/ingresos" className="w-full md:w-auto">
+                <Button variant="outline" className="min-h-11 w-full md:w-auto">Ingresos</Button>
               </Link>
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
             <Button
               variant={mode === 'REGISTERED' ? 'default' : 'outline'}
+              className="min-h-11 w-full md:w-auto"
               onClick={() => setMode('REGISTERED')}
               disabled={loading}
             >
@@ -417,6 +418,7 @@ export default function AdministrativeCertificates() {
             </Button>
             <Button
               variant={mode === 'ARCHIVE' ? 'default' : 'outline'}
+              className="min-h-11 w-full md:w-auto"
               onClick={() => setMode('ARCHIVE')}
               disabled={loading}
             >
@@ -425,11 +427,11 @@ export default function AdministrativeCertificates() {
           </div>
 
           {mode === 'REGISTERED' ? (
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div>
                 <Label>Año lectivo</Label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-1 flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={selectedYearId}
                   onChange={(e) => setSelectedYearId(e.target.value)}
                   disabled={loading}
@@ -446,7 +448,7 @@ export default function AdministrativeCertificates() {
               <div>
                 <Label>Grupo</Label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-1 flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={selectedGroupId}
                   onChange={(e) => setSelectedGroupId(e.target.value)}
                   disabled={loading || !selectedYearId}
@@ -460,10 +462,10 @@ export default function AdministrativeCertificates() {
                 </select>
               </div>
 
-              <div className="md:col-span-2">
+              <div className="lg:col-span-2">
                 <Label>Estudiante matriculado</Label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-1 flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={selectedEnrollmentId}
                   onChange={(e) => setSelectedEnrollmentId(e.target.value)}
                   disabled={loading || loadingEnrollments || !selectedGroupId}
@@ -485,13 +487,14 @@ export default function AdministrativeCertificates() {
                 </select>
               </div>
 
-              <div className="md:col-span-2">
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleIssueRegistered} disabled={loading || !selectedEnrollmentId}>
+              <div className="lg:col-span-2">
+                <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+                  <Button className="min-h-11 w-full md:w-auto" onClick={handleIssueRegistered} disabled={loading || !selectedEnrollmentId}>
                     {loading ? 'Generando...' : 'Generar PDF'}
                   </Button>
                   <Button
                     variant="outline"
+                    className="min-h-11 w-full md:w-auto"
                     onClick={() => {
                       if (loading) return
                       preparePreviewRegistered()
@@ -504,16 +507,16 @@ export default function AdministrativeCertificates() {
               </div>
             </div>
           ) : (
-            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="lg:col-span-2">
                 <Label>Nombre completo</Label>
-                <Input value={archiveName} onChange={(e) => setArchiveName(e.target.value)} disabled={loading} />
+                <Input className="h-11" value={archiveName} onChange={(e) => setArchiveName(e.target.value)} disabled={loading} />
               </div>
 
               <div>
                 <Label>Tipo de documento</Label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-1 flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={archiveDocType}
                   onChange={(e) => setArchiveDocType(e.target.value)}
                   disabled={loading}
@@ -531,6 +534,7 @@ export default function AdministrativeCertificates() {
                 <div>
                   <Label>Especifica el tipo</Label>
                   <Input
+                    className="h-11"
                     value={archiveDocTypeOther}
                     onChange={(e) => setArchiveDocTypeOther(e.target.value)}
                     disabled={loading}
@@ -541,13 +545,13 @@ export default function AdministrativeCertificates() {
 
               <div>
                 <Label>Número de documento</Label>
-                <Input value={archiveDocNumber} onChange={(e) => setArchiveDocNumber(e.target.value)} disabled={loading} />
+                <Input className="h-11" value={archiveDocNumber} onChange={(e) => setArchiveDocNumber(e.target.value)} disabled={loading} />
               </div>
 
               <div>
                 <Label>Grado</Label>
                 <select
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="mt-1 flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={archiveGradeId}
                   onChange={(e) => setArchiveGradeId(e.target.value)}
                   disabled={loading}
@@ -571,16 +575,17 @@ export default function AdministrativeCertificates() {
 
               <div>
                 <Label>Año lectivo</Label>
-                <Input value={archiveYear} onChange={(e) => setArchiveYear(e.target.value)} disabled={loading} />
+                <Input className="h-11" value={archiveYear} onChange={(e) => setArchiveYear(e.target.value)} disabled={loading} />
               </div>
 
-              <div className="md:col-span-2">
-                <div className="flex flex-wrap gap-2">
-                  <Button onClick={handleIssueArchive} disabled={loading}>
+              <div className="lg:col-span-2">
+                <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+                  <Button className="min-h-11 w-full md:w-auto" onClick={handleIssueArchive} disabled={loading}>
                     {loading ? 'Generando...' : 'Generar PDF'}
                   </Button>
                   <Button
                     variant="outline"
+                    className="min-h-11 w-full md:w-auto"
                     onClick={() => {
                       if (loading) return
                       preparePreviewArchive()
@@ -599,11 +604,12 @@ export default function AdministrativeCertificates() {
       {inlinePreviewPayload ? (
         <Card>
           <CardHeader>
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <CardTitle className="text-slate-900 dark:text-slate-100">Vista previa HTML (embebida)</CardTitle>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
                 <Button
                   variant="outline"
+                  className="min-h-11 w-full md:w-auto"
                   onClick={() => {
                     if (!inlinePreviewPayload) return
                     void loadInlinePreview(inlinePreviewPayload)
@@ -614,6 +620,7 @@ export default function AdministrativeCertificates() {
                 </Button>
                 <Button
                   variant="outline"
+                  className="min-h-11 w-full md:w-auto"
                   onClick={() => {
                     try {
                       const w = inlinePreviewIframeRef.current?.contentWindow
@@ -634,6 +641,7 @@ export default function AdministrativeCertificates() {
                 </Button>
                 <Button
                   variant="outline"
+                  className="min-h-11 w-full md:w-auto"
                   onClick={() => {
                     setInlinePreviewPayload(null)
                     setInlinePreviewHtml('')
@@ -652,7 +660,7 @@ export default function AdministrativeCertificates() {
               <iframe
                 title="Vista previa certificado"
                 ref={inlinePreviewIframeRef}
-                className="w-full h-[80vh] rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950"
+                className="h-[70vh] w-full rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950 md:h-[80vh]"
                 sandbox="allow-same-origin allow-modals"
                 srcDoc={inlinePreviewHtml}
               />

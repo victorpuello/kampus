@@ -14,11 +14,11 @@ function useQuery() {
 }
 
 function selectLikeClassName() {
-  return 'flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
+  return 'flex h-11 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
 }
 
 function textareaClassName() {
-  return 'mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
+  return 'mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:ring-offset-slate-900 dark:focus-visible:ring-slate-200'
 }
 
 function formatDateTimeShort(iso: string) {
@@ -258,7 +258,7 @@ export default function PlanningEditRequests() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <Toast
         message={toast.message}
         type={toast.type}
@@ -266,22 +266,22 @@ export default function PlanningEditRequests() {
         onClose={() => setToast((t) => ({ ...t, isVisible: false }))}
       />
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/30">
-              <ClipboardList className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+          <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 md:text-3xl">
+            <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-950/30">
+              <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-300 md:h-6 md:w-6" />
             </div>
             Solicitudes de edición (Planeación)
           </h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Crea solicitudes y consulta su estado.</p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Crea solicitudes y consulta su estado.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-          <Button variant="outline" onClick={() => navigate('/planning')} className="w-full sm:w-auto">Ir a Planeación</Button>
+          <Button variant="outline" onClick={() => navigate('/planning')} className="min-h-11 w-full sm:w-auto">Ir a Planeación</Button>
           {isTeacher ? (
-            <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests} className="w-full sm:w-auto">Recargar</Button>
+            <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests} className="min-h-11 w-full sm:w-auto">Recargar</Button>
           ) : (
-            <Button variant="outline" onClick={refreshPendingRequests} disabled={loadingPending} className="w-full sm:w-auto">Recargar</Button>
+            <Button variant="outline" onClick={refreshPendingRequests} disabled={loadingPending} className="min-h-11 w-full sm:w-auto">Recargar</Button>
           )}
         </div>
       </div>
@@ -291,10 +291,10 @@ export default function PlanningEditRequests() {
           <CardHeader>
             <CardTitle>Nueva solicitud</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 items-end gap-4 lg:grid-cols-2">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Periodo</label>
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Periodo</label>
                 <select
                   className={selectLikeClassName()}
                   value={selectedPeriodId ?? ''}
@@ -311,13 +311,13 @@ export default function PlanningEditRequests() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Hasta (opcional)</label>
-                <Input type="datetime-local" value={requestedUntil} onChange={(e) => setRequestedUntil(e.target.value)} disabled={submitting} />
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Hasta (opcional)</label>
+                <Input className="h-11" type="datetime-local" value={requestedUntil} onChange={(e) => setRequestedUntil(e.target.value)} disabled={submitting} />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Justificación</label>
+              <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Justificación</label>
               <textarea
                 className={textareaClassName()}
                 rows={3}
@@ -329,7 +329,7 @@ export default function PlanningEditRequests() {
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={submitRequest} disabled={submitting} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={submitRequest} disabled={submitting} className="min-h-11 w-full bg-blue-600 hover:bg-blue-700 sm:w-auto">
                 <Save className="mr-2 h-4 w-4" />
                 {submitting ? 'Enviando…' : 'Enviar solicitud'}
               </Button>
@@ -345,7 +345,7 @@ export default function PlanningEditRequests() {
           </CardHeader>
           <CardContent>
             {/* Mobile cards */}
-            <div className="md:hidden space-y-3">
+            <div className="space-y-3 xl:hidden">
               {loadingMyRequests ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
                   Cargando…
@@ -405,7 +405,7 @@ export default function PlanningEditRequests() {
             </div>
 
             {/* Desktop table */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden overflow-x-auto xl:block">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
@@ -472,9 +472,9 @@ export default function PlanningEditRequests() {
             <CardTitle>Solicitudes pendientes (Planeación)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Filtrar por periodo</label>
+                <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Filtrar por periodo</label>
                 <select
                   className={selectLikeClassName()}
                   value={adminFilterPeriodId ?? ''}
@@ -492,7 +492,7 @@ export default function PlanningEditRequests() {
             </div>
 
             {/* Mobile cards */}
-            <div className="md:hidden space-y-3">
+            <div className="space-y-3 xl:hidden">
               {loadingPending ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-300">
                   Cargando…
@@ -535,8 +535,9 @@ export default function PlanningEditRequests() {
 
                       <div className="mt-4 grid grid-cols-1 gap-3">
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Válida hasta</label>
+                          <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Válida hasta</label>
                           <Input
+                            className="h-11"
                             type="datetime-local"
                             value={decision.valid_until}
                             onChange={(e) => setDecision(r.id, { valid_until: e.target.value })}
@@ -544,8 +545,9 @@ export default function PlanningEditRequests() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Nota (opcional)</label>
+                          <label className="block text-[11px] font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Nota (opcional)</label>
                           <Input
+                            className="h-11"
                             value={decision.decision_note}
                             onChange={(e) => setDecision(r.id, { decision_note: e.target.value })}
                             disabled={disabled}
@@ -554,9 +556,9 @@ export default function PlanningEditRequests() {
                         </div>
                       </div>
 
-                      <div className="mt-4 flex flex-col sm:flex-row gap-2">
-                        <Button onClick={() => approve(r)} disabled={disabled} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">Aprobar</Button>
-                        <Button variant="outline" onClick={() => reject(r)} disabled={disabled} className="w-full sm:w-auto">Rechazar</Button>
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                        <Button onClick={() => approve(r)} disabled={disabled} className="min-h-11 w-full bg-blue-600 hover:bg-blue-700 sm:w-auto">Aprobar</Button>
+                        <Button variant="outline" onClick={() => reject(r)} disabled={disabled} className="min-h-11 w-full sm:w-auto">Rechazar</Button>
                       </div>
                     </div>
                   )
@@ -565,7 +567,7 @@ export default function PlanningEditRequests() {
             </div>
 
             {/* Desktop table */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden overflow-x-auto xl:block">
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-slate-500 dark:text-slate-300 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                   <tr>
@@ -594,15 +596,15 @@ export default function PlanningEditRequests() {
                           <td className="px-6 py-4">{periodName}</td>
                           <td className="px-6 py-4 whitespace-pre-wrap text-slate-700 dark:text-slate-200">{r.reason}</td>
                           <td className="px-6 py-4">
-                            <Input type="datetime-local" value={decision.valid_until} onChange={(e) => setDecision(r.id, { valid_until: e.target.value })} disabled={disabled} />
+                            <Input className="h-11" type="datetime-local" value={decision.valid_until} onChange={(e) => setDecision(r.id, { valid_until: e.target.value })} disabled={disabled} />
                           </td>
                           <td className="px-6 py-4">
-                            <Input value={decision.decision_note} onChange={(e) => setDecision(r.id, { decision_note: e.target.value })} disabled={disabled} placeholder="Opcional" />
+                            <Input className="h-11" value={decision.decision_note} onChange={(e) => setDecision(r.id, { decision_note: e.target.value })} disabled={disabled} placeholder="Opcional" />
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex gap-2">
-                              <Button onClick={() => approve(r)} disabled={disabled} className="bg-blue-600 hover:bg-blue-700">Aprobar</Button>
-                              <Button variant="outline" onClick={() => reject(r)} disabled={disabled}>Rechazar</Button>
+                              <Button className="min-h-11 bg-blue-600 hover:bg-blue-700" onClick={() => approve(r)} disabled={disabled}>Aprobar</Button>
+                              <Button className="min-h-11" variant="outline" onClick={() => reject(r)} disabled={disabled}>Rechazar</Button>
                             </div>
                           </td>
                         </tr>

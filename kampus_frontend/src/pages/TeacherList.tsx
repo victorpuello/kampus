@@ -23,7 +23,7 @@ export default function TeacherList() {
   const [searchTerm, setSearchTerm] = useState('')
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
   const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = useState(20)
+  const [perPage, setPerPage] = useState(10)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
@@ -33,6 +33,33 @@ export default function TeacherList() {
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  const copyUsernameToClipboard = async (username: string) => {
+    const value = (username || '').trim()
+    if (!value) {
+      showToast('El docente no tiene nombre de usuario para copiar', 'error')
+      return
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = value
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      showToast(`Usuario copiado: ${value}`, 'success')
+    } catch {
+      showToast('No fue posible copiar el usuario', 'error')
+    }
   }
 
   const loadData = async () => {
@@ -218,18 +245,19 @@ export default function TeacherList() {
 
       {/* Modal de confirmación de eliminación */}
       {deleteConfirm !== null && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl">
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">¿Eliminar docente?</h3>
-            <p className="text-slate-600 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="mx-4 w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-slate-900">
+            <h3 className="mb-2 text-lg font-semibold text-slate-900 dark:text-slate-100">¿Eliminar docente?</h3>
+            <p className="mb-4 text-slate-600 dark:text-slate-300">
               Esta acción no se puede deshacer. Se eliminará el docente y su cuenta de usuario asociada.
             </p>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+            <div className="flex flex-col gap-3 md:flex-row md:justify-end">
+              <Button variant="outline" className="min-h-11 w-full md:w-auto" onClick={() => setDeleteConfirm(null)}>
                 Cancelar
               </Button>
               <Button 
                 variant="destructive" 
+                className="min-h-11 w-full md:w-auto"
                 onClick={() => handleDelete(deleteConfirm)}
               >
                 Eliminar
@@ -239,7 +267,7 @@ export default function TeacherList() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
@@ -249,36 +277,36 @@ export default function TeacherList() {
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Gestiona la planta docente de la institución.</p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 w-full md:w-auto">
-          <div className="w-full sm:w-56 md:w-40">
+        <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-4 lg:w-auto">
+          <div className="w-full md:w-56 lg:w-40">
             <select
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+              className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
             >
               {years.map(y => (
                 <option key={y.id} value={y.id}>Año {y.year} {y.status_display ? `(${y.status_display})` : ''}</option>
               ))}
             </select>
           </div>
-          <Link to="/teachers/new" className="w-full sm:w-auto">
-            <Button className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700">
-              <Plus className="mr-2 h-4 w-4" /> Nuevo Docente
+          <Link to="/teachers/new" className="w-full md:w-auto">
+            <Button className="min-h-11 w-full bg-blue-600 hover:bg-blue-700 md:w-auto">
+              <Plus className="mr-2 h-4 w-4" /> Crear docente
             </Button>
           </Link>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Total Docentes</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Docentes</p>
               <Users className="h-4 w-4 text-slate-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{totalTeachers}</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{totalTeachers}</div>
+            <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
               Registrados en el sistema
             </p>
           </CardContent>
@@ -286,11 +314,11 @@ export default function TeacherList() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Carga Completa</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Carga Completa</p>
               <BookOpen className="h-4 w-4 text-emerald-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{fullLoadTeachers}</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{fullLoadTeachers}</div>
+            <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
               Docentes con asignación completa
             </p>
           </CardContent>
@@ -298,11 +326,11 @@ export default function TeacherList() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
-              <p className="text-sm font-medium text-slate-500">Promedio Horas</p>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Promedio Horas</p>
               <School className="h-4 w-4 text-blue-500" />
             </div>
-            <div className="text-2xl font-bold text-slate-900">{avgHours}h</div>
-            <p className="text-xs text-slate-500 mt-1">
+            <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{avgHours}h</div>
+            <p className="text-xs text-slate-500 mt-1 dark:text-slate-400">
               Promedio de asignación por docente
             </p>
           </CardContent>
@@ -311,39 +339,43 @@ export default function TeacherList() {
 
       <Card className="border-slate-200 shadow-sm dark:border-slate-800">
         <CardHeader className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de Docentes</CardTitle>
-            <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input 
-                placeholder="Buscar por nombre, documento..." 
-                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          </div>
+          <div className={`${sortedData.length > 0 ? 'md:sticky md:top-3 md:z-20' : ''} motion-safe:transition-all motion-safe:duration-200`}>
+            <div className={`rounded-xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur supports-backdrop-filter:bg-white/85 supports-backdrop-filter:dark:bg-slate-900/85 p-2 sm:p-3 motion-safe:transition-all motion-safe:duration-200 ${sortedData.length > 0 ? 'border-slate-200/90 dark:border-slate-700 shadow-sm md:shadow-md' : 'border-slate-200/70 dark:border-slate-800 shadow-sm dark:shadow-none'}`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de docentes</CardTitle>
+                <div className="relative w-full lg:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-300" />
+                  <Input 
+                    placeholder="Buscar por nombre, documento..." 
+                    className="h-11 pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
 
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Mostrando {pageItems.length} de {sortedData.length} docentes
-              {sortedData.length > 0 ? ` • Página ${currentPage} de ${totalPages}` : ''}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Por página:</span>
-              <select
-                value={perPage}
-                onChange={(e) => {
-                  setPerPage(parseInt(e.target.value) || 20)
-                  setPage(1)
-                }}
-                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
-                aria-label="Docentes por página"
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-              </select>
+              <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                <div className="text-xs text-slate-500 dark:text-slate-300">
+                  Mostrando {pageItems.length} de {sortedData.length} docentes
+                  {sortedData.length > 0 ? ` • Página ${currentPage} de ${totalPages}` : ''}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-300">Por página:</span>
+                  <select
+                    value={perPage}
+                    onChange={(e) => {
+                      setPerPage(parseInt(e.target.value) || 10)
+                      setPage(1)
+                    }}
+                    className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    aria-label="Docentes por página"
+                  >
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -358,7 +390,7 @@ export default function TeacherList() {
         </CardHeader>
         <CardContent className="p-0">
           {/* Mobile: cards */}
-          <div className="md:hidden p-4">
+          <div className="p-4 lg:hidden">
             {loading && data.length === 0 ? (
               <div className="py-8 text-center text-slate-500 dark:text-slate-400">Cargando…</div>
             ) : pageItems.length === 0 ? (
@@ -395,10 +427,15 @@ export default function TeacherList() {
                         <div className="font-semibold text-slate-900 uppercase truncate dark:text-slate-100">
                           {t.user.last_name} {t.user.first_name}
                         </div>
-                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
-                          <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                        <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 wrap-break-word">
+                          <button
+                            type="button"
+                            className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                            onClick={() => copyUsernameToClipboard(t.user.username || '')}
+                            title="Copiar usuario"
+                          >
                             {t.user.username}
-                          </span>
+                          </button>
                           {t.user.email ? <span className="ml-2">• {t.user.email}</span> : null}
                         </div>
                       </div>
@@ -453,11 +490,11 @@ export default function TeacherList() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                           <Button
                             variant="outline"
                             size="sm"
-                            className="h-9"
+                            className="min-h-11 w-full sm:w-auto"
                             onClick={() => navigate(`/teachers/${t.id}`)}
                           >
                             Editar
@@ -465,7 +502,7 @@ export default function TeacherList() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            className="h-9"
+                            className="min-h-11 w-full sm:w-auto"
                             onClick={() => setDeleteConfirm(t.id)}
                           >
                             Eliminar
@@ -477,11 +514,11 @@ export default function TeacherList() {
                 ))}
 
                 {totalPages > 1 && (
-                  <div className="pt-2 flex items-center justify-between">
+                  <div className="pt-2 flex items-center justify-between gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9"
+                      className="min-h-11"
                       disabled={currentPage <= 1}
                       onClick={() => setPage(Math.max(1, currentPage - 1))}
                     >
@@ -493,7 +530,7 @@ export default function TeacherList() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9"
+                      className="min-h-11"
                       disabled={currentPage >= totalPages}
                       onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                     >
@@ -506,8 +543,8 @@ export default function TeacherList() {
           </div>
 
           {/* Desktop: table */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm text-left">
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="min-w-5xl w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 font-semibold">Docente</th>
@@ -558,7 +595,14 @@ export default function TeacherList() {
                           <div>
                             <div className="font-medium text-slate-900 uppercase dark:text-slate-100">{t.user.last_name} {t.user.first_name}</div>
                             <div className="text-xs text-slate-500 flex items-center gap-1">
-                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-600 dark:bg-slate-800 dark:text-slate-200">{t.user.username}</span>
+                              <button
+                                type="button"
+                                className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                                onClick={() => copyUsernameToClipboard(t.user.username || '')}
+                                title="Copiar usuario"
+                              >
+                                {t.user.username}
+                              </button>
                               <span>•</span>
                               <span>{t.user.email}</span>
                             </div>
@@ -610,7 +654,7 @@ export default function TeacherList() {
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <Link to={`/teachers/${t.id}`}>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600">
+                            <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-blue-50 hover:text-blue-600">
                               <span className="sr-only">Editar</span>
                               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
                             </Button>
@@ -618,7 +662,7 @@ export default function TeacherList() {
                           <Button 
                             variant="ghost" 
                             size="sm" 
-                            className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                            className="h-10 w-10 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
                             onClick={() => setDeleteConfirm(t.id)}
                           >
                             <span className="sr-only">Eliminar</span>
@@ -638,7 +682,7 @@ export default function TeacherList() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8"
+                    className="min-h-10"
                     disabled={currentPage <= 1}
                     onClick={() => setPage(Math.max(1, currentPage - 1))}
                   >
@@ -647,7 +691,7 @@ export default function TeacherList() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8"
+                    className="min-h-10"
                     disabled={currentPage >= totalPages}
                     onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                   >
@@ -667,7 +711,7 @@ export default function TeacherList() {
                         key={p}
                         variant={p === currentPage ? 'secondary' : 'outline'}
                         size="sm"
-                        className="h-8 px-2"
+                        className="min-h-10 px-2"
                         onClick={() => setPage(p)}
                         aria-current={p === currentPage ? 'page' : undefined}
                       >

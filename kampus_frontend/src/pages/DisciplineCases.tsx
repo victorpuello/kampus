@@ -270,12 +270,22 @@ export default function DisciplineCases() {
     )
   }
 
-  if (loading) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
-  if (error) return <div className="p-6 text-red-600 dark:text-rose-200">{error}</div>
+  if (loading)
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+        Cargando…
+      </div>
+    )
+  if (error)
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+        {error}
+      </div>
+    )
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Convivencia</h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
@@ -284,8 +294,8 @@ export default function DisciplineCases() {
         </div>
 
         {canCreate && (
-          <div className="flex items-center gap-2">
-            <Button className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white" onClick={openCreateModal}>
+          <div className="w-full lg:w-auto">
+            <Button className="min-h-11 w-full bg-cyan-600 text-white hover:bg-cyan-700 lg:w-auto" onClick={openCreateModal}>
               Registrar caso
             </Button>
           </div>
@@ -297,15 +307,15 @@ export default function DisciplineCases() {
           <CardTitle>Casos</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               {count === 0 ? 'Sin casos.' : `Mostrando ${startIndex}-${endIndex} de ${count} • Página ${page} de ${totalPages}`}
             </div>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center">
+              <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-800 dark:bg-slate-900/80"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -321,13 +331,14 @@ export default function DisciplineCases() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={!hasPrevious || page <= 1}
               >
                 Anterior
               </Button>
 
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden xl:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
                     <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
@@ -338,6 +349,7 @@ export default function DisciplineCases() {
                       key={p}
                       variant={p === page ? 'secondary' : 'outline'}
                       size="sm"
+                      className="min-h-11"
                       onClick={() => setPage(p)}
                       aria-current={p === page ? 'page' : undefined}
                     >
@@ -350,6 +362,7 @@ export default function DisciplineCases() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={!hasNext}
               >
@@ -359,7 +372,7 @@ export default function DisciplineCases() {
           </div>
 
           {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
+          <div className="space-y-3 xl:hidden">
             {items.length === 0 ? (
               <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                 No hay casos.
@@ -407,7 +420,7 @@ export default function DisciplineCases() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden xl:block overflow-x-auto">
             <table className="w-full text-sm text-left text-slate-700 dark:text-slate-200">
               <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800">
                 <tr>
@@ -460,14 +473,14 @@ export default function DisciplineCases() {
       </Card>
 
       {isCreateOpen && canCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-2">
           <div
             className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
             onClick={() => {
               if (!creating) setIsCreateOpen(false)
             }}
           />
-          <div className="relative z-50 w-full max-w-xl transform overflow-hidden rounded-lg bg-white p-5 sm:p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900 max-h-[85vh] overflow-y-auto">
+          <div className="relative z-50 max-h-[85vh] w-full max-w-xl transform overflow-y-auto rounded-lg bg-white p-4 shadow-xl transition-all sm:mx-auto sm:p-6 animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">Registrar caso (Observador)</h3>
               <button
@@ -502,6 +515,7 @@ export default function DisciplineCases() {
               <div>
                 <Label>Fecha y hora del hecho</Label>
                 <Input
+                  className="h-11"
                   type="datetime-local"
                   value={occurredAtLocal}
                   onChange={(e) => setOccurredAtLocal(e.target.value)}
@@ -512,6 +526,7 @@ export default function DisciplineCases() {
               <div>
                 <Label>Buscar estudiante (opcional)</Label>
                 <Input
+                  className="h-11"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Nombre o documento…"
@@ -522,7 +537,7 @@ export default function DisciplineCases() {
               <div>
                 <Label>Estudiante (matrícula)</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:scheme-dark"
                   value={enrollmentId}
                   onChange={(e) => setEnrollmentId(e.target.value ? Number(e.target.value) : '')}
                   disabled={loadingEnrollments || creating}
@@ -543,13 +558,13 @@ export default function DisciplineCases() {
 
               <div>
                 <Label>Lugar (opcional)</Label>
-                <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ej: Salón, Patio…" disabled={creating} />
+                <Input className="h-11" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ej: Salón, Patio…" disabled={creating} />
               </div>
 
               <div>
                 <Label>Descripción (obligatoria)</Label>
                 <textarea
-                  className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500"
+                  className="min-h-[120px] w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:placeholder:text-slate-500"
                   value={narrative}
                   onChange={(e) => setNarrative(e.target.value)}
                   placeholder="Describe lo ocurrido de forma objetiva…"
@@ -620,7 +635,7 @@ export default function DisciplineCases() {
                 <div>
                   <Label>Severidad (manual)</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:scheme-dark"
                     value={severity}
                     onChange={(e) => setSeverity(e.target.value as DisciplineManualSeverity)}
                     disabled={creating}
@@ -633,7 +648,7 @@ export default function DisciplineCases() {
                 <div>
                   <Label>Tipo Ley 1620</Label>
                   <select
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-100 dark:scheme-dark"
                     value={lawType}
                     onChange={(e) => setLawType(e.target.value as DisciplineLaw1620Type)}
                     disabled={creating}
@@ -646,9 +661,10 @@ export default function DisciplineCases() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <Button
                   variant="outline"
+                  className="min-h-11 w-full sm:w-auto"
                   onClick={() => loadEnrollments(search.trim() || undefined)}
                   disabled={loadingEnrollments || creating}
                 >
@@ -661,10 +677,10 @@ export default function DisciplineCases() {
             </div>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => setIsCreateOpen(false)} disabled={creating}>
+              <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => setIsCreateOpen(false)} disabled={creating}>
                 Cancelar
               </Button>
-              <Button className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700 text-white" onClick={submitCreate} disabled={creating}>
+              <Button className="min-h-11 w-full bg-cyan-600 text-white hover:bg-cyan-700 sm:w-auto" onClick={submitCreate} disabled={creating}>
                 {creating
                   ? evidenceUploadTotal > 0
                     ? `Registrando… (${Math.min(evidenceUploadDone, evidenceUploadTotal)}/${evidenceUploadTotal})`

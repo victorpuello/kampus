@@ -467,16 +467,16 @@ export default function NoveltyCaseDetailPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-9" onClick={() => navigate('/novelties')}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button variant="outline" size="sm" className="min-h-11 w-full sm:w-auto" onClick={() => navigate('/novelties')}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             Volver
           </Button>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-slate-100">{headerTitle}</h1>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-100 md:text-2xl">{headerTitle}</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="h-9" disabled={loading} onClick={refresh}>
+        <div className="flex w-full sm:w-auto sm:items-center sm:gap-2">
+          <Button variant="outline" size="sm" className="min-h-11 w-full sm:w-auto" disabled={loading} onClick={refresh}>
             Actualizar
           </Button>
         </div>
@@ -492,13 +492,13 @@ export default function NoveltyCaseDetailPage() {
         </Card>
       ) : (
         <>
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Card className="lg:col-span-2">
+          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+            <Card className="xl:col-span-2">
               <CardHeader>
                 <CardTitle className="text-base">Resumen</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">Estado</div>
                     <div className="font-semibold text-slate-900 dark:text-slate-100">{statusLabel(novelty.status)}</div>
@@ -546,7 +546,7 @@ export default function NoveltyCaseDetailPage() {
                         )}
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                         {requiredDocTypes.map((dt) => {
                           const ok = presentDocTypes.has(dt)
                           return (
@@ -638,17 +638,17 @@ export default function NoveltyCaseDetailPage() {
             </Card>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Adjuntos</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                  <div className="md:col-span-1">
+                <div className="grid grid-cols-1 items-end gap-3 lg:grid-cols-3">
+                  <div className="lg:col-span-1">
                     <Label>Tipo de soporte</Label>
                     <select
-                      className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       value={docTypeChoice}
                       disabled={saving}
                       onChange={(e) => {
@@ -682,7 +682,7 @@ export default function NoveltyCaseDetailPage() {
                       </div>
                     ) : null}
                   </div>
-                  <div className="md:col-span-2">
+                  <div className="lg:col-span-2">
                     <Label>Archivo</Label>
                     <Input
                       type="file"

@@ -1525,19 +1525,25 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     return value < 0 ? `-${padded}` : padded
   }
 
+  const panelShellClass = 'mx-auto w-full max-w-7xl space-y-4 px-3 pb-6 pt-3 sm:space-y-5 sm:px-4 sm:pb-8 sm:pt-4 lg:px-6'
+  const sectionCardHeaderClass = 'border-b bg-slate-50/80 pb-3 dark:border-slate-700/70 dark:bg-slate-900/70'
+  const sectionGridTwoColsClass = 'grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6'
+  const sectionGridThreeColsClass = 'grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6'
+
   if (loading) {
     return <div className="p-6 text-slate-500 dark:text-slate-400">Cargando configuración...</div>
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 bg-slate-50/30 min-h-screen dark:bg-slate-950">
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+    <div className="academic-config-page min-h-screen bg-slate-50/40 dark:bg-slate-950">
+      <div className={panelShellClass}>
+      <div className="sticky top-0 z-30 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-between dark:border-slate-700/80 dark:bg-slate-900/90 lg:top-4">
         <div className="flex items-center gap-3 min-w-0">
           <div className="p-2 bg-blue-100 rounded-lg text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </div>
           <div>
-            <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+            <h2 className="text-xl font-bold text-slate-800 sm:text-2xl dark:text-slate-100">
               {isGroupsOnly ? 'Administración de Grupos' : 'Configuración Académica'}
             </h2>
             <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -1551,7 +1557,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
           size="sm"
           className="w-full sm:w-auto hover:bg-blue-50 hover:text-blue-600 border-slate-200 dark:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-sky-300"
         >
-          🔄 Actualizar
+          🔄 Actualizar datos
         </Button>
       </div>
 
@@ -1582,16 +1588,16 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
           </div>
 
           {/* Desktop: segmented buttons */}
-          <div className="hidden sm:flex space-x-1 bg-slate-100 p-1 rounded-lg w-full overflow-x-auto border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+          <div className="sticky top-[84px] z-20 hidden w-full overflow-x-auto rounded-lg border border-slate-200 bg-slate-100/95 p-1 backdrop-blur sm:flex sm:space-x-1 dark:border-slate-700/80 dark:bg-slate-900/90 lg:top-[92px]">
             {ACADEMIC_CONFIG_TABS_FULL.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTabPersisted(tab)}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all whitespace-nowrap ${
                   activeTab === tab
-                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5 dark:bg-slate-950 dark:text-sky-300 dark:ring-white/10'
-                    : 'text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-sky-300 dark:hover:bg-slate-800'
-                }`}
+                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-black/5 dark:bg-slate-800 dark:text-sky-300 dark:ring-slate-600/70'
+                    : 'text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-300 dark:hover:text-sky-300 dark:hover:bg-slate-800'
+                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-slate-900`}
               >
                 {ACADEMIC_CONFIG_TAB_LABEL[tab]}
               </button>
@@ -1605,9 +1611,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {activeTab === 'general' && (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className={sectionGridTwoColsClass}>
           <Card className="border-t-4 border-t-blue-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-blue-800 flex items-center gap-2">
                 📅 Años Lectivos
               </CardTitle>
@@ -1656,7 +1662,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <Button type="submit" className="bg-blue-600 hover:bg-blue-700 w-full sm:flex-1">{editingYearId ? 'Actualizar' : 'Agregar'}</Button>
+                  <Button type="submit" className="bg-blue-600 hover:bg-blue-700 w-full sm:flex-1">{editingYearId ? 'Guardar cambios' : 'Guardar año'}</Button>
                   {editingYearId && (
                     <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onCancelEditYear}>Cancelar</Button>
                   )}
@@ -1695,7 +1701,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
           </Card>
 
           <Card className="border-t-4 border-t-indigo-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-indigo-800 flex items-center gap-2">
                 ⏱️ Periodos Académicos
               </CardTitle>
@@ -1756,7 +1762,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Edición notas hasta</label>
                     <Input
@@ -1774,9 +1780,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                     />
                   </div>
                 </div>
-                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700">{editingPeriodId ? 'Actualizar Periodo' : 'Agregar Periodo'}</Button>
+                <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700">{editingPeriodId ? 'Guardar cambios' : 'Guardar período'}</Button>
                 {editingPeriodId && (
-                  <Button type="button" variant="outline" className="w-full" onClick={onCancelEditPeriod}>Cancelar Edición</Button>
+                  <Button type="button" variant="outline" className="w-full" onClick={onCancelEditPeriod}>Cancelar</Button>
                 )}
               </form>
               <div className="space-y-2">
@@ -1817,8 +1823,8 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         if (yearObj?.status === 'CLOSED') return null
                         return (
                           <div className="flex gap-1 opacity-100 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
-                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditPeriod(p)}>✎</Button>
-                            <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeletePeriod(p.id)}>×</Button>
+                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditPeriod(p)}>✎</Button>
+                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeletePeriod(p.id)}>×</Button>
                           </div>
                         )
                       })()}
@@ -1833,9 +1839,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {activeTab === 'institution' && (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className={sectionGridTwoColsClass}>
           <Card className="border-t-4 border-t-emerald-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-emerald-800 flex items-center gap-2">
                 🏫 Institución
               </CardTitle>
@@ -1849,7 +1855,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   onChange={(e) => setInstInput({...instInput, name: e.target.value})}
                   className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
                     placeholder="NIT"
                     value={instInput.nit}
@@ -1869,7 +1875,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   onChange={(e) => setInstInput({...instInput, address: e.target.value})}
                   className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
                     placeholder="Teléfono"
                     value={instInput.phone}
@@ -1889,7 +1895,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   onChange={(e) => setInstInput({...instInput, website: e.target.value})}
                   className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                 />
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Rector</label>
                     <select
@@ -1930,7 +1936,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                     className="border-emerald-100 focus:border-emerald-300 focus:ring-emerald-200"
                   />
                 </div>
-                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">Guardar Institución</Button>
+                <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700">Guardar institución</Button>
               </form>
               )}
               <div className="space-y-2 mt-4">
@@ -1953,7 +1959,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
           </Card>
 
           <Card className="border-t-4 border-t-teal-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-teal-800 flex items-center gap-2">
                 🏢 Sedes (Campus)
               </CardTitle>
@@ -1967,7 +1973,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   className="border-teal-100 focus:border-teal-300 focus:ring-teal-200"
                 />
                 <Button type="submit" className="w-full bg-teal-600 hover:bg-teal-700">
-                  {editingCampusId ? 'Actualizar Sede' : 'Agregar Sede'}
+                  {editingCampusId ? 'Guardar cambios' : 'Crear sede'}
                 </Button>
                 {editingCampusId && (
                   <Button type="button" variant="outline" className="w-full" onClick={onCancelEditCampus}>Cancelar</Button>
@@ -1993,10 +1999,10 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {activeTab === 'grades_levels' && (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className={sectionGridTwoColsClass}>
           <div className="space-y-6">
             <Card className="border-t-4 border-t-amber-500 shadow-sm">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+              <CardHeader className={sectionCardHeaderClass}>
                 <CardTitle className="text-amber-800 flex items-center gap-2">
                   📊 Niveles Académicos
                 </CardTitle>
@@ -2040,7 +2046,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                     </div>
                   </div>
                   <Button type="submit" className="w-full bg-amber-600 hover:bg-amber-700 text-white">
-                    {editingLevelId ? 'Actualizar Nivel' : 'Agregar Nivel'}
+                    {editingLevelId ? 'Guardar cambios' : 'Crear nivel'}
                   </Button>
                   {editingLevelId && (
                     <Button type="button" variant="outline" className="w-full" onClick={onCancelEditLevel}>Cancelar</Button>
@@ -2069,7 +2075,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
           <div className="space-y-6">
             <Card className="border-t-4 border-t-orange-500 shadow-sm">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+              <CardHeader className={sectionCardHeaderClass}>
                 <CardTitle className="text-orange-800 flex items-center gap-2">
                   🎓 Grados Escolares
                 </CardTitle>
@@ -2104,7 +2110,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                     {levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                   <Button type="submit" className="w-full sm:w-auto bg-orange-600 hover:bg-orange-700 text-white">
-                    {editingGradeId ? 'Actualizar' : 'Agregar'}
+                    {editingGradeId ? 'Guardar cambios' : 'Guardar grado'}
                   </Button>
                   {editingGradeId && (
                     <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onCancelEditGrade}>X</Button>
@@ -2179,10 +2185,10 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {activeTab === 'areas_subjects' && (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className={sectionGridTwoColsClass}>
           {/* Areas Management */}
           <Card className="border-t-4 border-t-fuchsia-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-fuchsia-800 flex items-center gap-2">
                 📚 Áreas del Conocimiento
               </CardTitle>
@@ -2195,7 +2201,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   onChange={(e) => setAreaInput({...areaInput, name: e.target.value})}
                   className="border-fuchsia-100 focus:border-fuchsia-300 focus:ring-fuchsia-200"
                 />
-                <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white" size="sm">{editingAreaId ? 'Actualizar' : 'Crear Área'}</Button>
+                <Button type="submit" className="w-full bg-fuchsia-600 hover:bg-fuchsia-700 text-white" size="sm">{editingAreaId ? 'Guardar cambios' : 'Crear área'}</Button>
                 {editingAreaId && (
                   <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditArea}>Cancelar</Button>
                 )}
@@ -2218,7 +2224,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 sm:h-6 sm:w-6 sm:p-0 text-fuchsia-600 hover:bg-fuchsia-100 dark:text-fuchsia-300 dark:hover:bg-slate-800"
+                          className="h-10 w-10 p-0 sm:h-8 sm:w-8 sm:p-0 text-fuchsia-600 hover:bg-fuchsia-100 dark:text-fuchsia-300 dark:hover:bg-slate-800"
                           onClick={() => onEditArea(a)}
                         >
                           ✎
@@ -2226,7 +2232,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 sm:h-6 sm:w-6 sm:p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30"
+                          className="h-10 w-10 p-0 sm:h-8 sm:w-8 sm:p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30"
                           onClick={() => onDeleteArea(a.id)}
                         >
                           ×
@@ -2240,7 +2246,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
           {/* Subjects Catalog Management */}
           <Card className="border-t-4 border-t-cyan-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-cyan-800 flex items-center gap-2">
                 📖 Catálogo de Asignaturas
               </CardTitle>
@@ -2261,7 +2267,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   onChange={(e) => setSubjectInput({...subjectInput, name: e.target.value})}
                   className="border-cyan-100 focus:border-cyan-300 focus:ring-cyan-200"
                 />
-                <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white" size="sm">{editingSubjectId ? 'Actualizar' : 'Crear Asignatura'}</Button>
+                <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white" size="sm">{editingSubjectId ? 'Guardar cambios' : 'Crear asignatura'}</Button>
                 {editingSubjectId && (
                   <Button type="button" variant="outline" className="w-full" size="sm" onClick={onCancelEditSubject}>Cancelar</Button>
                 )}
@@ -2292,7 +2298,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 sm:h-6 sm:w-6 sm:p-0 text-cyan-600 hover:bg-cyan-100 dark:text-cyan-300 dark:hover:bg-slate-800"
+                          className="h-10 w-10 p-0 sm:h-8 sm:w-8 sm:p-0 text-cyan-600 hover:bg-cyan-100 dark:text-cyan-300 dark:hover:bg-slate-800"
                           onClick={() => onEditSubject(s)}
                         >
                           ✎
@@ -2300,7 +2306,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 sm:h-6 sm:w-6 sm:p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30"
+                          className="h-10 w-10 p-0 sm:h-8 sm:w-8 sm:p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30"
                           onClick={() => onDeleteSubject(s.id)}
                         >
                           ×
@@ -2315,10 +2321,10 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {activeTab === 'study_plan' && (
-        <div className="grid md:grid-cols-3 gap-6">
+        <div className={sectionGridThreeColsClass}>
           <div className="md:col-span-1 space-y-6">
-            <Card className="border-t-4 border-t-violet-500 shadow-sm h-fit sticky top-4">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <Card className="border-t-4 border-t-violet-500 shadow-sm h-fit sticky top-[140px] lg:top-28">
+              <CardHeader className={sectionCardHeaderClass}>
                 <CardTitle className="text-violet-800 flex items-center gap-2">
                   🎓 Seleccionar Grado
                 </CardTitle>
@@ -2398,7 +2404,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
           <div className="md:col-span-2 space-y-6">
             <Card className="border-t-4 border-t-indigo-500 shadow-sm">
-              <CardHeader className="bg-slate-50/50 border-b pb-3 flex flex-row items-center justify-between dark:bg-slate-900/50 dark:border-slate-800">
+              <CardHeader className={`${sectionCardHeaderClass} flex flex-row items-center justify-between`}>
                 <CardTitle className="text-indigo-800 flex items-center gap-2">
                   {selectedSubjectGrade 
                     ? `📖 Plan de Estudios: ${grades.find(g => g.id === selectedSubjectGrade)?.name}`
@@ -2558,8 +2564,8 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                       </div>
                       <div className="sm:col-span-4 flex items-end">
                         <div className="flex flex-col sm:flex-row gap-2 w-full">
-                          <Button type="submit" className="w-full sm:flex-1 bg-indigo-600 hover:bg-indigo-700 text-white">
-                            {editingAcademicLoadId ? 'Actualizar' : 'Agregar'}
+                            <Button type="submit" className="w-full sm:flex-1 bg-indigo-600 hover:bg-indigo-700 text-white">
+                            {editingAcademicLoadId ? 'Guardar cambios' : 'Agregar asignatura'}
                           </Button>
                           {editingAcademicLoadId && (
                             <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={onCancelEditAcademicLoad}>
@@ -2608,8 +2614,8 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                       </div>
                                     </div>
                                     <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
-                                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditAcademicLoad(l)}>✎</Button>
-                                      <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeleteAcademicLoad(l.id)}>×</Button>
+                                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditAcademicLoad(l)}>✎</Button>
+                                      <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeleteAcademicLoad(l.id)}>×</Button>
                                     </div>
                                   </div>
                                 )
@@ -2650,27 +2656,27 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       )}
 
       {(isGroupsOnly || activeTab === 'organization') && (
-        <div className="grid md:grid-cols-3 gap-6">
-          <div className="md:col-span-3 space-y-6">
+        <div className="grid gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-3">
             <Card className="border-t-4 border-t-cyan-500 shadow-sm">
-              <CardHeader className="sticky top-0 md:top-4 z-30 bg-slate-50/90 border-b pb-3 backdrop-blur dark:bg-slate-900/85 dark:border-slate-800">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <CardHeader className="sticky top-0 z-30 border-b border-cyan-100/70 bg-slate-50/90 pb-3 backdrop-blur motion-safe:transition-all motion-safe:duration-200 dark:border-slate-700 dark:bg-slate-900/90 lg:top-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <CardTitle className="text-cyan-800 flex items-center gap-2">
                     📋 Grupos Configurados
                   </CardTitle>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center">
                     <Button
                       size="sm"
-                      className="bg-cyan-600 hover:bg-cyan-700 text-white"
+                      className="min-h-11 bg-cyan-600 text-white hover:bg-cyan-700"
                       onClick={openNewGroupModal}
                       disabled={isGroupModalOpen}
                     >
-                      + Nuevo grupo
+                      Crear grupo
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-cyan-600 border-cyan-200 hover:bg-cyan-50 dark:text-cyan-300 dark:border-slate-700 dark:hover:bg-slate-800"
+                      className="min-h-11 border-cyan-200 text-cyan-600 hover:bg-cyan-50 dark:border-slate-700 dark:text-cyan-300 dark:hover:bg-slate-800"
                       onClick={openImportGroupsModal}
                       disabled={!groupInput.academic_year || isGroupModalOpen}
                     >
@@ -2682,11 +2688,11 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                 {years.filter(y => y.status === 'ACTIVE').length === 0 ? null : (
                   <div className="mt-3 bg-cyan-50 p-3 rounded-lg border border-cyan-100 dark:bg-cyan-950/25 dark:border-cyan-500/20">
                     {/* Desktop filters */}
-                    <div className="hidden md:flex md:items-center md:justify-between gap-3">
+                    <div className="hidden xl:flex xl:items-center xl:justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Año:</span>
                         <select
-                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[120px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          className="h-11 min-w-[120px] rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                           value={groupInput.academic_year}
                           onChange={(e) => setGroupInput({ ...groupInput, academic_year: e.target.value })}
                           aria-label="Filtrar por año"
@@ -2700,7 +2706,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
                         <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Sede:</span>
                         <select
-                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-40 bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          className="h-11 min-w-40 rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                           value={groupCampusFilter}
                           onChange={(e) => setGroupCampusFilter(e.target.value as typeof groupCampusFilter)}
                           aria-label="Filtrar por sede"
@@ -2715,7 +2721,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
                         <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Jornada:</span>
                         <select
-                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[140px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          className="h-11 min-w-[140px] rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                           value={groupShiftFilter}
                           onChange={(e) => setGroupShiftFilter(e.target.value as typeof groupShiftFilter)}
                           aria-label="Filtrar por jornada"
@@ -2730,7 +2736,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
                         <span className="text-sm font-bold text-cyan-700 dark:text-cyan-200">Por pág:</span>
                         <select
-                          className="p-1.5 border border-cyan-200 rounded text-sm min-w-[100px] bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          className="h-11 min-w-[100px] rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                           value={groupsPerPage}
                           onChange={(e) => setGroupsPerPage(parseInt(e.target.value) || 8)}
                           aria-label="Grupos por página"
@@ -2745,18 +2751,18 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         value={groupSearch}
                         onChange={(e) => setGroupSearch(e.target.value)}
                         placeholder="Buscar (grado, grupo, sede, director, salón)…"
-                        className="w-full md:w-96 h-9 rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        className="h-11 w-full rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 lg:w-96"
                       />
                     </div>
 
                     {/* Mobile filters */}
-                    <div className="md:hidden space-y-2">
+                    <div className="space-y-2 xl:hidden">
                       <div className="grid grid-cols-1 gap-2">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                           <div>
                             <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Año</label>
                             <select
-                              className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              className="h-11 w-full rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                               value={groupInput.academic_year}
                               onChange={(e) => setGroupInput({ ...groupInput, academic_year: e.target.value })}
                               aria-label="Filtrar por año"
@@ -2772,7 +2778,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                           <div>
                             <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Sede</label>
                             <select
-                              className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              className="h-11 w-full rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                               value={groupCampusFilter}
                               onChange={(e) => setGroupCampusFilter(e.target.value as typeof groupCampusFilter)}
                               aria-label="Filtrar por sede"
@@ -2785,13 +2791,30 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               ))}
                             </select>
                           </div>
+
+                          <div className="hidden lg:block">
+                            <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Jornada</label>
+                            <select
+                              className="h-11 w-full rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                              value={groupShiftFilter}
+                              onChange={(e) => setGroupShiftFilter(e.target.value as typeof groupShiftFilter)}
+                              aria-label="Filtrar por jornada"
+                            >
+                              <option value="ALL">Todas</option>
+                              <option value="MORNING">Mañana</option>
+                              <option value="AFTERNOON">Tarde</option>
+                              <option value="NIGHT">Noche</option>
+                              <option value="FULL">Única</option>
+                              <option value="WEEKEND">Fin de semana</option>
+                            </select>
+                          </div>
                         </div>
 
                         <input
                           value={groupSearch}
                           onChange={(e) => setGroupSearch(e.target.value)}
                           placeholder="Buscar grupos…"
-                          className="w-full h-9 rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                          className="h-11 w-full rounded-md border border-cyan-200 bg-white px-3 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                         />
 
                         <div className="flex items-center justify-between gap-2">
@@ -2799,7 +2822,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="h-9"
+                            className="min-h-11"
                             onClick={() => setShowGroupFiltersMobile((v) => !v)}
                             aria-expanded={showGroupFiltersMobile}
                           >
@@ -2811,7 +2834,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-9"
+                            className="min-h-11"
                             onClick={() => {
                               setGroupSearch('')
                               setGroupCampusFilter('ALL')
@@ -2828,7 +2851,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                             <div>
                               <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Jornada</label>
                               <select
-                                className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                className="h-11 w-full rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                                 value={groupShiftFilter}
                                 onChange={(e) => setGroupShiftFilter(e.target.value as typeof groupShiftFilter)}
                                 aria-label="Filtrar por jornada"
@@ -2845,7 +2868,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                             <div>
                               <label className="block text-[11px] font-semibold text-cyan-700 dark:text-cyan-200">Por página</label>
                               <select
-                                className="w-full h-9 px-2 border border-cyan-200 rounded text-sm bg-white text-cyan-900 focus:ring-cyan-500 focus:border-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                                className="h-11 w-full rounded border border-cyan-200 bg-white px-3 text-sm text-cyan-900 focus:border-cyan-500 focus:ring-cyan-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                                 value={groupsPerPage}
                                 onChange={(e) => setGroupsPerPage(parseInt(e.target.value) || 8)}
                                 aria-label="Grupos por página"
@@ -3007,7 +3030,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-9 w-9 p-0 md:h-7 md:w-7"
+                                  className="h-11 w-11 p-0 lg:h-9 lg:w-9"
                                   aria-haspopup="menu"
                                   aria-expanded={actionsOpen}
                                   onClick={() => setOpenGroupActionsId((prev) => (prev === g.id ? null : g.id))}
@@ -3024,6 +3047,17 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                     data-group-actions-root="true"
                                     onClick={(e) => e.stopPropagation()}
                                   >
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
+                                        navigate(`/groups/${g.id}/students`, { state: { group: g } })
+                                      }}
+                                    >
+                                      Ver estudiantes
+                                    </button>
                                     <button
                                       type="button"
                                       className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -3069,7 +3103,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                         navigate(`/enrollments/new?${params.toString()}`)
                                       }}
                                     >
-                                      Matricular (nuevo)
+                                      Matricular estudiante nuevo
                                     </button>
                                     <button
                                       type="button"
@@ -3083,7 +3117,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                         navigate(`/enrollments/existing?${params.toString()}`)
                                       }}
                                     >
-                                      Matricular (antiguo)
+                                      Matricular estudiante antiguo
                                     </button>
                                     <div className="h-px bg-slate-100 dark:bg-slate-800" />
                                     <button
@@ -3118,8 +3152,19 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                             <div className="ml-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
                               <Button
                                 size="sm"
+                                variant="outline"
+                                className="min-h-11 w-full sm:w-auto lg:h-9"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  navigate(`/groups/${g.id}/students`, { state: { group: g } })
+                                }}
+                              >
+                                Ver estudiantes
+                              </Button>
+                              <Button
+                                size="sm"
                                 variant="secondary"
-                                className="h-9 sm:h-8 w-full sm:w-auto"
+                                className="min-h-11 w-full sm:w-auto lg:h-9"
                                 disabled={printingManualSheetGroupId === g.id}
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -3127,17 +3172,6 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                 }}
                               >
                                 {printingManualSheetGroupId === g.id ? 'Generando…' : 'Imprimir planilla'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-9 sm:h-8 w-full sm:w-auto"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  navigate(`/groups/${g.id}/students`, { state: { group: g } })
-                                }}
-                              >
-                                Ver estudiantes
                               </Button>
                             </div>
                           </div>
@@ -3149,17 +3183,17 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                       return (
                         <div className="space-y-5">
                           {totalPages > 1 && (
-                            <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+                            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2 dark:border-slate-800 dark:bg-slate-900">
                               <div className="text-xs text-slate-500 dark:text-slate-400">
                                 Página {currentPage} de {totalPages} • {filteredGroups.length} grupos
                               </div>
 
                               {/* Mobile pagination (no overflow) */}
-                              <div className="flex items-center gap-2 md:hidden">
+                              <div className="flex items-center gap-2 lg:hidden">
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-8"
+                                  className="min-h-11"
                                   disabled={currentPage <= 1}
                                   onClick={() => setGroupsPage(Math.max(1, currentPage - 1))}
                                 >
@@ -3168,7 +3202,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-8"
+                                  className="min-h-11"
                                   disabled={currentPage >= totalPages}
                                   onClick={() => setGroupsPage(Math.min(totalPages, currentPage + 1))}
                                 >
@@ -3177,13 +3211,13 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               </div>
 
                               {/* Desktop pagination */}
-                              <div className="hidden md:flex flex-wrap gap-1 justify-end">
+                              <div className="hidden lg:flex flex-wrap gap-1 justify-end">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                                   <Button
                                     key={p}
                                     variant={p === currentPage ? 'secondary' : 'outline'}
                                     size="sm"
-                                    className="h-8 px-2"
+                                    className="min-h-11 px-2"
                                     onClick={() => setGroupsPage(p)}
                                     aria-current={p === currentPage ? 'page' : undefined}
                                   >
@@ -3193,7 +3227,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               </div>
                             </div>
                           )}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             {pageItems.map(groupCard)}
                           </div>
                         </div>
@@ -3209,9 +3243,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
       {activeTab === 'evaluation' && (
         <div className="space-y-6">
-          <div className="grid md:grid-cols-3 gap-6">
+          <div className={sectionGridThreeColsClass}>
             <Card className="md:col-span-1 h-fit shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <CardTitle className="text-lg text-slate-700 dark:text-slate-100">
                 {editingScaleId ? 'Editar Escala' : 'Nueva Escala'}
               </CardTitle>
@@ -3308,7 +3342,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
             </Card>
 
             <Card className="md:col-span-2 border-t-4 border-t-rose-500 shadow-sm">
-            <CardHeader className="bg-slate-50/50 border-b pb-3 dark:bg-slate-900/50 dark:border-slate-800">
+            <CardHeader className={sectionCardHeaderClass}>
               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                 <CardTitle className="text-rose-800 flex items-center gap-2">
                   📊 Escala de Valoración (SIEE)
@@ -3483,9 +3517,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                 <CardHeader className="bg-white border-b shrink-0 dark:bg-slate-900 dark:border-slate-800">
                 <div className="flex items-center justify-between gap-3">
                   <CardTitle className="text-slate-900 dark:text-slate-100">
-                    {editingGroupId ? 'Editar grupo' : 'Nuevo grupo'}
+                    {editingGroupId ? 'Editar grupo' : 'Crear grupo'}
                   </CardTitle>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={closeGroupModal} aria-label="Cerrar">
+                  <Button variant="ghost" size="sm" className="h-10 w-10 p-0 sm:h-8 sm:w-8" onClick={closeGroupModal} aria-label="Cerrar">
                     ×
                   </Button>
                 </div>
@@ -3493,7 +3527,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
                 <CardContent className="pt-4 flex-1 overflow-y-auto">
                   <form onSubmit={onAddGroup} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Año lectivo</label>
                       <select
@@ -3580,7 +3614,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                     </select>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                     <div>
                       <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Grupo</label>
                       <Input
@@ -3782,6 +3816,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }

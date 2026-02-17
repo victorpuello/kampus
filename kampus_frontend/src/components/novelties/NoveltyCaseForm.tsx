@@ -666,9 +666,9 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
     <>
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <CardTitle className="text-base">Datos básicos</CardTitle>
-            <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => void reloadCatalogs()}>
+            <Button type="button" variant="outline" size="sm" className="min-h-11 w-full sm:w-auto" onClick={() => void reloadCatalogs()}>
               Recargar catálogos
             </Button>
           </div>
@@ -680,16 +680,16 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="md:col-span-2">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="lg:col-span-2">
               <Label>Institución</Label>
               {institutions.length <= 1 && institutions.length > 0 ? (
-                <div className="mt-1 flex h-10 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-100">
+                <div className="mt-1 flex h-11 items-center rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900/30 dark:text-slate-100">
                   {institutions[0].name}
                 </div>
               ) : (
                 <select
-                  className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={institutionId}
                   disabled={saving || loadingInstitutions}
                   onChange={(e) => {
@@ -717,7 +717,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-10"
+                  className="min-h-11"
                   disabled={loadingStudent || !studentId.trim()}
                   onClick={() => void fetchStudent()}
                 >
@@ -741,7 +741,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
             <div>
               <Label>Tipo</Label>
               <select
-                className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 value={typeId}
                 disabled={loading}
                 onChange={(e) => {
@@ -765,17 +765,17 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
             </div>
 
             {selectedTypeCode === 'retiro' ? (
-              <div className="md:col-span-2 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/30 lg:col-span-2">
                 <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Retiro rápido</div>
                 <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
                   Crea el caso, carga el soporte, radica, aprueba y ejecuta sin pedirte comentarios.
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                  <div className="md:col-span-1">
+                <div className="mt-3 grid grid-cols-1 items-end gap-3 lg:grid-cols-3">
+                  <div className="lg:col-span-1">
                     <Label>Tipo de soporte</Label>
                     <select
-                      className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                      className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                       value={retiroDocTypeChoice}
                       disabled={saving}
                       onChange={(e) => {
@@ -802,28 +802,29 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                     ) : null}
                   </div>
 
-                  <div className="md:col-span-2">
+                  <div className="lg:col-span-2">
                     <Label>Archivo</Label>
                     <Input type="file" className="mt-1" onChange={(e) => setRetiroFile(e.target.files?.[0] || null)} />
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-end">
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-end">
                   <Button
                     onClick={() => void quickRetiro()}
                     disabled={!isAdmin || saving || quickRetiroWorking}
                     title={!isAdmin ? 'Solo administradores' : undefined}
+                    className="min-h-11 w-full sm:w-auto"
                   >
                     {quickRetiroWorking ? 'Ejecutando retiro…' : 'Crear y ejecutar retiro'}
                   </Button>
                 </div>
 
-                <div className="mt-2 flex items-center justify-end">
+                <div className="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-end">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-8"
+                    className="min-h-10 w-full sm:w-auto"
                     onClick={() => setShowRetiroExtras((v) => !v)}
                   >
                     {showRetiroExtras ? 'Ocultar opciones' : 'Opciones adicionales'}
@@ -836,7 +837,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
               <div>
                 <Label>Motivo (opcional)</Label>
                 <select
-                  className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={reasonId}
                   disabled={!typeId || loading}
                   onChange={(e) => setReasonId(e.target.value)}
@@ -855,7 +856,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
           <div className="mt-4">
             {payloadMode !== 'none' ? (
               <div className="rounded-md border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Parámetros del tipo</div>
                     <div className="text-xs text-slate-600 dark:text-slate-400">Campos guiados. No necesitas escribir JSON.</div>
@@ -866,11 +867,11 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                 </div>
 
                 {(payloadMode === 'cambio_interno' || payloadMode === 'reingreso') ? (
-                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div>
                       <Label>Año lectivo</Label>
                       <select
-                        className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                         value={payloadAcademicYearId}
                         disabled={loadingPayloadCatalogs}
                         onChange={(e) => {
@@ -890,7 +891,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                     <div>
                       <Label>{payloadMode === 'reingreso' ? 'Grado (obligatorio)' : 'Grado (recomendado)'}</Label>
                       <select
-                        className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                         value={payloadGradeId}
                         disabled={loadingPayloadCatalogs}
                         onChange={(e) => {
@@ -907,10 +908,10 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                       </select>
                     </div>
 
-                    <div className="md:col-span-2">
+                    <div className="lg:col-span-2">
                       <Label>{payloadMode === 'cambio_interno' ? 'Grupo destino (obligatorio)' : 'Grupo (opcional)'}</Label>
                       <select
-                        className="mt-1 w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                        className="mt-1 h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                         value={payloadGroupId}
                         disabled={loadingPayloadCatalogs || groups.length === 0}
                         onChange={(e) => setPayloadGroupId(e.target.value)}
@@ -964,8 +965,8 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
             ) : null}
           </div>
 
-          <div className="mt-6 flex items-center justify-end gap-2">
-            <Button variant="outline" onClick={onCancel} disabled={saving}>
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onCancel} disabled={saving} className="min-h-11 w-full sm:w-auto">
               Cancelar
             </Button>
             {selectedTypeCode !== 'retiro' || showRetiroExtras ? (
@@ -974,6 +975,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                   variant="outline"
                   onClick={() => void submit({ fileImmediately: false })}
                   disabled={!canSubmit}
+                  className="min-h-11 w-full sm:w-auto"
                 >
                   {saving ? 'Guardando…' : 'Guardar borrador'}
                 </Button>
@@ -981,6 +983,7 @@ export function NoveltyCaseForm({ initial, onCancel, onCreated }: NoveltyCaseFor
                   onClick={() => void submit({ fileImmediately: true })}
                   disabled={!canFile}
                   title={!institutionId ? (student ? 'Se inferirá la institución del estudiante' : 'Selecciona institución para radicar') : undefined}
+                  className="min-h-11 w-full sm:w-auto"
                 >
                   {saving ? 'Radicando…' : 'Crear y radicar'}
                 </Button>

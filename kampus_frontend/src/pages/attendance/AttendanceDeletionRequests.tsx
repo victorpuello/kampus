@@ -106,7 +106,7 @@ export default function AttendanceDeletionRequests() {
       <CardHeader>
         <CardTitle>Solicitudes de eliminación (Asistencias)</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
         <Toast
           message={toast.message}
           type={toast.type}
@@ -131,24 +131,26 @@ export default function AttendanceDeletionRequests() {
         />
 
         {loading ? (
-          <p className="text-slate-600 dark:text-slate-300">Cargando…</p>
+          <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+            Cargando…
+          </div>
         ) : (
           <div className="space-y-4">
             {error ? (
-              <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 dark:bg-rose-950/30 dark:text-rose-200">
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
                 {error}
               </div>
             ) : null}
 
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="text-sm text-slate-500 dark:text-slate-400">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-slate-600 dark:text-slate-300">
                 Pendientes: {count}
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
-                <Button className="w-full sm:w-auto" variant="outline" onClick={load} disabled={loading}>
+                <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={load} disabled={loading}>
                   Actualizar
                 </Button>
-                <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance')}>
+                <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance')}>
                   Volver
                 </Button>
               </div>
@@ -175,31 +177,31 @@ export default function AttendanceDeletionRequests() {
                       </div>
                       <div className="shrink-0">
                         {s.locked_at ? (
-                          <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200" />
+                          <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40" />
                         ) : (
-                          <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200" />
+                          <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40" />
                         )}
                       </div>
                     </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-3">
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 dark:text-slate-300 sm:grid-cols-2">
                       <div>
                         <span className="text-slate-500 dark:text-slate-400">Fecha:</span> {s.class_date}
                       </div>
                       <div>
                         <span className="text-slate-500 dark:text-slate-400">Solicitada:</span> {formatDateTime(s.deletion_requested_at ?? null)}
                       </div>
-                      <div className="col-span-2 sm:col-span-3">
+                      <div className="sm:col-span-2">
                         <span className="text-slate-500 dark:text-slate-400">Docente:</span> {s.teacher_name || `ID ${s.teacher_id ?? ''}`}
                       </div>
                     </div>
 
                     <div className="mt-4 flex flex-col gap-2">
-                      <Button className="w-full" variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
+                      <Button className="min-h-11 w-full" variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
                         Ver
                       </Button>
                       <Button
-                        className="w-full"
+                        className="min-h-11 w-full"
                         variant="destructive"
                         onClick={() => openDeleteDefinitiveModal(s.id)}
                         disabled={deletingId === s.id}
@@ -213,7 +215,7 @@ export default function AttendanceDeletionRequests() {
             </div>
 
             {/* Desktop table */}
-            <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
@@ -246,17 +248,18 @@ export default function AttendanceDeletionRequests() {
                           <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(s.deletion_requested_at ?? null)}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             {s.locked_at ? (
-                              <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200" />
+                              <Pill text="Cerrada" className="bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-200 dark:border-amber-900/40" />
                             ) : (
-                              <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200" />
+                              <Pill text="Abierta" className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/40" />
                             )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex flex-wrap gap-2">
-                              <Button variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
+                              <Button className="min-h-11" variant="outline" onClick={() => navigate(`/attendance/sessions/${s.id}`)}>
                                 Ver
                               </Button>
                               <Button
+                                className="min-h-11"
                                 variant="destructive"
                                 onClick={() => openDeleteDefinitiveModal(s.id)}
                                 disabled={deletingId === s.id}
@@ -273,15 +276,15 @@ export default function AttendanceDeletionRequests() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+            <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
               <div className="text-slate-500 dark:text-slate-400">
                 Página {page} de {totalPages}
               </div>
               <div className="flex gap-2">
-                <Button className="w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
                   Anterior
                 </Button>
-                <Button className="w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
                   Siguiente
                 </Button>
               </div>

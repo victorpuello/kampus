@@ -175,20 +175,20 @@ export default function NoveltiesInboxPage() {
   const canNext = Boolean(state.pageMeta?.next)
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Novedades</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">Listado de novedades registradas</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto lg:grid-cols-2">
           <Link to="/novelties/new">
-            <Button className="h-9">Nueva novedad</Button>
+            <Button className="min-h-11 w-full">Nueva novedad</Button>
           </Link>
           <Button
             variant="outline"
             size="sm"
-            className="h-9"
+            className="min-h-11 w-full"
             onClick={async () => {
               await load({ showToast: true })
             }}
@@ -200,21 +200,22 @@ export default function NoveltiesInboxPage() {
 
       <div className="mt-4">
         <Card>
-          <CardHeader>
+          <CardHeader className="pb-3">
             <CardTitle className="text-base">Búsqueda y filtros</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col md:flex-row md:items-center gap-3">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
               <div className="flex-1">
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Buscar por radicado, caso o estudiante…"
+                  className="h-11"
                 />
               </div>
-              <div>
+              <div className="w-full xl:w-auto">
                 <select
-                  className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 transition-colors dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter((e.target.value as NoveltyStatus | '') || '')}
                 >
@@ -225,7 +226,7 @@ export default function NoveltiesInboxPage() {
                   ))}
                 </select>
               </div>
-              <div className="text-xs text-slate-500 dark:text-slate-400">{filtered.length} casos</div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 xl:ml-auto">{filtered.length} casos</div>
             </div>
           </CardContent>
         </Card>
@@ -233,15 +234,15 @@ export default function NoveltiesInboxPage() {
 
       <div className="mt-6">
         {state.pageMeta ? (
-          <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-slate-500 dark:text-slate-400">
               Total: {state.pageMeta.count} • Página {page}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9"
+                className="min-h-11"
                 disabled={state.loading || !canPrev}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
@@ -250,7 +251,7 @@ export default function NoveltiesInboxPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-9"
+                className="min-h-11"
                 disabled={state.loading || !canNext}
                 onClick={() => setPage((p) => p + 1)}
               >
@@ -260,9 +261,9 @@ export default function NoveltiesInboxPage() {
           </div>
         ) : null}
 
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="min-w-5xl w-full text-sm text-left">
+            <thead className="border-b border-slate-200 bg-linear-to-r from-slate-50 to-slate-100 text-xs uppercase text-slate-500 dark:border-slate-700 dark:from-slate-900 dark:to-slate-800 dark:text-slate-300">
               <tr>
                 <th className="px-6 py-4 font-semibold">Radicado</th>
                 <th className="px-6 py-4 font-semibold">Estado</th>
@@ -291,7 +292,7 @@ export default function NoveltiesInboxPage() {
                 </tr>
               ) : (
                 filtered.map((c) => (
-                  <tr key={c.id} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60">
+                  <tr key={c.id} className="bg-white transition-colors hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/70">
                     <td className="px-6 py-4">
                       <div className="font-medium text-slate-900 dark:text-slate-100">{c.radicado || `#${c.id}`}</div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">Caso #{c.id}</div>
@@ -319,7 +320,7 @@ export default function NoveltiesInboxPage() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link to={`/novelties/${c.id}`}>
-                        <Button variant="outline" size="sm" className="h-9">Ver</Button>
+                        <Button variant="outline" size="sm" className="min-h-10">Ver</Button>
                       </Link>
                     </td>
                   </tr>
@@ -329,8 +330,8 @@ export default function NoveltiesInboxPage() {
           </table>
         </div>
 
-        {/* Mobile cards */}
-        <div className="md:hidden space-y-3">
+        {/* Mobile + iPad cards */}
+        <div className="space-y-3 lg:hidden">
           {state.loading ? (
             <Card>
               <CardContent className="py-8 text-center text-slate-500 dark:text-slate-400">Cargando…</CardContent>
@@ -348,28 +349,33 @@ export default function NoveltiesInboxPage() {
               </CardContent>
             </Card>
           ) : (
-            filtered.map((c) => (
-              <Card key={c.id}>
-                <CardContent className="py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-slate-900 dark:text-slate-100">{c.radicado || `#${c.id}`}</div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Estudiante {c.student} • Caso #{c.id}</div>
-                      <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                        {typeById.get(c.novelty_type)?.name || `Tipo #${c.novelty_type}`}
-                        {c.novelty_reason ? ` • ${reasonById.get(c.novelty_reason)?.name || `Motivo #${c.novelty_reason}`}` : ''}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1">
+              {filtered.map((c) => (
+                <Card key={c.id} className="border-slate-200/90 dark:border-slate-700">
+                  <CardContent className="py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-slate-900 dark:text-slate-100">{c.radicado || `#${c.id}`}</div>
+                        <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Estudiante {c.student} • Caso #{c.id}</div>
+                        <div className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">
+                          {typeById.get(c.novelty_type)?.name || `Tipo #${c.novelty_type}`}
+                          {c.novelty_reason ? ` • ${reasonById.get(c.novelty_reason)?.name || `Motivo #${c.novelty_reason}`}` : ''}
+                        </div>
+                      </div>
+                      <span className={statusPillClass(c.status)}>{statusLabel(c.status)}</span>
+                    </div>
+                    <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                      <div className="text-xs text-slate-600 dark:text-slate-300">{new Date(c.created_at).toLocaleString()}</div>
+                      <div className="mt-2 flex justify-end">
+                        <Link to={`/novelties/${c.id}`}>
+                          <Button variant="outline" size="sm" className="min-h-11">Ver detalle</Button>
+                        </Link>
                       </div>
                     </div>
-                    <span className={statusPillClass(c.status)}>{statusLabel(c.status)}</span>
-                  </div>
-                  <div className="mt-3 flex justify-end">
-                    <Link to={`/novelties/${c.id}`}>
-                      <Button variant="outline" size="sm" className="h-9">Ver detalle</Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
         </div>
 

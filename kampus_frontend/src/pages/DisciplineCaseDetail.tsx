@@ -1046,9 +1046,24 @@ export default function DisciplineCaseDetailPage() {
     )
   }
 
-  if (loading) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
-  if (error) return <div className="p-6 text-red-600 dark:text-rose-200">{error}</div>
-  if (!item) return <div className="p-6 text-slate-600 dark:text-slate-300">Caso no encontrado</div>
+  if (loading)
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+        Cargando…
+      </div>
+    )
+  if (error)
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+        {error}
+      </div>
+    )
+  if (!item)
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+        Caso no encontrado
+      </div>
+    )
 
   const TabButton = ({
     tab,
@@ -1066,7 +1081,7 @@ export default function DisciplineCaseDetailPage() {
         onClick={() => setActiveTab(tab)}
         aria-pressed={isActive}
         className={
-          'whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3 sm:py-2 ' +
+          'inline-flex min-h-11 items-center whitespace-nowrap rounded-md px-3 py-2 text-xs font-medium transition-colors sm:px-3.5 ' +
           (isActive
             ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
             : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800')
@@ -1181,7 +1196,7 @@ export default function DisciplineCaseDetailPage() {
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="text-sm text-slate-500 dark:text-slate-400">
             <Link to="/discipline/cases" className="hover:underline">
@@ -1190,7 +1205,7 @@ export default function DisciplineCaseDetailPage() {
             <span className="mx-2">/</span>
             <span>Caso #{item.id}</span>
           </div>
-          <h2 className="mt-1 break-words text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
+          <h2 className="mt-1 wrap-break-word text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
             {item.student_full_name}
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -1211,17 +1226,17 @@ export default function DisciplineCaseDetailPage() {
           )}
         </div>
 
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+        <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row">
           <Button
             variant="outline"
-            className="w-full sm:w-auto"
+            className="min-h-11 w-full lg:w-auto"
             onClick={() => navigate('/discipline/cases')}
             type="button"
           >
             Volver
           </Button>
           <Button
-            className="w-full sm:w-auto"
+            className="min-h-11 w-full lg:w-auto"
             onClick={handleOpenActa}
             disabled={downloadingActa}
             aria-busy={downloadingActa}
@@ -1235,7 +1250,7 @@ export default function DisciplineCaseDetailPage() {
 
       <div className="sticky top-0 z-40 sm:top-2">
         <div className="rounded-lg border border-slate-200 bg-white/80 p-2 backdrop-blur dark:border-slate-800 dark:bg-slate-950/60">
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:gap-2">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <TabButton tab="overview" label="Resumen" />
             {!isParent ? <TabButton tab="actions" label="Acciones" /> : null}
             <TabButton tab="guardian" label="Acudiente" badge={String((item.notification_logs || []).length)} />
@@ -1360,23 +1375,23 @@ export default function DisciplineCaseDetailPage() {
                     </div>
                   ) : null}
 
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                    <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setActiveTab('attachments')}>
+                  <div className="mt-3 flex flex-col gap-2 md:flex-row">
+                    <Button variant="outline" size="sm" className="min-h-11 w-full md:w-auto" onClick={() => setActiveTab('attachments')}>
                       Ver adjuntos
                     </Button>
-                    <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => setActiveTab('log')}>
+                    <Button variant="outline" size="sm" className="min-h-11 w-full md:w-auto" onClick={() => setActiveTab('log')}>
                       Ver bitácora
                     </Button>
                   </div>
                 </div>
 
                 <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-950 lg:col-span-2">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Historial reciente</div>
                       <div className="text-xs text-slate-500 dark:text-slate-400">Lo último registrado en el caso (puedes expandir).</div>
                     </div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="flex flex-col gap-2 md:flex-row">
                       {filteredEvents.length > 8 ? (
                         <Button
                           variant="outline"
@@ -1393,7 +1408,7 @@ export default function DisciplineCaseDetailPage() {
                     </div>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -1460,9 +1475,9 @@ export default function DisciplineCaseDetailPage() {
 
                   {displayedAttachments.length > 0 ? (
                     <div className="mt-4">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">Archivos</div>
-                        <div className="flex flex-col gap-2 sm:flex-row">
+                        <div className="flex flex-col gap-2 md:flex-row">
                           {filteredAttachments.length > 8 ? (
                             <Button
                               variant="outline"
@@ -1479,7 +1494,7 @@ export default function DisciplineCaseDetailPage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2">
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -1542,7 +1557,7 @@ export default function DisciplineCaseDetailPage() {
                                 title="Ver archivo"
                               >
                                 <span className={getFileTypeBadge(a.file).className}>{getFileTypeBadge(a.file).label}</span>
-                                <span className="font-medium text-slate-800 dark:text-slate-100 break-words">
+                                <span className="font-medium text-slate-800 dark:text-slate-100 wrap-break-word">
                                   {attachmentDisplayLabel(a)}
                                 </span>
                               </a>
@@ -1573,22 +1588,22 @@ export default function DisciplineCaseDetailPage() {
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-linear-to-r from-slate-50 to-white p-4 dark:border-slate-800 dark:from-slate-950 dark:to-slate-900">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Acciones rápidas</div>
                     <div className="text-xs text-slate-500 dark:text-slate-400">Los formularios se abren en ventanas para mantener la vista limpia.</div>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Button variant="outline" className="w-full sm:w-auto" onClick={() => setNoteModalOpen(true)} disabled={busy}>
+                  <div className="flex flex-col gap-2 md:flex-row">
+                    <Button variant="outline" className="min-h-11 w-full md:w-auto" onClick={() => setNoteModalOpen(true)} disabled={busy}>
                       Agregar nota
                     </Button>
-                    <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDeadlineModalOpen(true)} disabled={busy || isSealed}>
+                    <Button variant="outline" className="min-h-11 w-full md:w-auto" onClick={() => setDeadlineModalOpen(true)} disabled={busy || isSealed}>
                       Plazo de descargos
                     </Button>
-                    <Button className="w-full sm:w-auto" onClick={() => setDescargosModalOpen(true)} disabled={busy || isSealed}>
+                    <Button className="min-h-11 w-full md:w-auto" onClick={() => setDescargosModalOpen(true)} disabled={busy || isSealed}>
                       Registrar descargos
                     </Button>
-                    <Button className="w-full sm:w-auto" onClick={() => setDecisionModalOpen(true)} disabled={busy || isSealed}>
+                    <Button className="min-h-11 w-full md:w-auto" onClick={() => setDecisionModalOpen(true)} disabled={busy || isSealed}>
                       Decisión
                     </Button>
                   </div>
@@ -2182,7 +2197,7 @@ export default function DisciplineCaseDetailPage() {
 
           {!isParent && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Canal</Label>
                   <Input
@@ -2245,13 +2260,13 @@ export default function DisciplineCaseDetailPage() {
 
           {(item.notification_logs || []).length > 0 && (
             <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Seleccionar notificación</Label>
                   <select
                     value={ackLogId}
                     onChange={(e) => setAckLogId(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                     disabled={busy}
                   >
                     <option value="">—</option>
@@ -2289,7 +2304,7 @@ export default function DisciplineCaseDetailPage() {
           <CardContent className="space-y-4">
           {!isParent && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Buscar estudiante</Label>
                   <div className="relative">
@@ -2360,7 +2375,7 @@ export default function DisciplineCaseDetailPage() {
                   <select
                     value={participantRole}
                     onChange={(e) => setParticipantRole(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                     disabled={busy || isSealed}
                   >
                     <option value="ALLEGED_AGGRESSOR">Presunto agresor</option>
@@ -2438,7 +2453,7 @@ export default function DisciplineCaseDetailPage() {
                   ) : null}
                 </div>
 
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-end">
                   <div className="flex-1">
                     <Label>Archivos</Label>
                     <Input
@@ -2523,13 +2538,13 @@ export default function DisciplineCaseDetailPage() {
                 ) : null}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label>Tipo</Label>
                   <select
                     value={attachmentKind}
                     onChange={(e) => setAttachmentKind(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                     disabled={busy || isSealed}
                   >
                     <option value="EVIDENCE">Evidencia</option>
@@ -2586,7 +2601,7 @@ export default function DisciplineCaseDetailPage() {
                             title="Ver archivo"
                           >
                             <span className={getFileTypeBadge(a.file).className}>{getFileTypeBadge(a.file).label}</span>
-                            <span className="break-words">Ver archivo</span>
+                            <span className="wrap-break-word">Ver archivo</span>
                           </a>
                           <div className="flex items-center gap-3">
                             <a

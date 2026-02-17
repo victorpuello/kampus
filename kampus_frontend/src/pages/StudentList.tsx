@@ -56,6 +56,33 @@ export default function StudentList() {
     setToast({ message, type, isVisible: true })
   }
 
+  const copyUsernameToClipboard = async (username: string) => {
+    const value = (username || '').trim()
+    if (!value) {
+      showToast('El estudiante no tiene usuario para copiar', 'error')
+      return
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = value
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      showToast(`Usuario copiado: ${value}`, 'success')
+    } catch {
+      showToast('No fue posible copiar el usuario', 'error')
+    }
+  }
+
   const studentStatusLabel = (raw: string | null | undefined): string => {
     const key = (raw || '').trim().toUpperCase()
     if (!key) return 'Sin matrícula'
@@ -67,11 +94,11 @@ export default function StudentList() {
 
   const studentStatusClassName = (raw: string | null | undefined): string => {
     const key = (raw || '').trim().toUpperCase()
-    if (key === 'ACTIVE') return 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900/40'
-    if (key === 'RETIRED') return 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900/40'
-    if (key === 'GRADUATED') return 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/40'
-    if (!key) return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
-    return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-800'
+    if (key === 'ACTIVE') return 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/45 dark:text-emerald-100 dark:border-emerald-800/70'
+    if (key === 'RETIRED') return 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/45 dark:text-amber-100 dark:border-amber-800/70'
+    if (key === 'GRADUATED') return 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/45 dark:text-blue-100 dark:border-blue-800/70'
+    if (!key) return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700'
+    return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700'
   }
 
   const progressBarColor = (percent: number): string => {
@@ -351,7 +378,7 @@ export default function StudentList() {
                 />
                 <Button
                   variant="outline"
-                  className="w-full sm:w-auto"
+                  className="min-h-11 w-full sm:w-auto"
                   disabled={importing}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -360,8 +387,8 @@ export default function StudentList() {
               </>
             )}
             <Link to="/students/new">
-              <Button className="w-full sm:w-auto">
-                <Plus className="mr-2 h-4 w-4" /> Nuevo Estudiante
+              <Button className="min-h-11 w-full sm:w-auto">
+                <Plus className="mr-2 h-4 w-4" /> Crear estudiante
               </Button>
             </Link>
           </div>
@@ -390,7 +417,7 @@ export default function StudentList() {
                 {topErrors.map((e, i) => (
                   <div
                     key={i}
-                    className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200"
+                    className="p-2 rounded border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100"
                   >
                     <span className="font-semibold">Fila {e.row}:</span>{' '}
                     <span className="wrap-break-word">{typeof e.error === 'string' ? e.error : JSON.stringify(e.error)}</span>
@@ -451,51 +478,55 @@ export default function StudentList() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <CardTitle>Listado de Alumnos</CardTitle>
-            <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-              <div className="relative w-full lg:w-64">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500" />
-                <Input
-                  placeholder="Buscar estudiante..."
-                  className="pl-8"
-                  value={searchTerm}
-                  onChange={(e) => {
-                    setSearchTerm(e.target.value)
-                    setPage(1)
-                  }}
-                />
-              </div>
+          <div className={`${count > 0 ? 'md:sticky md:top-3 md:z-20' : ''} motion-safe:transition-all motion-safe:duration-200`}>
+            <div className={`rounded-xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur supports-backdrop-filter:bg-white/85 supports-backdrop-filter:dark:bg-slate-900/85 p-2 sm:p-3 motion-safe:transition-all motion-safe:duration-200 ${count > 0 ? 'border-slate-200/90 dark:border-slate-700 shadow-sm md:shadow-md' : 'border-slate-200/70 dark:border-slate-800 shadow-sm dark:shadow-none'}`}>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <CardTitle>Listado de estudiantes</CardTitle>
+                <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                  <div className="relative w-full lg:w-64">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-500 dark:text-slate-300" />
+                    <Input
+                      placeholder="Buscar estudiante..."
+                      className="h-11 pl-8"
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value)
+                        setPage(1)
+                      }}
+                    />
+                  </div>
 
-              <select
-                className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 sm:min-w-40"
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value)
-                  setPage(1)
-                }}
-                aria-label="Filtrar por estado"
-              >
-                <option value="">Todos</option>
-                <option value="ACTIVE">Activo</option>
-                <option value="RETIRED">Retirado</option>
-                <option value="GRADUATED">Graduado</option>
-                <option value="NONE">Sin matrícula</option>
-              </select>
+                  <select
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark sm:min-w-40"
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value)
+                      setPage(1)
+                    }}
+                    aria-label="Filtrar por estado"
+                  >
+                    <option value="">Todos</option>
+                    <option value="ACTIVE">Activo</option>
+                    <option value="RETIRED">Retirado</option>
+                    <option value="GRADUATED">Graduado</option>
+                    <option value="NONE">Sin matrícula</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
           {loading && data.length > 0 && (
             <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Actualizando resultados…</p>
           )}
           {error && (
-            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-300">
+            <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800/70 dark:bg-red-950/45 dark:text-red-100">
               {error}
             </div>
           )}
         </CardHeader>
         <CardContent>
-          {/* Mobile + iPad list */}
-          <div className="xl:hidden grid grid-cols-1 gap-3 md:grid-cols-2">
+          {/* Mobile list */}
+          <div className="grid grid-cols-1 gap-3 lg:hidden">
             {loading && data.length === 0 ? (
               <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400 md:col-span-2">
                 Cargando…
@@ -511,7 +542,7 @@ export default function StudentList() {
               data.map((s, index) => (
                 <div
                   key={s.user?.id || s.document_number || index}
-                  className="group flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-blue-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:bg-slate-800/60"
+                  className="group flex h-full flex-col rounded-lg border border-slate-200 bg-white p-4 shadow-sm transition-colors hover:bg-blue-50/50 dark:border-slate-800/80 dark:bg-slate-950/70 dark:hover:bg-slate-900/80"
                   role="button"
                   tabIndex={0}
                   onClick={() => navigate(`/students/${s.user?.id}`)}
@@ -541,7 +572,17 @@ export default function StudentList() {
                       <div className="truncate font-semibold uppercase text-slate-900 dark:text-slate-100 md:text-base">
                         {s.user?.last_name} {s.user?.first_name}
                       </div>
-                      <div className="truncate text-xs text-slate-500 dark:text-slate-400 md:text-sm">@{s.user?.username}</div>
+                      <button
+                        type="button"
+                        className="truncate rounded bg-slate-50 px-1.5 py-0.5 text-left text-xs font-mono text-slate-500 transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 md:text-sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          copyUsernameToClipboard(s.user?.username || '')
+                        }}
+                        title="Copiar usuario"
+                      >
+                        @{s.user?.username}
+                      </button>
                       <div className="mt-2 grid grid-cols-1 gap-1 text-sm md:grid-cols-2 md:gap-2">
                         <div className="text-slate-700 dark:text-slate-200">
                           <span className="text-xs text-slate-500 dark:text-slate-400">Documento: </span>
@@ -596,7 +637,7 @@ export default function StudentList() {
                                 openCompletionDetails(s)
                               }}
                             >
-                              Ver faltantes
+                              Ver datos faltantes
                             </Button>
                           ) : null}
                         </div>
@@ -610,19 +651,19 @@ export default function StudentList() {
                         <Button
                           variant="secondary"
                           size="sm"
-                          className="flex-1 border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                          className="min-h-11 flex-1 border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
                           onClick={(e) => {
                             e.stopPropagation()
                             openNewNoveltyModal({ studentId: s.id })
                           }}
                         >
-                          Novedades
+                          Registrar novedad
                         </Button>
 
                         <Button
                           variant="secondary"
                           size="sm"
-                          className="flex-1"
+                          className="min-h-11 flex-1"
                           onClick={(e) => {
                             e.stopPropagation()
                             navigate(`/students/${s.user?.id}`)
@@ -636,7 +677,7 @@ export default function StudentList() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        className="w-full"
+                        className="min-h-11 w-full"
                         onClick={(e) => {
                           e.stopPropagation()
                           navigate(`/students/${s.user?.id}`)
@@ -652,8 +693,8 @@ export default function StudentList() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 shadow-sm dark:border-slate-800">
-            <table className="w-full text-sm">
+          <div className="hidden overflow-x-auto rounded-lg border border-slate-200 shadow-sm dark:border-slate-800 lg:block">
+            <table className="min-w-[980px] w-full text-sm">
               <thead className="bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider dark:text-slate-300">
@@ -725,7 +766,17 @@ export default function StudentList() {
                             <div className="font-semibold text-slate-900 uppercase dark:text-slate-100">
                               {s.user?.last_name} {s.user?.first_name}
                             </div>
-                            <div className="text-xs text-slate-500 dark:text-slate-400">@{s.user?.username}</div>
+                            <button
+                              type="button"
+                              className="rounded bg-slate-50 px-1.5 py-0.5 text-left text-xs font-mono text-slate-500 transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                copyUsernameToClipboard(s.user?.username || '')
+                              }}
+                              title="Copiar usuario"
+                            >
+                              @{s.user?.username}
+                            </button>
                           </div>
                         </div>
                       </td>
@@ -774,7 +825,7 @@ export default function StudentList() {
                                 openCompletionDetails(s)
                               }}
                             >
-                              Ver faltantes
+                              Ver datos faltantes
                             </Button>
                           ) : null}
                         </td>
@@ -809,7 +860,7 @@ export default function StudentList() {
                             }}
                             className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                           >
-                            Ver Ficha →
+                            Ver ficha
                           </Button>
                         </div>
                       </td>
@@ -828,7 +879,7 @@ export default function StudentList() {
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -844,6 +895,7 @@ export default function StudentList() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={!hasPrevious || page <= 1}
               >
@@ -873,6 +925,7 @@ export default function StudentList() {
               <Button
                 variant="outline"
                 size="sm"
+                className="min-h-11"
                 onClick={() => setPage((p) => p + 1)}
                 disabled={!hasNext}
               >

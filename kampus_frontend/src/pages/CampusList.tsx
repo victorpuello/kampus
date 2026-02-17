@@ -85,13 +85,13 @@ export default function CampusList() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'ACTIVA':
-        return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800'
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/45 dark:text-emerald-100 dark:border-emerald-800/70'
       case 'CERRADA':
-        return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-200 dark:border-red-800'
+        return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/45 dark:text-red-100 dark:border-red-800/70'
       case 'EN_REAPERTURA':
-        return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-800'
+        return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-950/45 dark:text-amber-100 dark:border-amber-800/70'
       default:
-        return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:border-slate-700'
+        return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700'
     }
   }
 
@@ -131,22 +131,26 @@ export default function CampusList() {
         </div>
       )}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-lg dark:bg-sky-900/40">
-              <School className="h-6 w-6 text-blue-600 dark:text-sky-300" />
+      <div className={`${totalCampuses > 0 ? 'md:sticky md:top-3 md:z-20' : ''} motion-safe:transition-all motion-safe:duration-200`}>
+        <div className={`rounded-xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur supports-backdrop-filter:bg-white/85 supports-backdrop-filter:dark:bg-slate-900/85 p-3 motion-safe:transition-all motion-safe:duration-200 ${totalCampuses > 0 ? 'border-slate-200/90 dark:border-slate-700 shadow-sm md:shadow-md' : 'border-slate-200/70 dark:border-slate-800 shadow-sm dark:shadow-none'}`}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <div className="p-2 bg-blue-100 rounded-lg dark:bg-sky-900/40">
+                  <School className="h-6 w-6 text-blue-600 dark:text-sky-300" />
+                </div>
+                Sedes Educativas
+              </h2>
+              <p className="text-slate-500 dark:text-slate-300 mt-1">Administra las sedes de la institución educativa.</p>
             </div>
-            Sedes Educativas
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Administra las sedes de la institución educativa.</p>
+            <Link to="/campuses/new">
+              <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
+                <Plus className="mr-2 h-4 w-4" />
+                Nueva Sede
+              </Button>
+            </Link>
+          </div>
         </div>
-        <Link to="/campuses/new">
-          <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
-            <Plus className="mr-2 h-4 w-4" />
-            Nueva Sede
-          </Button>
-        </Link>
       </div>
 
       {/* Stats Cards */}

@@ -126,10 +126,10 @@ export default function UserForm() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Usuarios</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Usuarios</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder a la gestión de usuarios.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la gestión de usuarios.</p>
           <div className="mt-4">
             <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
           </div>
@@ -237,30 +237,30 @@ export default function UserForm() {
   if (loading && isEditing) return <div className="p-6">Cargando...</div>
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/users')}>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <Button variant="ghost" size="sm" className="min-h-11 w-full sm:w-auto" onClick={() => navigate('/users')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
           {isEditing ? 'Editar Usuario' : 'Nuevo Usuario'}
         </h2>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Información de la Cuenta</CardTitle>
+          <CardTitle className="text-slate-900 dark:text-slate-100">Información de la Cuenta</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-200">
                 {error}
               </div>
             )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="username">Nombre de Usuario</Label>
                 <Input
@@ -314,7 +314,7 @@ export default function UserForm() {
                   name="role"
                   value={formData.role}
                   onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:scheme-dark"
                 >
                   <option value="STUDENT">Estudiante</option>
                   <option value="TEACHER">Docente</option>
@@ -328,7 +328,7 @@ export default function UserForm() {
 
               <div className="space-y-2">
                 <Label htmlFor="is_active">Estado</Label>
-                <div className="flex items-center h-10">
+                <div className="flex min-h-11 items-center">
                   <label className="flex items-center space-x-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -337,13 +337,13 @@ export default function UserForm() {
                       onChange={handleCheckboxChange}
                       className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                     />
-                    <span className="text-sm text-slate-700">Usuario Activo</span>
+                    <span className="text-sm text-slate-700 dark:text-slate-200">Usuario Activo</span>
                   </label>
                 </div>
               </div>
 
               {!isEditing && (
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-2 lg:col-span-2">
                   <Label htmlFor="password">Contraseña</Label>
                   <Input
                     id="password"
@@ -360,7 +360,7 @@ export default function UserForm() {
             </div>
 
             <div className="flex justify-end pt-4">
-              <Button type="submit" disabled={loading}>
+              <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
                 <Save className="mr-2 h-4 w-4" />
                 {loading ? 'Guardando...' : 'Guardar Usuario'}
               </Button>
@@ -372,23 +372,23 @@ export default function UserForm() {
       {isEditing && (me?.role === 'ADMIN' || me?.role === 'SUPERADMIN') && (
         <Card>
           <CardHeader>
-            <CardTitle>Contraseña</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Contraseña</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {me?.role === 'ADMIN' && formData.role === 'SUPERADMIN' ? (
-              <div className="p-3 text-sm text-slate-700 bg-slate-50 rounded-md border border-slate-200">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
                 Solo SUPERADMIN puede cambiar la contraseña de un usuario SUPERADMIN.
               </div>
             ) : (
               <>
                 {pwError && (
-                  <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">{pwError}</div>
+                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-200">{pwError}</div>
                 )}
                 {pwSuccess && (
-                  <div className="p-3 text-sm text-emerald-700 bg-emerald-50 rounded-md">{pwSuccess}</div>
+                  <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200">{pwSuccess}</div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="new_password">Nueva contraseña</Label>
                     <Input
@@ -412,7 +412,7 @@ export default function UserForm() {
                 </div>
 
                 <div className="flex justify-end">
-                  <Button type="button" onClick={handleSavePassword} disabled={pwSaving}>
+                  <Button type="button" className="min-h-11 w-full sm:w-auto" onClick={handleSavePassword} disabled={pwSaving}>
                     {pwSaving ? 'Guardando...' : 'Guardar contraseña'}
                   </Button>
                 </div>
@@ -425,30 +425,30 @@ export default function UserForm() {
       {isEditing && canManageRbac && (
         <Card>
           <CardHeader>
-            <CardTitle>Permisos (excepciones por usuario)</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Permisos (excepciones por usuario)</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {me?.role === 'ADMIN' && formData.role === 'SUPERADMIN' ? (
-              <div className="p-3 text-sm text-slate-700 bg-slate-50 rounded-md border border-slate-200">
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
                 Solo SUPERADMIN puede modificar permisos de un usuario SUPERADMIN.
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="p-3 rounded-md border border-slate-200 bg-white">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                  <div className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                     <div className="text-xs uppercase text-slate-500">Rol</div>
-                    <div className="text-sm font-semibold text-slate-900">{formData.role}</div>
-                    <div className="text-xs text-slate-500 mt-1">Permisos del rol: {rolePermissionIds.size}</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{formData.role}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Permisos del rol: {rolePermissionIds.size}</div>
                   </div>
-                  <div className="p-3 rounded-md border border-slate-200 bg-white">
+                  <div className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                     <div className="text-xs uppercase text-slate-500">Excepciones</div>
-                    <div className="text-sm font-semibold text-slate-900">Usuario</div>
-                    <div className="text-xs text-slate-500 mt-1">Asignados: {userPermissionIds.size}</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Usuario</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Asignados: {userPermissionIds.size}</div>
                   </div>
-                  <div className="p-3 rounded-md border border-slate-200 bg-white">
+                  <div className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
                     <div className="text-xs uppercase text-slate-500">Efectivos</div>
-                    <div className="text-sm font-semibold text-slate-900">Rol + Usuario</div>
-                    <div className="text-xs text-slate-500 mt-1">Total: {effectivePermissionIds.size}</div>
+                    <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Rol + Usuario</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Total: {effectivePermissionIds.size}</div>
                   </div>
                 </div>
 
@@ -466,12 +466,12 @@ export default function UserForm() {
                 </div>
 
                 {rbacError && (
-                  <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md">
+                  <div className="rounded-md bg-red-50 p-3 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-200">
                     {rbacError}
                   </div>
                 )}
                 {rbacSuccess && (
-                  <div className="p-3 text-sm text-emerald-700 bg-emerald-50 rounded-md">
+                  <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200">
                     {rbacSuccess}
                   </div>
                 )}
@@ -479,14 +479,14 @@ export default function UserForm() {
                 {rbacLoading ? (
                   <div className="text-sm text-slate-600">Cargando permisos...</div>
                 ) : (
-                  <div className="rounded-lg border border-slate-200">
-                    <div className="max-h-96 overflow-y-auto divide-y divide-slate-100">
+                  <div className="rounded-lg border border-slate-200 dark:border-slate-800">
+                    <div className="max-h-96 divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
                       {groupedPermissions.length === 0 ? (
-                        <div className="p-4 text-sm text-slate-600">No hay permisos para mostrar.</div>
+                        <div className="p-4 text-sm text-slate-600 dark:text-slate-300">No hay permisos para mostrar.</div>
                       ) : (
                         groupedPermissions.map(([key, perms]) => (
                           <div key={key} className="p-4">
-                            <div className="text-sm font-semibold text-slate-800 mb-3">
+                            <div className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
                               {(() => {
                                 const [appLabel, model] = key.split('.') as [string, string]
                                 return formatPermissionGroupEs(appLabel, model)
@@ -494,7 +494,7 @@ export default function UserForm() {
                             </div>
                             <div className="grid grid-cols-1 gap-2">
                               {perms.map((p) => (
-                                <label key={p.id} className="flex items-start gap-2 text-sm text-slate-700">
+                                <label key={p.id} className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-200">
                                   <input
                                     type="checkbox"
                                     className="mt-0.5 h-4 w-4 rounded border-slate-300"
@@ -518,7 +518,7 @@ export default function UserForm() {
                 )}
 
                 <div className="flex justify-end">
-                  <Button type="button" onClick={saveUserPermissions} disabled={rbacSaving || rbacLoading}>
+                  <Button type="button" className="min-h-11 w-full sm:w-auto" onClick={saveUserPermissions} disabled={rbacSaving || rbacLoading}>
                     {rbacSaving ? 'Guardando...' : 'Guardar permisos'}
                   </Button>
                 </div>

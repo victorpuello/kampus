@@ -267,13 +267,13 @@ export default function EnrollmentExisting() {
           <CardTitle>Matricular Antiguo</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-slate-600">No tienes permisos para acceder al módulo de matrículas.</p>
+          <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de matrículas.</p>
           <div className="mt-4">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="min-h-11 w-full sm:w-auto">
                 Volver
               </Button>
-              <Button variant="outline" onClick={() => navigate('/')} className="w-full sm:w-auto">
+              <Button variant="outline" onClick={() => navigate('/')} className="min-h-11 w-full sm:w-auto">
                 Volver al Dashboard
               </Button>
             </div>
@@ -290,9 +290,9 @@ export default function EnrollmentExisting() {
           <CardTitle>Matricular Estudiante Antiguo</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="p-4 text-center text-slate-600">Cargando configuración académica...</div>
+          <div className="p-4 text-center text-slate-600 dark:text-slate-300">Cargando configuración académica...</div>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="w-full sm:w-auto">
+            <Button variant="outline" onClick={() => navigate(prefill.returnTo || '/enrollments')} className="min-h-11 w-full sm:w-auto">
               Volver
             </Button>
           </div>
@@ -303,22 +303,22 @@ export default function EnrollmentExisting() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-start sm:justify-between gap-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900">Matricular Estudiante Antiguo</h2>
-          <p className="text-slate-500">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
+          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Matricular Estudiante Antiguo</h2>
+          <p className="text-slate-500 dark:text-slate-400">Seleccione uno o varios estudiantes para matricularlos en el año {activeYear?.year}</p>
         </div>
         <Button
           variant="outline"
           onClick={() => navigate(prefill.returnTo || '/enrollments')}
-          className="w-full sm:w-auto shrink-0"
+          className="min-h-11 w-full shrink-0 lg:w-auto"
         >
           Volver
         </Button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded flex items-center gap-2">
+        <div className="flex items-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
           <AlertCircle className="h-5 w-5" />
           {error}
         </div>
@@ -329,7 +329,7 @@ export default function EnrollmentExisting() {
           <CardTitle>Buscar Estudiante</CardTitle>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-3">
+          <form onSubmit={handleSearch} className="flex flex-col gap-3 lg:flex-row">
             <div className="flex-1">
               <Input
                 placeholder="Nombre o número de documento..."
@@ -337,14 +337,14 @@ export default function EnrollmentExisting() {
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <Button type="submit" disabled={searching} className="w-full sm:w-auto">
+            <Button type="submit" disabled={searching} className="min-h-11 w-full lg:w-auto">
               <Search className="mr-2 h-4 w-4" />
               {searching ? 'Buscando...' : 'Buscar'}
             </Button>
           </form>
 
           {students.length > 0 && (
-            <div className="mt-6 border rounded-md divide-y">
+            <div className="mt-6 divide-y rounded-md border dark:divide-slate-800 dark:border-slate-800">
               {[...students]
                 .sort((a, b) => {
                   const aLast = (a.user?.last_name || '').toLocaleLowerCase()
@@ -360,7 +360,7 @@ export default function EnrollmentExisting() {
                 return (
                   <label
                     key={student.id}
-                    className="p-4 flex items-start sm:items-center justify-between gap-3 hover:bg-slate-50 cursor-pointer"
+                    className="flex cursor-pointer items-start justify-between gap-3 p-4 hover:bg-slate-50 dark:hover:bg-slate-900 sm:items-center"
                   >
                     <div className="flex items-center gap-3">
                       <input
@@ -369,15 +369,15 @@ export default function EnrollmentExisting() {
                         onChange={() => toggleSelected(student.id)}
                       />
                       <div>
-                        <p className="font-medium text-slate-900">
+                        <p className="font-medium text-slate-900 dark:text-slate-100">
                           {student.user.last_name} {student.user.first_name}
                         </p>
-                        <p className="text-sm text-slate-500">
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
                           {student.document_type}: {student.document_number}
                         </p>
                       </div>
                     </div>
-                    <span className="text-sm text-slate-500 shrink-0">{checked ? 'Seleccionado' : ''}</span>
+                    <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">{checked ? 'Seleccionado' : ''}</span>
                   </label>
                 )
               })}
@@ -385,7 +385,7 @@ export default function EnrollmentExisting() {
           )}
 
           {students.length === 0 && searchTerm && !searching && (
-            <div className="mt-6 text-center text-slate-500">
+            <div className="mt-6 text-center text-slate-500 dark:text-slate-400">
               No se encontraron estudiantes con ese criterio.
             </div>
           )}
@@ -393,30 +393,30 @@ export default function EnrollmentExisting() {
       </Card>
 
       {selectedIds.length > 0 && (
-        <Card className="border-blue-200 ring-1 ring-blue-100">
+        <Card className="border-blue-200 ring-1 ring-blue-100 dark:border-blue-900 dark:ring-blue-950/60">
           <CardHeader>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <div>
                 <CardTitle>Seleccionados: {selectedIds.length}</CardTitle>
                 {selectedStudents.length > 0 ? (
-                  <p className="text-sm text-slate-500 break-words">
+                  <p className="text-sm text-slate-500 dark:text-slate-400 wrap-break-word">
                     {selectedStudents
                       .map((s) => `${s.user.last_name} ${s.user.first_name}`)
                       .join(', ')}
                   </p>
                 ) : null}
               </div>
-              <Button variant="ghost" className="w-full sm:w-auto sm:ml-auto" onClick={clearSelection}>
+              <Button variant="ghost" className="min-h-11 w-full sm:ml-auto sm:w-auto" onClick={clearSelection}>
                 Limpiar
               </Button>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label>Grado a Matricular</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={selectedGrade}
                   onChange={(e) => {
                     setSelectedGrade(e.target.value)
@@ -441,7 +441,7 @@ export default function EnrollmentExisting() {
               <div className="space-y-2">
                 <Label>Grupo (Opcional)</Label>
                 <select
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={selectedGroup}
                   onChange={(e) => setSelectedGroup(e.target.value)}
                   disabled={!selectedGrade}
@@ -456,20 +456,20 @@ export default function EnrollmentExisting() {
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:justify-end pt-4">
-              <Button onClick={handleEnrollSelected} disabled={loading || !selectedGrade || selectedIds.length === 0} className="w-full sm:w-auto">
+            <div className="flex flex-col pt-4 sm:flex-row sm:justify-end">
+              <Button onClick={handleEnrollSelected} disabled={loading || !selectedGrade || selectedIds.length === 0} className="min-h-11 w-full sm:w-auto">
                 <UserCheck className="mr-2 h-4 w-4" />
                 {loading ? 'Procesando...' : `Confirmar Matrículas (${selectedIds.length})`}
               </Button>
             </div>
 
             {submitResult && (
-              <div className="mt-2 p-4 border rounded-md bg-slate-50">
-                <p className="font-medium text-green-600">Exitosos: {submitResult.success}</p>
+              <div className="mt-2 rounded-md border bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
+                <p className="font-medium text-green-600 dark:text-green-300">Exitosos: {submitResult.success}</p>
                 {submitResult.errors.length > 0 && (
                   <div className="mt-2">
-                    <p className="font-medium text-red-600">Errores:</p>
-                    <ul className="text-sm text-red-500 list-disc list-inside max-h-40 overflow-y-auto">
+                    <p className="font-medium text-red-600 dark:text-red-300">Errores:</p>
+                    <ul className="max-h-40 list-inside list-disc overflow-y-auto text-sm text-red-500 dark:text-red-300">
                       {submitResult.errors.map((err, i) => (
                         <li key={i}>{err}</li>
                       ))}

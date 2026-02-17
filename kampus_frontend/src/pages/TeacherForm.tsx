@@ -481,13 +481,13 @@ export default function TeacherForm() {
   if (loading && isEditing) return <div className="p-6" role="status" aria-live="polite">Cargando...</div>
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/teachers')}>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+        <Button variant="ghost" size="sm" className="min-h-11 w-full sm:w-auto" onClick={() => navigate('/teachers')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver
         </Button>
-        <h2 className="text-3xl font-bold tracking-tight text-slate-900">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
           {isEditing ? 'Editar Docente' : 'Nuevo Docente'}
         </h2>
       </div>
@@ -499,7 +499,7 @@ export default function TeacherForm() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="flex space-x-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="Secciones del docente">
+      <div className="flex flex-col gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/80 sm:flex-row sm:space-x-1 sm:gap-0" role="tablist" aria-label="Secciones del docente">
         <button
           onClick={() => setActiveTab('info')}
           id="teacher-tab-info"
@@ -507,10 +507,10 @@ export default function TeacherForm() {
           aria-selected={activeTab === 'info'}
           aria-controls="teacher-panel-info"
           tabIndex={activeTab === 'info' ? 0 : -1}
-          className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
+          className={`min-h-11 w-full rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'info'
-              ? 'bg-white text-blue-700 shadow'
-              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800'
+              ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
+              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-slate-100'
           }`}
         >
           Información General
@@ -523,10 +523,10 @@ export default function TeacherForm() {
           aria-selected={activeTab === 'assignments'}
           aria-controls="teacher-panel-assignments"
           tabIndex={activeTab === 'assignments' ? 0 : -1}
-          className={`w-full rounded-lg py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
+          className={`min-h-11 w-full rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'assignments'
-              ? 'bg-white text-blue-700 shadow'
-              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed'
+              ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
+              : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-slate-100'
           }`}
         >
           Asignación Académica
@@ -539,7 +539,7 @@ export default function TeacherForm() {
             <CardHeader>
               <CardTitle>Información Personal</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="first_name">Nombres</Label>
                 <Input
@@ -560,7 +560,7 @@ export default function TeacherForm() {
                   required
                 />
               </div>
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 lg:col-span-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -572,17 +572,17 @@ export default function TeacherForm() {
                 />
               </div>
 
-              <div className="space-y-2 md:col-span-2">
+              <div className="space-y-2 lg:col-span-2">
                 <Label htmlFor="photo">Foto</Label>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                   {(teacherPhotoPreviewUrl || teacherPhotoUrl) ? (
                     <img
                       src={teacherPhotoPreviewUrl || teacherPhotoUrl || ''}
                       alt="Foto del docente"
-                      className="h-16 w-16 rounded-full object-cover border border-slate-200"
+                      className="h-16 w-16 rounded-full border border-slate-200 object-cover dark:border-slate-700"
                     />
                   ) : (
-                    <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50" />
+                    <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />
                   )}
                   <input
                     id="photo"
@@ -590,7 +590,7 @@ export default function TeacherForm() {
                     type="file"
                     accept="image/*"
                     onChange={handlePhotoChange}
-                    className="block w-full text-sm text-slate-700 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                    className="block w-full text-sm text-slate-700 file:mr-4 file:min-h-11 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:text-slate-300 dark:file:bg-slate-800 dark:file:text-slate-100 dark:hover:file:bg-slate-700"
                   />
                 </div>
               </div>
@@ -601,7 +601,7 @@ export default function TeacherForm() {
             <CardHeader>
               <CardTitle>Información Profesional</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <CardContent className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="document_type">Tipo Documento</Label>
                 <select
@@ -609,7 +609,7 @@ export default function TeacherForm() {
                   name="document_type"
                   value={formData.document_type}
                   onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                 >
                   <option value="CC">Cédula de Ciudadanía</option>
                   <option value="CE">Cédula de Extranjería</option>
@@ -670,7 +670,7 @@ export default function TeacherForm() {
                   name="regime"
                   value={formData.regime}
                   onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                 >
                   <option value="">Seleccione un régimen</option>
                   {REGIME_OPTIONS.map(opt => (
@@ -687,7 +687,7 @@ export default function TeacherForm() {
                   value={formData.salary_scale}
                   onChange={handleChange}
                   disabled={!formData.regime}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800 dark:disabled:text-slate-500 dark:scheme-dark"
                 >
                   <option value="">Seleccione un grado</option>
                   {getScaleOptions().map(opt => (
@@ -703,7 +703,7 @@ export default function TeacherForm() {
                   name="teaching_level"
                   value={formData.teaching_level}
                   onChange={handleChange}
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                 >
                   <option value="PRESCHOOL">Preescolar (20 horas)</option>
                   <option value="PRIMARY">Básica Primaria (25 horas)</option>
@@ -725,7 +725,7 @@ export default function TeacherForm() {
           </Card>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" className="min-h-11 w-full sm:w-auto" disabled={loading}>
               <Save className="mr-2 h-4 w-4" />
               {loading ? 'Guardando...' : 'Guardar Docente'}
             </Button>
@@ -738,29 +738,29 @@ export default function TeacherForm() {
               <CardTitle>Asignación Académica</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center gap-4">
-                <div className="w-48">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+                <div className="w-full lg:w-48">
                   <Label htmlFor="teacher-academic-year">Año Académico</Label>
                   <select
                     id="teacher-academic-year"
                     value={selectedYear}
                     onChange={(e) => setSelectedYear(e.target.value)}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   >
                     {years.map(y => (
                       <option key={y.id} value={y.id}>{y.year} {y.status_display ? `(${y.status_display})` : ''}</option>
                     ))}
                   </select>
                   {isSelectedYearClosed && (
-                    <p className="mt-1 text-xs text-amber-700">
+                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                       Año finalizado: no se permiten nuevas asignaciones.
                     </p>
                   )}
                 </div>
                 
-                <div className="flex-1 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="flex-1 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                   <div className="flex justify-between text-sm mb-1 font-medium">
-                    <span className="text-slate-700">Carga Académica</span>
+                    <span className="text-slate-700 dark:text-slate-200">Carga Académica</span>
                     <span className={
                         calculateAssignedHours() > getTargetHours(formData.teaching_level) ? 'text-amber-600 font-bold' : 
                         calculateAssignedHours() === getTargetHours(formData.teaching_level) ? 'text-emerald-600 font-bold' : 'text-slate-700'
@@ -768,7 +768,7 @@ export default function TeacherForm() {
                         {calculateAssignedHours()} / {getTargetHours(formData.teaching_level)}h
                     </span>
                   </div>
-                  <div className="h-3 w-full bg-slate-200 rounded-full overflow-hidden border border-slate-300">
+                  <div className="h-3 w-full overflow-hidden rounded-full border border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800">
                     <div 
                       className={`h-full rounded-full transition-all duration-500 ${
                         calculateAssignedHours() > getTargetHours(formData.teaching_level) ? 'bg-amber-500' : 
@@ -778,7 +778,7 @@ export default function TeacherForm() {
                     />
                   </div>
                   <div className="flex justify-between mt-1">
-                    <span className="text-[10px] text-slate-500 uppercase tracking-wider">{getLevelLabel(formData.teaching_level)}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-400">{getLevelLabel(formData.teaching_level)}</span>
                     {calculateAssignedHours() > getTargetHours(formData.teaching_level) && (
                       <div className="text-xs font-medium text-amber-600 flex items-center">
                           <span className="inline-block w-2 h-2 rounded-full bg-amber-500 mr-1"></span>
@@ -789,7 +789,7 @@ export default function TeacherForm() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end border-b pb-6">
+              <div className="grid grid-cols-1 gap-4 items-end border-b border-slate-200 pb-6 dark:border-slate-800 lg:grid-cols-4">
                 <div className="space-y-2">
                   <Label htmlFor="teacher-assignment-group">Grupo</Label>
                   <select
@@ -811,7 +811,7 @@ export default function TeacherForm() {
                       await handleAssignGradePlan(nextGroup)
                     }}
                     disabled={isSelectedYearClosed}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   >
                     <option value="">Seleccione un grupo</option>
                     {getFilteredGroups().map(g => (
@@ -821,14 +821,14 @@ export default function TeacherForm() {
                 </div>
                 <div className="space-y-2">
                   <Label>Automático (Primaria)</Label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-h-11 items-center gap-3">
                     <input
                       type="checkbox"
                       checked={autoAssignPrimaryPlan}
                       onChange={(e) => setAutoAssignPrimaryPlan(e.target.checked)}
                       disabled={!isPrimaryTeacher || isSelectedYearClosed}
                     />
-                    <span className="text-sm text-slate-600">Cargar todas las asignaturas al elegir grupo</span>
+                    <span className="text-sm text-slate-600 dark:text-slate-300">Cargar todas las asignaturas al elegir grupo</span>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -838,7 +838,7 @@ export default function TeacherForm() {
                     value={newAssignment.academic_load}
                     onChange={(e) => setNewAssignment(prev => ({ ...prev, academic_load: e.target.value }))}
                     disabled={!newAssignment.group || isSelectedYearClosed}
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:disabled:bg-slate-800 dark:scheme-dark"
                   >
                     <option value="">Seleccione una asignatura</option>
                     {getFilteredLoads().map(l => (
@@ -846,10 +846,11 @@ export default function TeacherForm() {
                     ))}
                   </select>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   {isPrimaryTeacher && (
                     <Button
                       variant="outline"
+                      className="min-h-11 w-full sm:w-auto"
                       onClick={() => handleAssignGradePlan()}
                       disabled={!newAssignment.group || isSelectedYearClosed}
                       title="Asigna automáticamente todas las asignaturas del plan del grado"
@@ -857,32 +858,32 @@ export default function TeacherForm() {
                       <Plus className="mr-2 h-4 w-4" /> Plan completo
                     </Button>
                   )}
-                  <Button onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load || isSelectedYearClosed}>
+                  <Button className="min-h-11 w-full sm:w-auto" onClick={handleAddAssignment} disabled={!newAssignment.group || !newAssignment.academic_load || isSelectedYearClosed}>
                     <Plus className="mr-2 h-4 w-4" /> Agregar
                   </Button>
                 </div>
               </div>
 
               <div className="space-y-4">
-                <h3 className="font-medium text-slate-900">Asignaciones Actuales</h3>
+                <h3 className="font-medium text-slate-900 dark:text-slate-100">Asignaciones Actuales</h3>
                 {assignments.filter(a => a.academic_year === Number(selectedYear)).length === 0 ? (
-                  <p className="text-slate-500 text-sm">No hay asignaciones para este año.</p>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">No hay asignaciones para este año.</p>
                 ) : (
-                  <div className="border rounded-lg divide-y">
+                  <div className="divide-y rounded-lg border border-slate-200 dark:border-slate-800 dark:divide-slate-800">
                     {assignments
                       .filter(a => a.academic_year === Number(selectedYear))
                       .map(assignment => {
                         const load = academicLoads.find(l => l.id === assignment.academic_load)
                         const group = groups.find(g => g.id === assignment.group)
                         return (
-                          <div key={assignment.id} className="p-4 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                          <div key={assignment.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-300">
                                 <BookOpen className="h-5 w-5" />
                               </div>
-                              <div>
-                                <p className="font-medium text-slate-900">{load?.subject_name || 'Asignatura desconocida'}</p>
-                                <p className="text-sm text-slate-500">
+                              <div className="min-w-0">
+                                <p className="font-medium text-slate-900 dark:text-slate-100">{load?.subject_name || 'Asignatura desconocida'}</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">
                                   Grupo {group?.grade_name} - {group?.name} • {load?.hours_per_week} horas/semana
                                 </p>
                               </div>
@@ -890,7 +891,7 @@ export default function TeacherForm() {
                             <Button 
                               variant="ghost" 
                               size="sm" 
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              className="min-h-11 w-full text-red-600 hover:bg-red-50 hover:text-red-700 sm:w-auto"
                               onClick={() => handleDeleteAssignment(assignment.id)}
                             >
                               <Trash2 className="h-4 w-4" />

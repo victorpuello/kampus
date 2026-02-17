@@ -104,21 +104,21 @@ export default function EnrollmentBulkUpload() {
             <Input type="file" accept=".csv" onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button variant="outline" onClick={() => navigate('/enrollments')} className="w-full sm:flex-1">
+          <div className="flex flex-col gap-2 lg:flex-row">
+            <Button variant="outline" onClick={() => navigate('/enrollments')} className="min-h-11 w-full lg:flex-1">
               Volver a Matrículas
             </Button>
-            <Button onClick={handleBulkUpload} disabled={loading || !file} className="w-full sm:flex-1">
+            <Button onClick={handleBulkUpload} disabled={loading || !file} className="min-h-11 w-full lg:flex-1">
               {loading ? 'Procesando...' : 'Cargar Matrículas'}
             </Button>
           </div>
 
           {uploadResult && (
             <div className="mt-4 p-4 border rounded-md bg-slate-50 dark:border-slate-800 dark:bg-slate-900">
-              <p className="font-medium text-green-600">Exitosos: {uploadResult.success}</p>
+              <p className="font-medium text-green-600 dark:text-green-300">Exitosos: {uploadResult.success}</p>
               {uploadResult.errors.length > 0 && (
                 <div className="mt-2">
-                  <p className="font-medium text-red-600">Errores:</p>
+                  <p className="font-medium text-red-600 dark:text-red-300">Errores:</p>
                   <ul className="text-sm text-red-500 dark:text-red-300 list-disc list-inside max-h-40 overflow-y-auto">
                     {uploadResult.errors.map((err, i) => (
                       <li key={i}>{err}</li>

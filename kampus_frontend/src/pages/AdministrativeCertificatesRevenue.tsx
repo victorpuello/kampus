@@ -104,7 +104,7 @@ export default function AdministrativeCertificatesRevenue() {
   const [query, setQuery] = useState<string>('')
 
   const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = useState(20)
+  const [perPage, setPerPage] = useState(10)
 
   const [summary, setSummary] = useState<RevenueSummaryResponse>({ total_count: 0, total_amount_cop: 0 })
   const [issues, setIssues] = useState<CertificateIssueListItem[]>([])
@@ -325,18 +325,18 @@ export default function AdministrativeCertificatesRevenue() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Ingresos — Certificados</h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Auditoría de emisión y totales por periodo.</p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-          <Link to="/administrativos/certificados" className="w-full sm:w-auto">
-            <Button variant="outline" className="w-full sm:w-auto">
+        <div className="flex w-full flex-col gap-2 md:flex-row lg:w-auto">
+          <Link to="/administrativos/certificados" className="w-full md:w-auto">
+            <Button variant="outline" className="min-h-11 w-full md:w-auto">
               Volver a Certificados
             </Button>
           </Link>
-          <Button onClick={load} disabled={loading} className="w-full sm:w-auto">
+          <Button onClick={load} disabled={loading} className="min-h-11 w-full md:w-auto">
             {loading ? 'Cargando...' : 'Recargar'}
           </Button>
         </div>
@@ -347,21 +347,21 @@ export default function AdministrativeCertificatesRevenue() {
           <CardTitle className="text-slate-900 dark:text-slate-100">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 lg:grid-cols-4">
             <div>
               <label className="text-sm text-slate-600 dark:text-slate-300">Desde</label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <Input className="h-11" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div>
               <label className="text-sm text-slate-600 dark:text-slate-300">Hasta</label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <Input className="h-11" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
             <div>
               <label className="text-sm text-slate-600 dark:text-slate-300">Estado</label>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
               >
                 <option value="ISSUED">Emitidos</option>
                 <option value="PENDING">Pendientes</option>
@@ -371,13 +371,13 @@ export default function AdministrativeCertificatesRevenue() {
             </div>
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-4">
-            <div className="md:col-span-3">
+          <div className="mt-3 grid gap-3 lg:grid-cols-4">
+            <div className="lg:col-span-3">
               <label className="text-sm text-slate-600 dark:text-slate-300">Buscar (nombre o documento)</label>
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ej: 1033... o Juan" />
+              <Input className="h-11" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ej: 1033... o Juan" />
             </div>
             <div className="flex items-end">
-              <Button variant="outline" onClick={load} disabled={loading} className="w-full">
+              <Button variant="outline" onClick={load} disabled={loading} className="min-h-11 w-full">
                 Aplicar
               </Button>
             </div>
@@ -402,9 +402,9 @@ export default function AdministrativeCertificatesRevenue() {
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle className="text-slate-900 dark:text-slate-100">Emisiones ({count})</CardTitle>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-end">
               <div className="text-xs text-slate-500 dark:text-slate-400">
                 Mostrando {pageItems.length} de {issues.length}
                 {count > issues.length ? ` (de ${count} totales)` : ''}
@@ -415,10 +415,10 @@ export default function AdministrativeCertificatesRevenue() {
                 <select
                   value={perPage}
                   onChange={(e) => {
-                    setPerPage(parseInt(e.target.value) || 20)
+                    setPerPage(parseInt(e.target.value) || 10)
                     setPage(1)
                   }}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   aria-label="Emisiones por página"
                 >
                   <option value={10}>10</option>
@@ -435,7 +435,7 @@ export default function AdministrativeCertificatesRevenue() {
           ) : (
             <>
               {/* Mobile list */}
-              <div className="md:hidden space-y-3">
+              <div className="space-y-3 xl:hidden">
                 {pageItems.map((row) => (
                   <div
                     key={row.uuid}
@@ -479,7 +479,7 @@ export default function AdministrativeCertificatesRevenue() {
                       </div>
                       <div>
                         {row.has_pdf ? (
-                          <Button variant="outline" className="w-full" onClick={() => downloadPdf(row.uuid)}>
+                          <Button variant="outline" className="min-h-11 w-full" onClick={() => downloadPdf(row.uuid)}>
                             Ver PDF
                           </Button>
                         ) : (
@@ -489,11 +489,11 @@ export default function AdministrativeCertificatesRevenue() {
 
                       <div className="grid grid-cols-2 gap-2">
                         {row.status === 'PENDING' ? (
-                          <Button variant="outline" className="w-full" onClick={() => openEdit(row)}>
+                          <Button variant="outline" className="min-h-11 w-full" onClick={() => openEdit(row)}>
                             Editar
                           </Button>
                         ) : (
-                          <Button variant="outline" className="w-full" disabled>
+                          <Button variant="outline" className="min-h-11 w-full" disabled>
                             Editar
                           </Button>
                         )}
@@ -501,7 +501,7 @@ export default function AdministrativeCertificatesRevenue() {
                         {row.status === 'ISSUED' ? (
                           <Button
                             variant="outline"
-                            className="w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
+                            className="min-h-11 w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
                             onClick={() => openConfirm(row, 'revoke')}
                           >
                             Revocar
@@ -509,7 +509,7 @@ export default function AdministrativeCertificatesRevenue() {
                         ) : (
                           <Button
                             variant="outline"
-                            className="w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
+                            className="min-h-11 w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
                             onClick={() => openConfirm(row, 'delete')}
                           >
                             Eliminar
@@ -525,7 +525,7 @@ export default function AdministrativeCertificatesRevenue() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9"
+                      className="min-h-11"
                       disabled={currentPage <= 1}
                       onClick={() => setPage(Math.max(1, currentPage - 1))}
                     >
@@ -537,7 +537,7 @@ export default function AdministrativeCertificatesRevenue() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-9"
+                      className="min-h-11"
                       disabled={currentPage >= totalPages}
                       onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                     >
@@ -548,7 +548,7 @@ export default function AdministrativeCertificatesRevenue() {
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden overflow-x-auto xl:block">
                 <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-800">
                   <thead className="bg-slate-50 dark:bg-slate-900">
                     <tr>
@@ -656,7 +656,7 @@ export default function AdministrativeCertificatesRevenue() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8"
+                        className="min-h-10"
                         disabled={currentPage <= 1}
                         onClick={() => setPage(Math.max(1, currentPage - 1))}
                       >
@@ -665,7 +665,7 @@ export default function AdministrativeCertificatesRevenue() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8"
+                        className="min-h-10"
                         disabled={currentPage >= totalPages}
                         onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
                       >
@@ -685,7 +685,7 @@ export default function AdministrativeCertificatesRevenue() {
                             key={p}
                             variant={p === currentPage ? 'secondary' : 'outline'}
                             size="sm"
-                            className="h-8 px-2"
+                            className="min-h-10 px-2"
                             onClick={() => setPage(p)}
                             aria-current={p === currentPage ? 'page' : undefined}
                           >
@@ -723,6 +723,7 @@ export default function AdministrativeCertificatesRevenue() {
           <>
             <Button
               variant="outline"
+              className="min-h-11 w-full md:w-auto"
               onClick={() => {
                 setEditOpen(false)
                 setEditIssue(null)
@@ -731,7 +732,7 @@ export default function AdministrativeCertificatesRevenue() {
             >
               Cancelar
             </Button>
-            <Button onClick={saveEdit} disabled={editLoading}>
+            <Button className="min-h-11 w-full md:w-auto" onClick={saveEdit} disabled={editLoading}>
               {editLoading ? 'Guardando...' : 'Guardar'}
             </Button>
           </>
@@ -754,7 +755,7 @@ export default function AdministrativeCertificatesRevenue() {
               placeholder="Número de documento"
             />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <div>
               <label className="text-sm text-slate-600 dark:text-slate-300">Año</label>
               <Input
@@ -807,6 +808,7 @@ export default function AdministrativeCertificatesRevenue() {
           <>
             <Button
               variant="outline"
+              className="min-h-11 w-full md:w-auto"
               onClick={() => {
                 setConfirmOpen(false)
                 setConfirmIssue(null)
@@ -818,7 +820,7 @@ export default function AdministrativeCertificatesRevenue() {
             <Button
               onClick={runConfirm}
               disabled={confirmLoading}
-              className="text-white bg-rose-600 hover:bg-rose-700"
+              className="min-h-11 w-full text-white bg-rose-600 hover:bg-rose-700 md:w-auto"
             >
               {confirmLoading ? 'Procesando...' : confirmMode === 'revoke' ? 'Revocar' : 'Eliminar'}
             </Button>

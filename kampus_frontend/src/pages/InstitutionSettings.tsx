@@ -339,7 +339,7 @@ export default function InstitutionSettings() {
     }
   }
 
-  if (loading) return <div className="p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
+  if (loading) return <div className="p-4 sm:p-6 text-slate-700 dark:text-slate-200">Cargando...</div>
 
   const handlePreviewLetterheadPdf = async () => {
     setSaving(true)
@@ -420,7 +420,7 @@ export default function InstitutionSettings() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="mx-auto max-w-5xl space-y-4 px-3 pb-3 sm:space-y-6 sm:px-4 sm:pb-4">
       <Toast
         message={toast.message}
         type={toast.type}
@@ -428,13 +428,13 @@ export default function InstitutionSettings() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950/40">
-        <div className="flex items-start gap-4">
-          <div className="rounded-lg bg-slate-100 p-2.5 dark:bg-slate-900">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="rounded-lg bg-slate-100 p-2.5 dark:bg-slate-800">
             <Building2 className="h-6 w-6 text-slate-700 dark:text-slate-200" />
           </div>
           <div className="space-y-1">
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+            <h2 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl dark:text-slate-100">
               Configuración de la Institución
             </h2>
             <p className="text-sm text-slate-600 dark:text-slate-300">
@@ -449,7 +449,7 @@ export default function InstitutionSettings() {
           <CardHeader>
             <CardTitle>Información General</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="name">Nombre de la Institución *</Label>
               <Input
@@ -488,7 +488,7 @@ export default function InstitutionSettings() {
           <CardHeader>
             <CardTitle>Contacto</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="address">Dirección</Label>
               <Input
@@ -541,7 +541,7 @@ export default function InstitutionSettings() {
               Personal Directivo
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="rector">Rector *</Label>
               <select
@@ -550,7 +550,7 @@ export default function InstitutionSettings() {
                 value={formData.rector}
                 onChange={handleChange}
                 required
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Seleccione un rector</option>
                 {rectorsList.map((user) => (
@@ -570,7 +570,7 @@ export default function InstitutionSettings() {
                 name="secretary"
                 value={formData.secretary}
                 onChange={handleChange}
-                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:ring-offset-slate-950 dark:focus-visible:ring-slate-300"
               >
                 <option value="">Sin secretario asignado</option>
                 {secretariesList.map((user) => (
@@ -621,6 +621,7 @@ export default function InstitutionSettings() {
                     variant="outline"
                     onClick={handleClearLogo}
                     disabled={!logoPreview}
+                    className="min-h-11 w-full sm:w-auto"
                   >
                     Eliminar logo
                   </Button>
@@ -639,7 +640,7 @@ export default function InstitutionSettings() {
               <Label>Imagen de membrete (opcional)</Label>
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
                 <div
-                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
+                  className="h-32 w-full max-w-md rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 overflow-hidden cursor-pointer transition-colors hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500"
                   onClick={() => letterheadInputRef.current?.click()}
                 >
                   {letterheadPreview ? (
@@ -669,6 +670,7 @@ export default function InstitutionSettings() {
                       variant="outline"
                       onClick={handleClearLetterhead}
                       disabled={!letterheadPreview}
+                      className="min-h-11 w-full sm:w-auto"
                     >
                       Eliminar membrete
                     </Button>
@@ -677,7 +679,7 @@ export default function InstitutionSettings() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-2 md:col-span-2">
                 <label className="flex items-center space-x-2 cursor-pointer">
                   <input
@@ -756,6 +758,7 @@ export default function InstitutionSettings() {
                   variant="outline"
                   onClick={handlePreviewLetterheadPdf}
                   disabled={saving}
+                  className="min-h-11 w-full sm:w-auto"
                 >
                   Generar PDF de prueba
                 </Button>
@@ -765,6 +768,7 @@ export default function InstitutionSettings() {
                   variant="outline"
                   onClick={handlePreviewLetterheadHtml}
                   disabled={saving}
+                  className="min-h-11 w-full sm:w-auto"
                 >
                   Ver preview HTML
                 </Button>
@@ -773,9 +777,9 @@ export default function InstitutionSettings() {
 
             <div className="space-y-2">
               <Label>Firma del rector (PNG) — certificados</Label>
-              <div className="flex items-center gap-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
                 <div
-                  className="h-32 w-64 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center bg-slate-50 overflow-hidden cursor-pointer hover:border-slate-400 transition-colors dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-slate-500"
+                  className="h-32 w-full max-w-md rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 overflow-hidden cursor-pointer transition-colors hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500"
                   onClick={() => rectorSignatureInputRef.current?.click()}
                 >
                   {rectorSignaturePreview ? (
@@ -804,6 +808,7 @@ export default function InstitutionSettings() {
                       variant="outline"
                       onClick={handleClearRectorSignature}
                       disabled={!rectorSignaturePreview}
+                      className="min-h-11 w-full sm:w-auto"
                     >
                       Eliminar firma
                     </Button>
@@ -814,8 +819,8 @@ export default function InstitutionSettings() {
           </CardContent>
         </Card>
 
-        <div className="sticky bottom-0 z-10 -mx-2 mt-2 border-t border-slate-200 bg-white/95 px-2 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
-          <div className="flex items-center justify-between gap-3">
+        <div className="sticky bottom-0 z-10 -mx-2 mt-2 border-t border-slate-200 bg-white/95 px-2 py-3 backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div
               className={`rounded-md px-2.5 py-1 text-xs font-medium ${
                 isDirty
@@ -825,7 +830,7 @@ export default function InstitutionSettings() {
             >
               {isDirty ? 'Cambios sin guardar' : 'Sin cambios'}
             </div>
-            <Button type="submit" disabled={saving || !isDirty}>
+            <Button type="submit" disabled={saving || !isDirty} className="min-h-11 w-full sm:w-auto">
               <Save className="mr-2 h-4 w-4" />
               {saving ? 'Guardando...' : 'Guardar Cambios'}
             </Button>

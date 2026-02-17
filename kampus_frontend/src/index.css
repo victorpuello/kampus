@@ -24,3 +24,24 @@
 	-webkit-box-shadow: 0 0 0px 1000px rgb(2 6 23) inset;
 	box-shadow: 0 0 0px 1000px rgb(2 6 23) inset;
 }
+
+/* Academic Config: accessibility + dark consistency */
+.academic-config-page :where(button, [role="button"], input, select, textarea):focus-visible {
+	outline: 2px solid rgb(14 165 233);
+	outline-offset: 2px;
+}
+
+.dark .academic-config-page :where(input, select, textarea) {
+	border-color: rgb(51 65 85);
+	background-color: rgb(15 23 42);
+	color: rgb(241 245 249);
+}
+
+.dark .academic-config-page :where(input::placeholder, textarea::placeholder) {
+	color: rgb(148 163 184);
+}
+
+.dark .academic-config-page :where(select option) {
+	background-color: rgb(15 23 42);
+	color: rgb(241 245 249);
+}

@@ -90,6 +90,8 @@ export default function Grades() {
   const [adminSheetsPage, setAdminSheetsPage] = useState(1)
   const [adminSheetsSearch, setAdminSheetsSearch] = useState('')
   const [adminSheetsDebouncedSearch, setAdminSheetsDebouncedSearch] = useState('')
+  const [adminListView, setAdminListView] = useState<'SUMMARY' | 'TABLE'>('SUMMARY')
+  const [adminGradebookView, setAdminGradebookView] = useState<'QUICK' | 'TABLE'>('QUICK')
 
   const [loadingInit, setLoadingInit] = useState(true)
   const [loadingGradebook, setLoadingGradebook] = useState(false)
@@ -713,25 +715,25 @@ export default function Grades() {
         return {
           label: 'Bajo',
           className:
-            'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200',
+            'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/70 dark:bg-rose-950/45 dark:text-rose-100',
         }
       case 'basic':
         return {
           label: 'Básico',
           className:
-            'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200',
+            'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100',
         }
       case 'high':
         return {
           label: 'Alto',
           className:
-            'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
+            'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/45 dark:text-emerald-100',
         }
       case 'superior':
         return {
           label: 'Superior',
           className:
-            'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/25 dark:text-sky-200',
+            'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800/70 dark:bg-sky-950/45 dark:text-sky-100',
         }
       default:
         return {
@@ -1940,20 +1942,29 @@ export default function Grades() {
         : 'Todo guardado'
 
   const globalSaveClass = periodIsClosed
-    ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
+    ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100'
     : user?.role === 'TEACHER' && gradeWindowClosed && !activeGradeGrant?.hasFull && (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0
-      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200'
+      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/70 dark:bg-rose-950/45 dark:text-rose-100'
     : saving || anyInFlightSaves
-      ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-200'
+      ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/45 dark:text-blue-100'
       : hasDirty
-        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
+        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/45 dark:text-emerald-100'
 
   if (loadingInit) return <div className="p-6 text-slate-600 dark:text-slate-300">Cargando…</div>
 
   if (isAdmin && !gradebook) {
     const totalPages = Math.max(1, Math.ceil(adminSheetsCount / 20))
     const currentPage = Math.min(adminSheetsPage, totalPages)
+    const openCount = adminSheets.filter((s) => s.period_is_closed === false).length
+    const closedCount = adminSheets.filter((s) => s.period_is_closed === true).length
+    const unknownCount = adminSheets.filter((s) => s.period_is_closed === null).length
+    const updatedLast24h = adminSheets.filter((s) => {
+      if (!s.updated_at) return false
+      const ts = new Date(s.updated_at).getTime()
+      if (!Number.isFinite(ts)) return false
+      return Date.now() - ts <= 24 * 60 * 60 * 1000
+    }).length
 
     return (
       <div className="space-y-6">
@@ -1964,25 +1975,61 @@ export default function Grades() {
           onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
         />
 
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              <div className="p-2 bg-blue-100 dark:bg-blue-950/30 rounded-lg">
-                <GraduationCap className="h-6 w-6 text-blue-600 dark:text-blue-300" />
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              <div className="p-2 bg-blue-100 dark:bg-blue-950/45 rounded-lg border border-blue-200 dark:border-blue-800/70">
+                <GraduationCap className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-200" />
               </div>
               Calificaciones
             </h2>
             <p className="text-slate-500 dark:text-slate-400 mt-1">
-              Selecciona una planilla para abrirla.
+              Centro admin para abrir planillas y priorizar edición desde móvil o iPad.
             </p>
+          </div>
+
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden self-start">
+            <button
+              type="button"
+              onClick={() => setAdminListView('SUMMARY')}
+              className={`h-10 px-3 text-sm font-medium transition-colors ${adminListView === 'SUMMARY' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/80'}`}
+            >
+              Resumen
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdminListView('TABLE')}
+              className={`h-10 px-3 text-sm font-medium transition-colors ${adminListView === 'TABLE' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/80'}`}
+            >
+              Tabla
+            </button>
           </div>
         </div>
 
-        <Card className="shadow-lg border border-slate-200 dark:border-slate-800">
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900/80 p-3">
+            <div className="text-xs text-slate-500 dark:text-slate-300">Planillas</div>
+            <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-slate-100">{adminSheetsCount}</div>
+          </div>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-800/70 dark:bg-emerald-950/45 p-3">
+            <div className="text-xs text-emerald-700 dark:text-emerald-100">Abiertas</div>
+            <div className="mt-1 text-xl font-semibold text-emerald-700 dark:text-emerald-100">{openCount}</div>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800/70 dark:bg-amber-950/45 p-3">
+            <div className="text-xs text-amber-700 dark:text-amber-100">Cerradas</div>
+            <div className="mt-1 text-xl font-semibold text-amber-700 dark:text-amber-100">{closedCount}</div>
+          </div>
+          <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800/70 dark:bg-blue-950/45 p-3">
+            <div className="text-xs text-blue-700 dark:text-blue-100">Actualizadas 24h</div>
+            <div className="mt-1 text-xl font-semibold text-blue-700 dark:text-blue-100">{updatedLast24h}</div>
+          </div>
+        </div>
+
+        <Card className="shadow-sm border border-slate-200 dark:border-slate-700 dark:bg-slate-900/80">
           <CardHeader className="space-y-3">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
               <CardTitle className="text-slate-900 dark:text-slate-100">Planillas de calificaciones</CardTitle>
-              <div className="w-full md:max-w-sm">
+              <div className="w-full lg:max-w-sm">
                 <Input
                   placeholder="Buscar (docente, grupo, grado, asignatura, periodo…)"
                   value={adminSheetsSearch}
@@ -1990,7 +2037,7 @@ export default function Grades() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-300">
               <span>{adminSheetsCount} resultados</span>
               <Button
                 variant="outline"
@@ -2004,73 +2051,134 @@ export default function Grades() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
-                  <tr>
-                    <th className="px-6 py-4 font-semibold">Periodo</th>
-                    <th className="px-6 py-4 font-semibold">Año</th>
-                    <th className="px-6 py-4 font-semibold">Grado</th>
-                    <th className="px-6 py-4 font-semibold">Grupo</th>
-                    <th className="px-6 py-4 font-semibold">Asignatura</th>
-                    <th className="px-6 py-4 font-semibold">Docente</th>
-                    <th className="px-6 py-4 font-semibold">Actualizado</th>
-                    <th className="px-6 py-4 font-semibold">Estado</th>
-                    <th className="px-6 py-4 font-semibold text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {adminSheetsLoading && adminSheets.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
-                        Cargando…
-                      </td>
-                    </tr>
-                  ) : adminSheets.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
-                        No se encontraron planillas.
-                      </td>
-                    </tr>
-                  ) : (
-                    adminSheets.map((s) => (
-                      <tr
-                        key={s.id}
-                        className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/60"
-                      >
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-slate-900 dark:text-slate-100">{s.period_name ?? s.period}</div>
-                        </td>
-                        <td className="px-6 py-4">{s.academic_year_name ?? '-'}</td>
-                        <td className="px-6 py-4">{s.grade_name ?? '-'}</td>
-                        <td className="px-6 py-4">{s.group_name ?? '-'}</td>
-                        <td className="px-6 py-4">{s.subject_name ?? '-'}</td>
-                        <td className="px-6 py-4">{s.teacher_name ?? '-'}</td>
-                        <td className="px-6 py-4">
-                          {s.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}
-                        </td>
-                        <td className="px-6 py-4">
-                          {s.period_is_closed === null
-                            ? '-'
-                            : s.period_is_closed
-                              ? 'Cerrado'
-                              : 'Abierto'}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <Button size="sm" onClick={() => handleOpenAdminSheet(s)}>
-                            Abrir
+            {adminListView === 'SUMMARY' ? (
+              <div className="space-y-3">
+                {adminSheetsLoading && adminSheets.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">Cargando…</div>
+                ) : adminSheets.length === 0 ? (
+                  <div className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">No se encontraron planillas.</div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                    {adminSheets.map((s) => {
+                      const statusLabel =
+                        s.period_is_closed === null ? 'Sin estado' : s.period_is_closed ? 'Cerrado' : 'Abierto'
+                      const statusClass =
+                        s.period_is_closed === null
+                          ? 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                          : s.period_is_closed
+                            ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100'
+                            : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/45 dark:text-emerald-100'
+
+                      return (
+                        <div key={s.id} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 p-4">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                                {s.grade_name ?? '-'} • {s.group_name ?? '-'}
+                              </div>
+                              <div className="text-xs text-slate-500 dark:text-slate-300 mt-0.5 truncate">
+                                {s.subject_name ?? '-'}
+                              </div>
+                            </div>
+                            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
+                              {statusLabel}
+                            </span>
+                          </div>
+
+                          <div className="mt-3 space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                            <div><span className="font-medium text-slate-700 dark:text-slate-200">Periodo:</span> {s.period_name ?? s.period}</div>
+                            <div><span className="font-medium text-slate-700 dark:text-slate-200">Año:</span> {s.academic_year_name ?? '-'}</div>
+                            <div><span className="font-medium text-slate-700 dark:text-slate-200">Docente:</span> {s.teacher_name ?? '-'}</div>
+                            <div><span className="font-medium text-slate-700 dark:text-slate-200">Actualizado:</span> {s.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}</div>
+                          </div>
+
+                          <Button className="mt-4 w-full bg-blue-600 hover:bg-blue-700" onClick={() => handleOpenAdminSheet(s)}>
+                            Abrir planilla
                           </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-[980px] w-full text-sm text-left">
+                  <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-700">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold">Periodo</th>
+                      <th className="px-4 py-3 font-semibold">Año</th>
+                      <th className="px-4 py-3 font-semibold">Grado</th>
+                      <th className="px-4 py-3 font-semibold">Grupo</th>
+                      <th className="px-4 py-3 font-semibold">Asignatura</th>
+                      <th className="px-4 py-3 font-semibold">Docente</th>
+                      <th className="px-4 py-3 font-semibold">Actualizado</th>
+                      <th className="px-4 py-3 font-semibold">Estado</th>
+                      <th className="px-4 py-3 font-semibold text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {adminSheetsLoading && adminSheets.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">
+                          Cargando…
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : adminSheets.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-slate-500 dark:text-slate-300">
+                          No se encontraron planillas.
+                        </td>
+                      </tr>
+                    ) : (
+                      adminSheets.map((s) => {
+                        const statusLabel =
+                          s.period_is_closed === null ? 'Sin estado' : s.period_is_closed ? 'Cerrado' : 'Abierto'
+                        const statusClass =
+                          s.period_is_closed === null
+                            ? 'border-slate-200 bg-slate-50 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'
+                            : s.period_is_closed
+                              ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/45 dark:text-emerald-100'
+
+                        return (
+                          <tr
+                            key={s.id}
+                            className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-900 dark:hover:bg-slate-800/80"
+                          >
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-slate-900 dark:text-slate-100">{s.period_name ?? s.period}</div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{s.academic_year_name ?? '-'}</td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{s.grade_name ?? '-'}</td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{s.group_name ?? '-'}</td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{s.subject_name ?? '-'}</td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">{s.teacher_name ?? '-'}</td>
+                            <td className="px-4 py-3 text-slate-700 dark:text-slate-200">
+                              {s.updated_at ? new Date(s.updated_at).toLocaleString() : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass}`}>
+                                {statusLabel}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <Button size="sm" onClick={() => handleOpenAdminSheet(s)}>
+                                Abrir
+                              </Button>
+                            </td>
+                          </tr>
+                        )
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {adminSheetsCount > 0 && (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-4">
-                <div className="text-sm text-slate-500 dark:text-slate-400">
+                <div className="text-sm text-slate-500 dark:text-slate-300">
                   Página {currentPage} de {totalPages}
                 </div>
                 <div className="flex gap-2">
@@ -2083,16 +2191,16 @@ export default function Grades() {
                   >
                     Anterior
                   </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9"
-                    disabled={currentPage >= totalPages}
-                    onClick={() => setAdminSheetsPage(Math.min(totalPages, currentPage + 1))}
-                  >
+                  <Button variant="outline" size="sm" className="h-9" disabled={currentPage >= totalPages} onClick={() => setAdminSheetsPage(Math.min(totalPages, currentPage + 1))}>
                     Siguiente
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {unknownCount > 0 && (
+              <div className="mt-3 text-xs text-slate-500 dark:text-slate-300">
+                {unknownCount} planillas sin estado de periodo definido.
               </div>
             )}
           </CardContent>
@@ -2121,9 +2229,11 @@ export default function Grades() {
           <p className="text-slate-500 dark:text-slate-400 mt-1">Planilla de notas por logros.</p>
         </div>
 
+        <div className={`${gradebook ? 'md:sticky md:top-3 md:z-30' : ''} motion-safe:transition-all motion-safe:duration-200`}>
+          <div className={`rounded-xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur supports-backdrop-filter:bg-white/85 supports-backdrop-filter:dark:bg-slate-900/85 p-2 sm:p-3 motion-safe:transition-all motion-safe:duration-200 ${gradebook ? 'border-slate-200/90 dark:border-slate-700 shadow-sm md:shadow-md' : 'border-slate-200/70 dark:border-slate-800 shadow-xs dark:shadow-none'}`}>
         {!teacherMode ? (
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="min-w-44">
+          <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-2 sm:gap-3">
+            <div className="w-full md:w-44">
               <select
                 value={selectedGradeId ?? ''}
                 onChange={(e) => {
@@ -2143,7 +2253,7 @@ export default function Grades() {
               </select>
             </div>
 
-            <div className="min-w-44">
+            <div className="w-full md:w-44">
               <select
                 value={selectedGroupId ?? ''}
                 onChange={(e) => {
@@ -2163,7 +2273,7 @@ export default function Grades() {
               </select>
             </div>
 
-            <div className="min-w-56">
+            <div className="w-full md:w-56">
               <select
                 value={selectedAcademicLoadId ?? ''}
                 onChange={(e) => {
@@ -2182,7 +2292,7 @@ export default function Grades() {
               </select>
             </div>
 
-            <div className="min-w-44">
+            <div className="w-full md:w-44">
               <select
                 value={selectedPeriodId ?? ''}
                 onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : null)}
@@ -2214,15 +2324,15 @@ export default function Grades() {
             <Button
               onClick={handleSave}
               disabled={saving || !hasDirty || !gradebook || periodIsClosed}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
             >
               <Save className="mr-2 h-4 w-4" />
               Guardar
             </Button>
           </div>
         ) : (
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="min-w-56">
+          <div className="flex flex-col md:flex-row md:flex-wrap items-stretch md:items-center gap-2 sm:gap-3">
+            <div className="w-full md:w-56">
               <select
                 value={selectedPeriodId ?? ''}
                 onChange={(e) => {
@@ -2270,7 +2380,7 @@ export default function Grades() {
                   !activeGradeGrant?.hasFull &&
                   (activeGradeGrant?.allowedEnrollments?.size ?? 0) === 0)
               }
-              className="bg-blue-600 hover:bg-blue-700"
+              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
             >
               <Save className="mr-2 h-4 w-4" />
               Guardar
@@ -2288,6 +2398,8 @@ export default function Grades() {
             ) : null}
           </div>
         )}
+          </div>
+        </div>
       </div>
 
       <ConfirmationModal
@@ -2306,7 +2418,7 @@ export default function Grades() {
       />
 
       {user?.role === 'TEACHER' && gradeWindowClosed && (
-        <Card className="border border-rose-200 bg-rose-50 dark:border-rose-900/40 dark:bg-rose-950/30">
+        <Card className="border border-rose-200 bg-rose-50 dark:border-rose-800/70 dark:bg-rose-950/45">
           <CardHeader>
             <CardTitle className="text-rose-800 dark:text-rose-200">Edición cerrada (Planilla)</CardTitle>
           </CardHeader>
@@ -2354,7 +2466,7 @@ export default function Grades() {
       )}
 
       {lastBlocked.length > 0 && gradebook && (
-        <div className="border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-100 rounded-lg p-3 text-sm">
+        <div className="border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100 rounded-lg p-3 text-sm">
           <div className="font-semibold">Algunas notas no se guardaron</div>
           <div className="mt-1 text-xs">
             Bloqueadas: {Array.from(new Set(lastBlocked.map((b) => b.enrollment)))
@@ -2425,8 +2537,8 @@ export default function Grades() {
                   {group.sheets.map((s) => {
                     const complete = s.completion.is_complete
                     const badgeClass = complete
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200'
-                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/45 dark:text-emerald-100'
+                      : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100'
 
                     return (
                       <Card key={s.teacher_assignment_id} className="border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-none">
@@ -2488,9 +2600,9 @@ export default function Grades() {
           <CardHeader className="border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between gap-4">
               <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Planilla</CardTitle>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap justify-end">
                 <Button
-                  className="hidden md:inline-flex"
+                  className="hidden lg:inline-flex"
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadGroupReport}
@@ -2524,8 +2636,28 @@ export default function Grades() {
                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${globalSaveClass}`}>
                   {globalSaveLabel}
                 </span>
+
+                {isAdmin && (
+                  <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setAdminGradebookView('QUICK')}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors ${adminGradebookView === 'QUICK' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/80'}`}
+                    >
+                      Edición rápida
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAdminGradebookView('TABLE')}
+                      className={`px-2.5 py-1 text-xs font-medium transition-colors ${adminGradebookView === 'TABLE' ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800/80'}`}
+                    >
+                      Tabla completa
+                    </button>
+                  </div>
+                )}
+
                 {periodIsClosed && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-200">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/45 dark:text-amber-100">
                     Periodo cerrado
                   </span>
                 )}
@@ -2569,15 +2701,16 @@ export default function Grades() {
             )}
 
             {/* Mobile view: student cards (no horizontal scroll) */}
-            <div className="md:hidden space-y-3">
-              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+            {(!isAdmin || adminGradebookView === 'QUICK') && (
+              <div className={`${isAdmin ? 'space-y-3' : 'md:hidden space-y-3'}`}>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 p-3">
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Vista móvil</div>
                     <button
                       type="button"
                       onClick={() => setMobileQuickCapture((v) => !v)}
-                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${mobileQuickCapture ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/25 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
+                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${mobileQuickCapture ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/70 dark:bg-blue-950/45 dark:text-blue-100' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}
                       title="Reduce scroll enfocando un estudiante"
                     >
                       {mobileQuickCapture ? 'Captura rápida: ON' : 'Captura rápida: OFF'}
@@ -2633,7 +2766,7 @@ export default function Grades() {
               {mobileStudents.map((s) => (
                 <div
                   key={s.enrollment_id}
-                  className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                  className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/80"
                 >
                   <div className="px-3 py-3 border-b border-slate-100 dark:border-slate-800">
                     <div className="flex items-start justify-between gap-3">
@@ -2849,9 +2982,11 @@ export default function Grades() {
                 </div>
               ))}
             </div>
+            )}
 
             {/* Desktop/tablet view: existing table */}
-            <div className="hidden md:block overflow-x-auto -mx-2 sm:mx-0">
+            {(!isAdmin || adminGradebookView === 'TABLE') && (
+            <div className={`${isAdmin ? 'overflow-x-auto -mx-2 sm:mx-0' : 'hidden md:block overflow-x-auto -mx-2 sm:mx-0'}`}>
               <table className="min-w-max w-full text-xs lg:text-sm text-left">
                 <thead className="text-[11px] lg:text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-20">
                   {activitiesMode ? (
@@ -3306,6 +3441,7 @@ export default function Grades() {
                 </tbody>
               </table>
             </div>
+            )}
 
             {gradebook.students.length === 0 && (
               <div className="text-sm text-slate-500 dark:text-slate-400">No hay estudiantes activos en el grupo.</div>

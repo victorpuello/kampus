@@ -330,7 +330,7 @@ export default function GroupStudents() {
         onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{title}</h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
@@ -350,9 +350,9 @@ export default function GroupStudents() {
             ) : null}
           </div>
         </div>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
           <Button
-            className="bg-cyan-600 hover:bg-cyan-700 text-white"
+            className="min-h-11 bg-cyan-600 text-white hover:bg-cyan-700"
             onClick={() => {
               if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
                 setToast({ message: 'Grupo inválido para matricular.', type: 'error', isVisible: true })
@@ -370,6 +370,7 @@ export default function GroupStudents() {
           </Button>
           <Button
             variant="outline"
+            className="min-h-11"
             onClick={() => {
               if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
                 setToast({ message: 'Grupo inválido para matricular.', type: 'error', isVisible: true })
@@ -385,11 +386,12 @@ export default function GroupStudents() {
           >
             Matricular antiguo
           </Button>
-          <Button variant="secondary" onClick={handlePrintManualSheet} disabled={printing || !Number.isFinite(numericGroupId) || numericGroupId <= 0}>
+          <Button variant="secondary" className="min-h-11" onClick={handlePrintManualSheet} disabled={printing || !Number.isFinite(numericGroupId) || numericGroupId <= 0}>
             {printing ? 'Generando…' : 'Imprimir planilla'}
           </Button>
           <Button
             variant="secondary"
+            className="min-h-11"
             onClick={() => {
               if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
                 setToast({ message: 'Grupo inválido para imprimir.', type: 'error', isVisible: true })
@@ -406,21 +408,21 @@ export default function GroupStudents() {
           >
             {printingGrades ? 'Generando…' : 'Imprimir notas'}
           </Button>
-          <Button variant="outline" onClick={() => navigate('/groups')}>
+          <Button variant="outline" className="min-h-11" onClick={() => navigate('/groups')}>
             Volver a grupos
           </Button>
         </div>
       </div>
 
       {isGradeSheetModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-0">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-2">
           <div
             className="fixed inset-0 bg-black/50 transition-opacity backdrop-blur-sm"
             onClick={() => {
               if (!printingGrades) setIsGradeSheetModalOpen(false)
             }}
           />
-          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all sm:mx-auto animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
+          <div className="relative z-50 w-full max-w-lg transform overflow-hidden rounded-lg bg-white p-4 shadow-xl transition-all sm:mx-auto sm:p-6 animate-in fade-in zoom-in-95 duration-200 dark:bg-slate-900">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold leading-6 text-slate-900 dark:text-slate-100">Imprimir planilla de notas</h3>
               <button
@@ -441,7 +443,7 @@ export default function GroupStudents() {
                   Asignatura/Docente (del grupo)
                 </label>
                 <select
-                  className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="h-11 w-full rounded border bg-white p-2 text-sm text-slate-900 outline-none transition-all focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   value={gradeSheetAssignmentId}
                   onChange={(e) => {
                     const next = e.target.value
@@ -470,11 +472,11 @@ export default function GroupStudents() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Período</label>
                   <select
-                    className="w-full p-2 border rounded text-sm bg-white text-slate-900 focus:ring-2 focus:ring-cyan-200 focus:border-cyan-400 outline-none transition-all dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    className="h-11 w-full rounded border bg-white p-2 text-sm text-slate-900 outline-none transition-all focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                     value={gradeSheetPeriodId}
                     onChange={(e) => setGradeSheetPeriodId(e.target.value)}
                   >
@@ -494,7 +496,7 @@ export default function GroupStudents() {
                     value={gradeSheetTeacher}
                     onChange={(e) => setGradeSheetTeacher(e.target.value)}
                     placeholder="Nombre del docente (opcional)"
-                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                    className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
                   />
                 </div>
               </div>
@@ -505,16 +507,16 @@ export default function GroupStudents() {
                   value={gradeSheetSubject}
                   onChange={(e) => setGradeSheetSubject(e.target.value)}
                   placeholder="Ej: Matemáticas"
-                  className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                  className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
                 />
               </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setIsGradeSheetModalOpen(false)} disabled={printingGrades}>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={() => setIsGradeSheetModalOpen(false)} disabled={printingGrades}>
                 Cancelar
               </Button>
-              <Button className="bg-cyan-600 hover:bg-cyan-700 text-white" onClick={handlePrintGradeReportSheet} disabled={printingGrades}>
+              <Button className="min-h-11 w-full bg-cyan-600 text-white hover:bg-cyan-700 sm:w-auto" onClick={handlePrintGradeReportSheet} disabled={printingGrades}>
                 {printingGrades ? 'Generando…' : 'Imprimir'}
               </Button>
             </div>
@@ -524,13 +526,13 @@ export default function GroupStudents() {
 
       <Card>
         <CardHeader className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <CardTitle className="text-slate-900 dark:text-slate-100">Listado</CardTitle>
-            <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+            <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="flex h-10 w-full md:w-44 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 lg:w-44"
                 aria-label="Filtrar por estado"
               >
                 <option value="ACTIVE">Activos</option>
@@ -541,7 +543,7 @@ export default function GroupStudents() {
               <select
                 value={pageSize}
                 onChange={(e) => setPageSize(Number(e.target.value))}
-                className="flex h-10 w-full md:w-40 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 lg:w-40"
                 aria-label="Tamaño de página"
               >
                 <option value={10}>10 / pág</option>
@@ -553,7 +555,7 @@ export default function GroupStudents() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar por nombre o documento…"
-                className="flex h-10 w-full md:w-80 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900"
+                className="flex h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 lg:w-80"
               />
             </div>
           </div>
@@ -568,7 +570,7 @@ export default function GroupStudents() {
 
         <CardContent className="p-0">
           {/* Mobile list */}
-          <div className="md:hidden p-4 space-y-3">
+          <div className="p-4 space-y-3 xl:hidden">
             {!loading && rows.length === 0 ? (
               <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">
                 No hay matrículas activas en este grupo.
@@ -609,7 +611,7 @@ export default function GroupStudents() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden xl:block overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -662,20 +664,21 @@ export default function GroupStudents() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 px-4 py-3 border-t border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex flex-col gap-3 border-t border-slate-100 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-900 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-xs text-slate-500 dark:text-slate-400">
               {totalCount > 0 ? `Mostrando ${rows.length} de ${totalCount}` : 'Sin resultados'}
             </div>
-            <div className="flex items-center gap-1 justify-end flex-wrap">
+            <div className="flex flex-wrap items-center justify-end gap-1">
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={loading || page <= 1}
               >
                 Anterior
               </Button>
+              <div className="hidden lg:contents">
               {pageButtons.map((p, idx) =>
                 p === -1 ? (
                   <span key={`ellipsis-${idx}`} className="px-2 text-slate-400">…</span>
@@ -684,7 +687,7 @@ export default function GroupStudents() {
                     key={p}
                     size="sm"
                     variant={p === page ? 'secondary' : 'outline'}
-                    className="h-8 px-2"
+                    className="min-h-11 px-2"
                     onClick={() => setPage(p)}
                     disabled={loading}
                     aria-current={p === page ? 'page' : undefined}
@@ -693,10 +696,11 @@ export default function GroupStudents() {
                   </Button>
                 )
               )}
+              </div>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8"
+                className="min-h-11"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={loading || page >= totalPages}
               >

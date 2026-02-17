@@ -8,6 +8,7 @@ import { Plus, Search, UserCog, Trash2, Shield, Users, CheckCircle } from 'lucid
 import { Input } from '../components/ui/Input'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { useAuthStore } from '../store/auth'
+import { Toast, type ToastType } from '../components/ui/Toast'
 
 export default function UserList() {
   const navigate = useNavigate()
@@ -29,6 +30,42 @@ export default function UserList() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [userToDelete, setUserToDelete] = useState<number | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
+    message: '',
+    type: 'info',
+    isVisible: false,
+  })
+
+  const showToast = (message: string, type: ToastType = 'info') => {
+    setToast({ message, type, isVisible: true })
+  }
+
+  const copyUsernameToClipboard = async (username: string) => {
+    const value = (username || '').trim()
+    if (!value) {
+      showToast('El usuario no tiene username para copiar', 'error')
+      return
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = value
+        textarea.setAttribute('readonly', '')
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      showToast(`Usuario copiado: ${value}`, 'success')
+    } catch {
+      showToast('No fue posible copiar el usuario', 'error')
+    }
+  }
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -142,28 +179,28 @@ export default function UserList() {
   const getRoleBadgeClasses = (role: string) => {
     switch (role) {
       case 'SUPERADMIN':
-        return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-200 dark:border-purple-500/30'
+        return 'bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-950/45 dark:text-purple-100 dark:border-purple-800/70'
       case 'ADMIN':
-        return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-200 dark:border-red-500/30'
+        return 'bg-red-100 text-red-700 border-red-200 dark:bg-red-950/45 dark:text-red-100 dark:border-red-800/70'
       case 'COORDINATOR':
-        return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/40 dark:text-orange-200 dark:border-orange-500/30'
+        return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/45 dark:text-orange-100 dark:border-orange-800/70'
       case 'SECRETARY':
-        return 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-200 dark:border-sky-500/30'
+        return 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-950/45 dark:text-sky-100 dark:border-sky-800/70'
       case 'TEACHER':
-        return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/30'
+        return 'bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-950/45 dark:text-emerald-100 dark:border-emerald-800/70'
       case 'PARENT':
-        return 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950/40 dark:text-teal-200 dark:border-teal-500/30'
+        return 'bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-950/45 dark:text-teal-100 dark:border-teal-800/70'
       case 'STUDENT':
-        return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-500/30'
+        return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/45 dark:text-blue-100 dark:border-blue-800/70'
       default:
-        return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+        return 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700'
     }
   }
 
   const getActiveBadgeClasses = (isActive: boolean) => {
     return isActive
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-500/30'
-      : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/45 dark:text-emerald-100 dark:border-emerald-800/70'
+      : 'bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-900/70 dark:text-slate-200 dark:border-slate-700'
   }
 
   const getRoleLabel = (role: string) => {
@@ -197,11 +234,18 @@ export default function UserList() {
 
   return (
     <div className="space-y-6">
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))}
+      />
+
       {error ? (
-        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{error}</div>
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm dark:border-rose-800/70 dark:bg-rose-950/45 dark:text-rose-100">{error}</div>
       ) : null}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 flex items-center gap-2">
             <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-950/40">
@@ -211,15 +255,15 @@ export default function UserList() {
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-1">Administración general de cuentas y roles.</p>
         </div>
-        <Link to="/users/new">
-          <Button className="w-full md:w-auto bg-blue-600 hover:bg-blue-700">
-            <Plus className="mr-2 h-4 w-4" /> Nuevo Usuario
+        <Link to="/users/new" className="w-full md:w-auto">
+          <Button className="min-h-11 w-full md:w-auto bg-blue-600 hover:bg-blue-700">
+            <Plus className="mr-2 h-4 w-4" /> Crear usuario
           </Button>
         </Link>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between space-y-0 pb-2">
@@ -260,19 +304,23 @@ export default function UserList() {
 
       <Card className="border-slate-200 shadow-sm dark:border-slate-800">
         <CardHeader className="border-b border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado General</CardTitle>
-            <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-500" />
-              <Input 
-                placeholder="Buscar por nombre, email..." 
-                className="pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value)
-                  setPage(1)
-                }}
-              />
+          <div className={`${count > 0 ? 'md:sticky md:top-3 md:z-20' : ''} motion-safe:transition-all motion-safe:duration-200`}>
+            <div className={`rounded-xl border bg-white/95 dark:bg-slate-900/95 backdrop-blur supports-backdrop-filter:bg-white/85 supports-backdrop-filter:dark:bg-slate-900/85 p-2 sm:p-3 motion-safe:transition-all motion-safe:duration-200 ${count > 0 ? 'border-slate-200/90 dark:border-slate-700 shadow-sm md:shadow-md' : 'border-slate-200/70 dark:border-slate-800 shadow-sm dark:shadow-none'}`}>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <CardTitle className="text-lg font-semibold text-slate-900 dark:text-slate-100">Listado de usuarios</CardTitle>
+                <div className="relative w-full lg:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-slate-300" />
+                  <Input 
+                    placeholder="Buscar por nombre, email..." 
+                    className="h-11 pl-9 border-slate-200 focus:border-blue-500 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setPage(1)
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
           {loading && data.length > 0 ? (
@@ -281,7 +329,7 @@ export default function UserList() {
         </CardHeader>
         <CardContent className="p-0">
           {/* Mobile list */}
-          <div className="md:hidden p-4">
+          <div className="p-4 lg:hidden">
             {isInitialLoading ? (
               <div className="py-10 text-center text-slate-500 dark:text-slate-400">Cargando usuarios…</div>
             ) : data.length === 0 ? (
@@ -302,7 +350,7 @@ export default function UserList() {
                     className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:bg-slate-900 dark:border-slate-800"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="h-10 w-10 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-600 shadow-sm border border-slate-200 shrink-0 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200 dark:border-slate-700">
+                      <div className="h-11 w-11 rounded-full bg-linear-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-600 shadow-sm border border-slate-200 shrink-0 dark:from-slate-800 dark:to-slate-700 dark:text-slate-200 dark:border-slate-700">
                         <span className="font-bold text-sm">
                           {(u.first_name?.[0] || 'U') + (u.last_name?.[0] || 'S')}
                         </span>
@@ -313,9 +361,14 @@ export default function UserList() {
                             <div className="font-semibold text-slate-900 dark:text-slate-100 wrap-break-word">
                               {u.first_name} {u.last_name}
                             </div>
-                            <div className="mt-0.5 text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit dark:text-slate-300 dark:bg-slate-800">
+                            <button
+                              type="button"
+                              className="mt-0.5 w-fit rounded bg-slate-50 px-1.5 py-0.5 text-left text-xs font-mono text-slate-500 transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                              onClick={() => copyUsernameToClipboard(u.username || '')}
+                              title="Copiar usuario"
+                            >
                               @{u.username}
-                            </div>
+                            </button>
                           </div>
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${getActiveBadgeClasses(u.is_active)}`}>
                             <span
@@ -335,15 +388,15 @@ export default function UserList() {
                           {u.email || '—'}
                         </div>
 
-                        <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                           <Link to={`/users/${u.id}`} className="w-full">
-                            <Button variant="outline" className="w-full">
+                            <Button variant="outline" className="min-h-11 w-full">
                               Editar
                             </Button>
                           </Link>
                           <Button
                             variant="outline"
-                            className="w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
+                            className="min-h-11 w-full text-rose-700 border-rose-200 hover:bg-rose-50 dark:text-rose-200 dark:border-rose-800 dark:hover:bg-rose-900/20"
                             onClick={() => openDeleteModal(u.id)}
                           >
                             Eliminar
@@ -358,7 +411,7 @@ export default function UserList() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block overflow-x-auto">
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">
                 <tr>
@@ -400,7 +453,14 @@ export default function UserList() {
                             <div className="font-medium text-slate-900 uppercase dark:text-slate-100">
                               {u.first_name} {u.last_name}
                             </div>
-                            <div className="text-xs text-slate-500 font-mono bg-slate-50 px-1.5 py-0.5 rounded w-fit mt-0.5 dark:text-slate-300 dark:bg-slate-800">@{u.username}</div>
+                            <button
+                              type="button"
+                              className="mt-0.5 w-fit rounded bg-slate-50 px-1.5 py-0.5 text-left text-xs font-mono text-slate-500 transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                              onClick={() => copyUsernameToClipboard(u.username || '')}
+                              title="Copiar usuario"
+                            >
+                              @{u.username}
+                            </button>
                           </div>
                         </div>
                       </td>
@@ -442,15 +502,15 @@ export default function UserList() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-4 px-4 md:px-6 pb-6">
+          <div className="mt-4 flex flex-col gap-3 px-4 pb-6 md:px-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="text-sm text-slate-500 dark:text-slate-400">
               Mostrando {startIndex}-{endIndex} de {count} • Página {page} de {totalPages}
             </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-              <div className="flex items-center gap-2 justify-between sm:justify-start">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              <div className="flex items-center gap-2 justify-between md:justify-start">
                 <span className="text-sm text-slate-500 dark:text-slate-400">Por página</span>
                 <select
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark"
                   value={pageSize}
                   onChange={(e) => {
                     setPageSize(Number(e.target.value))
@@ -467,14 +527,14 @@ export default function UserList() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 sm:flex-none"
+                  className="min-h-11 flex-1 md:flex-none"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={!hasPrevious || page <= 1}
                 >
                   Anterior
                 </Button>
 
-                <div className="hidden md:flex items-center gap-1">
+                <div className="hidden lg:flex items-center gap-1">
                 {pageNumbers.map((p, idx) =>
                   p === 'ellipsis' ? (
                     <span key={`e-${idx}`} className="px-2 text-slate-500 dark:text-slate-400">
@@ -485,6 +545,7 @@ export default function UserList() {
                       key={p}
                       variant={p === page ? 'secondary' : 'outline'}
                       size="sm"
+                      className="min-h-10"
                       onClick={() => setPage(p)}
                       aria-current={p === page ? 'page' : undefined}
                     >
@@ -497,7 +558,7 @@ export default function UserList() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 sm:flex-none"
+                  className="min-h-11 flex-1 md:flex-none"
                   onClick={() => setPage((p) => p + 1)}
                   disabled={!hasNext}
                 >

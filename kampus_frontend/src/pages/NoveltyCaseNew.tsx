@@ -28,7 +28,7 @@ export default function NoveltyCaseNewPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Nueva novedad</h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">Crea un caso (borrador o radicado)</p>

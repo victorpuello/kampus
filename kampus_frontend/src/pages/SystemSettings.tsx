@@ -153,7 +153,7 @@ export default function SystemSettings() {
 
   if (!isAdmin) {
     return (
-      <div className="p-6">
+      <div className="p-3 sm:p-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-slate-900 dark:text-slate-100">Sistema</CardTitle>
@@ -167,7 +167,7 @@ export default function SystemSettings() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
         <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Sistema</h2>
         <p className="text-sm text-slate-600 dark:text-slate-300">Backups, descargas y restauración/importación de data.</p>
@@ -184,10 +184,10 @@ export default function SystemSettings() {
       ) : null}
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <CardTitle className="text-slate-900 dark:text-slate-100">Backup del sistema</CardTitle>
-          <div className="flex items-center gap-2">
-            <label className="hidden sm:flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
+            <label className="hidden items-center gap-2 text-sm text-slate-600 dark:text-slate-300 lg:flex">
               <input
                 type="checkbox"
                 className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-950 dark:focus:ring-sky-400"
@@ -197,16 +197,16 @@ export default function SystemSettings() {
               />
               Incluir media
             </label>
-            <Button variant="outline" onClick={loadBackups} disabled={loading}>
+            <Button variant="outline" onClick={loadBackups} disabled={loading} className="min-h-11 w-full sm:w-auto">
               Actualizar
             </Button>
-            <Button onClick={createBackup} disabled={creating}>
+            <Button onClick={createBackup} disabled={creating} className="min-h-11 w-full sm:w-auto">
               {creating ? 'Creando…' : 'Crear backup'}
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="sm:hidden mb-3">
+          <div className="mb-3 lg:hidden">
             <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
               <input
                 type="checkbox"
@@ -223,9 +223,10 @@ export default function SystemSettings() {
           ) : backups.length === 0 ? (
             <div className="text-sm text-slate-500 dark:text-slate-400">No hay backups todavía.</div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              <div className="hidden overflow-x-auto xl:block">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-500 dark:text-slate-400 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:from-slate-900/40 dark:to-slate-950/40 dark:border-slate-800">
+                <thead className="border-b border-slate-200 bg-linear-to-r from-slate-50 to-slate-100 text-xs uppercase text-slate-500 dark:border-slate-700 dark:from-slate-900 dark:to-slate-800 dark:text-slate-300">
                   <tr>
                     <th className="px-6 py-4 font-semibold">Archivo</th>
                     <th className="px-6 py-4 font-semibold">Fecha</th>
@@ -235,12 +236,12 @@ export default function SystemSettings() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                   {backups.map((b) => (
-                    <tr key={b.filename} className="bg-white hover:bg-slate-50/80 transition-colors dark:bg-slate-950 dark:hover:bg-slate-800/60">
+                    <tr key={b.filename} className="bg-white transition-colors hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/70">
                       <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{b.filename}</td>
                       <td className="px-6 py-4">{formatDate(b.created_at)}</td>
                       <td className="px-6 py-4 text-right">{formatSize(b.size_bytes)}</td>
                       <td className="px-6 py-4 text-right">
-                        <Button variant="outline" size="sm" onClick={() => download(b.filename)}>
+                        <Button variant="outline" size="sm" className="min-h-10" onClick={() => download(b.filename)}>
                           Descargar
                         </Button>
                       </td>
@@ -248,7 +249,25 @@ export default function SystemSettings() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:hidden">
+                {backups.map((b) => (
+                  <Card key={b.filename} className="border-slate-200/90 dark:border-slate-700">
+                    <CardContent className="p-4">
+                      <div className="text-sm font-semibold text-slate-900 dark:text-slate-100 break-all">{b.filename}</div>
+                      <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">{formatDate(b.created_at)}</div>
+                      <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatSize(b.size_bytes)}</div>
+                      <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+                        <Button variant="outline" size="sm" className="min-h-11 w-full" onClick={() => download(b.filename)}>
+                          Descargar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -262,7 +281,7 @@ export default function SystemSettings() {
             <div className="flex items-center gap-2">
               <span className="text-sm text-slate-500 dark:text-slate-400">Modo</span>
               <select
-                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 value={mode}
                 onChange={(e) => {
                   const next = e.target.value === 'restore' ? 'restore' : 'import'
@@ -289,13 +308,13 @@ export default function SystemSettings() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Desde un backup existente</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Selecciona un archivo del historial.</div>
 
               <div className="mt-3 flex flex-col gap-2">
                 <select
-                  className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                   value={selectedFilename}
                   onChange={(e) => setSelectedFilename(e.target.value)}
                 >
@@ -310,13 +329,14 @@ export default function SystemSettings() {
                 <Button
                   onClick={restoreFromExisting}
                   disabled={restoring || !selectedFilename || !canRunDestructive}
+                  className="min-h-11"
                 >
                   {restoring ? 'Procesando…' : mode === 'restore' ? 'Restaurar' : 'Importar'}
                 </Button>
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Subir archivo</div>
               <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Acepta .json, .json.gz o .zip (bundle)</div>
 
@@ -325,10 +345,10 @@ export default function SystemSettings() {
                   type="file"
                   accept=".json,.gz,.json.gz,.zip"
                   onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                  className="text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-50 dark:text-slate-300 dark:file:border-slate-700 dark:file:bg-slate-950 dark:file:text-slate-200 dark:hover:file:bg-slate-900"
+                  className="rounded-md border border-slate-200 p-2 text-sm text-slate-700 file:mr-3 file:rounded-md file:border file:border-slate-200 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:file:border-slate-700 dark:file:bg-slate-950 dark:file:text-slate-200 dark:hover:file:bg-slate-900"
                 />
 
-                <Button onClick={restoreFromUpload} disabled={restoring || !uploadFile || !canRunDestructive}>
+                <Button onClick={restoreFromUpload} disabled={restoring || !uploadFile || !canRunDestructive} className="min-h-11">
                   {restoring ? 'Procesando…' : mode === 'restore' ? 'Restaurar' : 'Importar'}
                 </Button>
               </div>
