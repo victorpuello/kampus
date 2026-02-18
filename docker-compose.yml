@@ -102,12 +102,18 @@ services:
       - DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS=900
       - ATTENDANCE_AUTO_CLOSE_HOURS=1
       - ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS=60
+      - ELECTION_CENSUS_SYNC_ENABLED=true
+      - ELECTION_CENSUS_SYNC_INTERVAL_SECONDS=1800
+      - ELECTION_CENSUS_SYNC_SOURCE_MODE=ACTIVE_ENROLLMENTS
+      - ELECTION_CENSUS_SYNC_SOURCE_FILE=
+      - ELECTION_CENSUS_SYNC_ACADEMIC_YEAR_ID=
+      - ELECTION_CENSUS_SYNC_APPLY=true
     depends_on:
       - db
       - redis
     command: >
       sh -c "
-        echo 'Starting backend scheduler (descargos + attendance auto-close)';
+        echo 'Starting backend scheduler (descargos + attendance + reports + election census sync)';
 
         ( while true; do
             python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
@@ -122,6 +128,41 @@ services:
         ( while true; do
             python manage.py cleanup_report_jobs;
             sleep ${KAMPUS_REPORT_JOBS_CLEANUP_INTERVAL_SECONDS:-3600};
+          done ) &
+
+        ( while true; do
+            if [ \"$${ELECTION_CENSUS_SYNC_ENABLED:-true}\" = \"true\" ]; then
+              MODE=$$(echo \"$${ELECTION_CENSUS_SYNC_SOURCE_MODE:-ACTIVE_ENROLLMENTS}\" | tr '[:lower:]' '[:upper:]');
+
+              if [ \"$$MODE\" = \"URL\" ]; then
+                if [ \"$${ELECTION_CENSUS_SYNC_APPLY:-true}\" = \"true\" ]; then
+                  python manage.py sync_election_census --source-url \"$${KAMPUS_CENSUS_SYNC_URL:-}\" --apply;
+                else
+                  python manage.py sync_election_census --source-url \"$${KAMPUS_CENSUS_SYNC_URL:-}\";
+                fi;
+              elif [ \"$$MODE\" = \"FILE\" ]; then
+                if [ \"$${ELECTION_CENSUS_SYNC_APPLY:-true}\" = \"true\" ]; then
+                  python manage.py sync_election_census --source-file \"$${ELECTION_CENSUS_SYNC_SOURCE_FILE:-}\" --apply;
+                else
+                  python manage.py sync_election_census --source-file \"$${ELECTION_CENSUS_SYNC_SOURCE_FILE:-}\";
+                fi;
+              else
+                if [ -n \"$${ELECTION_CENSUS_SYNC_ACADEMIC_YEAR_ID:-}\" ]; then
+                  if [ \"$${ELECTION_CENSUS_SYNC_APPLY:-true}\" = \"true\" ]; then
+                    python manage.py sync_election_census --source-active-enrollments --academic-year-id \"$${ELECTION_CENSUS_SYNC_ACADEMIC_YEAR_ID}\" --apply;
+                  else
+                    python manage.py sync_election_census --source-active-enrollments --academic-year-id \"$${ELECTION_CENSUS_SYNC_ACADEMIC_YEAR_ID}\";
+                  fi;
+                else
+                  if [ \"$${ELECTION_CENSUS_SYNC_APPLY:-true}\" = \"true\" ]; then
+                    python manage.py sync_election_census --source-active-enrollments --apply;
+                  else
+                    python manage.py sync_election_census --source-active-enrollments;
+                  fi;
+                fi;
+              fi;
+            fi;
+            sleep $${ELECTION_CENSUS_SYNC_INTERVAL_SECONDS:-1800};
           done ) &
 
         wait

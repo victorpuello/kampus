@@ -1,0 +1,68 @@
+from django.urls import path
+
+from .views_public import (
+    PublicSubmitVoteAPIView,
+    PublicValidateTokenAPIView,
+    ResetVoterTokenAPIView,
+    TokenResetEventListAPIView,
+)
+from .views_management import (
+    ContraloriaCandidateDeleteAPIView,
+    ContraloriaCandidateListCreateAPIView,
+    ElectionProcessListCreateAPIView,
+    ElectionProcessDeleteAPIView,
+    ElectionProcessCensusAPIView,
+    ElectionProcessCensusExcludeAPIView,
+    ElectionProcessCensusIncludeAPIView,
+    ElectionProcessCensusManualCodesXlsxAPIView,
+    ElectionProcessCensusQrPrintAPIView,
+    ElectionCensusSyncFromEnrollmentsAPIView,
+    ElectionProcessOpeningRecordAPIView,
+    ElectionProcessOpenAPIView,
+    ElectionProcessScrutinyExportCsvAPIView,
+    ElectionProcessScrutinyExportXlsxAPIView,
+    ElectionProcessScrutinySummaryAPIView,
+    ElectionEligibleStudentsAPIView,
+    ElectionRoleListCreateAPIView,
+    ElectionRoleDeleteAPIView,
+    ElectionTokenEligibilityIssuesAPIView,
+    PersoneriaCandidateDeleteAPIView,
+    PersoneriaCandidateListCreateAPIView,
+)
+
+
+urlpatterns = [
+    path("elections/public/validate-token/", PublicValidateTokenAPIView.as_view(), name="elections-public-validate-token"),
+    path("elections/public/submit-vote/", PublicSubmitVoteAPIView.as_view(), name="elections-public-submit-vote"),
+    path("elections/tokens/reset/", ResetVoterTokenAPIView.as_view(), name="elections-token-reset"),
+    path("elections/tokens/reset-events/", TokenResetEventListAPIView.as_view(), name="elections-token-reset-events"),
+    path("elections/manage/processes/", ElectionProcessListCreateAPIView.as_view(), name="elections-manage-processes"),
+    path("elections/manage/processes/<int:process_id>/", ElectionProcessDeleteAPIView.as_view(), name="elections-manage-process-delete"),
+    path("elections/manage/processes/<int:process_id>/open/", ElectionProcessOpenAPIView.as_view(), name="elections-manage-process-open"),
+    path("elections/manage/processes/<int:process_id>/opening-record/", ElectionProcessOpeningRecordAPIView.as_view(), name="elections-manage-process-opening-record"),
+    path("elections/manage/processes/<int:process_id>/scrutiny-summary/", ElectionProcessScrutinySummaryAPIView.as_view(), name="elections-manage-process-scrutiny-summary"),
+    path("elections/manage/processes/<int:process_id>/scrutiny-export.csv", ElectionProcessScrutinyExportCsvAPIView.as_view(), name="elections-manage-process-scrutiny-export-csv"),
+    path("elections/manage/processes/<int:process_id>/scrutiny-export.xlsx", ElectionProcessScrutinyExportXlsxAPIView.as_view(), name="elections-manage-process-scrutiny-export-xlsx"),
+    path("elections/manage/processes/<int:process_id>/census/", ElectionProcessCensusAPIView.as_view(), name="elections-manage-process-census"),
+    path("elections/manage/processes/<int:process_id>/census/exclusions/", ElectionProcessCensusExcludeAPIView.as_view(), name="elections-manage-process-census-exclude"),
+    path("elections/manage/processes/<int:process_id>/census/exclusions/<int:member_id>/", ElectionProcessCensusIncludeAPIView.as_view(), name="elections-manage-process-census-include"),
+    path("elections/manage/processes/<int:process_id>/census/manual-codes.xlsx", ElectionProcessCensusManualCodesXlsxAPIView.as_view(), name="elections-manage-process-census-manual-codes-xlsx"),
+    path("elections/manage/processes/<int:process_id>/census/qr-print/", ElectionProcessCensusQrPrintAPIView.as_view(), name="elections-manage-process-census-qr-print"),
+    path("elections/manage/census/sync-active-enrollments/", ElectionCensusSyncFromEnrollmentsAPIView.as_view(), name="elections-manage-census-sync-active-enrollments"),
+    path("elections/manage/roles/", ElectionRoleListCreateAPIView.as_view(), name="elections-manage-roles"),
+    path("elections/manage/roles/<int:role_id>/", ElectionRoleDeleteAPIView.as_view(), name="elections-manage-role-delete"),
+    path("elections/manage/candidatos/personeria/", PersoneriaCandidateListCreateAPIView.as_view(), name="elections-manage-candidatos-personeria"),
+    path(
+        "elections/manage/candidatos/personeria/<int:candidate_id>/",
+        PersoneriaCandidateDeleteAPIView.as_view(),
+        name="elections-manage-candidatos-personeria-delete",
+    ),
+    path("elections/manage/candidatos/contraloria/", ContraloriaCandidateListCreateAPIView.as_view(), name="elections-manage-candidatos-contraloria"),
+    path(
+        "elections/manage/candidatos/contraloria/<int:candidate_id>/",
+        ContraloriaCandidateDeleteAPIView.as_view(),
+        name="elections-manage-candidatos-contraloria-delete",
+    ),
+    path("elections/manage/eligible-students/", ElectionEligibleStudentsAPIView.as_view(), name="elections-manage-eligible-students"),
+    path("elections/manage/tokens/eligibility-issues/", ElectionTokenEligibilityIssuesAPIView.as_view(), name="elections-manage-token-eligibility-issues"),
+]

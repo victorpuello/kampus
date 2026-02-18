@@ -1,0 +1,20 @@
+[
+  {
+    "student_external_id": "EXT-1001",
+    "document_number": "1000001",
+    "full_name": "Laura Gómez",
+    "grade": "11",
+    "shift": "Mañana",
+    "campus": "Principal",
+    "status": "ACTIVE"
+  },
+  {
+    "student_external_id": "EXT-1002",
+    "document_number": "1000002",
+    "full_name": "Santiago Pérez",
+    "grade": "9",
+    "shift": "Tarde",
+    "campus": "Principal",
+    "status": "ACTIVE"
+  }
+]

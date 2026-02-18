@@ -514,8 +514,6 @@ export default function DashboardLayout() {
                   ? [{ name: 'Preescolar (Cualitativa)', href: '/grades/preschool' }]
                   : []),
               ]),
-          { name: 'Asistencias', href: '/attendance' },
-          { name: 'Asignación', href: '/my-assignment' },
           { name: 'Convivencia', href: '/discipline/cases' },
         ],
       })
@@ -573,12 +571,25 @@ export default function DashboardLayout() {
         icon: Users,
         children: managementChildren,
       },
-      { name: 'Reportes', href: '/enrollments/reports', icon: FileText },
+      ...(canManageRbac
+        ? [
+            {
+              name: 'Gobierno Escolar',
+              icon: Star,
+              children: [
+                { name: 'Jornadas', href: '/gobierno-escolar/procesos' },
+                { name: 'Censo', href: '/gobierno-escolar/censo' },
+                { name: 'Reset tokens', href: '/votaciones/reset-token' },
+              ],
+            } as NavigationItem,
+          ]
+        : []),
+      { name: 'Reportes', href: '/enrollments/reports', icon: BarChart3 },
       ...(isAdministrativeStaff
         ? [
             {
               name: 'Administrativos',
-              icon: FileText,
+              icon: Building2,
               children: administrativeChildren,
             } as NavigationItem,
           ]

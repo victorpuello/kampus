@@ -1,0 +1,20 @@
+[
+  {
+    "student_external_id": "EXT-SCOPE-1",
+    "document_number": "900001",
+    "full_name": "Estudiante Grado 5",
+    "grade": "5",
+    "shift": "Manana",
+    "campus": "Principal",
+    "status": "ACTIVE"
+  },
+  {
+    "student_external_id": "EXT-SCOPE-2",
+    "document_number": "900002",
+    "full_name": "Estudiante Grado 12",
+    "grade": "12",
+    "shift": "Manana",
+    "campus": "Principal",
+    "status": "ACTIVE"
+  }
+]

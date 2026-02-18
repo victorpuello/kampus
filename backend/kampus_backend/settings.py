@@ -96,6 +96,7 @@ INSTALLED_APPS = [
     "attendance",
     "verification",
     "novelties",
+    "elections",
 ]
 
 MIDDLEWARE = [

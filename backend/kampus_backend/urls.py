@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/teachers/", include("teachers.urls")),
     path("api/", include("academic.urls")),
     path("api/", include("attendance.urls")),
+    path("api/", include("elections.urls")),
     path("api/", include("core.urls")),
     path("api/", include("notifications.urls")),
     path("api/", include("discipline.urls")),

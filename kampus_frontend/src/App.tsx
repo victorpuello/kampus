@@ -52,6 +52,10 @@ const AttendanceStats = lazy(() => import('./pages/attendance/AttendanceStats'))
 const GroupsManagement = lazy(() => import('./pages/GroupsManagement'))
 const GroupStudents = lazy(() => import('./pages/groups/GroupStudents'))
 const PublicCertificateVerify = lazy(() => import('./pages/PublicCertificateVerify'))
+const VotingAccess = lazy(() => import('./pages/VotingAccess'))
+const ElectionTokenReset = lazy(() => import('./pages/ElectionTokenReset'))
+const ElectionProcessesManage = lazy(() => import('./pages/ElectionProcessesManage'))
+const ElectionCensusManage = lazy(() => import('./pages/ElectionCensusManage'))
 const NoveltiesInbox = lazy(() => import('./pages/NoveltiesInbox'))
 const NoveltyCaseDetail = lazy(() => import('./pages/NoveltyCaseDetail'))
 const NoveltyCaseNew = lazy(() => import('./pages/NoveltyCaseNew'))
@@ -67,6 +71,7 @@ export default function App() {
           {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
           <Route path="/public/certificates/:uuid" element={<PublicCertificateVerify />} />
           <Route path="/public/certificates/:uuid/verify" element={<PublicCertificateVerify />} />
+          <Route path="/votaciones" element={<VotingAccess />} />
 
           <Route element={<ProtectedRoute />}>
             <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
@@ -118,6 +123,9 @@ export default function App() {
             <Route path="/attendance/deletion-requests" element={<AttendanceDeletionRequests />} />
             <Route path="/attendance/sessions/:id" element={<AttendanceSession />} />
             <Route path="/attendance/stats" element={<AttendanceStats />} />
+            <Route path="/gobierno-escolar/procesos" element={<ElectionProcessesManage />} />
+            <Route path="/gobierno-escolar/censo" element={<ElectionCensusManage />} />
+            <Route path="/votaciones/reset-token" element={<ElectionTokenReset />} />
             <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />
             <Route path="/administrativos/certificados/preview" element={<AdministrativeCertificatesPreview />} />
             <Route path="/administrativos/certificados/ingresos" element={<AdministrativeCertificatesRevenue />} />
