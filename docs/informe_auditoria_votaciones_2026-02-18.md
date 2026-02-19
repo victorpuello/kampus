@@ -365,6 +365,10 @@ Si se ejecuta el plan P0/P1 propuesto, el módulo puede pasar de “operación c
 - No hay regeneraciones accidentales sin confirmación y auditoría.
 - Tokens emitidos con trazabilidad de identidad más sólida.
 
+**Estado de ejecución (2026-02-19):**
+- ✅ Ajuste de comportamiento en backend para operación en servidor: el modo `existing` de exportación/impresión de códigos manuales ahora reutiliza códigos activos existentes y genera códigos para faltantes, sin revocar códigos válidos previos.
+- ✅ Ajuste de UX operativa en frontend: etiqueta del modo actualizada a “Reusar existentes y generar faltantes (sin regenerar)”.
+
 ---
 
 ### Sprint 6 (Semana 6) — Calidad, observabilidad y cierre de deuda (P2)

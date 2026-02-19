@@ -1,6 +1,6 @@
 ## Plan de trabajo: Votaciones Gobierno Escolar (Actualizado)
 
-Última actualización: 2026-02-18
+Última actualización: 2026-02-19
 
 ### 1) Estado actual del proyecto
 - Se construyó el módulo electoral base en backend y frontend.
@@ -130,6 +130,7 @@
 - [x] Cobertura de validaciones críticas: token expirado, revocado, jornada fuera de ventana y bloqueo por censo.
 - [x] Cobertura de escrutinio y exportables: summary, CSV, XLSX y PDF (incluye rutas 200/503/500 con mocks para PDF).
 - [x] Cobertura de autorización en endpoints de gestión/exportación (401/403 para summary y exportables CSV/XLSX/PDF).
+- [x] Corrección operativa en servidor: modo `existing` de códigos manuales ahora reutiliza existentes y genera faltantes (sin revocar activos).
 - [ ] Cobertura específica de concurrencia (envío simultáneo/colisión de sesión) pendiente de incluir.
 - [ ] Ajustes finales de seguridad y retención de datos.
 - [ ] Validación en piloto controlado (tablet/celular/red intermitente).

@@ -1633,6 +1633,35 @@ def _issue_manual_token_for_row_with_reason(process: ElectionProcess, row: dict,
     return raw_token
 
 
+def _issue_manual_token_for_row_without_revocation(process: ElectionProcess, row: dict) -> str:
+    raw_token = f"VOTO-{secrets.token_hex(5).upper()}"
+    token_hash = VoterToken.hash_token(raw_token)
+    now = timezone.now()
+    expires_at = process.ends_at
+    if expires_at is None or expires_at <= now:
+        expires_at = timezone.now() + timedelta(hours=24)
+
+    VoterToken.objects.create(
+        process=process,
+        token_hash=token_hash,
+        token_prefix=raw_token[:12],
+        status=VoterToken.Status.ACTIVE,
+        expires_at=expires_at,
+        student_grade=str(row.get("grade") or ""),
+        student_shift=str(row.get("shift") or ""),
+        metadata={
+            "student_external_id": str(row.get("student_external_id") or "").strip(),
+            "student_id": row.get("student_id"),
+            "document_number": row.get("document_number") or "",
+            "full_name": row.get("full_name") or "",
+            "group": row.get("group") or "",
+            "manual_code": raw_token,
+            "issued_from": "process_census",
+        },
+    )
+    return raw_token
+
+
 def _parse_manual_code_mode(request) -> tuple[str, bool, str | None, str | None]:
     mode_raw = str(request.query_params.get("mode") or "existing").strip().lower()
     if mode_raw not in {"existing", "regenerate"}:
@@ -1682,7 +1711,7 @@ def _resolve_manual_code_for_row(
                 return manual_code, False
 
     if mode == "existing":
-        return "", False
+        return _issue_manual_token_for_row_without_revocation(process, row), True
 
     revoked_reason = f"Regeneración de código manual para censo por jornada. Motivo: {regeneration_reason}" if regeneration_reason else "Regeneración de código manual para censo por jornada."
     return _issue_manual_token_for_row_with_reason(process, row, revoked_reason=revoked_reason), True

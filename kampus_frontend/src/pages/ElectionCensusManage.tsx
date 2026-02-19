@@ -392,7 +392,7 @@ export default function ElectionCensusManage() {
                   onChange={(event) => setCodeMode(event.target.value === 'regenerate' ? 'regenerate' : 'existing')}
                   className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                 >
-                  <option value="existing">Solo listar códigos existentes (sin regenerar)</option>
+                  <option value="existing">Reusar existentes y generar faltantes (sin regenerar)</option>
                   <option value="regenerate">Regenerar códigos (revoca códigos activos previos)</option>
                 </select>
               </div>
@@ -438,7 +438,7 @@ export default function ElectionCensusManage() {
           {selectedProcess ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">
               Jornada: <strong>{selectedProcess.name}</strong> · Orden: grado y grupo descendente. Modo actual:{' '}
-              <strong>{codeMode === 'regenerate' ? 'Regenerar códigos' : 'Solo existentes'}</strong>.
+              <strong>{codeMode === 'regenerate' ? 'Regenerar códigos' : 'Reusar + generar faltantes'}</strong>.
             </p>
           ) : null}
           {error ? <p className="text-sm text-red-600 dark:text-red-300">{error}</p> : null}
