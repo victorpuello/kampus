@@ -22,6 +22,8 @@ __pycache__/
 # Node
 node_modules/
 dist/
+kampus_frontend/playwright-report/
+kampus_frontend/test-results/
 
 # OS
 .DS_Store

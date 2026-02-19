@@ -59,6 +59,17 @@ PUBLIC_SITE_URL = (os.getenv("KAMPUS_PUBLIC_SITE_URL") or "").strip().rstrip("/"
 # Public verification throttling (DRF). Example values: "60/min", "100/hour".
 PUBLIC_VERIFY_THROTTLE_RATE = (os.getenv("KAMPUS_PUBLIC_VERIFY_THROTTLE_RATE") or "60/min").strip()
 
+# Auth cookie settings (JWT in HttpOnly cookies)
+AUTH_COOKIE_ACCESS_NAME = os.getenv("KAMPUS_AUTH_COOKIE_ACCESS_NAME", "kampus_access")
+AUTH_COOKIE_REFRESH_NAME = os.getenv("KAMPUS_AUTH_COOKIE_REFRESH_NAME", "kampus_refresh")
+AUTH_COOKIE_PATH = os.getenv("KAMPUS_AUTH_COOKIE_PATH", "/")
+AUTH_COOKIE_DOMAIN = (os.getenv("KAMPUS_AUTH_COOKIE_DOMAIN") or "").strip() or None
+AUTH_COOKIE_SAMESITE = os.getenv("KAMPUS_AUTH_COOKIE_SAMESITE", "Lax")
+AUTH_COOKIE_SECURE = os.getenv("KAMPUS_AUTH_COOKIE_SECURE", "false" if DEBUG else "true").lower() in {"1", "true", "yes"}
+
+# Elections hardening toggles
+ELECTIONS_REQUIRE_TOKEN_IDENTITY = os.getenv("KAMPUS_ELECTIONS_REQUIRE_TOKEN_IDENTITY", "false").lower() in {"1", "true", "yes"}
+
 # Reverse-proxy support (recommended in production when TLS terminates at the proxy).
 USE_X_FORWARDED_HOST = os.getenv("DJANGO_USE_X_FORWARDED_HOST", "false").lower() in {"1", "true", "yes"}
 if os.getenv("DJANGO_SECURE_PROXY_SSL_HEADER", "false").lower() in {"1", "true", "yes"}:
@@ -205,7 +216,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "kampus_backend.authentication.KampusJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
@@ -223,6 +234,13 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     origin
     for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    origin
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
     if origin.strip()
 ]
 

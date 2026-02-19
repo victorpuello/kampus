@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "node scripts/generate-seo-files.mjs && tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "e2e:smoke": "playwright test tests/e2e/smoke.spec.ts",
+    "e2e:install": "playwright install --with-deps"
   },
   "dependencies": {
     "axios": "^1.13.2",
@@ -20,6 +22,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.0",
     "@eslint/js": "^9.33.0",
     "@tailwindcss/vite": "^4.1.11",
     "@types/react": "^19.1.10",

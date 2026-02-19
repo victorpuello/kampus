@@ -56,6 +56,8 @@ export default function ElectionCensusManage() {
   const [printing, setPrinting] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [syncingCensus, setSyncingCensus] = useState(false)
+  const [codeMode, setCodeMode] = useState<'existing' | 'regenerate'>('existing')
+  const [regenerationReason, setRegenerationReason] = useState('')
 
   const selectedProcess = useMemo(
     () => processes.find((process) => String(process.id) === selectedProcessId) || null,
@@ -177,10 +179,27 @@ export default function ElectionCensusManage() {
     const processId = Number(selectedProcessId)
     if (!Number.isFinite(processId) || processId <= 0) return
 
+    const isRegenerateMode = codeMode === 'regenerate'
+    const normalizedReason = regenerationReason.trim()
+    if (isRegenerateMode && normalizedReason.length < 10) {
+      setError('Debes indicar un motivo de regeneración (mínimo 10 caracteres).')
+      return
+    }
+
+    if (isRegenerateMode) {
+      const confirmed = window.confirm('Se regenerarán códigos manuales y se revocarán los activos previos para esta selección. ¿Deseas continuar?')
+      if (!confirmed) return
+    }
+
     setExporting(true)
     setError(null)
     try {
-      const blob = await electionsApi.downloadCensusManualCodesXlsx(processId, groupFilter || undefined)
+      const blob = await electionsApi.downloadCensusManualCodesXlsx(processId, {
+        group: groupFilter || undefined,
+        mode: codeMode,
+        confirm_regeneration: isRegenerateMode,
+        regeneration_reason: isRegenerateMode ? normalizedReason : undefined,
+      })
       const suffix = groupFilter ? groupFilter.replaceAll(' ', '_') : 'todos'
       downloadBlobFile(blob, `censo_codigos_${processId}_${suffix}.xlsx`)
     } catch (requestError) {
@@ -194,11 +213,28 @@ export default function ElectionCensusManage() {
     const processId = Number(selectedProcessId)
     if (!Number.isFinite(processId) || processId <= 0) return
 
+    const isRegenerateMode = codeMode === 'regenerate'
+    const normalizedReason = regenerationReason.trim()
+    if (isRegenerateMode && normalizedReason.length < 10) {
+      setError('Debes indicar un motivo de regeneración (mínimo 10 caracteres).')
+      return
+    }
+
+    if (isRegenerateMode) {
+      const confirmed = window.confirm('Se regenerarán códigos manuales y se revocarán los activos previos para esta selección. ¿Deseas continuar?')
+      if (!confirmed) return
+    }
+
     setPrinting(true)
     setError(null)
     try {
       const popup = window.open('', '_blank')
-      const html = await electionsApi.downloadCensusQrPrintHtml(processId, groupFilter || undefined)
+      const html = await electionsApi.downloadCensusQrPrintHtml(processId, {
+        group: groupFilter || undefined,
+        mode: codeMode,
+        confirm_regeneration: isRegenerateMode,
+        regeneration_reason: isRegenerateMode ? normalizedReason : undefined,
+      })
       if (!popup) {
         throw new Error('No se pudo abrir la ventana de impresión. Revisa bloqueador de ventanas emergentes.')
       }
@@ -256,63 +292,96 @@ export default function ElectionCensusManage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Jornada</label>
-              <select
-                value={selectedProcessId}
-                onChange={(event) => setSelectedProcessId(event.target.value)}
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                <option value="">Selecciona una jornada</option>
-                {processes.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <section className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Filtros</h3>
+            <div className="grid gap-3 md:grid-cols-4">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Jornada</label>
+                <select
+                  value={selectedProcessId}
+                  onChange={(event) => setSelectedProcessId(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">Selecciona una jornada</option>
+                  {processes.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Grupo para QR/XLSX</label>
+                <select
+                  value={groupFilter}
+                  onChange={(event) => setGroupFilter(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">Todos los grupos</option>
+                  {groups.map((groupName) => (
+                    <option key={groupName} value={groupName}>
+                      {groupName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Paginación</label>
+                <select
+                  value={String(pageSize)}
+                  onChange={(event) => setPageSize(Number(event.target.value) || 10)}
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="10">10 por página</option>
+                  <option value="20">20 por página</option>
+                  <option value="50">50 por página</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Emisión y mantenimiento</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Modo de códigos</label>
+                <select
+                  value={codeMode}
+                  onChange={(event) => setCodeMode(event.target.value === 'regenerate' ? 'regenerate' : 'existing')}
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="existing">Solo listar códigos existentes (sin regenerar)</option>
+                  <option value="regenerate">Regenerar códigos (revoca códigos activos previos)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1 md:col-span-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Buscar en censo</label>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Nombre, documento, grupo, grado, jornada..."
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+            </div>
+          </section>
+
+          {codeMode === 'regenerate' ? (
             <div className="space-y-1">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Grupo para QR/XLSX</label>
-              <select
-                value={groupFilter}
-                onChange={(event) => setGroupFilter(event.target.value)}
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Motivo de regeneración (obligatorio)</label>
+              <input
+                type="text"
+                value={regenerationReason}
+                onChange={(event) => setRegenerationReason(event.target.value)}
+                placeholder="Ejemplo: reimpresión controlada por pérdida de planillas"
                 className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                <option value="">Todos los grupos</option>
-                {groups.map((groupName) => (
-                  <option key={groupName} value={groupName}>
-                    {groupName}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Paginación</label>
-              <select
-                value={String(pageSize)}
-                onChange={(event) => setPageSize(Number(event.target.value) || 10)}
-                className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              >
-                <option value="10">10 por página</option>
-                <option value="20">20 por página</option>
-                <option value="50">50 por página</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Buscar en censo</label>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Nombre, documento, grupo, grado, jornada..."
-              className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            />
-          </div>
+          ) : null}
 
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => void onSyncCensusFromEnrollments()} disabled={syncingCensus}>
@@ -328,7 +397,8 @@ export default function ElectionCensusManage() {
 
           {selectedProcess ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Jornada: <strong>{selectedProcess.name}</strong> · Orden: grado y grupo descendente.
+              Jornada: <strong>{selectedProcess.name}</strong> · Orden: grado y grupo descendente. Modo actual:{' '}
+              <strong>{codeMode === 'regenerate' ? 'Regenerar códigos' : 'Solo existentes'}</strong>.
             </p>
           ) : null}
           {error ? <p className="text-sm text-red-600 dark:text-red-300">{error}</p> : null}
@@ -345,7 +415,48 @@ export default function ElectionCensusManage() {
             <p className="text-sm text-slate-600 dark:text-slate-300">Cargando censo...</p>
           ) : (
             <div className="space-y-3">
-              <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="space-y-3 md:hidden">
+                {items.map((item) => (
+                  <article key={item.member_id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-semibold text-slate-800 dark:text-slate-100">{item.full_name || '—'}</p>
+                      {item.is_enabled ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Habilitado</span>
+                      ) : (
+                        <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Excluido</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Documento: {item.document_number || '—'}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Grado/Grupo: {item.grade || '—'} · {item.group || '—'}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Jornada: {item.shift || '—'}</p>
+                    <div className="mt-3">
+                      {item.is_enabled ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-10 w-full"
+                          disabled={busyMemberId === item.member_id}
+                          onClick={() => void onExclude(item)}
+                        >
+                          {busyMemberId === item.member_id ? 'Procesando...' : 'Excluir'}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10 w-full"
+                          disabled={busyMemberId === item.member_id}
+                          onClick={() => void onInclude(item)}
+                        >
+                          {busyMemberId === item.member_id ? 'Procesando...' : 'Reincluir'}
+                        </Button>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
                 <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                   <thead className="bg-slate-50 dark:bg-slate-900/50">
                     <tr>

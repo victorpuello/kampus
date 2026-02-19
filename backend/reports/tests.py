@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -9,6 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from .models import ReportJob
+from .weasyprint_utils import WeasyPrintUnavailableError
 
 
 class ReportJobVerificationTests(APITestCase):
@@ -159,6 +161,39 @@ class ReportJobVerificationTests(APITestCase):
 
 
 class ReportJobApiTests(APITestCase):
+	def test_pdf_healthcheck_requires_authentication(self):
+		res = self.client.get("/api/reports/health/pdf/")
+		self.assertEqual(res.status_code, 401)
+
+	def test_pdf_healthcheck_requires_admin_role(self):
+		User = get_user_model()
+		teacher = User.objects.create_user(username="teacher_pdf_health", password="p1", role=User.ROLE_TEACHER)
+		self.client.force_authenticate(user=teacher)
+
+		res = self.client.get("/api/reports/health/pdf/")
+		self.assertEqual(res.status_code, 403)
+
+	@patch("reports.views.render_pdf_bytes_from_html", return_value=b"%PDF-1.4\n")
+	def test_pdf_healthcheck_returns_ok_for_admin(self, _mock_render):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_pdf_health_ok", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.get("/api/reports/health/pdf/")
+		self.assertEqual(res.status_code, 200)
+		self.assertTrue(res.data.get("ok"))
+		self.assertEqual(res.data.get("service"), "pdf_render")
+
+	@patch("reports.views.render_pdf_bytes_from_html", side_effect=WeasyPrintUnavailableError("not available"))
+	def test_pdf_healthcheck_returns_503_when_weasyprint_unavailable(self, _mock_render):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_pdf_health_503", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.get("/api/reports/health/pdf/")
+		self.assertEqual(res.status_code, 503)
+		self.assertFalse(res.data.get("ok"))
+
 	def test_preview_html_endpoint(self):
 		User = get_user_model()
 		user = User.objects.create_user(username="u2", password="p2", role=User.ROLE_ADMIN)

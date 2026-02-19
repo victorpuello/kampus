@@ -304,6 +304,11 @@ class VoteRecord(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["process", "created_at"], name="evr_proc_created_idx"),
+            models.Index(fields=["process", "role", "created_at"], name="evr_proc_role_ct_idx"),
+            models.Index(fields=["process", "is_blank", "created_at"], name="evr_proc_blank_ct_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(fields=["voter_token", "role"], name="uniq_vote_per_token_and_role"),
             models.UniqueConstraint(fields=["access_session", "role"], name="uniq_vote_per_session_and_role"),

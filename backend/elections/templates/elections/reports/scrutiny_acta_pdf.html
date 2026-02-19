@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Acta de escrutinio</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 18mm 14mm;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        color: #0f172a;
+        font-size: 11px;
+      }
+
+      h1 {
+        font-size: 18px;
+        margin: 0 0 6px;
+      }
+
+      h2 {
+        font-size: 13px;
+        margin: 14px 0 6px;
+      }
+
+      .meta {
+        margin: 0 0 10px;
+        padding: 10px;
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+      }
+
+      .meta-row {
+        margin: 2px 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+
+      th,
+      td {
+        border: 1px solid #cbd5e1;
+        padding: 6px;
+        vertical-align: top;
+      }
+
+      th {
+        background: #e2e8f0;
+        text-align: left;
+        font-size: 10px;
+      }
+
+      .num {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .role-title {
+        margin-top: 14px;
+        padding: 6px 8px;
+        background: #f1f5f9;
+        border: 1px solid #cbd5e1;
+        font-weight: 700;
+      }
+
+      .footer {
+        margin-top: 20px;
+        font-size: 10px;
+        color: #475569;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Acta de escrutinio — Gobierno Escolar</h1>
+
+    <div class="meta">
+      <div class="meta-row"><strong>Jornada:</strong> {{ process.name }}</div>
+      <div class="meta-row"><strong>Proceso ID:</strong> {{ process.id }}</div>
+      <div class="meta-row"><strong>Estado:</strong> {{ process.status }}</div>
+      <div class="meta-row"><strong>Generado en:</strong> {{ summary.summary.generated_at|date:"Y-m-d H:i:s" }}</div>
+      <div class="meta-row"><strong>Total votos:</strong> {{ summary.summary.total_votes }}</div>
+      <div class="meta-row"><strong>Total votos en blanco:</strong> {{ summary.summary.total_blank_votes }}</div>
+    </div>
+
+    {% for role in summary.roles %}
+      <div class="role-title">
+        {{ role.title }} ({{ role.code }}) — Total: {{ role.total_votes }} — Blanco: {{ role.blank_votes }}
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 16%">Número</th>
+            <th>Candidato</th>
+            <th style="width: 18%">Votos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if role.candidates %}
+            {% for candidate in role.candidates %}
+              <tr>
+                <td>{{ candidate.number }}</td>
+                <td>{{ candidate.name }}</td>
+                <td class="num">{{ candidate.votes }}</td>
+              </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td>—</td>
+              <td>Sin candidaturas con votos registrados</td>
+              <td class="num">0</td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    {% endfor %}
+
+    <div class="footer">
+      Documento generado por Kampus. Este reporte consolida el escrutinio base por cargo para la jornada indicada.
+    </div>
+  </body>
+</html>

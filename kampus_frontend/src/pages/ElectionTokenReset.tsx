@@ -25,6 +25,8 @@ export default function ElectionTokenReset() {
   const [success, setSuccess] = useState<string | null>(null)
   const [historyError, setHistoryError] = useState<string | null>(null)
   const [events, setEvents] = useState<TokenResetEventItem[]>([])
+  const normalizedToken = token.trim().toUpperCase()
+  const tokenLooksValid = normalizedToken.length === 0 || /^[A-Z0-9-]{6,}$/.test(normalizedToken)
 
   const loadHistory = useCallback(async () => {
     if (!canReset) return
@@ -120,7 +122,10 @@ export default function ElectionTokenReset() {
             Solo jurados autorizados pueden resetear un token. El motivo queda auditado de forma obligatoria.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
+            Operación crítica: úsala solo para contingencias verificadas en mesa y registra evidencia en el motivo.
+          </div>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <label htmlFor="token" className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -133,6 +138,10 @@ export default function ElectionTokenReset() {
                 placeholder="Ej: VOTO-4988168E84"
                 className="h-11"
               />
+              <p className="text-xs text-slate-500 dark:text-slate-400">Formato esperado: letras, números y guiones (mínimo 6 caracteres).</p>
+              {!tokenLooksValid ? (
+                <p className="text-xs text-red-600 dark:text-red-300">Formato de token inválido. Verifica antes de enviar.</p>
+              ) : null}
             </div>
 
             <div className="space-y-2">
@@ -175,7 +184,7 @@ export default function ElectionTokenReset() {
               </p>
             )}
 
-            <Button type="submit" className="h-11" disabled={loading}>
+            <Button type="submit" className="h-11" disabled={loading || !tokenLooksValid}>
               <RotateCcw className="mr-2 h-4 w-4" />
               {loading ? 'Reseteando...' : 'Resetear token'}
             </Button>
@@ -200,8 +209,25 @@ export default function ElectionTokenReset() {
           ) : events.length === 0 ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">No hay eventos de reset registrados aún.</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-              <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+            <>
+              <div className="space-y-3 md:hidden">
+                {events.map((eventItem) => (
+                  <article key={eventItem.id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="font-semibold text-slate-800 dark:text-slate-100">{eventItem.voter_token}</p>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                        {eventItem.previous_status} → {eventItem.new_status}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{new Date(eventItem.created_at).toLocaleString()}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Responsable: {eventItem.reset_by_name || 'Sin usuario'}</p>
+                    <p className="mt-2 text-slate-700 dark:text-slate-200">{eventItem.reason}</p>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                 <thead className="bg-slate-50 dark:bg-slate-900/60">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Fecha</th>
@@ -229,7 +255,8 @@ export default function ElectionTokenReset() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

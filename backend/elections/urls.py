@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views_public import (
+    PublicVotingBrandingAPIView,
     PublicSubmitVoteAPIView,
     PublicValidateTokenAPIView,
     ResetVoterTokenAPIView,
@@ -19,7 +20,10 @@ from .views_management import (
     ElectionCensusSyncFromEnrollmentsAPIView,
     ElectionProcessOpeningRecordAPIView,
     ElectionProcessOpenAPIView,
+    ElectionProcessLiveDashboardAPIView,
+    ElectionProcessLiveDashboardStreamAPIView,
     ElectionProcessScrutinyExportCsvAPIView,
+    ElectionProcessScrutinyExportPdfAPIView,
     ElectionProcessScrutinyExportXlsxAPIView,
     ElectionProcessScrutinySummaryAPIView,
     ElectionEligibleStudentsAPIView,
@@ -32,6 +36,7 @@ from .views_management import (
 
 
 urlpatterns = [
+    path("elections/public/branding/", PublicVotingBrandingAPIView.as_view(), name="elections-public-branding"),
     path("elections/public/validate-token/", PublicValidateTokenAPIView.as_view(), name="elections-public-validate-token"),
     path("elections/public/submit-vote/", PublicSubmitVoteAPIView.as_view(), name="elections-public-submit-vote"),
     path("elections/tokens/reset/", ResetVoterTokenAPIView.as_view(), name="elections-token-reset"),
@@ -40,8 +45,11 @@ urlpatterns = [
     path("elections/manage/processes/<int:process_id>/", ElectionProcessDeleteAPIView.as_view(), name="elections-manage-process-delete"),
     path("elections/manage/processes/<int:process_id>/open/", ElectionProcessOpenAPIView.as_view(), name="elections-manage-process-open"),
     path("elections/manage/processes/<int:process_id>/opening-record/", ElectionProcessOpeningRecordAPIView.as_view(), name="elections-manage-process-opening-record"),
+    path("elections/manage/processes/<int:process_id>/live-dashboard/", ElectionProcessLiveDashboardAPIView.as_view(), name="elections-manage-process-live-dashboard"),
+    path("elections/manage/processes/<int:process_id>/live-dashboard/stream/", ElectionProcessLiveDashboardStreamAPIView.as_view(), name="elections-manage-process-live-dashboard-stream"),
     path("elections/manage/processes/<int:process_id>/scrutiny-summary/", ElectionProcessScrutinySummaryAPIView.as_view(), name="elections-manage-process-scrutiny-summary"),
     path("elections/manage/processes/<int:process_id>/scrutiny-export.csv", ElectionProcessScrutinyExportCsvAPIView.as_view(), name="elections-manage-process-scrutiny-export-csv"),
+    path("elections/manage/processes/<int:process_id>/scrutiny-export.pdf", ElectionProcessScrutinyExportPdfAPIView.as_view(), name="elections-manage-process-scrutiny-export-pdf"),
     path("elections/manage/processes/<int:process_id>/scrutiny-export.xlsx", ElectionProcessScrutinyExportXlsxAPIView.as_view(), name="elections-manage-process-scrutiny-export-xlsx"),
     path("elections/manage/processes/<int:process_id>/census/", ElectionProcessCensusAPIView.as_view(), name="elections-manage-process-census"),
     path("elections/manage/processes/<int:process_id>/census/exclusions/", ElectionProcessCensusExcludeAPIView.as_view(), name="elections-manage-process-census-exclude"),

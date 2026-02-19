@@ -2,17 +2,25 @@ from __future__ import annotations
 
 import base64
 import csv
+import json
 import secrets
 from datetime import timedelta
 from io import BytesIO
 from io import StringIO
 
+from django.conf import settings
+from django.core.cache import cache
 from django.core.management import call_command
 from django.db import transaction
 from django.db.models import Q
 from django.db.models import Count
+from django.db.models.functions import TruncMinute
 from django.http import HttpResponse
+from django.http import StreamingHttpResponse
+from django.template.loader import render_to_string
+from django.utils.dateparse import parse_datetime
 from django.utils import timezone
+from django.core.serializers.json import DjangoJSONEncoder
 from openpyxl import Workbook
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -20,6 +28,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from academic.models import AcademicYear
+from audit.services import log_event
+from audit.models import AuditLog
 from students.models import Enrollment
 
 from .models import (
@@ -54,6 +64,95 @@ try:
     import qrcode  # type: ignore
 except Exception:
     qrcode = None
+
+
+LIVE_DASHBOARD_CACHE_TTL_SECONDS = 10
+
+
+def _parse_live_dashboard_params(request) -> tuple[dict | None, Response | None]:
+    try:
+        window_minutes = int(request.query_params.get("window_minutes", 60))
+    except (TypeError, ValueError):
+        return None, Response({"detail": "El parámetro window_minutes no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        blank_rate_threshold = float(request.query_params.get("blank_rate_threshold", 0.25))
+    except (TypeError, ValueError):
+        return None, Response({"detail": "El parámetro blank_rate_threshold no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        inactivity_minutes = int(request.query_params.get("inactivity_minutes", 10))
+    except (TypeError, ValueError):
+        return None, Response({"detail": "El parámetro inactivity_minutes no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        spike_threshold = int(request.query_params.get("spike_threshold", 8))
+    except (TypeError, ValueError):
+        return None, Response({"detail": "El parámetro spike_threshold no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        series_limit = int(request.query_params.get("series_limit", 60))
+    except (TypeError, ValueError):
+        return None, Response({"detail": "El parámetro series_limit no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+    since_raw = request.query_params.get("since")
+    since: timezone.datetime | None = None
+    if since_raw:
+        parsed_since = parse_datetime(since_raw)
+        if parsed_since is None:
+            return None, Response({"detail": "El parámetro since no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+        if timezone.is_naive(parsed_since):
+            parsed_since = timezone.make_aware(parsed_since, timezone.get_current_timezone())
+        since = parsed_since
+
+    include_ranking_raw = str(request.query_params.get("include_ranking", "true")).strip().lower()
+    include_ranking = include_ranking_raw not in {"0", "false", "no"}
+
+    if blank_rate_threshold < 0 or blank_rate_threshold > 1:
+        return None, Response({"detail": "blank_rate_threshold debe estar entre 0 y 1."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if inactivity_minutes < 1 or inactivity_minutes > 120:
+        return None, Response({"detail": "inactivity_minutes debe estar entre 1 y 120."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if spike_threshold < 1 or spike_threshold > 500:
+        return None, Response({"detail": "spike_threshold debe estar entre 1 y 500."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if series_limit < 5 or series_limit > 180:
+        return None, Response({"detail": "series_limit debe estar entre 5 y 180."}, status=status.HTTP_400_BAD_REQUEST)
+
+    return {
+        "window_minutes": window_minutes,
+        "blank_rate_threshold": blank_rate_threshold,
+        "inactivity_minutes": inactivity_minutes,
+        "spike_threshold": spike_threshold,
+        "series_limit": series_limit,
+        "since": since,
+        "include_ranking": include_ranking,
+    }, None
+
+
+def _build_live_dashboard_payload_cached(process: ElectionProcess, params: dict) -> dict:
+    cache_key = (
+        "elections:live-dashboard:"
+        f"{process.id}:{params['window_minutes']}:{params['blank_rate_threshold']}:{params['inactivity_minutes']}:{params['spike_threshold']}:{params['series_limit']}:"
+        f"{params['since'].isoformat() if params['since'] is not None else 'none'}:{1 if params['include_ranking'] else 0}"
+    )
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    payload = build_live_dashboard_payload(
+        process,
+        window_minutes=params["window_minutes"],
+        blank_rate_threshold=params["blank_rate_threshold"],
+        inactivity_minutes=params["inactivity_minutes"],
+        spike_threshold=params["spike_threshold"],
+        series_limit=params["series_limit"],
+        since=params["since"],
+        include_ranking=params["include_ranking"],
+    )
+    cache.set(cache_key, payload, LIVE_DASHBOARD_CACHE_TTL_SECONDS)
+    return payload
 
 
 def _grade_value_for_enrollment(enrollment: Enrollment) -> int | None:
@@ -104,6 +203,15 @@ def _grade_value_from_text(raw_grade: str | None) -> int | None:
     if compact.isdigit():
         return int(compact)
     return mapping.get(compact)
+
+
+def _normalize_scope_value(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _is_grade_in_census_scope(raw_grade: str | None) -> bool:
+    parsed = _grade_value_from_text(raw_grade)
+    return parsed is not None and 1 <= parsed <= 11
 
 
 def _group_sort_value(group_name: str) -> tuple[int, str]:
@@ -180,6 +288,175 @@ def build_scrutiny_summary_payload(process: ElectionProcess) -> dict:
     }
 
 
+def _resolve_enabled_census_count(process: ElectionProcess) -> int:
+    active_members = ElectionCensusMember.objects.filter(
+        is_active=True,
+        status=ElectionCensusMember.Status.ACTIVE,
+    )
+    total_active = active_members.count()
+    if total_active == 0:
+        return 0
+
+    excluded_count = ElectionProcessCensusExclusion.objects.filter(
+        process=process,
+        census_member__is_active=True,
+        census_member__status=ElectionCensusMember.Status.ACTIVE,
+    ).count()
+    return max(total_active - excluded_count, 0)
+
+
+def build_live_dashboard_payload(
+    process: ElectionProcess,
+    *,
+    window_minutes: int = 60,
+    blank_rate_threshold: float = 0.25,
+    inactivity_minutes: int = 10,
+    spike_threshold: int = 8,
+    series_limit: int = 60,
+    since: timezone.datetime | None = None,
+    include_ranking: bool = True,
+) -> dict:
+    summary = build_scrutiny_summary_payload(process)
+    total_votes = int(summary["summary"]["total_votes"])
+    total_blank_votes = int(summary["summary"]["total_blank_votes"])
+
+    enabled_census_count = _resolve_enabled_census_count(process)
+    unique_voters_count = VoteRecord.objects.filter(process=process).values("voter_token_id").distinct().count()
+    participation_percent = 0.0
+    if enabled_census_count > 0:
+        participation_percent = round((unique_voters_count / enabled_census_count) * 100, 2)
+
+    blank_vote_percent = 0.0
+    if total_votes > 0:
+        blank_vote_percent = round((total_blank_votes / total_votes) * 100, 2)
+
+    bounded_window_minutes = min(max(window_minutes, 15), 240)
+    now = timezone.now()
+    series_since = now - timedelta(minutes=bounded_window_minutes)
+    effective_since = series_since
+    if since is not None and since > effective_since:
+        effective_since = since
+
+    minute_rows = list(
+        VoteRecord.objects.filter(process=process, created_at__gte=effective_since)
+        .annotate(minute=TruncMinute("created_at"))
+        .values("minute")
+        .annotate(
+            total_votes=Count("id"),
+            blank_votes=Count("id", filter=Q(is_blank=True)),
+        )
+        .order_by("minute")
+    )
+    bounded_series_limit = min(max(series_limit, 5), 180)
+    if len(minute_rows) > bounded_series_limit:
+        minute_rows = minute_rows[-bounded_series_limit:]
+
+    minute_series = [
+        {
+            "minute": row["minute"].isoformat() if row["minute"] else None,
+            "total_votes": row["total_votes"],
+            "blank_votes": row["blank_votes"],
+        }
+        for row in minute_rows
+    ]
+
+    alerts: list[dict] = []
+
+    if process.status == ElectionProcess.Status.OPEN:
+        has_recent_votes = VoteRecord.objects.filter(
+            process=process,
+            created_at__gte=now - timedelta(minutes=inactivity_minutes),
+        ).exists()
+        if not has_recent_votes:
+            alerts.append(
+                {
+                    "code": "INACTIVITY",
+                    "severity": "warning",
+                    "title": "Inactividad reciente",
+                    "detail": f"No se registran votos en los últimos {inactivity_minutes} minutos.",
+                }
+            )
+
+    blank_rate_value = (total_blank_votes / total_votes) if total_votes > 0 else 0
+    if total_votes >= 10 and blank_rate_value >= blank_rate_threshold:
+        alerts.append(
+            {
+                "code": "HIGH_BLANK_RATE",
+                "severity": "warning",
+                "title": "Voto en blanco elevado",
+                "detail": f"El voto en blanco alcanza {blank_vote_percent}% sobre {total_votes} votos.",
+            }
+        )
+
+    latest_minute_votes = minute_rows[-1]["total_votes"] if minute_rows else 0
+    if latest_minute_votes >= spike_threshold:
+        alerts.append(
+            {
+                "code": "VOTE_SPIKE",
+                "severity": "info",
+                "title": "Pico de votación",
+                "detail": f"Se registraron {latest_minute_votes} votos en el último minuto consolidado.",
+            }
+        )
+
+    audit_since = now - timedelta(hours=24)
+    process_audit_qs = AuditLog.objects.filter(
+        created_at__gte=audit_since,
+        event_type__startswith="ELECTION_",
+        object_type="ElectionProcess",
+        object_id=str(process.id),
+    )
+    audited_events_24h = process_audit_qs.count()
+    client_errors_24h = process_audit_qs.filter(status_code__gte=400, status_code__lt=500).count()
+    server_errors_24h = process_audit_qs.filter(status_code__gte=500).count()
+    duplicate_submits_24h = process_audit_qs.filter(event_type="ELECTION_VOTE_SUBMIT_DUPLICATE").count()
+    vote_submits_24h = process_audit_qs.filter(event_type="ELECTION_VOTE_SUBMIT").count()
+    manual_regenerations_24h = process_audit_qs.filter(
+        event_type__in=["ELECTION_CENSUS_MANUAL_CODES_EXPORT", "ELECTION_CENSUS_QR_PRINT"],
+        metadata__mode="regenerate",
+    ).count()
+
+    failed_events_24h = client_errors_24h + server_errors_24h
+    failure_rate_percent_24h = 0.0
+    if audited_events_24h > 0:
+        failure_rate_percent_24h = round((failed_events_24h / audited_events_24h) * 100, 2)
+
+    return {
+        "generated_at": now,
+        "cursor": now,
+        "is_incremental": since is not None,
+        "process": summary["process"],
+        "config": {
+            "window_minutes": bounded_window_minutes,
+            "blank_rate_threshold": blank_rate_threshold,
+            "inactivity_minutes": inactivity_minutes,
+            "spike_threshold": spike_threshold,
+            "series_limit": bounded_series_limit,
+        },
+        "kpis": {
+            "total_votes": total_votes,
+            "total_blank_votes": total_blank_votes,
+            "blank_vote_percent": blank_vote_percent,
+            "enabled_census_count": enabled_census_count,
+            "unique_voters_count": unique_voters_count,
+            "participation_percent": participation_percent,
+        },
+        "operational_kpis": {
+            "window_hours": 24,
+            "audited_events": audited_events_24h,
+            "client_errors": client_errors_24h,
+            "server_errors": server_errors_24h,
+            "failure_rate_percent": failure_rate_percent_24h,
+            "vote_submits": vote_submits_24h,
+            "duplicate_submits": duplicate_submits_24h,
+            "manual_regenerations": manual_regenerations_24h,
+        },
+        "ranking": summary["roles"] if include_ranking else [],
+        "minute_series": minute_series,
+        "alerts": alerts,
+    }
+
+
 class ElectionProcessListCreateAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageElectionSetup]
 
@@ -232,6 +509,14 @@ class ElectionProcessOpenAPIView(APIView):
         with transaction.atomic():
             process = ElectionProcess.objects.select_for_update().filter(id=process_id).first()
             if process is None:
+                log_event(
+                    request,
+                    event_type="ELECTION_PROCESS_OPEN_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process_id,
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    metadata={"reason": "process_not_found"},
+                )
                 return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
             opening_record = ElectionOpeningRecord.objects.filter(process=process).first()
@@ -240,6 +525,14 @@ class ElectionProcessOpenAPIView(APIView):
 
             if opening_record is None:
                 if votes_count > 0:
+                    log_event(
+                        request,
+                        event_type="ELECTION_PROCESS_OPEN_FAILED",
+                        object_type="ElectionProcess",
+                        object_id=process.id,
+                        status_code=status.HTTP_409_CONFLICT,
+                        metadata={"reason": "already_has_votes", "votes_count": votes_count},
+                    )
                     return Response(
                         {
                             "detail": "No se puede certificar apertura en cero porque ya existen votos registrados en la jornada.",
@@ -259,6 +552,15 @@ class ElectionProcessOpenAPIView(APIView):
             if process.starts_at is None:
                 process.starts_at = timezone.now()
             process.save(update_fields=["status", "starts_at", "updated_at"])
+
+        log_event(
+            request,
+            event_type="ELECTION_PROCESS_OPEN",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"status": process.status},
+        )
 
         return Response(ElectionProcessManageSerializer(process).data)
 
@@ -293,12 +595,65 @@ class ElectionProcessScrutinySummaryAPIView(APIView):
         return Response(build_scrutiny_summary_payload(process))
 
 
+class ElectionProcessLiveDashboardAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def get(self, request, process_id: int, *args, **kwargs):
+        process = ElectionProcess.objects.filter(id=process_id).first()
+        if process is None:
+            return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+        params, validation_response = _parse_live_dashboard_params(request)
+        if validation_response is not None:
+            return validation_response
+
+        payload = _build_live_dashboard_payload_cached(process, params)
+
+        return Response(payload)
+
+
+class ElectionProcessLiveDashboardStreamAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def get(self, request, process_id: int, *args, **kwargs):
+        process = ElectionProcess.objects.filter(id=process_id).first()
+        if process is None:
+            return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+        params, validation_response = _parse_live_dashboard_params(request)
+        if validation_response is not None:
+            return validation_response
+
+        payload = _build_live_dashboard_payload_cached(process, params)
+
+        def event_stream():
+            payload_json = json.dumps(payload, cls=DjangoJSONEncoder)
+            event_id = payload.get("cursor") or payload.get("generated_at") or "snapshot"
+            yield "retry: 8000\n"
+            yield f"id: {event_id}\n"
+            yield "event: snapshot\n"
+            yield f"data: {payload_json}\n\n"
+
+        response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+
 class ElectionProcessScrutinyExportCsvAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageElectionSetup]
 
     def get(self, request, process_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_CSV_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         summary = build_scrutiny_summary_payload(process)
@@ -334,6 +689,15 @@ class ElectionProcessScrutinyExportCsvAPIView(APIView):
             else:
                 writer.writerow([role["title"], role["code"], "", "", 0, role["blank_votes"], role["total_votes"]])
 
+        log_event(
+            request,
+            event_type="ELECTION_SCRUTINY_EXPORT_CSV",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"roles": len(summary["roles"]), "total_votes": summary["summary"]["total_votes"]},
+        )
+
         return response
 
 
@@ -343,6 +707,14 @@ class ElectionProcessScrutinyExportXlsxAPIView(APIView):
     def get(self, request, process_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_XLSX_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         summary = build_scrutiny_summary_payload(process)
@@ -388,6 +760,93 @@ class ElectionProcessScrutinyExportXlsxAPIView(APIView):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         response["Content-Disposition"] = f'attachment; filename="escrutinio_{safe_name}_{process.id}.xlsx"'
+
+        log_event(
+            request,
+            event_type="ELECTION_SCRUTINY_EXPORT_XLSX",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"roles": len(summary["roles"]), "total_votes": summary["summary"]["total_votes"]},
+        )
+
+        return response
+
+
+class ElectionProcessScrutinyExportPdfAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def get(self, request, process_id: int, *args, **kwargs):
+        process = ElectionProcess.objects.filter(id=process_id).first()
+        if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_PDF_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
+            return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+        summary = build_scrutiny_summary_payload(process)
+        html = render_to_string(
+            "elections/reports/scrutiny_acta_pdf.html",
+            {
+                "process": process,
+                "summary": summary,
+            },
+        )
+
+        try:
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+        except WeasyPrintUnavailableError as e:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_PDF_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                metadata={"reason": "weasyprint_unavailable"},
+            )
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_PDF_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                metadata={"reason": "unexpected_exception"},
+            )
+            return Response({"detail": "No se pudo generar el PDF del acta de escrutinio."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if not pdf_bytes:
+            log_event(
+                request,
+                event_type="ELECTION_SCRUTINY_EXPORT_PDF_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                metadata={"reason": "empty_pdf"},
+            )
+            return Response({"detail": "No se pudo generar el PDF del acta de escrutinio."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        safe_name = process.name.replace('"', '').replace(',', '').replace(' ', '_')
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="escrutinio_{safe_name}_{process.id}.pdf"'
+
+        log_event(
+            request,
+            event_type="ELECTION_SCRUTINY_EXPORT_PDF",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"bytes": len(pdf_bytes)},
+        )
+
         return response
 
 
@@ -533,12 +992,116 @@ class ElectionTokenEligibilityIssuesAPIView(APIView):
             except (TypeError, ValueError):
                 return Response({"detail": "El parámetro process_id no es válido."}, status=status.HTTP_400_BAD_REQUEST)
 
+        census_rows = list(
+            ElectionCensusMember.objects.values(
+                "student_external_id",
+                "document_number",
+                "grade",
+                "shift",
+                "is_active",
+                "status",
+            )
+        )
+
+        has_census_members = len(census_rows) > 0
+        member_by_external_id: dict[str, dict] = {}
+        member_by_document: dict[str, dict] = {}
+        active_census_rows: list[dict] = []
+
+        for row in census_rows:
+            external_id = str(row.get("student_external_id") or "").strip()
+            document_number = str(row.get("document_number") or "").strip()
+            if external_id and external_id not in member_by_external_id:
+                member_by_external_id[external_id] = row
+            if document_number and document_number not in member_by_document:
+                member_by_document[document_number] = row
+
+            if bool(row.get("is_active")) and row.get("status") == ElectionCensusMember.Status.ACTIVE:
+                active_census_rows.append(row)
+
+        scope_eligibility_cache: dict[tuple[str, str], str | None] = {}
+
+        def get_token_eligibility_error_optimized(token: VoterToken) -> str | None:
+            if not has_census_members:
+                return None
+
+            metadata = token.metadata if isinstance(token.metadata, dict) else {}
+            student_external_id = str(metadata.get("student_external_id") or metadata.get("external_id") or "").strip()
+            document_number = str(metadata.get("document_number") or "").strip()
+
+            if getattr(settings, "ELECTIONS_REQUIRE_TOKEN_IDENTITY", False) and not (student_external_id or document_number):
+                return "El token no incluye identidad verificable del votante para validación electoral."
+
+            member = None
+            if student_external_id:
+                member = member_by_external_id.get(student_external_id)
+            elif document_number:
+                member = member_by_document.get(document_number)
+
+            if member is not None:
+                if not bool(member.get("is_active")) or member.get("status") != ElectionCensusMember.Status.ACTIVE:
+                    return "El votante asociado al token no se encuentra activo en el censo electoral."
+
+                member_grade = str(member.get("grade") or "")
+                member_shift = str(member.get("shift") or "")
+                if not _is_grade_in_census_scope(member_grade):
+                    return "El votante asociado al token no está en el rango de grados habilitado (1° a 11°)."
+
+                token_grade = (token.student_grade or "").strip()
+                token_shift = (token.student_shift or "").strip()
+
+                if token_grade and not _is_grade_in_census_scope(token_grade):
+                    return "El token no está en el rango de grados habilitado (1° a 11°)."
+
+                if token_grade and _normalize_scope_value(member_grade) != _normalize_scope_value(token_grade):
+                    return "El token no coincide con el grado habilitado en el censo electoral."
+
+                if token_shift and _normalize_scope_value(member_shift) != _normalize_scope_value(token_shift):
+                    return "El token no coincide con la jornada habilitada en el censo electoral."
+
+                return None
+
+            if student_external_id or document_number:
+                return "No se encontró el votante asociado al token en el censo electoral sincronizado."
+
+            token_grade = (token.student_grade or "").strip()
+            token_shift = (token.student_shift or "").strip()
+
+            if token_grade and not _is_grade_in_census_scope(token_grade):
+                return "El token no está en el rango de grados habilitado (1° a 11°)."
+
+            normalized_grade = _normalize_scope_value(token_grade)
+            normalized_shift = _normalize_scope_value(token_shift)
+            cache_key = (normalized_grade, normalized_shift)
+            if cache_key in scope_eligibility_cache:
+                return scope_eligibility_cache[cache_key]
+
+            token_grade_int = _grade_value_from_text(token_grade) if token_grade else None
+            has_match = False
+            for row in active_census_rows:
+                member_shift = str(row.get("shift") or "")
+                if token_shift and _normalize_scope_value(member_shift) != normalized_shift:
+                    continue
+
+                member_grade = str(row.get("grade") or "")
+                member_grade_int = _grade_value_from_text(member_grade)
+                if member_grade_int is None or not (1 <= member_grade_int <= 11):
+                    continue
+                if token_grade_int is not None and member_grade_int != token_grade_int:
+                    continue
+
+                has_match = True
+                break
+
+            scope_eligibility_cache[cache_key] = None if has_match else "El token no cumple criterios de elegibilidad del censo electoral sincronizado."
+            return scope_eligibility_cache[cache_key]
+
         scanned_count = 0
         issues: list[dict] = []
 
         for token in queryset.iterator():
             scanned_count += 1
-            error = get_voter_token_census_eligibility_error(token)
+            error = get_token_eligibility_error_optimized(token)
             if error:
                 issues.append(
                     {
@@ -797,6 +1360,10 @@ def _build_process_census_rows(process: ElectionProcess) -> list[dict]:
 
 
 def _issue_manual_token_for_row(process: ElectionProcess, row: dict) -> str:
+    return _issue_manual_token_for_row_with_reason(process, row, revoked_reason="Regeneración de código manual para censo por jornada.")
+
+
+def _issue_manual_token_for_row_with_reason(process: ElectionProcess, row: dict, *, revoked_reason: str) -> str:
     student_external_id = str(row.get("student_external_id") or "").strip()
     if student_external_id:
         VoterToken.objects.filter(
@@ -806,7 +1373,7 @@ def _issue_manual_token_for_row(process: ElectionProcess, row: dict) -> str:
         ).update(
             status=VoterToken.Status.REVOKED,
             revoked_at=timezone.now(),
-            revoked_reason="Regeneración de código manual para censo por jornada.",
+            revoked_reason=revoked_reason,
         )
 
     raw_token = f"VOTO-{secrets.token_hex(5).upper()}"
@@ -835,6 +1402,61 @@ def _issue_manual_token_for_row(process: ElectionProcess, row: dict) -> str:
         },
     )
     return raw_token
+
+
+def _parse_manual_code_mode(request) -> tuple[str, bool, str | None, str | None]:
+    mode_raw = str(request.query_params.get("mode") or "existing").strip().lower()
+    if mode_raw not in {"existing", "regenerate"}:
+        return "", False, None, "El parámetro mode debe ser existing o regenerate."
+
+    if mode_raw == "existing":
+        return mode_raw, False, None, None
+
+    confirm_regeneration = str(request.query_params.get("confirm_regeneration") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    if not confirm_regeneration:
+        return "", False, None, "Debes confirmar la regeneración con confirm_regeneration=true."
+
+    regeneration_reason = str(request.query_params.get("regeneration_reason") or "").strip()
+    if len(regeneration_reason) < 10:
+        return "", False, None, "Debes indicar un motivo de regeneración (mínimo 10 caracteres)."
+
+    return mode_raw, confirm_regeneration, regeneration_reason, None
+
+
+def _resolve_manual_code_for_row(
+    *,
+    process: ElectionProcess,
+    row: dict,
+    mode: str,
+    regeneration_reason: str | None,
+) -> tuple[str, bool]:
+    student_external_id = str(row.get("student_external_id") or "").strip()
+    if student_external_id:
+        existing_token = (
+            VoterToken.objects.filter(
+                process=process,
+                metadata__student_external_id=student_external_id,
+                status=VoterToken.Status.ACTIVE,
+                metadata__manual_code__isnull=False,
+            )
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        if existing_token is not None:
+            metadata = existing_token.metadata if isinstance(existing_token.metadata, dict) else {}
+            manual_code = str(metadata.get("manual_code") or "").strip()
+            if manual_code:
+                return manual_code, False
+
+    if mode == "existing":
+        return "", False
+
+    revoked_reason = f"Regeneración de código manual para censo por jornada. Motivo: {regeneration_reason}" if regeneration_reason else "Regeneración de código manual para censo por jornada."
+    return _issue_manual_token_for_row_with_reason(process, row, revoked_reason=revoked_reason), True
 
 
 class ElectionCensusSyncFromEnrollmentsAPIView(APIView):
@@ -951,16 +1573,40 @@ class ElectionProcessCensusExcludeAPIView(APIView):
     def post(self, request, process_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MEMBER_EXCLUDE_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         member_id = request.data.get("member_id")
         try:
             member_id = int(member_id)
         except (TypeError, ValueError):
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MEMBER_EXCLUDE_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "invalid_member_id"},
+            )
             return Response({"detail": "member_id es obligatorio y debe ser numérico."}, status=status.HTTP_400_BAD_REQUEST)
 
         member = ElectionCensusMember.objects.filter(id=member_id, is_active=True, status=ElectionCensusMember.Status.ACTIVE).first()
         if member is None:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MEMBER_EXCLUDE_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "member_not_found", "member_id": member_id},
+            )
             return Response({"detail": "No se encontró el estudiante activo en censo."}, status=status.HTTP_404_NOT_FOUND)
 
         reason = str(request.data.get("reason") or "").strip()
@@ -973,6 +1619,15 @@ class ElectionProcessCensusExcludeAPIView(APIView):
             exclusion.reason = reason
             exclusion.save(update_fields=["reason"])
 
+        log_event(
+            request,
+            event_type="ELECTION_CENSUS_MEMBER_EXCLUDE",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"member_id": member.id, "created": created},
+        )
+
         return Response({"detail": "Estudiante excluido de la jornada."})
 
 
@@ -982,11 +1637,36 @@ class ElectionProcessCensusIncludeAPIView(APIView):
     def delete(self, request, process_id: int, member_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MEMBER_INCLUDE_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found", "member_id": member_id},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         deleted, _ = ElectionProcessCensusExclusion.objects.filter(process=process, census_member_id=member_id).delete()
         if deleted == 0:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MEMBER_INCLUDE_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "member_not_excluded", "member_id": member_id},
+            )
             return Response({"detail": "El estudiante no estaba excluido para esta jornada."}, status=status.HTTP_404_NOT_FOUND)
+
+        log_event(
+            request,
+            event_type="ELECTION_CENSUS_MEMBER_INCLUDE",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_204_NO_CONTENT,
+            metadata={"member_id": member_id},
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -997,14 +1677,42 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
     def get(self, request, process_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MANUAL_CODES_EXPORT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         group_filter = str(request.query_params.get("group") or "").strip()
+        mode, _, regeneration_reason, mode_error = _parse_manual_code_mode(request)
+        if mode_error:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MANUAL_CODES_EXPORT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "invalid_mode", "group": group_filter or "", "mode": str(request.query_params.get("mode") or "")},
+            )
+            return Response({"detail": mode_error}, status=status.HTTP_400_BAD_REQUEST)
+
         rows = [row for row in _build_process_census_rows(process) if row["is_enabled"]]
         if group_filter:
             rows = [row for row in rows if (row.get("group") or "") == group_filter]
 
         if not rows:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_MANUAL_CODES_EXPORT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "no_enabled_rows", "group": group_filter or ""},
+            )
             return Response({"detail": "No hay estudiantes habilitados para exportar en la selección actual."}, status=status.HTTP_400_BAD_REQUEST)
 
         workbook = Workbook()
@@ -1012,12 +1720,28 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
         sheet.title = "Códigos"
         sheet.append(["Proceso", process.name])
         sheet.append(["Grupo", group_filter or "Todos"])
+        sheet.append(["Modo", "Solo existentes" if mode == "existing" else "Regenerar"])
         sheet.append(["Generado en", timezone.now().isoformat()])
         sheet.append([])
         sheet.append(["Grado", "Grupo", "Estudiante", "Documento", "Código manual"])
 
+        generated_count = 0
+        reused_count = 0
+        missing_count = 0
+
         for row in rows:
-            manual_code = _issue_manual_token_for_row(process, row)
+            manual_code, generated = _resolve_manual_code_for_row(
+                process=process,
+                row=row,
+                mode=mode,
+                regeneration_reason=regeneration_reason,
+            )
+            if generated:
+                generated_count += 1
+            elif manual_code:
+                reused_count += 1
+            else:
+                missing_count += 1
             sheet.append([
                 row.get("grade") or "",
                 row.get("group") or "",
@@ -1037,6 +1761,24 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         response["Content-Disposition"] = f'attachment; filename="censo_codigos_{safe_name}_{group_suffix}.xlsx"'
+
+        log_event(
+            request,
+            event_type="ELECTION_CENSUS_MANUAL_CODES_EXPORT",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={
+                "group": group_filter or "",
+                "rows": len(rows),
+                "mode": mode,
+                "regeneration_reason": regeneration_reason or "",
+                "generated_count": generated_count,
+                "reused_count": reused_count,
+                "missing_count": missing_count,
+            },
+        )
+
         return response
 
 
@@ -1046,19 +1788,61 @@ class ElectionProcessCensusQrPrintAPIView(APIView):
     def get(self, request, process_id: int, *args, **kwargs):
         process = ElectionProcess.objects.filter(id=process_id).first()
         if process is None:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_QR_PRINT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process_id,
+                status_code=status.HTTP_404_NOT_FOUND,
+                metadata={"reason": "process_not_found"},
+            )
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         group_filter = str(request.query_params.get("group") or "").strip()
+        mode, _, regeneration_reason, mode_error = _parse_manual_code_mode(request)
+        if mode_error:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_QR_PRINT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "invalid_mode", "group": group_filter or "", "mode": str(request.query_params.get("mode") or "")},
+            )
+            return Response({"detail": mode_error}, status=status.HTTP_400_BAD_REQUEST)
+
         rows = [row for row in _build_process_census_rows(process) if row["is_enabled"]]
         if group_filter:
             rows = [row for row in rows if (row.get("group") or "") == group_filter]
 
         if not rows:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_QR_PRINT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "no_enabled_rows", "group": group_filter or ""},
+            )
             return Response({"detail": "No hay estudiantes habilitados para impresión en la selección actual."}, status=status.HTTP_400_BAD_REQUEST)
 
         cards: list[str] = []
+        generated_count = 0
+        reused_count = 0
+        missing_count = 0
         for row in rows:
-            manual_code = _issue_manual_token_for_row(process, row)
+            manual_code, generated = _resolve_manual_code_for_row(
+                process=process,
+                row=row,
+                mode=mode,
+                regeneration_reason=regeneration_reason,
+            )
+            if generated:
+                generated_count += 1
+            elif manual_code:
+                reused_count += 1
+            else:
+                missing_count += 1
             qr_image_src = _qr_png_data_uri(manual_code)
             cards.append(
                 "".join(
@@ -1096,4 +1880,22 @@ class ElectionProcessCensusQrPrintAPIView(APIView):
                 "</body></html>",
             ]
         )
+
+        log_event(
+            request,
+            event_type="ELECTION_CENSUS_QR_PRINT",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={
+                "group": group_filter or "",
+                "rows": len(rows),
+                "mode": mode,
+                "regeneration_reason": regeneration_reason or "",
+                "generated_count": generated_count,
+                "reused_count": reused_count,
+                "missing_count": missing_count,
+            },
+        )
+
         return HttpResponse(html)

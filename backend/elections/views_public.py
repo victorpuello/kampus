@@ -7,8 +7,9 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from audit.services import log_event
+from audit.services import log_event, log_public_event
 from verification.throttles import PublicVerifyRateThrottle
+from core.models import Institution
 
 from .models import ElectionProcess, TokenResetEvent, VoterToken
 from .permissions import CanResetElectionToken
@@ -91,6 +92,30 @@ class PublicValidateTokenAPIView(APIView):
         )
 
 
+class PublicVotingBrandingAPIView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        institution = Institution.objects.order_by("id").first()
+        if institution is None:
+            return Response({"institution_name": None, "logo_url": None})
+
+        logo_url = None
+        if getattr(institution, "logo", None):
+            try:
+                logo_url = request.build_absolute_uri(institution.logo.url)
+            except Exception:
+                logo_url = None
+
+        return Response(
+            {
+                "institution_name": institution.name or None,
+                "logo_url": logo_url,
+            }
+        )
+
+
 class PublicSubmitVoteAPIView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
@@ -100,7 +125,23 @@ class PublicSubmitVoteAPIView(APIView):
         serializer = PublicSubmitVoteInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         result = serializer.save()
-        return Response(result, status=status.HTTP_201_CREATED)
+        response_status = status.HTTP_200_OK if bool(result.get("already_submitted")) else status.HTTP_201_CREATED
+        event_type = "ELECTION_VOTE_SUBMIT_DUPLICATE" if bool(result.get("already_submitted")) else "ELECTION_VOTE_SUBMIT"
+        process_id = result.get("process_id")
+        object_id = str(process_id) if process_id is not None else ""
+        log_public_event(
+            request,
+            event_type=event_type,
+            object_type="ElectionProcess",
+            object_id=object_id,
+            status_code=response_status,
+            metadata={
+                "process_id": process_id,
+                "saved_votes": int(result.get("saved_votes") or 0),
+                "already_submitted": bool(result.get("already_submitted")),
+            },
+        )
+        return Response(result, status=response_status)
 
 
 class ResetVoterTokenAPIView(APIView):

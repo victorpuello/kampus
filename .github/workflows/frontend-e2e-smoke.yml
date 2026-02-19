@@ -1,0 +1,36 @@
+name: Frontend E2E Smoke
+
+on:
+  pull_request:
+    paths:
+      - 'kampus_frontend/**'
+      - '.github/workflows/frontend-e2e-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kampus_frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: kampus_frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run smoke tests
+        env:
+          E2E_BASE_URL: http://127.0.0.1:4173
+        run: npm run e2e:smoke

@@ -10,12 +10,14 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from users.models import User
 
 from .models import ReportJob
 from .serializers import ReportJobCreateSerializer, ReportJobSerializer
 from .tasks import _render_report_html, generate_report_job_pdf
+from .weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html
 
 
 def _is_admin(user: User) -> bool:
@@ -32,6 +34,56 @@ def _safe_join_private(root: Path, relpath: str) -> Path:
 	if root_resolved not in final.parents and final != root_resolved:
 		raise ValueError("Invalid path")
 	return final
+
+
+class PdfHealthcheckAPIView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def get(self, request, *args, **kwargs):
+		user = request.user
+		if not (_is_admin(user) or getattr(user, "is_staff", False)):
+			return Response({"detail": "No autorizado."}, status=status.HTTP_403_FORBIDDEN)
+
+		health_html = "<html><body><h1>healthcheck</h1><p>reports.pdf.ok</p></body></html>"
+		try:
+			pdf_bytes = render_pdf_bytes_from_html(html=health_html, base_url=str(settings.BASE_DIR))
+		except WeasyPrintUnavailableError as exc:
+			return Response(
+				{
+					"ok": False,
+					"service": "pdf_render",
+					"detail": str(exc),
+				},
+				status=status.HTTP_503_SERVICE_UNAVAILABLE,
+			)
+		except Exception as exc:
+			return Response(
+				{
+					"ok": False,
+					"service": "pdf_render",
+					"detail": str(exc),
+				},
+				status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			)
+
+		if not pdf_bytes:
+			return Response(
+				{
+					"ok": False,
+					"service": "pdf_render",
+					"detail": "PDF vacío generado.",
+				},
+				status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			)
+
+		return Response(
+			{
+				"ok": True,
+				"service": "pdf_render",
+				"bytes": len(pdf_bytes),
+			},
+			status=status.HTTP_200_OK,
+		)
 
 
 class ReportJobViewSet(viewsets.ModelViewSet):

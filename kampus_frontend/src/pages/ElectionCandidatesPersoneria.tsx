@@ -336,8 +336,35 @@ export default function ElectionCandidatesPersoneria() {
           {loading ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">Cargando candidaturas...</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-              <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+            <>
+              <div className="space-y-3 md:hidden">
+                {items.map((item) => (
+                  <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{item.name}</p>
+                      <span className="rounded-full bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                        #{item.number}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Cargo: {item.role_title}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Grado: {item.grade}</p>
+                    <div className="mt-3">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-10 w-full"
+                        disabled={deletingId === item.id}
+                        onClick={() => onDeleteCandidate(item)}
+                      >
+                        {deletingId === item.id ? 'Eliminando...' : 'Eliminar'}
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                 <thead className="bg-slate-50 dark:bg-slate-900/50">
                   <tr>
                     <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Nombre</th>
@@ -368,7 +395,8 @@ export default function ElectionCandidatesPersoneria() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

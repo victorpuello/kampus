@@ -82,6 +82,8 @@ export default function VotingAccess() {
   const [isValidatingToken, setIsValidatingToken] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [receiptCode, setReceiptCode] = useState<string | null>(null)
+  const [recentSelectionKey, setRecentSelectionKey] = useState<string | null>(null)
+  const [institutionBranding, setInstitutionBranding] = useState<{ institutionName: string | null; logoUrl: string | null } | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -90,6 +92,7 @@ export default function VotingAccess() {
 
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const ballotActionsRef = useRef<HTMLDivElement | null>(null)
 
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
@@ -103,6 +106,30 @@ export default function VotingAccess() {
     if (rolesCount === 0) return 0
     return Math.round((Object.keys(votes).length / rolesCount) * 100)
   }, [votes, rolesCount])
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadBranding = async () => {
+      try {
+        const branding = await electionsApi.getPublicVotingBranding()
+        if (!mounted) return
+        setInstitutionBranding({
+          institutionName: branding.institution_name,
+          logoUrl: branding.logo_url,
+        })
+      } catch {
+        if (!mounted) return
+        setInstitutionBranding(null)
+      }
+    }
+
+    void loadBranding()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const stopCamera = useCallback(() => {
     const stream = streamRef.current
@@ -240,6 +267,22 @@ export default function VotingAccess() {
 
   const handleSelectVote = (roleId: number, candidateId: string) => {
     setVotes((previousVotes) => ({ ...previousVotes, [roleId]: candidateId }))
+    const selectionKey = `${roleId}:${candidateId}`
+    setRecentSelectionKey(selectionKey)
+    window.setTimeout(() => {
+      setRecentSelectionKey((previousKey) => (previousKey === selectionKey ? null : previousKey))
+    }, 240)
+
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(18)
+    }
+
+    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
+      window.setTimeout(() => {
+        ballotActionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      }, 120)
+    }
+
     setSubmitError(null)
   }
 
@@ -325,8 +368,30 @@ export default function VotingAccess() {
     <div className="min-h-screen bg-linear-to-b from-sky-50 via-white to-indigo-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8 dark:from-slate-950 dark:via-slate-950 dark:to-slate-900 dark:text-slate-100">
       <div className="mx-auto w-full max-w-3xl space-y-6">
         <header className="space-y-3 text-center">
-          <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-sky-200 bg-white px-4 py-1 text-sm font-medium text-sky-700 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-sky-300">
-            <Vote className="h-4 w-4" /> Elecciones Gobierno Escolar
+          <div className="mx-auto w-fit rounded-2xl border border-sky-100 bg-white/95 px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/80">
+            <div className="flex items-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-sky-200 bg-white shadow-sm dark:border-slate-600 dark:bg-slate-900">
+                {institutionBranding?.logoUrl ? (
+                  <img
+                    src={institutionBranding.logoUrl}
+                    alt={institutionBranding.institutionName ? `Escudo de ${institutionBranding.institutionName}` : 'Escudo institucional'}
+                    className="h-full w-full object-contain"
+                    loading="eager"
+                  />
+                ) : (
+                  <ShieldCheck className="h-7 w-7 text-sky-600 dark:text-sky-300" />
+                )}
+              </div>
+              <div className="space-y-1 text-left">
+                <p className="max-w-56 text-sm font-semibold text-slate-800 dark:text-slate-100 sm:max-w-none">
+                  {institutionBranding?.institutionName || 'Gobierno Escolar'}
+                </p>
+                <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">
+                  <Vote className="h-3.5 w-3.5" />
+                  Elecciones Gobierno Escolar
+                </p>
+              </div>
+            </div>
           </div>
           <h1 className="text-balance text-3xl font-bold tracking-tight sm:text-4xl">Tu voto cuenta. Tu voz transforma.</h1>
           <p className="text-sm text-slate-600 dark:text-slate-300 sm:text-base">
@@ -446,19 +511,44 @@ export default function VotingAccess() {
               <CardContent className="space-y-3">
                 {currentRole.candidates.map((candidate) => {
                   const isSelected = currentVote === String(candidate.id)
+                  const isRecentlySelected = recentSelectionKey === `${currentRole.id}:${candidate.id}`
                   return (
                     <div
                       key={candidate.id}
-                      className={`w-full rounded-xl border p-4 transition ${
-                        isSelected
-                          ? 'border-sky-600 bg-sky-50 ring-4 ring-sky-300 shadow-md shadow-sky-200/70 dark:border-sky-300 dark:bg-sky-900/40 dark:ring-sky-700 dark:shadow-sky-950/40'
-                          : 'border-slate-200 bg-white hover:border-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-500'
+                      className={`group relative w-full min-h-[150px] overflow-hidden rounded-xl transition-all duration-300 sm:min-h-[170px] ${
+                        isRecentlySelected ? 'scale-[1.01]' : ''
                       }`}
                     >
+                      <div
+                        className={`pointer-events-none absolute -inset-1 rounded-2xl bg-linear-to-r ${candidate.colorClass} blur-xl transition-opacity duration-500 ${
+                          isSelected
+                            ? 'opacity-30 dark:opacity-20'
+                            : 'opacity-5 group-hover:opacity-16'
+                        }`}
+                      />
+                      <div
+                        className={`pointer-events-none absolute inset-0 rounded-xl bg-linear-to-r ${candidate.colorClass} p-[1px] transition-all duration-300 animate-in fade-in-50 duration-500 ${
+                          isSelected ? 'opacity-85' : 'opacity-45 group-hover:opacity-70'
+                        }`}
+                      >
+                        <div
+                          className={`h-full w-full rounded-[11px] ${
+                            isSelected ? 'bg-sky-50/95 dark:bg-sky-900/45' : 'bg-white dark:bg-slate-900'
+                          }`}
+                        />
+                      </div>
+
+                      <div
+                        className={`relative z-10 min-h-[150px] rounded-xl p-4 transition sm:min-h-[170px] ${
+                          isSelected
+                            ? 'ring-2 ring-sky-300/70 shadow-sm shadow-sky-200/50 dark:ring-sky-700/70 dark:shadow-sky-950/30'
+                            : ''
+                        } ${isRecentlySelected ? 'ring-2 ring-emerald-300/60 dark:ring-emerald-700/60' : ''}`}
+                      >
                       <button
                         type="button"
                         onClick={() => handleSelectVote(currentRole.id, String(candidate.id))}
-                        className="w-full text-left"
+                        className="w-full min-h-[92px] text-left"
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
@@ -468,15 +558,23 @@ export default function VotingAccess() {
                               Grado {candidate.grade}
                             </p>
                           </div>
-                          {candidate.photo_url ? (
-                            <img
-                              src={candidate.photo_url}
-                              alt={`Foto de ${candidate.name}`}
-                              className="h-20 w-20 rounded-xl border border-slate-200 object-cover shadow-sm dark:border-slate-700 sm:h-24 sm:w-24"
-                            />
-                          ) : (
-                            <div className={`h-20 w-20 rounded-xl bg-linear-to-br shadow-sm ${candidate.colorClass} sm:h-24 sm:w-24`} />
-                          )}
+                          <div className="flex flex-col items-end gap-2">
+                            {isSelected ? (
+                              <span className={`inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ${isRecentlySelected ? 'animate-pulse' : ''}`}>
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Seleccionado
+                              </span>
+                            ) : null}
+                            {candidate.photo_url ? (
+                              <img
+                                src={candidate.photo_url}
+                                alt={`Foto de ${candidate.name}`}
+                                className="h-24 w-24 rounded-xl border border-slate-200 object-cover shadow-sm dark:border-slate-700 sm:h-28 sm:w-28"
+                              />
+                            ) : (
+                              <div className={`h-24 w-24 rounded-xl bg-linear-to-br shadow-sm ${candidate.colorClass} sm:h-28 sm:w-28`} />
+                            )}
+                          </div>
                         </div>
                       </button>
 
@@ -485,6 +583,7 @@ export default function VotingAccess() {
                           Ver propuesta
                         </Button>
                       </div>
+                      </div>
                     </div>
                   )
                 })}
@@ -492,19 +591,27 @@ export default function VotingAccess() {
                 <button
                   type="button"
                   onClick={() => handleSelectVote(currentRole.id, BLANK_VOTE_ID)}
-                  className={`w-full rounded-xl border border-dashed p-4 text-left transition ${
+                  className={`w-full min-h-[120px] rounded-xl border border-dashed px-4 py-5 text-left transition ${
                     currentVote === BLANK_VOTE_ID
                       ? 'border-slate-500 bg-slate-100 ring-2 ring-slate-300 dark:border-slate-400 dark:bg-slate-800 dark:ring-slate-600'
                       : 'border-slate-300 bg-white hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:hover:border-slate-500'
-                  }`}
+                  } ${recentSelectionKey === `${currentRole.id}:${BLANK_VOTE_ID}` ? 'scale-[1.01] ring-4 ring-emerald-300/70 dark:ring-emerald-700/70' : ''}`}
                 >
-                  <p className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Voto en Blanco</p>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Voto en Blanco</p>
+                    {currentVote === BLANK_VOTE_ID ? (
+                      <span className={`inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 ${recentSelectionKey === `${currentRole.id}:${BLANK_VOTE_ID}` ? 'animate-pulse' : ''}`}>
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Seleccionado
+                      </span>
+                    ) : null}
+                  </div>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Selecciona esta opción si no eliges ninguna candidatura para este cargo.</p>
                 </button>
               </CardContent>
             </Card>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <div ref={ballotActionsRef} className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
                 variant="outline"
                 className="h-11"
@@ -578,6 +685,25 @@ export default function VotingAccess() {
         {step === 'success' && (
           <Card className="border-emerald-200 bg-emerald-50 shadow-lg dark:border-emerald-900/40 dark:bg-emerald-950/30">
             <CardHeader>
+              <div className="mx-auto mb-2 w-fit rounded-xl border border-emerald-200 bg-white/80 px-3 py-2 animate-in fade-in zoom-in-95 duration-300 dark:border-emerald-900/40 dark:bg-slate-900/70">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border border-emerald-200 bg-white dark:border-emerald-800/50 dark:bg-slate-900">
+                    {institutionBranding?.logoUrl ? (
+                      <img
+                        src={institutionBranding.logoUrl}
+                        alt={institutionBranding.institutionName ? `Escudo de ${institutionBranding.institutionName}` : 'Escudo institucional'}
+                        className="h-full w-full object-contain"
+                      />
+                    ) : (
+                      <ShieldCheck className="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
+                    )}
+                  </div>
+                  <p className="max-w-56 text-left text-xs font-semibold text-emerald-900 dark:text-emerald-200">
+                    {institutionBranding?.institutionName || 'Institución educativa'}
+                  </p>
+                </div>
+              </div>
+
               <CardTitle className="flex items-center gap-2 text-2xl text-emerald-800 dark:text-emerald-200">
                 <CheckCircle2 className="h-7 w-7" />
                 ¡Votación registrada!

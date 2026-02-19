@@ -82,27 +82,22 @@ export default function DashboardLayout() {
 
     if (themeMode !== 'auto') return
 
-    const now = new Date()
-    const next = new Date(now)
-    const hour = now.getHours()
-
-    // Next switch at 06:00 or 18:00.
-    if (hour < 6) {
-      next.setHours(6, 0, 0, 0)
-    } else if (hour < 18) {
-      next.setHours(18, 0, 0, 0)
-    } else {
-      next.setDate(next.getDate() + 1)
-      next.setHours(6, 0, 0, 0)
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleSystemThemeChange = () => {
+      applyThemeMode('auto')
     }
 
-    const ms = Math.max(0, next.getTime() - now.getTime())
-    const timer = window.setTimeout(() => {
-      // Re-apply to flip dark/light when boundary is reached.
-      applyThemeMode('auto')
-    }, ms + 50)
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleSystemThemeChange)
+      return () => mediaQuery.removeEventListener('change', handleSystemThemeChange)
+    }
 
-    return () => window.clearTimeout(timer)
+    const legacyMediaQuery = mediaQuery as MediaQueryList & {
+      addListener: (listener: (event: MediaQueryListEvent) => void) => void
+      removeListener: (listener: (event: MediaQueryListEvent) => void) => void
+    }
+    legacyMediaQuery.addListener(handleSystemThemeChange)
+    return () => legacyMediaQuery.removeListener(handleSystemThemeChange)
   }, [themeMode])
 
   const toggleTheme = () => {
@@ -110,6 +105,11 @@ export default function DashboardLayout() {
   }
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+  const canResetElectionTokens =
+    user?.role === 'ADMIN' ||
+    user?.role === 'SUPERADMIN' ||
+    user?.role === 'COORDINATOR' ||
+    user?.role === 'SECRETARY'
   const isTeacher = user?.role === 'TEACHER'
   const isParent = user?.role === 'PARENT'
   const isAdministrativeStaff =
@@ -123,7 +123,7 @@ export default function DashboardLayout() {
   const FAVORITE_SIDEBAR_PATHS_STORAGE_KEY = 'kampus.sidebar.favoritePaths'
 
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)')
+    const mq = window.matchMedia('(min-width: 1280px)')
 
     const update = (matches: boolean) => {
       setIsDesktop(matches)
@@ -579,7 +579,8 @@ export default function DashboardLayout() {
               children: [
                 { name: 'Jornadas', href: '/gobierno-escolar/procesos' },
                 { name: 'Censo', href: '/gobierno-escolar/censo' },
-                { name: 'Reset tokens', href: '/votaciones/reset-token' },
+                { name: 'Monitoreo en vivo', href: '/gobierno-escolar/monitoreo' },
+                ...(canResetElectionTokens ? [{ name: 'Reset tokens', href: '/votaciones/reset-token' }] : []),
               ],
             } as NavigationItem,
           ]
@@ -630,6 +631,7 @@ export default function DashboardLayout() {
     ]
   }, [
     canManageRbac,
+    canResetElectionTokens,
     isAdministrativeStaff,
     isParent,
     isTeacher,

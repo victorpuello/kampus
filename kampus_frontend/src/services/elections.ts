@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { api } from './api'
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+
 export type ElectionCandidatePublic = {
   id: number
   name: string
@@ -30,6 +32,11 @@ export type ValidateTokenResponse = {
     grade?: string
     shift?: string
   }
+}
+
+export type PublicVotingBrandingResponse = {
+  institution_name: string | null
+  logo_url: string | null
 }
 
 export type SubmitVoteSelection = {
@@ -192,6 +199,58 @@ export type ElectionScrutinySummaryResponse = {
   roles: ElectionScrutinyRoleSummary[]
 }
 
+export type ElectionLiveMinuteRow = {
+  minute: string | null
+  total_votes: number
+  blank_votes: number
+}
+
+export type ElectionLiveAlert = {
+  code: string
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  detail: string
+}
+
+export type ElectionLiveDashboardResponse = {
+  generated_at: string
+  cursor: string
+  is_incremental: boolean
+  process: {
+    id: number
+    name: string
+    status: string
+  }
+  config: {
+    window_minutes: number
+    blank_rate_threshold: number
+    inactivity_minutes: number
+    spike_threshold: number
+    series_limit: number
+  }
+  kpis: {
+    total_votes: number
+    total_blank_votes: number
+    blank_vote_percent: number
+    enabled_census_count: number
+    unique_voters_count: number
+    participation_percent: number
+  }
+  operational_kpis: {
+    window_hours: number
+    audited_events: number
+    client_errors: number
+    server_errors: number
+    failure_rate_percent: number
+    vote_submits: number
+    duplicate_submits: number
+    manual_regenerations: number
+  }
+  ranking: ElectionScrutinyRoleSummary[]
+  minute_series: ElectionLiveMinuteRow[]
+  alerts: ElectionLiveAlert[]
+}
+
 export type ElectionProcessCensusMemberItem = {
   member_id: number
   student_external_id: string
@@ -246,6 +305,11 @@ export type ListResponse<T> = {
 }
 
 export const electionsApi = {
+  getPublicVotingBranding: async () => {
+    const response = await api.get<PublicVotingBrandingResponse>('/api/elections/public/branding/')
+    return response.data
+  },
+
   validateToken: async (token: string) => {
     const response = await api.post<ValidateTokenResponse>('/api/elections/public/validate-token/', { token })
     return response.data
@@ -276,7 +340,7 @@ export const electionsApi = {
     return response.data
   },
 
-  createProcess: async (payload: { name: string; status: 'DRAFT' | 'OPEN'; starts_at?: string | null; ends_at?: string | null }) => {
+  createProcess: async (payload: { name: string; status?: 'DRAFT'; starts_at?: string | null; ends_at?: string | null }) => {
     const response = await api.post<ElectionProcessItem>('/api/elections/manage/processes/', payload)
     return response.data
   },
@@ -402,6 +466,56 @@ export const electionsApi = {
     return response.data
   },
 
+  getProcessLiveDashboard: async (
+    processId: number,
+    options?: {
+      windowMinutes?: number
+      blankRateThreshold?: number
+      inactivityMinutes?: number
+      spikeThreshold?: number
+      seriesLimit?: number
+      since?: string
+      includeRanking?: boolean
+    }
+  ) => {
+    const response = await api.get<ElectionLiveDashboardResponse>(`/api/elections/manage/processes/${processId}/live-dashboard/`, {
+      params: {
+        window_minutes: options?.windowMinutes ?? 60,
+        blank_rate_threshold: options?.blankRateThreshold,
+        inactivity_minutes: options?.inactivityMinutes,
+        spike_threshold: options?.spikeThreshold,
+        series_limit: options?.seriesLimit,
+        since: options?.since,
+        include_ranking: options?.includeRanking,
+      },
+    })
+    return response.data
+  },
+
+  getProcessLiveDashboardStreamUrl: (
+    processId: number,
+    options?: {
+      windowMinutes?: number
+      blankRateThreshold?: number
+      inactivityMinutes?: number
+      spikeThreshold?: number
+      seriesLimit?: number
+      since?: string
+      includeRanking?: boolean
+    }
+  ) => {
+    const params = new URLSearchParams()
+    params.set('window_minutes', String(options?.windowMinutes ?? 60))
+    if (typeof options?.blankRateThreshold === 'number') params.set('blank_rate_threshold', String(options.blankRateThreshold))
+    if (typeof options?.inactivityMinutes === 'number') params.set('inactivity_minutes', String(options.inactivityMinutes))
+    if (typeof options?.spikeThreshold === 'number') params.set('spike_threshold', String(options.spikeThreshold))
+    if (typeof options?.seriesLimit === 'number') params.set('series_limit', String(options.seriesLimit))
+    if (options?.since) params.set('since', options.since)
+    if (typeof options?.includeRanking === 'boolean') params.set('include_ranking', String(options.includeRanking))
+
+    return `${API_BASE_URL}/api/elections/manage/processes/${processId}/live-dashboard/stream/?${params.toString()}`
+  },
+
   downloadScrutinyCsv: async (processId: number) => {
     const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/scrutiny-export.csv`, {
       responseType: 'blob',
@@ -411,6 +525,13 @@ export const electionsApi = {
 
   downloadScrutinyXlsx: async (processId: number) => {
     const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/scrutiny-export.xlsx`, {
+      responseType: 'blob',
+    })
+    return response.data
+  },
+
+  downloadScrutinyPdf: async (processId: number) => {
+    const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/scrutiny-export.pdf`, {
       responseType: 'blob',
     })
     return response.data
@@ -439,17 +560,45 @@ export const electionsApi = {
     await api.delete(`/api/elections/manage/processes/${processId}/census/exclusions/${memberId}/`)
   },
 
-  downloadCensusManualCodesXlsx: async (processId: number, group?: string) => {
+  downloadCensusManualCodesXlsx: async (
+    processId: number,
+    options?: {
+      group?: string
+      mode?: 'existing' | 'regenerate'
+      confirm_regeneration?: boolean
+      regeneration_reason?: string
+    },
+  ) => {
+    const params: Record<string, string | boolean> = {}
+    if (options?.group) params.group = options.group
+    if (options?.mode) params.mode = options.mode
+    if (typeof options?.confirm_regeneration === 'boolean') params.confirm_regeneration = options.confirm_regeneration
+    if (options?.regeneration_reason) params.regeneration_reason = options.regeneration_reason
+
     const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/census/manual-codes.xlsx`, {
-      params: group ? { group } : undefined,
+      params,
       responseType: 'blob',
     })
     return response.data
   },
 
-  downloadCensusQrPrintHtml: async (processId: number, group?: string) => {
+  downloadCensusQrPrintHtml: async (
+    processId: number,
+    options?: {
+      group?: string
+      mode?: 'existing' | 'regenerate'
+      confirm_regeneration?: boolean
+      regeneration_reason?: string
+    },
+  ) => {
+    const params: Record<string, string | boolean> = {}
+    if (options?.group) params.group = options.group
+    if (options?.mode) params.mode = options.mode
+    if (typeof options?.confirm_regeneration === 'boolean') params.confirm_regeneration = options.confirm_regeneration
+    if (options?.regeneration_reason) params.regeneration_reason = options.regeneration_reason
+
     const response = await api.get<string>(`/api/elections/manage/processes/${processId}/census/qr-print/`, {
-      params: group ? { group } : undefined,
+      params,
       responseType: 'text',
     })
     return response.data

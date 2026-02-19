@@ -1,6 +1,6 @@
 ## Plan de trabajo: Votaciones Gobierno Escolar (Actualizado)
 
-Última actualización: 2026-02-17
+Última actualización: 2026-02-18
 
 ### 1) Estado actual del proyecto
 - Se construyó el módulo electoral base en backend y frontend.
@@ -105,29 +105,62 @@
 - [x] UI de prevalidación de censo en `Jornadas` (selector de jornada, ejecución de validación, tabla de incidencias).
 - [x] Exportación CSV de incidencias de prevalidación desde la UI de `Jornadas`.
 
-## Sprint 4 — Escrutinio, actas y cierre de jornada (PENDIENTE)
+## Sprint 4 — Escrutinio, actas y cierre de jornada (CERRADO)
 **Objetivo:** completar ciclo electoral institucional.
 
 **Alcance:**
 - [x] Implementar apertura en cero verificable (registro auditable en `ElectionOpeningRecord` + endpoint `/api/elections/manage/processes/{id}/opening-record/`).
 - [x] Implementar totalización/escrutinio base por cargo (incluye voto en blanco) en endpoint `/api/elections/manage/processes/{id}/scrutiny-summary/`.
 - [x] Generar exportables de acta de escrutinio en CSV y Excel (`/scrutiny-export.csv` y `/scrutiny-export.xlsx`).
-- [ ] Generar acta PDF usando infraestructura de reportes.
+- [x] Generar acta PDF usando infraestructura de reportes.
 - [x] Publicar vista administrativa de apertura en cero y resultados base en `Jornadas` (consulta y tabla por cargo/candidatos).
 
 **Criterio de aceptación:**
 - Cierre de jornada con resultados auditables y actas descargables.
 
-## Sprint 5 — Endurecimiento y piloto institucional (PENDIENTE)
+**Resultado:** ✅ Completado.
+
+## Sprint 5 — Endurecimiento y piloto institucional (EN CURSO)
 **Objetivo:** preparar salida estable para operación real.
 
 **Alcance:**
-- [ ] Pruebas E2E completas (jornada completa, concurrencia y contingencias).
+- [x] Base de pruebas E2E backend para jornada electoral completada en `backend/elections/tests.py`.
+- [x] Cobertura de flujo público principal: validación de token, envío de voto y consumo de token.
+- [x] Cobertura de contingencia: reset de token con reactivación y validación de permisos por rol.
+- [x] Cobertura de validaciones críticas: token expirado, revocado, jornada fuera de ventana y bloqueo por censo.
+- [x] Cobertura de escrutinio y exportables: summary, CSV, XLSX y PDF (incluye rutas 200/503/500 con mocks para PDF).
+- [x] Cobertura de autorización en endpoints de gestión/exportación (401/403 para summary y exportables CSV/XLSX/PDF).
+- [ ] Cobertura específica de concurrencia (envío simultáneo/colisión de sesión) pendiente de incluir.
 - [ ] Ajustes finales de seguridad y retención de datos.
 - [ ] Validación en piloto controlado (tablet/celular/red intermitente).
 
 **Criterio de aceptación:**
 - Piloto exitoso con evidencia técnica y operativa.
+
+## Sprint 6 — Monitoreo en vivo administrativo (EN CURSO · MVP VALIDADO)
+**Objetivo:** habilitar panel near-real para seguimiento operativo de la jornada.
+
+**Alcance:**
+- [x] Endpoint live snapshot en backend: `/api/elections/manage/processes/{id}/live-dashboard/`.
+- [x] Control de acceso ADMIN/SUPERADMIN (backend + frontend).
+- [x] KPIs operativos en payload: total votos, participación sobre censo habilitado, % blanco y votantes únicos.
+- [x] Ranking por cargo/candidatos y serie temporal por minuto.
+- [x] Alertas por reglas fijas (inactividad, pico de votación, % blanco alto).
+- [x] Página dedicada de monitoreo en frontend: `/gobierno-escolar/monitoreo`.
+- [x] Polling near-real en UI (8s) con actualización manual.
+- [x] Umbrales configurables vía query params y controles UI (`window_minutes`, `blank_rate_threshold`, `inactivity_minutes`, `spike_threshold`, `series_limit`).
+- [x] Optimización incremental de payload (delta-only / since cursor).
+- [ ] Evaluación de migración a SSE en fase posterior.
+
+**Criterio de aceptación:**
+- Operadores administrativos visualizan estado de jornada en tiempo casi real y pueden ajustar umbrales de alertas sin despliegue.
+
+**Evidencia técnica (2026-02-18):**
+- [x] Healthcheck PDF operativo: `/api/reports/health/pdf/` (admin-only).
+- [x] KPIs técnicos agregados en dashboard live (24h): eventos auditados, 4xx/5xx, tasa de fallo, duplicados, regeneraciones.
+- [x] Instrumentación de eventos `ELECTION_VOTE_SUBMIT` y `ELECTION_VOTE_SUBMIT_DUPLICATE`.
+- [x] Smoke E2E frontend con Playwright (local + workflow CI) ejecutado en verde (`3/3`).
+- [ ] Pendiente: piloto SSE/fallback en entorno real para evaluación de escalamiento final.
 
 ---
 

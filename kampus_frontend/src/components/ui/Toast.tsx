@@ -46,7 +46,7 @@ export function Toast({
 
   return (
     <div
-      className={`fixed top-4 right-4 z-50 flex items-start gap-3 rounded-lg border p-4 shadow-lg transition-all animate-in slide-in-from-top-2 ${bgColors[type]} max-w-md`}
+      className={`fixed bottom-4 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-lg border p-4 shadow-lg transition-all animate-in slide-in-from-top-2 sm:top-4 sm:right-4 sm:bottom-auto sm:left-auto sm:w-auto sm:translate-x-0 ${bgColors[type]}`}
       role={type === 'error' ? 'alert' : 'status'}
       aria-live={type === 'error' ? 'assertive' : 'polite'}
       aria-atomic="true"

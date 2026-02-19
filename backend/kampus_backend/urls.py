@@ -23,11 +23,16 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from .auth_views import CookieLoginAPIView, CookieLogoutAPIView, CookieRefreshAPIView, CsrfCookieAPIView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/auth/csrf/", CsrfCookieAPIView.as_view(), name="auth_csrf"),
+    path("api/auth/login/", CookieLoginAPIView.as_view(), name="auth_cookie_login"),
+    path("api/auth/refresh/", CookieRefreshAPIView.as_view(), name="auth_cookie_refresh"),
+    path("api/auth/logout/", CookieLogoutAPIView.as_view(), name="auth_cookie_logout"),
     path("api/", include("users.urls")),
     path("api/", include("students.urls")),
     path("api/teachers/", include("teachers.urls")),

@@ -43,7 +43,7 @@ export default function ElectionProcessesManage() {
   const [success, setSuccess] = useState<string | null>(null)
 
   const [name, setName] = useState('')
-  const [status, setStatus] = useState<'DRAFT' | 'OPEN'>('DRAFT')
+  const [status] = useState<'DRAFT'>('DRAFT')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
   const [activeTab, setActiveTab] = useState<'processes' | 'roles' | 'candidates'>('processes')
@@ -108,7 +108,6 @@ export default function ElectionProcessesManage() {
       }
       await electionsApi.createProcess(payload)
       setName('')
-      setStatus('DRAFT')
       setStartsAt('')
       setEndsAt('')
       setSuccess('Jornada electoral creada correctamente.')
@@ -313,6 +312,21 @@ export default function ElectionProcessesManage() {
     }
   }
 
+  const onExportScrutinyPdf = async () => {
+    const processId = Number(scrutinyProcessId)
+    if (!Number.isFinite(processId) || processId <= 0) {
+      setScrutinyError('Debes seleccionar una jornada para exportar acta PDF.')
+      return
+    }
+
+    try {
+      const blob = await electionsApi.downloadScrutinyPdf(processId)
+      downloadBlobFile(blob, `acta_escrutinio_${processId}.pdf`)
+    } catch (requestError) {
+      setScrutinyError(getApiErrorMessage(requestError, 'No fue posible exportar el acta PDF de escrutinio.'))
+    }
+  }
+
   if (!canManage) {
     return (
       <Card>
@@ -395,11 +409,10 @@ export default function ElectionProcessesManage() {
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Estado inicial</label>
                   <select
                     value={status}
-                    onChange={(event) => setStatus(event.target.value as 'DRAFT' | 'OPEN')}
+                    disabled
                     className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
                   >
                     <option value="DRAFT">Borrador</option>
-                    <option value="OPEN">Abierta</option>
                   </select>
                 </div>
 
@@ -431,8 +444,49 @@ export default function ElectionProcessesManage() {
               {loading ? (
                 <p className="text-sm text-slate-600 dark:text-slate-300">Cargando jornadas...</p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                  <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                <>
+                  <div className="space-y-3 md:hidden">
+                    {items.map((item) => (
+                      <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/60">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</p>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                            {item.status}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Inicio: {item.starts_at ? new Date(item.starts_at).toLocaleString() : '—'}</p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Fin: {item.ends_at ? new Date(item.ends_at).toLocaleString() : '—'}</p>
+                        {item.votes_count > 0 ? (
+                          <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Con votos ({item.votes_count})</p>
+                        ) : null}
+                        <div className="mt-3 grid gap-2">
+                          <Button type="button" variant="outline" className="h-10 w-full" disabled={updatingProcessId === item.id} onClick={() => onStartEditProcess(item)}>
+                            {updatingProcessId === item.id ? 'Actualizando...' : 'Editar fechas'}
+                          </Button>
+                          <Button type="button" variant="secondary" className="h-10 w-full" disabled={item.status === 'OPEN'} onClick={() => void onOpenProcess(item.id)}>
+                            {item.status === 'OPEN' ? 'Abierta' : 'Abrir jornada'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10 w-full"
+                            disabled={deletingProcessId === item.id || !item.can_delete}
+                            title={
+                              item.can_delete
+                                ? 'Eliminar jornada'
+                                : 'No se puede eliminar: la jornada ya tiene votos registrados.'
+                            }
+                            onClick={() => onRequestDeleteProcess(item)}
+                          >
+                            {deletingProcessId === item.id ? 'Eliminando...' : 'Eliminar'}
+                          </Button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+
+                  <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                     <thead className="bg-slate-50 dark:bg-slate-900/50">
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Nombre</th>
@@ -495,7 +549,8 @@ export default function ElectionProcessesManage() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -584,8 +639,20 @@ export default function ElectionProcessesManage() {
                   {eligibilityIssues.length === 0 ? (
                     <p className="text-sm text-emerald-600 dark:text-emerald-300">No se encontraron incidencias de elegibilidad en el censo.</p>
                   ) : (
-                    <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                      <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
+                    <>
+                      <div className="space-y-3 md:hidden">
+                        {eligibilityIssues.map((issue) => (
+                          <article key={issue.token_id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/60">
+                            <p className="font-semibold text-slate-800 dark:text-slate-100">{issue.token_prefix || `#${issue.token_id}`}</p>
+                            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Estado: {issue.status} · Grado: {issue.student_grade || '—'}</p>
+                            <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Jornada: {issue.student_shift || '—'}</p>
+                            <p className="mt-2 text-red-700 dark:text-red-300">{issue.error}</p>
+                          </article>
+                        ))}
+                      </div>
+
+                      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                        <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                         <thead className="bg-slate-50 dark:bg-slate-900/50">
                           <tr>
                             <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Token</th>
@@ -607,7 +674,8 @@ export default function ElectionProcessesManage() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
+                      </div>
+                    </>
                   )}
                 </div>
               ) : null}
@@ -666,6 +734,9 @@ export default function ElectionProcessesManage() {
                       <Button type="button" variant="secondary" onClick={() => void onExportScrutinyCsv()}>
                         Exportar CSV
                       </Button>
+                      <Button type="button" variant="secondary" onClick={() => void onExportScrutinyPdf()}>
+                        Exportar PDF
+                      </Button>
                       <Button type="button" variant="secondary" onClick={() => void onExportScrutinyXlsx()}>
                         Exportar Excel
                       </Button>
@@ -677,7 +748,19 @@ export default function ElectionProcessesManage() {
                       <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200">
                         {role.title} ({role.code}) · Total: {role.total_votes} · Blanco: {role.blank_votes}
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className="space-y-2 p-3 md:hidden">
+                        {role.candidates.length === 0 ? (
+                          <p className="text-sm text-slate-500 dark:text-slate-400">Sin votos registrados para candidaturas en este cargo.</p>
+                        ) : (
+                          role.candidates.map((candidate) => (
+                            <article key={candidate.candidate_id} className="rounded-md border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/60">
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">#{candidate.number} · {candidate.name}</p>
+                              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Votos: {candidate.votes}</p>
+                            </article>
+                          ))
+                        )}
+                      </div>
+                      <div className="hidden overflow-x-auto md:block">
                         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                           <thead className="bg-white dark:bg-slate-950/40">
                             <tr>

@@ -14,7 +14,10 @@ export function getStoredThemeMode(): ThemeMode | null {
 
 export function resolveTheme(mode: ThemeMode, now: Date = new Date()): Theme {
   if (mode === 'light' || mode === 'dark') return mode
-  // Auto: night = 18:00–05:59, day = 06:00–17:59
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+
   const hour = now.getHours()
   const isNight = hour >= 18 || hour < 6
   return isNight ? 'dark' : 'light'

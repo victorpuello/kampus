@@ -1,31 +1,17 @@
-import axios, { AxiosError, AxiosHeaders, type InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
-  withCredentials: false,
+  withCredentials: true,
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
 });
-
-type RefreshTokenResponse = {
-  access: string
-}
 
 function getStatusFromUnknownError(err: unknown): number | undefined {
   if (axios.isAxiosError(err)) return err.response?.status
   return (err as { response?: { status?: number } } | undefined)?.response?.status
-}
-
-function getAccessToken(): string | null {
-  return localStorage.getItem('accessToken');
-}
-
-function getRefreshToken(): string | null {
-  return localStorage.getItem('refreshToken');
-}
-
-function setAccessToken(token: string) {
-  localStorage.setItem('accessToken', token);
 }
 
 const AUTH_LOGOUT_EVENT = 'kampus:auth:logout'
@@ -40,23 +26,8 @@ function emitAuthLogout() {
   }
 }
 
-function clearStoredTokens() {
-  localStorage.removeItem('accessToken')
-  localStorage.removeItem('refreshToken')
-}
-
-api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const token = getAccessToken()
-  if (token) {
-    const headers = AxiosHeaders.from(config.headers)
-    headers.set('Authorization', `Bearer ${token}`)
-    config.headers = headers
-  }
-  return config
-})
-
 let isRefreshing = false;
-let pendingRequests: Array<(token: string) => void> = [];
+let pendingRequests: Array<() => void> = [];
 
 api.interceptors.response.use(
   (res) => res,
@@ -65,22 +36,11 @@ api.interceptors.response.use(
     if (!original) return Promise.reject(error)
     
     if (error.response?.status === 401 && !original._retry) {
-      const refresh = getRefreshToken();
-      if (!refresh) {
-        // No refresh token => session is invalid; ensure app state clears too.
-        clearStoredTokens()
-        emitAuthLogout()
-        return Promise.reject(error);
-      }
-      
       original._retry = true;
 
       if (isRefreshing) {
         return new Promise((resolve) => {
-          pendingRequests.push((token: string) => {
-            const headers = AxiosHeaders.from(original.headers)
-            headers.set('Authorization', `Bearer ${token}`)
-            original.headers = headers
+          pendingRequests.push(() => {
             resolve(api(original));
           });
         });
@@ -89,30 +49,18 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const response = await axios.post<RefreshTokenResponse>(`${API_BASE_URL}/api/token/refresh/`, { refresh })
-        const newAccess = response.data.access
-        
-        setAccessToken(newAccess);
-        
-        pendingRequests.forEach((cb) => cb(newAccess));
+        await api.post('/api/auth/refresh/')
+
+        pendingRequests.forEach((cb) => cb());
         pendingRequests = [];
         isRefreshing = false;
 
-        {
-          const headers = AxiosHeaders.from(original.headers)
-          headers.set('Authorization', `Bearer ${newAccess}`)
-          original.headers = headers
-        }
-        
         return api(original);
       } catch (err) {
         isRefreshing = false;
         pendingRequests = [];
         const status = getStatusFromUnknownError(err)
-        // Only clear tokens when the refresh token is actually invalid/expired.
-        // For transient errors (network, 5xx), keep tokens so the user isn't logged out unnecessarily.
         if (status === 401 || status === 403) {
-          clearStoredTokens()
           emitAuthLogout()
         }
         return Promise.reject(err);
@@ -123,7 +71,9 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
+  ensureCsrf: () => api.get('/api/auth/csrf/'),
   login: (username: string, password: string) =>
-    api.post('/api/token/', { username, password }),
+    api.post('/api/auth/login/', { username, password }),
+  logout: () => api.post('/api/auth/logout/'),
   me: () => api.get('/api/users/me/'),
 };

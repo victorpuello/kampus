@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from django.conf import settings
+from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -46,6 +48,7 @@ class ElectionProcessCreateSerializer(serializers.ModelSerializer):
         ends_at = attrs.get("ends_at")
         if starts_at and ends_at and ends_at < starts_at:
             raise serializers.ValidationError({"ends_at": "La fecha de fin no puede ser anterior a la fecha de inicio."})
+        attrs["status"] = ElectionProcess.Status.DRAFT
         return attrs
 
 
@@ -404,6 +407,17 @@ class PublicSubmitVoteInputSerializer(serializers.Serializer):
         validated = self.validated_data
         now = timezone.now()
 
+        def _build_idempotent_response(*, access_session: VoteAccessSession, votes_count: int) -> dict:
+            submitted_at = access_session.consumed_at or now
+            receipt = f"VOTO-{submitted_at.year}-{str(access_session.id).split('-')[0].upper()}"
+            return {
+                "receipt_code": receipt,
+                "saved_votes": votes_count,
+                "submitted_at": submitted_at,
+                "process_id": access_session.voter_token.process_id,
+                "already_submitted": True,
+            }
+
         with transaction.atomic():
             access_session = (
                 VoteAccessSession.objects.select_for_update()
@@ -413,6 +427,13 @@ class PublicSubmitVoteInputSerializer(serializers.Serializer):
             )
             if access_session is None:
                 raise serializers.ValidationError({"access_session_id": "La sesión de votación no fue encontrada."})
+
+            existing_votes_count = VoteRecord.objects.filter(access_session=access_session).count()
+            if existing_votes_count > 0:
+                if access_session.consumed_at is None:
+                    access_session.consumed_at = now
+                    access_session.save(update_fields=["consumed_at"])
+                return _build_idempotent_response(access_session=access_session, votes_count=existing_votes_count)
 
             if access_session.consumed_at is not None:
                 raise serializers.ValidationError({"detail": "Esta sesión de votación ya fue utilizada."})
@@ -483,7 +504,23 @@ class PublicSubmitVoteInputSerializer(serializers.Serializer):
                     )
                 )
 
-            VoteRecord.objects.bulk_create(records)
+            try:
+                VoteRecord.objects.bulk_create(records)
+            except IntegrityError:
+                access_session.refresh_from_db(fields=["consumed_at"])
+                collided_votes_count = VoteRecord.objects.filter(access_session=access_session).count()
+                if collided_votes_count > 0:
+                    if access_session.consumed_at is None:
+                        access_session.consumed_at = now
+                        access_session.save(update_fields=["consumed_at"])
+
+                    voter_token.status = VoterToken.Status.USED
+                    if voter_token.used_at is None:
+                        voter_token.used_at = access_session.consumed_at or now
+                    voter_token.save(update_fields=["status", "used_at"])
+
+                    return _build_idempotent_response(access_session=access_session, votes_count=collided_votes_count)
+                raise serializers.ValidationError({"detail": "No fue posible registrar el voto por colisión de concurrencia."})
 
             voter_token.status = VoterToken.Status.USED
             voter_token.used_at = now
@@ -498,6 +535,7 @@ class PublicSubmitVoteInputSerializer(serializers.Serializer):
                 "saved_votes": len(records),
                 "submitted_at": now,
                 "process_id": process.id,
+                "already_submitted": False,
             }
 
 
@@ -541,6 +579,9 @@ def get_voter_token_census_eligibility_error(voter_token: VoterToken) -> str | N
     metadata = voter_token.metadata if isinstance(voter_token.metadata, dict) else {}
     student_external_id = str(metadata.get("student_external_id") or metadata.get("external_id") or "").strip()
     document_number = str(metadata.get("document_number") or "").strip()
+
+    if getattr(settings, "ELECTIONS_REQUIRE_TOKEN_IDENTITY", False) and not (student_external_id or document_number):
+        return "El token no incluye identidad verificable del votante para validación electoral."
 
     member = None
     if student_external_id:
