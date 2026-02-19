@@ -227,7 +227,7 @@ export default function TeacherList() {
         <CardContent>
           <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder al módulo de docentes.</p>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+            <Button variant="outline" onClick={() => navigate('/dashboard')}>Volver al Dashboard</Button>
           </div>
         </CardContent>
       </Card>

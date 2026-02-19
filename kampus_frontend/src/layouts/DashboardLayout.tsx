@@ -489,7 +489,7 @@ export default function DashboardLayout() {
   const navigation: NavigationItem[] = useMemo(() => {
     if (isParent) {
       return [
-        { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+        { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
         { name: 'Convivencia', href: '/discipline/cases', icon: Users },
       ]
@@ -497,7 +497,7 @@ export default function DashboardLayout() {
 
     if (isTeacher) {
       const items: NavigationItem[] = [
-        { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+        { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
       ]
 
@@ -506,6 +506,7 @@ export default function DashboardLayout() {
         icon: GraduationCap,
         children: [
           { name: 'Planeación', href: '/planning' },
+          { name: 'Asistencias', href: '/attendance' },
           ...(teacherHasPreschoolAssignments && !teacherHasNonPreschoolAssignments
             ? [{ name: 'Calificaciones', href: '/grades/preschool' }]
             : [
@@ -515,6 +516,7 @@ export default function DashboardLayout() {
                   : []),
               ]),
           { name: 'Convivencia', href: '/discipline/cases' },
+          { name: 'Asignación', href: '/my-assignment' },
         ],
       })
 
@@ -564,7 +566,7 @@ export default function DashboardLayout() {
     ]
 
     return [
-      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
       { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
       {
         name: 'Gestión',

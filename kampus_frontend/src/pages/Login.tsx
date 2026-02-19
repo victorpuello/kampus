@@ -19,7 +19,7 @@ export default function Login() {
     setLocalError(null)
     try {
       await login(username, password)
-      navigate('/')
+      navigate('/dashboard')
     } catch {
       setLocalError('Credenciales incorrectas. Inténtalo de nuevo.')
     }

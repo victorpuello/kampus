@@ -131,7 +131,7 @@ export default function UserForm() {
         <CardContent>
           <p className="text-slate-600 dark:text-slate-300">No tienes permisos para acceder a la gestión de usuarios.</p>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+            <Button variant="outline" onClick={() => navigate('/dashboard')}>Volver al Dashboard</Button>
           </div>
         </CardContent>
       </Card>

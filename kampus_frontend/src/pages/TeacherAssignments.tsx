@@ -273,7 +273,7 @@ export default function TeacherAssignments() {
         <CardContent>
             <p className="text-slate-600 dark:text-slate-300">Esta pantalla es solo para docentes.</p>
           <div className="mt-4">
-            <Button className="min-h-11" variant="outline" onClick={() => navigate('/')}>Volver</Button>
+            <Button className="min-h-11" variant="outline" onClick={() => navigate('/dashboard')}>Volver</Button>
           </div>
         </CardContent>
       </Card>
@@ -304,7 +304,7 @@ export default function TeacherAssignments() {
               ))}
             </select>
           </div>
-          <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => navigate('/')}>Ir al Dashboard</Button>
+          <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => navigate('/dashboard')}>Ir al Dashboard</Button>
         </div>
       </div>
 

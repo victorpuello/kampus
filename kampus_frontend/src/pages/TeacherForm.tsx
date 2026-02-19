@@ -471,7 +471,7 @@ export default function TeacherForm() {
         <CardContent>
           <p className="text-slate-600">No tienes permisos para crear o editar docentes.</p>
           <div className="mt-4">
-            <Button variant="outline" onClick={() => navigate('/')}>Volver al Dashboard</Button>
+            <Button variant="outline" onClick={() => navigate('/dashboard')}>Volver al Dashboard</Button>
           </div>
         </CardContent>
       </Card>

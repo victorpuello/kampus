@@ -1,9 +1,10 @@
 import './App.css'
-import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import DashboardLayout from './layouts/DashboardLayout'
 import SeoManager from './components/SeoManager'
+import { useAuthStore } from './store/auth'
 
 const Login = lazy(() => import('./pages/Login'))
 const StudentList = lazy(() => import('./pages/StudentList'))
@@ -61,12 +62,52 @@ const NoveltiesInbox = lazy(() => import('./pages/NoveltiesInbox'))
 const NoveltyCaseDetail = lazy(() => import('./pages/NoveltyCaseDetail'))
 const NoveltyCaseNew = lazy(() => import('./pages/NoveltyCaseNew'))
 
+function RootRedirect() {
+  const user = useAuthStore((s) => s.user)
+  const fetchMe = useAuthStore((s) => s.fetchMe)
+  const attemptedRef = useRef(false)
+  const [bootstrapping, setBootstrapping] = useState(true)
+
+  useEffect(() => {
+    if (user) {
+      setBootstrapping(false)
+      return
+    }
+
+    if (attemptedRef.current) {
+      setBootstrapping(false)
+      return
+    }
+
+    attemptedRef.current = true
+
+    fetchMe()
+      .catch(() => {
+        // noop
+      })
+      .finally(() => {
+        setBootstrapping(false)
+      })
+  }, [fetchMe, user])
+
+  if (bootstrapping) {
+    return <div className="p-4 text-sm text-slate-600 dark:text-slate-300">Verificando sesión...</div>
+  }
+
+  if (user) {
+    return <Navigate to="/dashboard" replace />
+  }
+
+  return <Navigate to="/login" replace />
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <SeoManager />
       <Suspense fallback={<div className="p-4 text-sm text-slate-600 dark:text-slate-300">Cargando...</div>}>
         <Routes>
+          <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
 
           {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
@@ -78,7 +119,7 @@ export default function App() {
             <Route path="/students/:id/observer/print" element={<StudentObserverPrint />} />
             <Route path="/students/:id/certifications/study/print" element={<StudentStudyCertificationPrint />} />
             <Route element={<DashboardLayout />}>
-            <Route path="/" element={<DashboardHome />} />
+            <Route path="/dashboard" element={<DashboardHome />} />
             <Route path="/my-assignment" element={<TeacherAssignments />} />
             <Route path="/students" element={<StudentList />} />
             <Route path="/students/new" element={<StudentForm />} />
