@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Camera, CheckCircle2, ChevronRight, QrCode, ShieldCheck, Sparkles, Vote, XCircle } from 'lucide-react'
+import jsQR from 'jsqr'
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -31,6 +32,124 @@ const CANDIDATE_COLOR_CLASSES = [
   'from-pink-500 to-rose-500',
   'from-indigo-500 to-blue-500',
 ]
+
+type BarcodeDetectorLike = new (options?: { formats?: string[] }) => {
+  detect: (source: CanvasImageSource) => Promise<Array<{ rawValue?: string }>>
+}
+
+type VideoInputDevice = {
+  deviceId: string
+  label: string
+}
+
+function getBarcodeDetectorCtor(): BarcodeDetectorLike | null {
+  if (typeof window === 'undefined') return null
+  const candidate = (window as Window & { BarcodeDetector?: BarcodeDetectorLike }).BarcodeDetector
+  return candidate ?? null
+}
+
+function extractTokenFromQrPayload(rawValue: string): string {
+  const raw = (rawValue || '').trim()
+  if (!raw) return ''
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw)
+      const tokenFromQuery =
+        url.searchParams.get('token') ||
+        url.searchParams.get('code') ||
+        url.searchParams.get('qr') ||
+        ''
+      if (tokenFromQuery.trim()) return tokenFromQuery.trim()
+
+      const pathLastSegment = url.pathname.split('/').filter(Boolean).at(-1) || ''
+      if (pathLastSegment.trim()) return pathLastSegment.trim()
+    } catch {
+      return raw
+    }
+  }
+
+  return raw
+}
+
+function decodeQrFromImageData(imageData: ImageData): string | null {
+  const decodeScales = [1, 0.75, 0.5]
+  const sourceCanvas = document.createElement('canvas')
+  sourceCanvas.width = imageData.width
+  sourceCanvas.height = imageData.height
+  const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true })
+  if (!sourceContext) return null
+  sourceContext.putImageData(imageData, 0, 0)
+
+  for (const scale of decodeScales) {
+    const width = Math.max(160, Math.floor(imageData.width * scale))
+    const height = Math.max(160, Math.floor(imageData.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d', { willReadFrequently: true })
+    if (!context) continue
+    context.drawImage(sourceCanvas, 0, 0, width, height)
+    const scaledImageData = context.getImageData(0, 0, width, height)
+    const decoded = jsQR(scaledImageData.data, scaledImageData.width, scaledImageData.height, {
+      inversionAttempts: 'attemptBoth',
+    })
+    if (decoded?.data?.trim()) return decoded.data.trim()
+  }
+
+  return null
+}
+
+type CaptureQualityLevel = 'low' | 'medium' | 'high'
+
+function estimateCaptureQuality(imageData: ImageData): { level: CaptureQualityLevel; message: string } {
+  const data = imageData.data
+  const pixelCount = imageData.width * imageData.height
+  if (pixelCount <= 0) {
+    return { level: 'low', message: 'Sin señal de cámara estable.' }
+  }
+
+  const step = Math.max(4, Math.floor(pixelCount / 4000))
+  let luminanceSum = 0
+  let sampleCount = 0
+  let contrastAccumulator = 0
+
+  for (let index = 0; index < data.length; index += 4 * step) {
+    const r = data[index]
+    const g = data[index + 1]
+    const b = data[index + 2]
+    const luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    luminanceSum += luminance
+    sampleCount += 1
+  }
+
+  const averageLuminance = sampleCount > 0 ? luminanceSum / sampleCount : 0
+
+  for (let y = 1; y < imageData.height; y += Math.max(2, Math.floor(imageData.height / 120))) {
+    for (let x = 1; x < imageData.width; x += Math.max(2, Math.floor(imageData.width / 120))) {
+      const i = (y * imageData.width + x) * 4
+      const left = (y * imageData.width + (x - 1)) * 4
+      const top = ((y - 1) * imageData.width + x) * 4
+      const current = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
+      const leftLum = 0.299 * data[left] + 0.587 * data[left + 1] + 0.114 * data[left + 2]
+      const topLum = 0.299 * data[top] + 0.587 * data[top + 1] + 0.114 * data[top + 2]
+      contrastAccumulator += Math.abs(current - leftLum) + Math.abs(current - topLum)
+    }
+  }
+
+  if (averageLuminance < 55) {
+    return { level: 'low', message: 'Iluminación baja. Acerca el QR y aumenta la luz.' }
+  }
+  if (averageLuminance > 220) {
+    return { level: 'medium', message: 'Hay demasiado brillo. Evita reflejos directos.' }
+  }
+
+  if (contrastAccumulator < 80000) {
+    return { level: 'medium', message: 'Imagen poco nítida. Mantén el celular quieto y enfoca el QR.' }
+  }
+
+  return { level: 'high', message: 'Calidad de lectura óptima. Mantén el QR dentro del recuadro.' }
+}
 
 function toUiRoles(roles: ElectionRolePublic[]): ElectionRole[] {
   return roles.map((role) => ({
@@ -84,6 +203,10 @@ export default function VotingAccess() {
   const [receiptCode, setReceiptCode] = useState<string | null>(null)
   const [recentSelectionKey, setRecentSelectionKey] = useState<string | null>(null)
   const [institutionBranding, setInstitutionBranding] = useState<{ institutionName: string | null; logoUrl: string | null } | null>(null)
+  const [cameraDevices, setCameraDevices] = useState<VideoInputDevice[]>([])
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('')
+  const [isStartingCamera, setIsStartingCamera] = useState(false)
+  const [captureQuality, setCaptureQuality] = useState<{ level: CaptureQualityLevel; message: string } | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -93,6 +216,8 @@ export default function VotingAccess() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const ballotActionsRef = useRef<HTMLDivElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const captureQualityRef = useRef<string>('')
 
   const showToast = useCallback((message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
@@ -138,30 +263,105 @@ export default function VotingAccess() {
       streamRef.current = null
     }
     setIsCameraOn(false)
+    setCaptureQuality(null)
+    captureQualityRef.current = ''
   }, [])
+
+  const loadCameraDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const videoInputs = devices
+        .filter((device) => device.kind === 'videoinput')
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Cámara ${index + 1}`,
+        }))
+
+      setCameraDevices(videoInputs)
+      if (!selectedCameraId && videoInputs.length > 0) {
+        setSelectedCameraId(videoInputs[0].deviceId)
+      }
+    } catch {
+      setCameraDevices([])
+    }
+  }, [selectedCameraId])
 
   const startCamera = useCallback(async () => {
     setCameraError(null)
+    setIsStartingCamera(true)
+    stopCamera()
+
+    const constraintsCandidates: MediaStreamConstraints[] = [
+      selectedCameraId
+        ? {
+            video: {
+              deviceId: { exact: selectedCameraId },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          }
+        : {
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+            },
+            audio: false,
+          },
+      {
+        video: {
+          facingMode: { exact: 'environment' },
+        },
+        audio: false,
+      },
+      {
+        video: {
+          facingMode: { ideal: 'user' },
+        },
+        audio: false,
+      },
+      {
+        video: true,
+        audio: false,
+      },
+    ]
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-      })
+      let stream: MediaStream | null = null
+      for (const constraints of constraintsCandidates) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints)
+          break
+        } catch {
+          continue
+        }
+      }
+
+      if (!stream) {
+        throw new Error('camera-unavailable')
+      }
 
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
       }
-      if (!(window as Window & { BarcodeDetector?: unknown }).BarcodeDetector) {
-        setScanHint('Tu dispositivo no soporta lectura QR automática en navegador. Usa el código manual.')
+      await loadCameraDevices()
+
+      if (!getBarcodeDetectorCtor()) {
+        setScanHint('Tu navegador no soporta lector QR nativo. Activamos modo compatible automático.')
       } else {
         setScanHint('Apunta el QR dentro del recuadro para validar automáticamente.')
       }
       setIsCameraOn(true)
     } catch {
-      setCameraError('No fue posible acceder a la cámara. Puedes usar el código manual para continuar.')
+      setCameraError('No fue posible acceder a la cámara. Puedes cambiar de cámara, subir foto del QR o usar el código manual.')
       setIsCameraOn(false)
+    } finally {
+      setIsStartingCamera(false)
     }
-  }, [])
+  }, [loadCameraDevices, selectedCameraId, stopCamera])
 
   const validateToken = useCallback(async (rawToken: string) => {
     if (isValidatingToken) return
@@ -212,6 +412,45 @@ export default function VotingAccess() {
     }
   }, [isValidatingToken, showToast])
 
+  const decodeQrFromUploadedFile = useCallback(async (file: File) => {
+    const objectUrl = URL.createObjectURL(file)
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => resolve(img)
+        img.onerror = () => reject(new Error('image-load-error'))
+        img.src = objectUrl
+      })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = image.naturalWidth || image.width
+      canvas.height = image.naturalHeight || image.height
+      const context = canvas.getContext('2d', { willReadFrequently: true })
+      if (!context) throw new Error('canvas-context-error')
+
+      context.drawImage(image, 0, 0, canvas.width, canvas.height)
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+      const decodedValue = decodeQrFromImageData(imageData)
+      if (!decodedValue) {
+        setCameraError('No se encontró un código QR válido en la imagen. Intenta con otra foto más nítida.')
+        return
+      }
+
+      const token = extractTokenFromQrPayload(decodedValue)
+      if (!token) {
+        setCameraError('El QR fue leído pero no contiene un token válido para esta votación.')
+        return
+      }
+
+      setManualToken(token)
+      setCameraError(null)
+      setScanHint('QR leído desde imagen. Validando código...')
+      void validateToken(token)
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }, [validateToken])
+
   useEffect(() => {
     if (step !== 'scan') {
       stopCamera()
@@ -219,41 +458,91 @@ export default function VotingAccess() {
     }
 
     if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraError('Tu navegador no permite acceso directo a cámara. Usa el código manual.')
+      setCameraError('Tu navegador no permite acceso directo a cámara. Sube una foto del QR o usa el código manual.')
       return
     }
 
     void startCamera()
+    void loadCameraDevices()
 
     return () => {
       stopCamera()
     }
-  }, [startCamera, step, stopCamera])
+  }, [loadCameraDevices, startCamera, step, stopCamera])
+
+  useEffect(() => {
+    if (step !== 'scan') return
+    if (!selectedCameraId) return
+    void startCamera()
+  }, [selectedCameraId, startCamera, step])
 
   useEffect(() => {
     if (step !== 'scan' || !isCameraOn || !videoRef.current) return
 
-    const barcodeDetectorCtor = (window as Window & { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect: (source: CanvasImageSource) => Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector
-    if (!barcodeDetectorCtor) return
-
-    const detector = new barcodeDetectorCtor({ formats: ['qr_code'] })
+    const barcodeDetectorCtor = getBarcodeDetectorCtor()
+    const detector = barcodeDetectorCtor ? new barcodeDetectorCtor({ formats: ['qr_code'] }) : null
+    const canvas = document.createElement('canvas')
+    const context = canvas.getContext('2d', { willReadFrequently: true })
     let active = true
 
     const scanLoop = async () => {
       if (!active || !videoRef.current || step !== 'scan') return
 
+      const video = videoRef.current
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth === 0 || video.videoHeight === 0) {
+        window.setTimeout(scanLoop, 350)
+        return
+      }
+
+      const handleDetectedCode = (detectedCode: string) => {
+        const token = extractTokenFromQrPayload(detectedCode)
+        if (!token) return
+        setManualToken(token)
+        void validateToken(token)
+      }
+
+      const tryDecodeWithJsQr = () => {
+        if (!context) return false
+
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+        const quality = estimateCaptureQuality(imageData)
+        const qualityKey = `${quality.level}:${quality.message}`
+        if (captureQualityRef.current !== qualityKey) {
+          captureQualityRef.current = qualityKey
+          setCaptureQuality(quality)
+        }
+        const decoded = decodeQrFromImageData(imageData)
+
+        if (decoded?.trim()) {
+          handleDetectedCode(decoded.trim())
+          return true
+        }
+        return false
+      }
+
       try {
-        const barcodes = await detector.detect(videoRef.current)
-        const firstBarcode = barcodes.find((barcode) => typeof barcode.rawValue === 'string' && barcode.rawValue.trim().length > 0)
-        if (firstBarcode?.rawValue) {
-          const detectedCode = firstBarcode.rawValue.trim()
-          setManualToken(detectedCode)
-          void validateToken(detectedCode)
+        if (detector) {
+          const barcodes = await detector.detect(video)
+          const firstBarcode = barcodes.find((barcode) => typeof barcode.rawValue === 'string' && barcode.rawValue.trim().length > 0)
+          if (firstBarcode?.rawValue) {
+            handleDetectedCode(firstBarcode.rawValue.trim())
+            return
+          }
+        }
+
+        if (tryDecodeWithJsQr()) {
           return
         }
       } catch {
-        setScanHint('No se detectó QR todavía. Mantén el código estable y bien iluminado.')
+        if (tryDecodeWithJsQr()) {
+          return
+        }
       }
+
+      setScanHint('No se detectó QR todavía. Mantén el código estable y bien iluminado.')
 
       window.setTimeout(scanLoop, 700)
     }
@@ -465,6 +754,74 @@ export default function VotingAccess() {
                   {scanHint}
                 </p>
               )}
+
+              {captureQuality ? (
+                <p
+                  className={`rounded-md border px-3 py-2 text-sm ${
+                    captureQuality.level === 'high'
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/50 dark:text-emerald-200'
+                      : captureQuality.level === 'medium'
+                        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/50 dark:text-amber-200'
+                        : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-200'
+                  }`}
+                >
+                  Calidad de lectura: {captureQuality.level === 'high' ? 'Alta' : captureQuality.level === 'medium' ? 'Media' : 'Baja'} · {captureQuality.message}
+                </p>
+              ) : null}
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <label htmlFor="camera-select" className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    Cámara activa
+                  </label>
+                  <select
+                    id="camera-select"
+                    value={selectedCameraId}
+                    onChange={(event) => setSelectedCameraId(event.target.value)}
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                    disabled={cameraDevices.length === 0 || isStartingCamera}
+                  >
+                    {cameraDevices.length === 0 ? <option value="">Cámara predeterminada</option> : null}
+                    {cameraDevices.map((device) => (
+                      <option key={device.deviceId} value={device.deviceId}>{device.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 flex-1"
+                    onClick={() => void startCamera()}
+                    disabled={isStartingCamera}
+                  >
+                    {isStartingCamera ? 'Iniciando...' : 'Reiniciar cámara'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-10 flex-1"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Subir foto QR
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) {
+                        void decodeQrFromUploadedFile(file)
+                      }
+                      event.currentTarget.value = ''
+                    }}
+                  />
+                </div>
+              </div>
 
               <div className="space-y-2">
                 <label htmlFor="manual-token" className="text-sm font-medium text-slate-700 dark:text-slate-200">

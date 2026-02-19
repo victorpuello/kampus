@@ -181,8 +181,8 @@ services:
       - backend
     command: >
       sh -c "
-        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ]; then
-          echo 'Installing frontend deps (incl. Tremor)…';
+        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ] || [ ! -d node_modules/jsqr ]; then
+          echo 'Installing frontend deps (incl. Tremor y jsQR)…';
           npm install --legacy-peer-deps;
         fi;
         npm run dev -- --host
