@@ -23,6 +23,8 @@ from elections.models import (
     VoteRecord,
     VoterToken,
 )
+from elections.services_observer import generate_observer_congratulations_for_election
+from students.models import ObserverAnnotation, Student
 
 
 class ElectionE2EFlowTests(APITestCase):
@@ -881,6 +883,238 @@ class ElectionAuditTrailTests(APITestCase):
         metadata = export_log.metadata if isinstance(export_log.metadata, dict) else {}
         self.assertEqual(metadata.get("mode"), "existing")
         self.assertEqual(int(metadata.get("generated_count") or 0), 0)
+
+
+class ElectionObserverCongratsTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.admin = user_model.objects.create_user(
+            username="admin_elections_observer",
+            password="pass1234",
+            role=user_model.ROLE_ADMIN,
+        )
+
+        now = timezone.now()
+        self.process = ElectionProcess.objects.create(
+            name="Jornada Felicitaciones",
+            status=ElectionProcess.Status.OPEN,
+            starts_at=now - timedelta(hours=1),
+            ends_at=now + timedelta(hours=2),
+        )
+        self.personero_role = ElectionRole.objects.create(
+            process=self.process,
+            code=ElectionRole.CODE_PERSONERO,
+            title="Personería",
+            display_order=1,
+        )
+        self.contralor_role = ElectionRole.objects.create(
+            process=self.process,
+            code=ElectionRole.CODE_CONTRALOR,
+            title="Contraloría",
+            display_order=2,
+        )
+
+        self.student_personero_a = self._create_student("stud_personero_a", "Pérez", "Ana", "DOC-P-1")
+        self.student_personero_b = self._create_student("stud_personero_b", "Gómez", "Bruno", "DOC-P-2")
+        self.student_contralor = self._create_student("stud_contralor", "Díaz", "Carla", "DOC-C-1")
+        self.student_inactive = self._create_student("stud_inactive", "Rojas", "Diego", "DOC-I-1")
+
+        self.personero_a = ElectionCandidate.objects.create(
+            role=self.personero_role,
+            name="Ana Personera",
+            student_id_ref=self.student_personero_a.user_id,
+            student_document_number="DOC-P-1",
+            number="01",
+            grade="11",
+            is_active=True,
+            display_order=1,
+        )
+        self.personero_b = ElectionCandidate.objects.create(
+            role=self.personero_role,
+            name="Bruno Personero",
+            student_id_ref=self.student_personero_b.user_id,
+            student_document_number="DOC-P-2",
+            number="02",
+            grade="11",
+            is_active=True,
+            display_order=2,
+        )
+        self.contralor = ElectionCandidate.objects.create(
+            role=self.contralor_role,
+            name="Carla Contralora",
+            student_id_ref=self.student_contralor.user_id,
+            student_document_number="DOC-C-1",
+            number="03",
+            grade="10",
+            is_active=True,
+            display_order=1,
+        )
+        self.inactive_candidate = ElectionCandidate.objects.create(
+            role=self.contralor_role,
+            name="Diego Inactivo",
+            student_id_ref=self.student_inactive.user_id,
+            student_document_number="DOC-I-1",
+            number="04",
+            grade="10",
+            is_active=False,
+            display_order=2,
+        )
+
+        self._create_vote(self.personero_role, self.personero_a, suffix="P1")
+        self._create_vote(self.personero_role, self.personero_b, suffix="P2")
+        self._create_vote(self.contralor_role, self.contralor, suffix="C1")
+        self._create_vote(self.contralor_role, self.contralor, suffix="C2")
+
+        self.client.force_authenticate(user=self.admin)
+
+    def _create_student(self, username: str, last_name: str, first_name: str, document_number: str) -> Student:
+        user_model = get_user_model()
+        user = user_model.objects.create_user(
+            username=username,
+            password="pass1234",
+            role=user_model.ROLE_STUDENT,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        return Student.objects.create(user=user, document_number=document_number)
+
+    def _create_vote(self, role: ElectionRole, candidate: ElectionCandidate, *, suffix: str) -> None:
+        raw_token = f"VOTO-OBS-{suffix}"
+        token = VoterToken.objects.create(
+            process=self.process,
+            token_hash=VoterToken.hash_token(raw_token),
+            token_prefix=raw_token[:12],
+            status=VoterToken.Status.USED,
+            expires_at=timezone.now() + timedelta(hours=1),
+            used_at=timezone.now(),
+            student_grade="11",
+            student_shift="Mañana",
+        )
+        access_session = VoteAccessSession.objects.create(
+            voter_token=token,
+            expires_at=timezone.now() + timedelta(minutes=10),
+            consumed_at=timezone.now(),
+        )
+        VoteRecord.objects.create(
+            process=self.process,
+            role=role,
+            candidate=candidate,
+            voter_token=token,
+            access_session=access_session,
+            is_blank=False,
+        )
+
+    @patch("elections.services_observer.AIService.improve_text", side_effect=lambda text: f"IA::{text}")
+    def test_close_process_generates_ai_observer_annotations(self, _mock_improve):
+        response = self.client.post(f"/api/elections/manage/processes/{self.process.id}/close/", format="json")
+        self.assertEqual(response.status_code, 200)
+
+        self.process.refresh_from_db()
+        self.assertEqual(self.process.status, ElectionProcess.Status.CLOSED)
+
+        self.assertEqual(
+            ObserverAnnotation.objects.filter(
+                student_id=self.student_personero_a.user_id,
+                is_deleted=False,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            ObserverAnnotation.objects.filter(
+                student_id=self.student_personero_b.user_id,
+                is_deleted=False,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            ObserverAnnotation.objects.filter(
+                student_id=self.student_contralor.user_id,
+                is_deleted=False,
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            ObserverAnnotation.objects.filter(
+                student_id=self.student_inactive.user_id,
+                is_deleted=False,
+            ).count(),
+            0,
+        )
+
+        self.assertEqual(ObserverAnnotation.objects.filter(is_deleted=False).count(), 6)
+        self.assertTrue(
+            ObserverAnnotation.objects.filter(rule_key=f"ELECTION_WINNER:{self.process.id}:PERSONERO:{self.personero_a.id}").exists()
+        )
+        self.assertTrue(
+            ObserverAnnotation.objects.filter(rule_key=f"ELECTION_WINNER:{self.process.id}:PERSONERO:{self.personero_b.id}").exists()
+        )
+        self.assertTrue(
+            ObserverAnnotation.objects.filter(rule_key=f"ELECTION_WINNER:{self.process.id}:CONTRALOR:{self.contralor.id}").exists()
+        )
+
+        self.assertTrue(
+            ObserverAnnotation.objects.filter(
+                created_by=self.admin,
+                text__startswith="IA::",
+                is_deleted=False,
+            ).exists()
+        )
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                event_type="ELECTION_PROCESS_CLOSE",
+                object_type="ElectionProcess",
+                object_id=str(self.process.id),
+                actor=self.admin,
+                status_code=200,
+            ).exists()
+        )
+
+    @patch("elections.services_observer.AIService.improve_text", side_effect=lambda text: f"IA::{text}")
+    def test_list_processes_includes_persisted_congrats_summary(self, _mock_improve):
+        close_response = self.client.post(f"/api/elections/manage/processes/{self.process.id}/close/", format="json")
+        self.assertEqual(close_response.status_code, 200)
+
+        list_response = self.client.get("/api/elections/manage/processes/")
+        self.assertEqual(list_response.status_code, 200)
+
+        process_item = next((item for item in list_response.data["results"] if item["id"] == self.process.id), None)
+        self.assertIsNotNone(process_item)
+        assert process_item is not None
+
+        self.assertTrue(process_item.get("observer_congrats_generated"))
+        summary = process_item.get("observer_congrats_summary") or {}
+        self.assertEqual(summary.get("process_id"), self.process.id)
+        self.assertEqual(summary.get("winner_annotations_created"), 3)
+        self.assertEqual(summary.get("participant_annotations_created"), 3)
+
+    @patch("elections.services_observer.AIService.improve_text", side_effect=Exception("provider down"))
+    def test_service_fallback_and_idempotency_for_observer_annotations(self, _mock_improve):
+        first_run = generate_observer_congratulations_for_election(
+            process_id=self.process.id,
+            created_by_id=self.admin.id,
+        )
+        self.assertEqual(first_run["winner_annotations_created"], 3)
+        self.assertEqual(first_run["participant_annotations_created"], 3)
+        self.assertEqual(first_run["fallback_messages"], 6)
+        self.assertEqual(ObserverAnnotation.objects.filter(is_deleted=False).count(), 6)
+
+        second_run = generate_observer_congratulations_for_election(
+            process_id=self.process.id,
+            created_by_id=self.admin.id,
+        )
+        self.assertEqual(second_run["winner_annotations_created"], 0)
+        self.assertEqual(second_run["participant_annotations_created"], 0)
+        self.assertEqual(second_run["winner_annotations_updated"], 3)
+        self.assertEqual(second_run["participant_annotations_updated"], 3)
+        self.assertEqual(ObserverAnnotation.objects.filter(is_deleted=False).count(), 6)
+
+        self.assertFalse(
+            ObserverAnnotation.objects.filter(
+                meta__generated_by_ai=True,
+                is_deleted=False,
+            ).exists()
+        )
 
 
 class ElectionLiveDashboardTests(APITestCase):

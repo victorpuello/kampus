@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import json
+import logging
 import secrets
 from datetime import timedelta
 from io import BytesIO
@@ -59,6 +60,7 @@ from .serializers import (
     ElectionTokenEligibilityIssueSerializer,
     get_voter_token_census_eligibility_error,
 )
+from .services_observer import generate_observer_congratulations_for_election
 
 try:
     import qrcode  # type: ignore
@@ -67,6 +69,7 @@ except Exception:
 
 
 LIVE_DASHBOARD_CACHE_TTL_SECONDS = 10
+logger = logging.getLogger(__name__)
 
 
 def _parse_live_dashboard_params(request) -> tuple[dict | None, Response | None]:
@@ -462,7 +465,33 @@ class ElectionProcessListCreateAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         queryset = ElectionProcess.objects.annotate(votes_count=Count("votes", distinct=True)).order_by("-created_at", "-id")
-        serializer = ElectionProcessManageSerializer(queryset, many=True)
+        process_list = list(queryset)
+        process_ids = [str(process.id) for process in process_list]
+
+        observer_congrats_summary_by_process: dict[int, dict] = {}
+        if process_ids:
+            congrats_logs = AuditLog.objects.filter(
+                event_type="ELECTION_OBSERVER_CONGRATS_AUTOGEN",
+                object_type="ElectionProcess",
+                object_id__in=process_ids,
+                status_code=status.HTTP_200_OK,
+            ).order_by("-created_at", "-id")
+
+            for log_item in congrats_logs:
+                try:
+                    process_id = int(log_item.object_id)
+                except (TypeError, ValueError):
+                    continue
+                if process_id in observer_congrats_summary_by_process:
+                    continue
+                metadata = log_item.metadata if isinstance(log_item.metadata, dict) else {}
+                observer_congrats_summary_by_process[process_id] = metadata
+
+        serializer = ElectionProcessManageSerializer(
+            process_list,
+            many=True,
+            context={"observer_congrats_summary_by_process": observer_congrats_summary_by_process},
+        )
         return Response({"results": serializer.data, "count": len(serializer.data)})
 
     def post(self, request, *args, **kwargs):
@@ -563,6 +592,109 @@ class ElectionProcessOpenAPIView(APIView):
         )
 
         return Response(ElectionProcessManageSerializer(process).data)
+
+
+class ElectionProcessCloseAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def post(self, request, process_id: int, *args, **kwargs):
+        process_id_for_job: int | None = None
+        actor_id: int | None = request.user.id if request.user and request.user.is_authenticated else None
+        observer_congrats_summary: dict | None = None
+        observer_congrats_generated = False
+
+        with transaction.atomic():
+            process = ElectionProcess.objects.select_for_update().filter(id=process_id).first()
+            if process is None:
+                log_event(
+                    request,
+                    event_type="ELECTION_PROCESS_CLOSE_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process_id,
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    metadata={"reason": "process_not_found"},
+                )
+                return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+            if process.status == ElectionProcess.Status.CLOSED:
+                return Response(
+                    {
+                        **ElectionProcessManageSerializer(process).data,
+                        "observer_congrats_generated": False,
+                        "observer_congrats_summary": None,
+                    }
+                )
+
+            if process.status != ElectionProcess.Status.OPEN:
+                log_event(
+                    request,
+                    event_type="ELECTION_PROCESS_CLOSE_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process.id,
+                    status_code=status.HTTP_409_CONFLICT,
+                    metadata={"reason": "process_not_open", "status": process.status},
+                )
+                return Response(
+                    {"detail": "Solo se pueden cerrar jornadas que estén abiertas."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            now = timezone.now()
+            process.status = ElectionProcess.Status.CLOSED
+            if process.ends_at is None or process.ends_at > now:
+                process.ends_at = now
+                process.save(update_fields=["status", "ends_at", "updated_at"])
+            else:
+                process.save(update_fields=["status", "updated_at"])
+
+            process_id_for_job = int(process.id)
+
+        log_event(
+            request,
+            event_type="ELECTION_PROCESS_CLOSE",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={"status": process.status},
+        )
+
+        if process_id_for_job is not None:
+            try:
+                summary = generate_observer_congratulations_for_election(
+                    process_id=process_id_for_job,
+                    created_by_id=actor_id,
+                )
+                observer_congrats_summary = summary
+                observer_congrats_generated = True
+                log_event(
+                    request,
+                    event_type="ELECTION_OBSERVER_CONGRATS_AUTOGEN",
+                    object_type="ElectionProcess",
+                    object_id=process_id_for_job,
+                    status_code=status.HTTP_200_OK,
+                    metadata=summary,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to generate observer congratulation annotations for election process %s",
+                    process_id_for_job,
+                )
+                log_event(
+                    request,
+                    event_type="ELECTION_OBSERVER_CONGRATS_AUTOGEN_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process_id_for_job,
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    metadata={"reason": "post_close_congratulations_failed"},
+                )
+
+        return Response(
+            {
+                **ElectionProcessManageSerializer(process).data,
+                "observer_congrats_generated": observer_congrats_generated,
+                "observer_congrats_summary": observer_congrats_summary,
+            }
+        )
 
 
 class ElectionProcessOpeningRecordAPIView(APIView):
@@ -1284,6 +1416,93 @@ def _resolve_student_id_for_member(member: ElectionCensusMember) -> int | None:
     return None
 
 
+def _normalize_student_id_value(value) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
+def _normalize_string_identity(value) -> str:
+    return str(value or "").strip().lower()
+
+
+def _append_identity_keys(identity_keys: set[str], *, student_id: int | None, student_external_id: str, document_number: str) -> None:
+    if student_id is not None:
+        identity_keys.add(f"sid:{student_id}")
+
+    normalized_external = _normalize_string_identity(student_external_id)
+    if normalized_external:
+        identity_keys.add(f"sex:{normalized_external}")
+
+    normalized_document = _normalize_string_identity(document_number)
+    if normalized_document:
+        identity_keys.add(f"doc:{normalized_document}")
+
+
+def _build_student_completed_vote_index(*, process: ElectionProcess, required_role_ids: set[int]) -> dict[str, bool]:
+    if not required_role_ids:
+        return {}
+
+    roles_by_identity: dict[str, set[int]] = {}
+    vote_rows = VoteRecord.objects.filter(process=process).values("role_id", "voter_token__metadata")
+
+    for vote_row in vote_rows.iterator():
+        metadata = vote_row.get("voter_token__metadata")
+        if not isinstance(metadata, dict):
+            continue
+
+        vote_identity_keys: set[str] = set()
+        student_id = _normalize_student_id_value(metadata.get("student_id"))
+        student_external_id = str(metadata.get("student_external_id") or metadata.get("external_id") or "")
+        document_number = str(metadata.get("document_number") or "")
+        _append_identity_keys(
+            vote_identity_keys,
+            student_id=student_id,
+            student_external_id=student_external_id,
+            document_number=document_number,
+        )
+
+        if not vote_identity_keys:
+            continue
+
+        role_id = vote_row.get("role_id")
+        if not isinstance(role_id, int):
+            continue
+
+        for identity_key in vote_identity_keys:
+            identity_roles = roles_by_identity.setdefault(identity_key, set())
+            identity_roles.add(role_id)
+
+    completed_vote_index: dict[str, bool] = {}
+    expected_roles_count = len(required_role_ids)
+    for identity_key, identity_roles in roles_by_identity.items():
+        completed_vote_index[identity_key] = len(identity_roles.intersection(required_role_ids)) == expected_roles_count
+
+    return completed_vote_index
+
+
+def _resolve_row_completed_vote(
+    *,
+    completed_vote_index: dict[str, bool],
+    student_id: int | None,
+    student_external_id: str,
+    document_number: str,
+) -> bool:
+    identity_keys: set[str] = set()
+    _append_identity_keys(
+        identity_keys,
+        student_id=student_id,
+        student_external_id=student_external_id,
+        document_number=document_number,
+    )
+    if not identity_keys:
+        return False
+
+    return any(completed_vote_index.get(identity_key, False) for identity_key in identity_keys)
+
+
 def _build_process_census_rows(process: ElectionProcess) -> list[dict]:
     members = list(
         ElectionCensusMember.objects.filter(is_active=True, status=ElectionCensusMember.Status.ACTIVE).order_by("id")
@@ -1314,6 +1533,9 @@ def _build_process_census_rows(process: ElectionProcess) -> list[dict]:
 
     enrollment_by_student: dict[int, Enrollment] = {enrollment.student_id: enrollment for enrollment in enrollments}
 
+    required_role_ids = set(process.roles.values_list("id", flat=True))
+    completed_vote_index = _build_student_completed_vote_index(process=process, required_role_ids=required_role_ids)
+
     rows: list[dict] = []
     for member in members:
         student_id = _resolve_student_id_for_member(member)
@@ -1331,6 +1553,12 @@ def _build_process_census_rows(process: ElectionProcess) -> list[dict]:
             group_name = str(metadata.get("group") or "")
 
         is_excluded = member.id in excluded_member_ids
+        has_completed_vote = _resolve_row_completed_vote(
+            completed_vote_index=completed_vote_index,
+            student_id=student_id,
+            student_external_id=member.student_external_id,
+            document_number=member.document_number,
+        )
         rows.append(
             {
                 "member_id": member.id,
@@ -1345,6 +1573,7 @@ def _build_process_census_rows(process: ElectionProcess) -> list[dict]:
                 "campus": member.campus,
                 "is_excluded": is_excluded,
                 "is_enabled": not is_excluded,
+                "has_completed_vote": has_completed_vote,
             }
         )
 
@@ -1524,11 +1753,25 @@ class ElectionProcessCensusAPIView(APIView):
         except (TypeError, ValueError):
             page_size = 10
         search_query = str(request.query_params.get("q") or "").strip().lower()
+        voted_filter = str(request.query_params.get("voted") or "").strip().lower()
 
         page = max(1, page)
         page_size = max(1, min(page_size, 100))
 
         rows = _build_process_census_rows(process)
+        if voted_filter:
+            voted_true_values = {"1", "true", "yes", "si", "sí", "voted"}
+            voted_false_values = {"0", "false", "no", "not_voted"}
+            if voted_filter in voted_true_values:
+                rows = [row for row in rows if row.get("has_completed_vote") is True]
+            elif voted_filter in voted_false_values:
+                rows = [row for row in rows if row.get("has_completed_vote") is False]
+            else:
+                return Response(
+                    {"detail": "El parámetro voted debe ser voted/not_voted o true/false."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         if search_query:
             rows = [
                 row
@@ -1723,7 +1966,7 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
         sheet.append(["Modo", "Solo existentes" if mode == "existing" else "Regenerar"])
         sheet.append(["Generado en", timezone.now().isoformat()])
         sheet.append([])
-        sheet.append(["Grado", "Grupo", "Estudiante", "Documento", "Código manual"])
+        sheet.append(["Grado", "Grupo", "Estudiante", "Documento", "Votó", "Código manual"])
 
         generated_count = 0
         reused_count = 0
@@ -1747,6 +1990,7 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
                 row.get("group") or "",
                 row.get("full_name") or "",
                 row.get("document_number") or "",
+                "Sí" if row.get("has_completed_vote") else "No",
                 manual_code,
             ])
 

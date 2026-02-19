@@ -9,6 +9,44 @@ export const api = axios.create({
   xsrfHeaderName: 'X-CSRFToken',
 });
 
+function getCookieValue(name: string): string | null {
+  if (typeof document === 'undefined') return null
+  const encodedName = `${encodeURIComponent(name)}=`
+  const parts = document.cookie.split(';')
+  for (const rawPart of parts) {
+    const part = rawPart.trim()
+    if (part.startsWith(encodedName)) {
+      const rawValue = part.slice(encodedName.length)
+      return decodeURIComponent(rawValue)
+    }
+  }
+  return null
+}
+
+function isUnsafeMethod(method?: string): boolean {
+  const normalized = (method || '').toUpperCase()
+  return normalized === 'POST' || normalized === 'PUT' || normalized === 'PATCH' || normalized === 'DELETE'
+}
+
+let csrfBootstrapPromise: Promise<void> | null = null
+
+async function ensureCsrfCookie(): Promise<void> {
+  if (getCookieValue('csrftoken')) return
+
+  if (!csrfBootstrapPromise) {
+    csrfBootstrapPromise = axios
+      .get(`${API_BASE_URL}/api/auth/csrf/`, {
+        withCredentials: true,
+      })
+      .then(() => undefined)
+      .finally(() => {
+        csrfBootstrapPromise = null
+      })
+  }
+
+  await csrfBootstrapPromise
+}
+
 function getStatusFromUnknownError(err: unknown): number | undefined {
   if (axios.isAxiosError(err)) return err.response?.status
   return (err as { response?: { status?: number } } | undefined)?.response?.status
@@ -69,6 +107,20 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+api.interceptors.request.use(async (config) => {
+  if (!isUnsafeMethod(config.method)) return config
+
+  await ensureCsrfCookie()
+
+  const csrfToken = getCookieValue('csrftoken')
+  if (csrfToken) {
+    config.headers = config.headers || {}
+    config.headers['X-CSRFToken'] = csrfToken
+  }
+
+  return config
+})
 
 export const authApi = {
   ensureCsrf: () => api.get('/api/auth/csrf/'),

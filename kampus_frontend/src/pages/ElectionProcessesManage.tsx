@@ -9,6 +9,7 @@ import ElectionCandidatesPersoneria from './ElectionCandidatesPersoneria'
 import ElectionRolesManage from './ElectionRolesManage'
 import {
   electionsApi,
+  type ElectionObserverCongratsSummary,
   getApiErrorMessage,
   type ElectionOpeningRecord,
   type ElectionProcessItem,
@@ -61,10 +62,13 @@ export default function ElectionProcessesManage() {
   const [scrutinySummary, setScrutinySummary] = useState<ElectionScrutinySummaryResponse | null>(null)
   const [deletingProcessId, setDeletingProcessId] = useState<number | null>(null)
   const [processToDelete, setProcessToDelete] = useState<ElectionProcessItem | null>(null)
+  const [closingProcessId, setClosingProcessId] = useState<number | null>(null)
+  const [processToClose, setProcessToClose] = useState<ElectionProcessItem | null>(null)
   const [editingProcess, setEditingProcess] = useState<ElectionProcessItem | null>(null)
   const [editingStartsAt, setEditingStartsAt] = useState('')
   const [editingEndsAt, setEditingEndsAt] = useState('')
   const [updatingProcessId, setUpdatingProcessId] = useState<number | null>(null)
+  const [closeSummaryByProcess, setCloseSummaryByProcess] = useState<Record<number, ElectionObserverCongratsSummary>>({})
 
   const loadItems = async () => {
     if (!canManage) return
@@ -73,6 +77,13 @@ export default function ElectionProcessesManage() {
     try {
       const response = await electionsApi.listProcesses()
       setItems(response.results)
+      const persistedSummaries = response.results.reduce<Record<number, ElectionObserverCongratsSummary>>((accumulator, item) => {
+        if (item.observer_congrats_summary) {
+          accumulator[item.id] = item.observer_congrats_summary
+        }
+        return accumulator
+      }, {})
+      setCloseSummaryByProcess(persistedSummaries)
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible cargar las jornadas electorales.'))
     } finally {
@@ -130,6 +141,43 @@ export default function ElectionProcessesManage() {
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible abrir la jornada electoral.'))
     }
+  }
+
+  const onCloseProcess = async (processId: number) => {
+    if (!canManage) return
+
+    setClosingProcessId(processId)
+
+    setError(null)
+    setSuccess(null)
+    try {
+      const response = await electionsApi.closeProcess(processId)
+      if (response.observer_congrats_summary) {
+        setCloseSummaryByProcess((prev) => ({
+          ...prev,
+          [processId]: response.observer_congrats_summary as ElectionObserverCongratsSummary,
+        }))
+      }
+
+      const generatedCount =
+        (response.observer_congrats_summary?.winner_annotations_created || 0) +
+        (response.observer_congrats_summary?.participant_annotations_created || 0)
+      if (response.observer_congrats_generated && generatedCount > 0) {
+        setSuccess(`Jornada electoral cerrada correctamente. Felicitaciones generadas: ${generatedCount}.`)
+      } else {
+        setSuccess('Jornada electoral cerrada correctamente. No se generaron nuevas felicitaciones en este cierre.')
+      }
+      setProcessToClose(null)
+      await loadItems()
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'No fue posible cerrar la jornada electoral.'))
+    } finally {
+      setClosingProcessId(null)
+    }
+  }
+
+  const onRequestCloseProcess = (processItem: ElectionProcessItem) => {
+    setProcessToClose(processItem)
   }
 
   const onRequestDeleteProcess = (processItem: ElectionProcessItem) => {
@@ -448,6 +496,11 @@ export default function ElectionProcessesManage() {
                   <div className="space-y-3 md:hidden">
                     {items.map((item) => (
                       <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/60">
+                        {closeSummaryByProcess[item.id] ? (
+                          <p className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
+                            Felicitaciones generadas: {(closeSummaryByProcess[item.id].winner_annotations_created || 0) + (closeSummaryByProcess[item.id].participant_annotations_created || 0)}
+                          </p>
+                        ) : null}
                         <div className="flex items-start justify-between gap-2">
                           <p className="font-semibold text-slate-800 dark:text-slate-100">{item.name}</p>
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -465,6 +518,15 @@ export default function ElectionProcessesManage() {
                           </Button>
                           <Button type="button" variant="secondary" className="h-10 w-full" disabled={item.status === 'OPEN'} onClick={() => void onOpenProcess(item.id)}>
                             {item.status === 'OPEN' ? 'Abierta' : 'Abrir jornada'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10 w-full"
+                            disabled={item.status !== 'OPEN' || closingProcessId === item.id}
+                            onClick={() => onRequestCloseProcess(item)}
+                          >
+                            {closingProcessId === item.id ? 'Cerrando...' : item.status === 'OPEN' ? 'Cerrar jornada' : 'Cerrada'}
                           </Button>
                           <Button
                             type="button"
@@ -503,6 +565,11 @@ export default function ElectionProcessesManage() {
                           <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
                             <div className="flex flex-wrap items-center gap-2">
                               <span>{item.status}</span>
+                              {closeSummaryByProcess[item.id] ? (
+                                <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                  Felicitaciones generadas
+                                </span>
+                              ) : null}
                               {item.votes_count > 0 ? (
                                 <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                                   Con votos ({item.votes_count})
@@ -529,6 +596,14 @@ export default function ElectionProcessesManage() {
                                 onClick={() => void onOpenProcess(item.id)}
                               >
                                 {item.status === 'OPEN' ? 'Abierta' : 'Abrir jornada'}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                disabled={item.status !== 'OPEN' || closingProcessId === item.id}
+                                onClick={() => onRequestCloseProcess(item)}
+                              >
+                                {closingProcessId === item.id ? 'Cerrando...' : item.status === 'OPEN' ? 'Cerrar jornada' : 'Cerrada'}
                               </Button>
                               <Button
                                 type="button"
@@ -850,6 +925,30 @@ export default function ElectionProcessesManage() {
         cancelText="Cancelar"
         variant="destructive"
         loading={deletingProcessId !== null}
+      />
+
+      <ConfirmationModal
+        isOpen={Boolean(processToClose)}
+        onClose={() => {
+          if (!closingProcessId) {
+            setProcessToClose(null)
+          }
+        }}
+        onConfirm={() => {
+          if (processToClose) {
+            void onCloseProcess(processToClose.id)
+          }
+        }}
+        title="Cerrar jornada electoral"
+        description={
+          processToClose
+            ? `¿Cerrar la jornada ${processToClose.name}? Esto generará felicitaciones automáticas en el observador para ganadores y candidatos activos.`
+            : '¿Cerrar esta jornada electoral?'
+        }
+        confirmText="Cerrar jornada"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={closingProcessId !== null}
       />
     </div>
   )

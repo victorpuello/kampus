@@ -247,6 +247,15 @@ CSRF_TRUSTED_ORIGINS = [
 if DEBUG and not CORS_ALLOWED_ORIGINS:
     CORS_ALLOW_ALL_ORIGINS = True
 
+if DEBUG and not CSRF_TRUSTED_ORIGINS:
+    if CORS_ALLOWED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+    else:
+        CSRF_TRUSTED_ORIGINS = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+
 # Usuario personalizado
 AUTH_USER_MODEL = "users.User"
 

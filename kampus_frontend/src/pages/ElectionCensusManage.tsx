@@ -30,6 +30,7 @@ export default function ElectionCensusManage() {
   const [processes, setProcesses] = useState<ElectionProcessItem[]>([])
   const [selectedProcessId, setSelectedProcessId] = useState('')
   const [groupFilter, setGroupFilter] = useState('')
+  const [voteStatusFilter, setVoteStatusFilter] = useState<'all' | 'voted' | 'not_voted'>('all')
   const [groups, setGroups] = useState<string[]>([])
   const [items, setItems] = useState<ElectionProcessCensusMemberItem[]>([])
   const [currentPage, setCurrentPage] = useState(1)
@@ -64,6 +65,15 @@ export default function ElectionCensusManage() {
     [processes, selectedProcessId],
   )
 
+  const votedCountInPage = useMemo(
+    () => items.filter((item) => item.has_completed_vote).length,
+    [items],
+  )
+  const notVotedCountInPage = useMemo(
+    () => items.filter((item) => !item.has_completed_vote).length,
+    [items],
+  )
+
   const loadProcesses = async () => {
     if (!canManage) return
     try {
@@ -81,7 +91,13 @@ export default function ElectionCensusManage() {
     setLoading(true)
     setError(null)
     try {
-      const response = await electionsApi.getProcessCensus(processId, page, pageSize, debouncedSearchQuery || undefined)
+      const response = await electionsApi.getProcessCensus(
+        processId,
+        page,
+        pageSize,
+        debouncedSearchQuery || undefined,
+        voteStatusFilter === 'all' ? undefined : voteStatusFilter,
+      )
       setItems(response.results)
       setGroups(response.groups || [])
       setCurrentPage(response.page || page)
@@ -96,7 +112,7 @@ export default function ElectionCensusManage() {
     } finally {
       setLoading(false)
     }
-  }, [pageSize, debouncedSearchQuery])
+  }, [pageSize, debouncedSearchQuery, voteStatusFilter])
 
   useEffect(() => {
     void loadProcesses()
@@ -130,6 +146,10 @@ export default function ElectionCensusManage() {
   useEffect(() => {
     setCurrentPage(1)
   }, [debouncedSearchQuery])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [voteStatusFilter])
 
   useEffect(() => {
     try {
@@ -294,7 +314,7 @@ export default function ElectionCensusManage() {
         <CardContent className="space-y-4">
           <section className="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
             <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Filtros</h3>
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-5">
               <div className="space-y-1 md:col-span-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Jornada</label>
                 <select
@@ -337,6 +357,26 @@ export default function ElectionCensusManage() {
                   <option value="10">10 por página</option>
                   <option value="20">20 por página</option>
                   <option value="50">50 por página</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Votación</label>
+                <select
+                  value={voteStatusFilter}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (value === 'voted' || value === 'not_voted') {
+                      setVoteStatusFilter(value)
+                      return
+                    }
+                    setVoteStatusFilter('all')
+                  }}
+                  className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="all">Todos</option>
+                  <option value="voted">Votó</option>
+                  <option value="not_voted">No votó</option>
                 </select>
               </div>
             </div>
@@ -411,6 +451,15 @@ export default function ElectionCensusManage() {
           <CardTitle>Estudiantes en censo</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              Votó (página): {votedCountInPage}
+            </span>
+            <span className="rounded-full bg-slate-200 px-2 py-1 font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              No votó (página): {notVotedCountInPage}
+            </span>
+          </div>
+
           {loading ? (
             <p className="text-sm text-slate-600 dark:text-slate-300">Cargando censo...</p>
           ) : (
@@ -429,6 +478,7 @@ export default function ElectionCensusManage() {
                     <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Documento: {item.document_number || '—'}</p>
                     <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Grado/Grupo: {item.grade || '—'} · {item.group || '—'}</p>
                     <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Jornada: {item.shift || '—'}</p>
+                    <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">Votación: {item.has_completed_vote ? 'Completó' : 'No completó'}</p>
                     <div className="mt-3">
                       {item.is_enabled ? (
                         <Button
@@ -466,6 +516,7 @@ export default function ElectionCensusManage() {
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Documento</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Jornada</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Estado</th>
+                      <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Votación</th>
                       <th className="px-3 py-2 text-left font-semibold text-slate-700 dark:text-slate-200">Acción</th>
                     </tr>
                   </thead>
@@ -485,6 +536,17 @@ export default function ElectionCensusManage() {
                           ) : (
                             <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
                               Excluido
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-slate-700 dark:text-slate-200">
+                          {item.has_completed_vote ? (
+                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                              Votó
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                              No votó
                             </span>
                           )}
                         </td>

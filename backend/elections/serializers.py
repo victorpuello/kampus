@@ -29,13 +29,38 @@ from .models import (
 class ElectionProcessManageSerializer(serializers.ModelSerializer):
     votes_count = serializers.IntegerField(read_only=True)
     can_delete = serializers.SerializerMethodField()
+    observer_congrats_generated = serializers.SerializerMethodField()
+    observer_congrats_summary = serializers.SerializerMethodField()
 
     class Meta:
         model = ElectionProcess
-        fields = ["id", "name", "status", "starts_at", "ends_at", "created_at", "votes_count", "can_delete"]
+        fields = [
+            "id",
+            "name",
+            "status",
+            "starts_at",
+            "ends_at",
+            "created_at",
+            "votes_count",
+            "can_delete",
+            "observer_congrats_generated",
+            "observer_congrats_summary",
+        ]
 
     def get_can_delete(self, obj: ElectionProcess) -> bool:
         return int(getattr(obj, "votes_count", 0) or 0) == 0
+
+    def _get_observer_congrats_summary(self, obj: ElectionProcess) -> dict | None:
+        context = self.context if isinstance(self.context, dict) else {}
+        summary_by_process = context.get("observer_congrats_summary_by_process") or {}
+        summary = summary_by_process.get(int(obj.id))
+        return summary if isinstance(summary, dict) else None
+
+    def get_observer_congrats_generated(self, obj: ElectionProcess) -> bool:
+        return self._get_observer_congrats_summary(obj) is not None
+
+    def get_observer_congrats_summary(self, obj: ElectionProcess) -> dict | None:
+        return self._get_observer_congrats_summary(obj)
 
 
 class ElectionProcessCreateSerializer(serializers.ModelSerializer):

@@ -87,6 +87,24 @@ export type ElectionProcessItem = {
   created_at: string
   votes_count: number
   can_delete: boolean
+  observer_congrats_generated?: boolean
+  observer_congrats_summary?: ElectionObserverCongratsSummary | null
+}
+
+export type ElectionObserverCongratsSummary = {
+  process_id: number
+  winner_annotations_created: number
+  participant_annotations_created: number
+  winner_annotations_updated: number
+  participant_annotations_updated: number
+  ai_generated_messages: number
+  fallback_messages: number
+  skipped_without_student: number
+}
+
+export type ElectionProcessCloseResponse = ElectionProcessItem & {
+  observer_congrats_generated: boolean
+  observer_congrats_summary: ElectionObserverCongratsSummary | null
 }
 
 export type ElectionRoleItem = {
@@ -264,6 +282,7 @@ export type ElectionProcessCensusMemberItem = {
   campus: string
   is_excluded: boolean
   is_enabled: boolean
+  has_completed_vote: boolean
 }
 
 export type ElectionProcessCensusResponse = {
@@ -356,6 +375,11 @@ export const electionsApi = {
 
   openProcess: async (processId: number) => {
     const response = await api.post<ElectionProcessItem>(`/api/elections/manage/processes/${processId}/open/`)
+    return response.data
+  },
+
+  closeProcess: async (processId: number) => {
+    const response = await api.post<ElectionProcessCloseResponse>(`/api/elections/manage/processes/${processId}/close/`)
     return response.data
   },
 
@@ -537,12 +561,19 @@ export const electionsApi = {
     return response.data
   },
 
-  getProcessCensus: async (processId: number, page = 1, pageSize = 10, q?: string) => {
+  getProcessCensus: async (
+    processId: number,
+    page = 1,
+    pageSize = 10,
+    q?: string,
+    voted?: 'voted' | 'not_voted',
+  ) => {
     const response = await api.get<ElectionProcessCensusResponse>(`/api/elections/manage/processes/${processId}/census/`, {
       params: {
         page,
         page_size: pageSize,
         ...(q ? { q } : {}),
+        ...(voted ? { voted } : {}),
       },
     })
     return response.data
