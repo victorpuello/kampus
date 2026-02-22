@@ -48,7 +48,21 @@ const getErrorDetail = (err: unknown): string | undefined => {
     }
   }
 
-  const data = anyErr?.response?.data as Record<string, unknown> | undefined
+  let rawData = anyErr?.response?.data
+  if (typeof rawData === 'string') {
+    const trimmed = rawData.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        rawData = JSON.parse(trimmed)
+      } catch {
+        if (trimmed) return trimmed.slice(0, 220)
+      }
+    } else if (trimmed) {
+      return trimmed.slice(0, 220)
+    }
+  }
+
+  const data = rawData as Record<string, unknown> | undefined
   if (!data || typeof data !== 'object') return undefined
 
   const detail = data.detail

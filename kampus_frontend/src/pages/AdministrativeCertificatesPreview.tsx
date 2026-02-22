@@ -15,6 +15,42 @@ function injectBaseHref(html: string, baseHref: string) {
   return `<base href="${baseHref}">${html}`
 }
 
+const getErrorDetail = (err: unknown): string | undefined => {
+  const anyErr = err as {
+    response?: {
+      data?: unknown
+    }
+  }
+
+  let rawData = anyErr?.response?.data
+  if (typeof rawData === 'string') {
+    const trimmed = rawData.trim()
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        rawData = JSON.parse(trimmed)
+      } catch {
+        if (trimmed) return trimmed.slice(0, 220)
+      }
+    } else if (trimmed) {
+      return trimmed.slice(0, 220)
+    }
+  }
+
+  const data = rawData as Record<string, unknown> | undefined
+  if (!data || typeof data !== 'object') return undefined
+
+  const detail = data.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+
+  const error = data.error
+  if (typeof error === 'string' && error.trim()) return error
+
+  const message = data.message
+  if (typeof message === 'string' && message.trim()) return message
+
+  return undefined
+}
+
 export default function AdministrativeCertificatesPreview() {
   const [loading, setLoading] = useState(false)
   const [html, setHtml] = useState('')
@@ -70,7 +106,8 @@ export default function AdministrativeCertificatesPreview() {
       setHtml(injectBaseHref(String(res.data ?? ''), baseUrl))
     } catch (err: unknown) {
       console.error(err)
-      showToast('Error cargando vista previa HTML.', 'error')
+      const detail = getErrorDetail(err)
+      showToast(detail ? `Error cargando vista previa HTML: ${detail}` : 'Error cargando vista previa HTML.', 'error')
       setHtml('')
     } finally {
       setLoading(false)

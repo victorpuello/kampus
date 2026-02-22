@@ -21,6 +21,7 @@ import csv
 import base64
 import io
 import os
+import logging
 import random
 import tempfile
 import re
@@ -91,6 +92,7 @@ from reports.weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 from students.reports import sort_enrollments_for_enrollment_list
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _director_student_ids(user):
@@ -2113,6 +2115,33 @@ def _normalize_text_for_compare(value: str) -> str:
     return "".join(ch for ch in text if ch.isalnum())
 
 
+def _mask_document_number(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) <= 4:
+        return "*" * len(raw)
+    return f"{'*' * (len(raw) - 4)}{raw[-4:]}"
+
+
+def _certificate_preview_log_payload(data: object) -> dict[str, object]:
+    payload = data if isinstance(data, dict) else {}
+    student_full_name = str(payload.get("student_full_name") or "").strip()
+    document_type = str(payload.get("document_type") or "").strip()
+    return {
+        "enrollment_id": payload.get("enrollment_id"),
+        "academic_year_id": payload.get("academic_year_id"),
+        "grade_id": payload.get("grade_id"),
+        "campus_id": payload.get("campus_id"),
+        "academic_year": payload.get("academic_year"),
+        "has_student_full_name": bool(student_full_name),
+        "student_full_name_len": len(student_full_name),
+        "document_type": document_type,
+        "document_number_masked": _mask_document_number(payload.get("document_number")),
+        "keys": sorted(list(payload.keys())),
+    }
+
+
 def _format_certificate_subject_label(
     title: str,
     *,
@@ -3053,6 +3082,7 @@ class CertificateStudiesPreviewView(APIView):
     permission_classes = [IsAdministrativeStaff]
 
     def post(self, request, format=None):
+        safe_payload = _certificate_preview_log_payload(request.data)
         try:
             institution = Institution.objects.first() or Institution()
             built = _certificate_studies_build_context(request, request.data, institution)
@@ -3108,12 +3138,33 @@ class CertificateStudiesPreviewView(APIView):
             html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
             return HttpResponse(html_string, content_type="text/html; charset=utf-8")
         except serializers.ValidationError as e:
+            logger.warning(
+                "Certificate studies preview validation error. user_id=%s payload=%s detail=%s",
+                getattr(getattr(request, "user", None), "id", None),
+                safe_payload,
+                str(getattr(e, "detail", e)),
+            )
             return Response({"detail": str(e.detail) if hasattr(e, 'detail') else str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Enrollment.DoesNotExist:
+            logger.warning(
+                "Certificate studies preview enrollment not found. user_id=%s payload=%s",
+                getattr(getattr(request, "user", None), "id", None),
+                safe_payload,
+            )
             return Response({"detail": "Enrollment not found"}, status=status.HTTP_404_NOT_FOUND)
         except Grade.DoesNotExist:
+            logger.warning(
+                "Certificate studies preview grade not found. user_id=%s payload=%s",
+                getattr(getattr(request, "user", None), "id", None),
+                safe_payload,
+            )
             return Response({"detail": "Grade not found"}, status=status.HTTP_404_NOT_FOUND)
         except TemplateDoesNotExist as e:
+            logger.exception(
+                "Certificate studies preview template missing. user_id=%s payload=%s",
+                getattr(getattr(request, "user", None), "id", None),
+                safe_payload,
+            )
             payload = {
                 "error": "Preview template missing",
                 "detail": str(e),
@@ -3122,6 +3173,11 @@ class CertificateStudiesPreviewView(APIView):
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
+            logger.exception(
+                "Certificate studies preview unexpected error. user_id=%s payload=%s",
+                getattr(getattr(request, "user", None), "id", None),
+                safe_payload,
+            )
             try:
                 from django.db.utils import OperationalError, ProgrammingError  # noqa: PLC0415
 
