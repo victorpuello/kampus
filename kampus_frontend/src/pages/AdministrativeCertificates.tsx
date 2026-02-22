@@ -40,6 +40,29 @@ const downloadBlob = (blob: Blob, filename: string) => {
   window.URL.revokeObjectURL(url)
 }
 
+const getErrorDetail = (err: unknown): string | undefined => {
+  const anyErr = err as {
+    response?: {
+      data?: unknown
+      status?: number
+    }
+  }
+
+  const data = anyErr?.response?.data as Record<string, unknown> | undefined
+  if (!data || typeof data !== 'object') return undefined
+
+  const detail = data.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+
+  const error = data.error
+  if (typeof error === 'string' && error.trim()) return error
+
+  const message = data.message
+  if (typeof message === 'string' && message.trim()) return message
+
+  return undefined
+}
+
 
 export default function AdministrativeCertificates() {
   const user = useAuthStore((s) => s.user)
@@ -118,7 +141,8 @@ export default function AdministrativeCertificates() {
     } catch (err) {
       console.error(err)
       setInlinePreviewHtml('')
-      showToast('Error cargando vista previa HTML.', 'error')
+      const detail = getErrorDetail(err)
+      showToast(detail ? `Error cargando vista previa HTML: ${detail}` : 'Error cargando vista previa HTML.', 'error')
     } finally {
       setInlinePreviewLoading(false)
     }

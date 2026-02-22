@@ -9,6 +9,7 @@ from django.http import FileResponse, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.core.files.base import ContentFile
+from django.template import TemplateDoesNotExist
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.contrib.auth import get_user_model
@@ -3052,73 +3053,93 @@ class CertificateStudiesPreviewView(APIView):
     permission_classes = [IsAdministrativeStaff]
 
     def post(self, request, format=None):
-        institution = Institution.objects.first() or Institution()
-
         try:
+            institution = Institution.objects.first() or Institution()
             built = _certificate_studies_build_context(request, request.data, institution)
+            # Preview-only token (not persisted): used only to render QR visuals.
+            preview_token = secrets.token_urlsafe(16)
+            verify_path = reverse("public-verify", kwargs={"token": preview_token})
+            verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
+
+            # For HTML preview, use a data URI so the browser can render it.
+            # (Temp file paths are only resolvable on the server, not by the browser.)
+            try:
+                qr_image_src = _qr_data_uri(verify_url)
+            except Exception:
+                qr_image_src = ""
+
+            # Compute a deterministic seal hash for preview (not stored).
+            seal_payload = {
+                "student_full_name": built["student_full_name"],
+                "document_type": built["document_type"],
+                "document_number": built["document_number"],
+                "academic_year": built["academic_year"],
+                "grade_id": built["grade"].id,
+                "grade_name": built["grade"].name,
+                "rows": built["rows"],
+            }
+            try:
+                seal_hash = hashlib.sha256(json.dumps(seal_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+            except Exception:
+                seal_hash = ""
+
+            ctx = {
+                "institution": institution,
+                "campus": built["campus"],
+                "student_full_name": built["student_full_name"],
+                "document_type": built["document_type"],
+                "document_number": built["document_number"],
+                "academic_year": built["academic_year"],
+                "grade_name": built["grade"].name,
+                "academic_level": built["academic_level"],
+                "rows": built["rows"],
+                "conduct": built["conduct"],
+                "final_status": built["final_status"],
+                "place": built["place"],
+                "issue_date": built["issue_date"],
+                "signer_name": built["signer_name"],
+                "signer_role": built["signer_role"],
+                "verify_url": verify_url,
+                "verify_token": preview_token,
+                "qr_image_src": qr_image_src,
+                "seal_hash": seal_hash,
+            }
+
+            html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
+            return HttpResponse(html_string, content_type="text/html; charset=utf-8")
         except serializers.ValidationError as e:
             return Response({"detail": str(e.detail) if hasattr(e, 'detail') else str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Enrollment.DoesNotExist:
             return Response({"detail": "Enrollment not found"}, status=status.HTTP_404_NOT_FOUND)
         except Grade.DoesNotExist:
             return Response({"detail": "Grade not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            payload = {"error": "Error preparing preview", "detail": str(e)}
+        except TemplateDoesNotExist as e:
+            payload = {
+                "error": "Preview template missing",
+                "detail": str(e),
+            }
             if getattr(settings, 'DEBUG', False):
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            try:
+                from django.db.utils import OperationalError, ProgrammingError  # noqa: PLC0415
 
-        # Preview-only token (not persisted): used only to render QR visuals.
-        preview_token = secrets.token_urlsafe(16)
-        verify_path = reverse("public-verify", kwargs={"token": preview_token})
-        verify_url = _sanitize_url_path(_public_build_absolute_uri(request, verify_path))
+                if isinstance(e, (OperationalError, ProgrammingError)):
+                    return Response(
+                        {
+                            "error": "Database schema out of date",
+                            "detail": "Parece que faltan migraciones en el servidor. Ejecuta `python manage.py migrate` (apps: students, core, reports).",
+                        },
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+            except Exception:
+                pass
 
-        # For HTML preview, use a data URI so the browser can render it.
-        # (Temp file paths are only resolvable on the server, not by the browser.)
-        try:
-            qr_image_src = _qr_data_uri(verify_url)
-        except Exception:
-            qr_image_src = ""
-
-        # Compute a deterministic seal hash for preview (not stored).
-        seal_payload = {
-            "student_full_name": built["student_full_name"],
-            "document_type": built["document_type"],
-            "document_number": built["document_number"],
-            "academic_year": built["academic_year"],
-            "grade_id": built["grade"].id,
-            "grade_name": built["grade"].name,
-            "rows": built["rows"],
-        }
-        try:
-            seal_hash = hashlib.sha256(json.dumps(seal_payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
-        except Exception:
-            seal_hash = ""
-
-        ctx = {
-            "institution": institution,
-            "campus": built["campus"],
-            "student_full_name": built["student_full_name"],
-            "document_type": built["document_type"],
-            "document_number": built["document_number"],
-            "academic_year": built["academic_year"],
-            "grade_name": built["grade"].name,
-            "academic_level": built["academic_level"],
-            "rows": built["rows"],
-            "conduct": built["conduct"],
-            "final_status": built["final_status"],
-            "place": built["place"],
-            "issue_date": built["issue_date"],
-            "signer_name": built["signer_name"],
-            "signer_role": built["signer_role"],
-            "verify_url": verify_url,
-            "verify_token": preview_token,
-            "qr_image_src": qr_image_src,
-            "seal_hash": seal_hash,
-        }
-
-        html_string = render_to_string("students/reports/certificate_studies_pdf.html", ctx)
-        return HttpResponse(html_string, content_type="text/html; charset=utf-8")
+            payload = {"error": "Error rendering certificate preview", "detail": str(e)}
+            if getattr(settings, 'DEBUG', False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
