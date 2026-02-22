@@ -18,6 +18,7 @@ type AuthState = {
   error: string | null
   login: (username: string, password: string) => Promise<void>
   logout: () => void
+  logoutLocal: () => void
   fetchMe: () => Promise<void>
 }
 
@@ -48,6 +49,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     })
     set({ user: null })
   },
+  logoutLocal: () => {
+    set({ user: null })
+  },
   fetchMe: async () => {
     try {
       const { data } = await authApi.me()
@@ -67,7 +71,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 // Keep UI state in sync when the API layer detects invalid/expired tokens.
 if (typeof window !== 'undefined') {
   window.addEventListener(AUTH_LOGOUT_EVENT, () => {
-    useAuthStore.getState().logout()
+    useAuthStore.getState().logoutLocal()
   })
 }
 

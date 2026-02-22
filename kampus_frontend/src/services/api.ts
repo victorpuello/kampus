@@ -65,21 +65,42 @@ function emitAuthLogout() {
 }
 
 let isRefreshing = false;
-let pendingRequests: Array<() => void> = [];
+let pendingRequests: Array<{
+  resolve: () => void
+  reject: (error: unknown) => void
+}> = [];
+
+function resolvePendingRequests() {
+  pendingRequests.forEach(({ resolve }) => resolve())
+  pendingRequests = []
+}
+
+function rejectPendingRequests(error: unknown) {
+  pendingRequests.forEach(({ reject }) => reject(error))
+  pendingRequests = []
+}
 
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
     if (!original) return Promise.reject(error)
+    const requestUrl = original.url || ''
+
+    if (requestUrl.includes('/api/auth/refresh/')) {
+      return Promise.reject(error)
+    }
     
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
 
       if (isRefreshing) {
-        return new Promise((resolve) => {
-          pendingRequests.push(() => {
-            resolve(api(original));
+        return new Promise((resolve, reject) => {
+          pendingRequests.push({
+            resolve: () => {
+              resolve(api(original));
+            },
+            reject,
           });
         });
       }
@@ -89,14 +110,13 @@ api.interceptors.response.use(
       try {
         await api.post('/api/auth/refresh/')
 
-        pendingRequests.forEach((cb) => cb());
-        pendingRequests = [];
+        resolvePendingRequests();
         isRefreshing = false;
 
         return api(original);
       } catch (err) {
         isRefreshing = false;
-        pendingRequests = [];
+        rejectPendingRequests(err);
         const status = getStatusFromUnknownError(err)
         if (status === 401 || status === 403) {
           emitAuthLogout()
