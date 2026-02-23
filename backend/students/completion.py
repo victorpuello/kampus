@@ -4,11 +4,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import os
+import logging
 
 from django.core.cache import cache
 
 from academic.models import AcademicYear
 from students.models import Enrollment, FamilyMember, Student, StudentDocument
+
+
+logger = logging.getLogger(__name__)
 
 
 NO_ACTIVE_ENROLLMENT_MESSAGE = "Sin matrícula activa en el año actual; no se calcula el progreso."
@@ -36,7 +40,29 @@ def invalidate_completion_cache_for_student(student_id: int) -> None:
     active_year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).first()
     if active_year is None:
         return
-    cache.delete(_completion_cache_key(int(student_id), int(active_year.id)))
+    try:
+        cache.delete(_completion_cache_key(int(student_id), int(active_year.id)))
+    except Exception:
+        logger.warning(
+            "Failed to delete completion cache for student_id=%s (continuing)",
+            student_id,
+            exc_info=True,
+        )
+
+
+def _cache_get_safe(key: str) -> Any:
+    try:
+        return cache.get(key)
+    except Exception as exc:
+        logger.warning("Completion cache get failed for key=%s (continuing uncached): %s", key, exc)
+        return None
+
+
+def _cache_set_safe(key: str, payload: dict[str, Any]) -> None:
+    try:
+        cache.set(key, payload, timeout=COMPLETION_CACHE_TTL_SECONDS)
+    except Exception as exc:
+        logger.warning("Completion cache set failed for key=%s (continuing uncached): %s", key, exc)
 
 
 @dataclass(frozen=True)
@@ -203,7 +229,7 @@ def compute_completion_for_students(student_ids: list[int]) -> tuple[dict[int, d
     missing_ids: list[int] = []
     for sid in student_ids:
         key = _completion_cache_key(int(sid), int(active_year.id))
-        cached = cache.get(key)
+        cached = _cache_get_safe(key)
         if cached is None:
             missing_ids.append(int(sid))
             continue
@@ -213,11 +239,7 @@ def compute_completion_for_students(student_ids: list[int]) -> tuple[dict[int, d
         computed_by_id = _compute_completion_for_students_uncached(missing_ids, active_year)
         for sid, payload in computed_by_id.items():
             completion_by_id[int(sid)] = payload
-            cache.set(
-                _completion_cache_key(int(sid), int(active_year.id)),
-                payload,
-                timeout=COMPLETION_CACHE_TTL_SECONDS,
-            )
+            _cache_set_safe(_completion_cache_key(int(sid), int(active_year.id)), payload)
 
     return completion_by_id, _aggregate_group_summary(completion_by_id)
 
