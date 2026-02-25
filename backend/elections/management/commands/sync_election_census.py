@@ -4,8 +4,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from urllib import error as urllib_error
-from urllib import request as urllib_request
+from urllib import parse as urllib_parse
+
+import requests
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
@@ -347,6 +348,10 @@ class Command(BaseCommand):
         extra_headers: dict[str, str],
         timeout_seconds: int,
     ) -> list[dict[str, Any]]:
+        parsed_url = urllib_parse.urlparse(source_url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise CommandError("source-url inválida. Solo se permiten URLs HTTP/HTTPS absolutas.")
+
         headers = {
             "Accept": "application/json",
             **extra_headers,
@@ -354,14 +359,16 @@ class Command(BaseCommand):
         if auth_token:
             headers.setdefault("Authorization", f"Bearer {auth_token}")
 
-        req = urllib_request.Request(source_url, method="GET", headers=headers)
         try:
-            with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
-                raw = response.read().decode("utf-8")
-        except urllib_error.HTTPError as exc:
-            raise CommandError(f"Error HTTP consultando source-url ({exc.code}): {exc.reason}") from exc
-        except urllib_error.URLError as exc:
-            raise CommandError(f"No fue posible conectar con source-url: {exc.reason}") from exc
+            response = requests.get(source_url, headers=headers, timeout=timeout_seconds)
+            response.raise_for_status()
+            raw = response.text
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else "desconocido"
+            reason = exc.response.reason if exc.response is not None else str(exc)
+            raise CommandError(f"Error HTTP consultando source-url ({status_code}): {reason}") from exc
+        except requests.RequestException as exc:
+            raise CommandError(f"No fue posible conectar con source-url: {exc}") from exc
 
         try:
             payload = json.loads(raw)
