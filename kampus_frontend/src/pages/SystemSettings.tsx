@@ -32,6 +32,20 @@ const resolveTabFromHash = (hash: string): SystemTab => {
   return SYSTEM_TABS.includes(clean as SystemTab) ? (clean as SystemTab) : 'mailgun'
 }
 
+const getRequestErrorMessage = (error: unknown, fallback: string): string => {
+  const responseData = (error as { response?: { data?: unknown } } | undefined)?.response?.data
+  if (typeof responseData === 'string' && responseData.trim()) return responseData
+
+  if (responseData && typeof responseData === 'object') {
+    const detail = (responseData as Record<string, unknown>).detail
+    const backendError = (responseData as Record<string, unknown>).error
+    if (typeof backendError === 'string' && backendError.trim()) return backendError
+    if (typeof detail === 'string' && detail.trim()) return detail
+  }
+
+  return fallback
+}
+
 export default function SystemSettings() {
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
@@ -117,8 +131,8 @@ export default function SystemSettings() {
       setMailgunWebhookMasked(data.mailgun_webhook_signing_key_masked)
       setMailgunApiKeyConfigured(data.mailgun_api_key_configured)
       setMailgunWebhookConfigured(data.mailgun_webhook_signing_key_configured)
-    } catch {
-      setMailgunError('No se pudo cargar la configuración de Mailgun.')
+    } catch (error) {
+      setMailgunError(getRequestErrorMessage(error, 'No se pudo cargar la configuración de Mailgun.'))
     } finally {
       setMailgunLoading(false)
     }
@@ -187,8 +201,8 @@ export default function SystemSettings() {
       }))
       await loadMailgunAudits(0)
       setMailgunMessage('Configuración de correo guardada correctamente.')
-    } catch {
-      setMailgunError('No se pudo guardar la configuración de Mailgun.')
+    } catch (error) {
+      setMailgunError(getRequestErrorMessage(error, 'No se pudo guardar la configuración de Mailgun.'))
     } finally {
       setMailgunSaving(false)
     }
@@ -206,8 +220,8 @@ export default function SystemSettings() {
     try {
       const res = await systemApi.sendMailgunTestEmail(testEmail.trim())
       setMailgunMessage(res.data.detail || 'Correo de prueba enviado correctamente.')
-    } catch {
-      setMailgunError('No se pudo enviar el correo de prueba.')
+    } catch (error) {
+      setMailgunError(getRequestErrorMessage(error, 'No se pudo enviar el correo de prueba.'))
     } finally {
       setMailgunTesting(false)
     }

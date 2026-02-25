@@ -4,6 +4,7 @@ import csv
 import hashlib
 import hmac
 import io
+import logging
 
 from django.conf import settings
 from django.core import signing
@@ -27,6 +28,9 @@ from .preferences import (
 	validate_unsubscribe_token,
 )
 from .runtime_settings import apply_effective_mail_settings, get_effective_mail_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_message_id(value: str) -> str:
@@ -217,11 +221,13 @@ class MailSettingsTestView(APIView):
 	def post(self, request, *args, **kwargs):
 		test_email = str((request.data or {}).get("test_email") or "").strip().lower()
 		if not test_email:
+			logger.warning("Mailgun test email rejected: empty test_email by user_id=%s", getattr(request.user, "id", None))
 			return Response({"detail": "test_email es requerido."}, status=status.HTTP_400_BAD_REQUEST)
 
 		try:
 			validate_email(test_email)
 		except ValidationError:
+			logger.warning("Mailgun test email rejected: invalid format '%s' by user_id=%s", test_email, getattr(request.user, "id", None))
 			return Response({"detail": "test_email no es válido."}, status=status.HTTP_400_BAD_REQUEST)
 
 		result = send_email(
@@ -232,6 +238,13 @@ class MailSettingsTestView(APIView):
 		)
 
 		if not result.sent:
+			logger.warning(
+				"Mailgun test email failed for '%s': status=%s error=%s user_id=%s",
+				test_email,
+				result.delivery.status,
+				result.delivery.error_message,
+				getattr(request.user, "id", None),
+			)
 			return Response(
 				{
 					"detail": "El correo de prueba no pudo enviarse.",
