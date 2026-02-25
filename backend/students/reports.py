@@ -6,7 +6,7 @@ from typing import Any
 from core.models import Institution
 
 from academic.models import AcademicYear, Grade, Group
-from .models import Enrollment
+from .models import Enrollment, FamilyMember
 
 
 def _natural_sort_key(value: str) -> tuple[tuple[int, object], ...]:
@@ -99,4 +99,63 @@ def build_enrollment_list_report_context(*, year_id: int | None, grade_id: int |
 		"year_name": year_name,
 		"grade_name": grade_name,
 		"group_name": group_name,
+	}
+
+
+def build_family_directory_by_group_report_context() -> dict[str, Any]:
+	active_year = AcademicYear.objects.filter(status="ACTIVE").first()
+
+	enrollments_qs = (
+		Enrollment.objects.select_related("student", "student__user", "grade", "group", "academic_year")
+		.filter(status="ACTIVE")
+	)
+
+	year_name: str | int = "Sin año activo"
+	if active_year:
+		enrollments_qs = enrollments_qs.filter(academic_year=active_year)
+		year_name = active_year.year
+
+	enrollments = sort_enrollments_for_enrollment_list(list(enrollments_qs))
+	student_ids = [enrollment.student_id for enrollment in enrollments]
+
+	family_members = (
+		FamilyMember.objects.filter(student_id__in=student_ids)
+		.order_by("student_id", "-is_main_guardian", "id")
+	)
+	guardian_by_student_id: dict[int, FamilyMember] = {}
+	for family_member in family_members:
+		if family_member.student_id not in guardian_by_student_id:
+			guardian_by_student_id[family_member.student_id] = family_member
+
+	rows: list[dict[str, Any]] = []
+	for enrollment in enrollments:
+		student = enrollment.student
+		student_user = student.user
+		student_name = ""
+		if student_user is not None:
+			student_name = (student_user.get_full_name() or "").strip()
+		if not student_name:
+			student_name = str(student)
+
+		guardian = guardian_by_student_id.get(student.pk)
+		rows.append(
+			{
+				"grade_ordinal": getattr(enrollment.grade, "ordinal", None),
+				"grade_name": (getattr(enrollment.grade, "name", "") or "").strip(),
+				"group_name": (getattr(enrollment.group, "name", "") or "").strip(),
+				"student_name": student_name,
+				"guardian_name": (guardian.full_name if guardian else "") or "",
+				"guardian_document": (guardian.document_number if guardian else "") or "",
+				"guardian_phone": (guardian.phone if guardian else "") or "",
+				"guardian_address": (guardian.address if guardian else "") or "",
+				"guardian_relationship": (guardian.relationship if guardian else "") or "",
+			}
+		)
+
+	institution = Institution.objects.first() or Institution()
+
+	return {
+		"institution": institution,
+		"year_name": year_name,
+		"rows": rows,
 	}

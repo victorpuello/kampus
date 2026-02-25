@@ -18,6 +18,8 @@ from django.conf import settings
 from django.urls import reverse
 from urllib.parse import urlsplit, urlunsplit
 import csv
+import json
+import hashlib
 import base64
 import io
 import os
@@ -61,6 +63,7 @@ from .models import (
 from rest_framework.permissions import AllowAny, IsAuthenticated, BasePermission
 
 from users.permissions import IsAdministrativeStaff
+from users.security import generate_temporary_password
 
 from audit.services import log_event
 
@@ -94,6 +97,47 @@ from students.reports import sort_enrollments_for_enrollment_list
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _students_import_max_file_size_bytes() -> int:
+    raw_value = str(os.getenv("KAMPUS_STUDENTS_IMPORT_MAX_MB", "10") or "10").strip()
+    try:
+        size_mb = int(raw_value)
+    except Exception:
+        size_mb = 10
+    if size_mb < 1:
+        size_mb = 1
+    return size_mb * 1024 * 1024
+
+
+def _validate_import_upload_size(upload, *, label: str = "Archivo") -> None:
+    max_size_bytes = _students_import_max_file_size_bytes()
+    upload_size = getattr(upload, "size", None)
+    if upload_size is None:
+        return
+    if int(upload_size) > max_size_bytes:
+        max_mb = max_size_bytes // (1024 * 1024)
+        raise ValueError(f"{label} supera el tamaño máximo permitido ({max_mb} MB).")
+
+
+def _iter_csv_dict_rows(upload):
+    try:
+        upload.seek(0)
+    except Exception:
+        pass
+
+    text_stream = io.TextIOWrapper(upload.file, encoding="utf-8-sig", newline="")
+    try:
+        reader = csv.DictReader(text_stream)
+        for row in reader:
+            yield row
+    except UnicodeDecodeError as exc:
+        raise ValueError("El archivo CSV debe estar codificado en UTF-8 (con o sin BOM).") from exc
+    finally:
+        try:
+            text_stream.detach()
+        except Exception:
+            pass
 
 
 def _director_student_ids(user):
@@ -1033,20 +1077,18 @@ class StudentViewSet(viewsets.ModelViewSet):
     def _read_rows_from_upload(self, upload):
         name = getattr(upload, 'name', '') or ''
         ext = os.path.splitext(name.lower())[1]
+        _validate_import_upload_size(upload, label="El archivo de importación")
 
         if ext == '.csv':
-            raw = upload.read()
-            # Try utf-8 with BOM first, then fallback.
-            try:
-                text = raw.decode('utf-8-sig')
-            except Exception:
-                text = raw.decode('latin-1')
-            f = io.StringIO(text)
-            reader = csv.DictReader(f)
-            return [
-                {self._normalize_header(k): v for k, v in (row or {}).items() if k is not None}
-                for row in reader
-            ]
+            def _normalized_rows():
+                for row in _iter_csv_dict_rows(upload):
+                    yield {
+                        self._normalize_header(k): v
+                        for k, v in (row or {}).items()
+                        if k is not None
+                    }
+
+            return _normalized_rows()
 
         if ext in {'.xlsx', '.xls'}:
             if ext == '.xlsx':
@@ -1104,34 +1146,37 @@ class StudentViewSet(viewsets.ModelViewSet):
         errors = []
 
         # Row numbers are 2-based (1 header + first data row = 2)
-        for idx, raw_row in enumerate(rows, start=2):
-            try:
-                payload = self._map_row_to_student_payload(raw_row)
+        try:
+            for idx, raw_row in enumerate(rows, start=2):
+                try:
+                    payload = self._map_row_to_student_payload(raw_row)
 
-                # Enforce required fields for bulk import to avoid unique-blank collisions
-                if not payload.get('first_name'):
-                    raise serializers.ValidationError({"first_name": "Este campo es requerido."})
-                if not payload.get('last_name'):
-                    raise serializers.ValidationError({"last_name": "Este campo es requerido."})
-                if not payload.get('document_number'):
-                    raise serializers.ValidationError({"document_number": "Este campo es requerido."})
+                    # Enforce required fields for bulk import to avoid unique-blank collisions
+                    if not payload.get('first_name'):
+                        raise serializers.ValidationError({"first_name": "Este campo es requerido."})
+                    if not payload.get('last_name'):
+                        raise serializers.ValidationError({"last_name": "Este campo es requerido."})
+                    if not payload.get('document_number'):
+                        raise serializers.ValidationError({"document_number": "Este campo es requerido."})
 
-                serializer = self.get_serializer(data=payload)
-                serializer.is_valid(raise_exception=True)
-                with transaction.atomic():
-                    serializer.save()
-                created += 1
-            except Exception as e:
-                failed += 1
-                detail = None
-                if hasattr(e, 'detail'):
-                    detail = e.detail
-                else:
-                    detail = str(e)
-                errors.append({
-                    'row': idx,
-                    'error': detail,
-                })
+                    serializer = self.get_serializer(data=payload)
+                    serializer.is_valid(raise_exception=True)
+                    with transaction.atomic():
+                        serializer.save()
+                    created += 1
+                except Exception as e:
+                    failed += 1
+                    detail = None
+                    if hasattr(e, 'detail'):
+                        detail = e.detail
+                    else:
+                        detail = str(e)
+                    errors.append({
+                        'row': idx,
+                        'error': detail,
+                    })
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(
             {
@@ -1979,12 +2024,21 @@ class BulkEnrollmentView(APIView):
             return Response({"error": "No file provided"}, status=status.HTTP_400_BAD_REQUEST)
         
         file_obj = request.FILES['file']
-        if not file_obj.name.endswith('.csv'):
+        if not file_obj.name.lower().endswith('.csv'):
              return Response({"error": "File must be CSV"}, status=status.HTTP_400_BAD_REQUEST)
 
-        decoded_file = file_obj.read().decode('utf-8')
-        io_string = io.StringIO(decoded_file)
-        reader = csv.DictReader(io_string)
+        try:
+            _validate_import_upload_size(file_obj, label="El archivo CSV")
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            reader = csv.DictReader(io.TextIOWrapper(file_obj.file, encoding='utf-8-sig', newline=''))
+        except UnicodeDecodeError:
+            return Response(
+                {"error": "CSV inválido: usa codificación UTF-8 (con o sin BOM)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         
         results = {"success": 0, "errors": []}
         
@@ -1994,66 +2048,80 @@ class BulkEnrollmentView(APIView):
              return Response({"error": "No active academic year found"}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            for row_index, row in enumerate(reader):
-                try:
-                    # Expected columns: document_number, first_name, last_name, grade_name, group_name (optional)
-                    doc_number = row.get('document_number')
-                    if not doc_number:
-                        continue
-                        
-                    # Find or Create Student
-                    student = Student.objects.filter(document_number=doc_number).first()
-                    if not student:
-                        # Create basic student
-                        first_name = row.get('first_name', 'Unknown')
-                        last_name = row.get('last_name', 'Unknown')
-                        email = row.get('email', '')
-                        
-                        # Generate username
-                        base_username = f"{first_name[:1]}{last_name}".lower().replace(" ", "")
-                        username = base_username
-                        counter = 1
-                        while User.objects.filter(username=username).exists():
-                            username = f"{base_username}{counter}"
-                            counter += 1
+            try:
+                for row_index, row in enumerate(reader):
+                    try:
+                        # Expected columns: document_number, first_name, last_name, grade_name, group_name (optional)
+                        doc_number = row.get('document_number')
+                        if not doc_number:
+                            continue
                             
-                        user = User.objects.create_user(username=username, password=doc_number, first_name=first_name, last_name=last_name, email=email, role='STUDENT')
-                        student = Student.objects.create(user=user, document_number=doc_number)
-                    
-                    # Find Grade
-                    grade_name = row.get('grade_name')
-                    grade = Grade.objects.filter(name=grade_name).first()
-                    if not grade:
-                        results['errors'].append(f"Row {row_index}: Grade '{grade_name}' not found")
-                        continue
+                        # Find or Create Student
+                        student = Student.objects.filter(document_number=doc_number).first()
+                        if not student:
+                            # Create basic student
+                            first_name = row.get('first_name', 'Unknown')
+                            last_name = row.get('last_name', 'Unknown')
+                            email = row.get('email', '')
+                            
+                            # Generate username
+                            base_username = f"{first_name[:1]}{last_name}".lower().replace(" ", "")
+                            username = base_username
+                            counter = 1
+                            while User.objects.filter(username=username).exists():
+                                username = f"{base_username}{counter}"
+                                counter += 1
+                            
+                            temporary_password = generate_temporary_password()
+                            user = User.objects.create_user(
+                                username=username,
+                                password=temporary_password,
+                                first_name=first_name,
+                                last_name=last_name,
+                                email=email,
+                                role='STUDENT',
+                                must_change_password=True,
+                            )
+                            student = Student.objects.create(user=user, document_number=doc_number)
+                        
+                        # Find Grade
+                        grade_name = row.get('grade_name')
+                        grade = Grade.objects.filter(name=grade_name).first()
+                        if not grade:
+                            results['errors'].append(f"Row {row_index}: Grade '{grade_name}' not found")
+                            continue
 
-                    # Find Group (Optional)
-                    group = None
-                    group_name = row.get('group_name')
-                    if group_name:
-                        group = Group.objects.filter(name=group_name, grade=grade, academic_year=active_year).first()
-                        if not group:
-                             results['errors'].append(f"Row {row_index}: Group '{group_name}' not found for grade '{grade_name}'")
-                             # Continue without group or skip? Let's skip enrollment if group specified but not found
-                             continue
-                    
-                    # Check existing enrollment
-                    if Enrollment.objects.filter(student=student, academic_year=active_year).exists():
-                        results['errors'].append(f"Row {row_index}: Student {doc_number} already enrolled in this year")
-                        continue
+                        # Find Group (Optional)
+                        group = None
+                        group_name = row.get('group_name')
+                        if group_name:
+                            group = Group.objects.filter(name=group_name, grade=grade, academic_year=active_year).first()
+                            if not group:
+                                 results['errors'].append(f"Row {row_index}: Group '{group_name}' not found for grade '{grade_name}'")
+                                 continue
+                        
+                        # Check existing enrollment
+                        if Enrollment.objects.filter(student=student, academic_year=active_year).exists():
+                            results['errors'].append(f"Row {row_index}: Student {doc_number} already enrolled in this year")
+                            continue
 
-                    # Create Enrollment
-                    Enrollment.objects.create(
-                        student=student,
-                        academic_year=active_year,
-                        grade=grade,
-                        group=group,
-                        status='ACTIVE'
-                    )
-                    results['success'] += 1
-                    
-                except Exception as e:
-                    results['errors'].append(f"Row {row_index}: {str(e)}")
+                        # Create Enrollment
+                        Enrollment.objects.create(
+                            student=student,
+                            academic_year=active_year,
+                            grade=grade,
+                            group=group,
+                            status='ACTIVE'
+                        )
+                        results['success'] += 1
+                        
+                    except Exception as e:
+                        results['errors'].append(f"Row {row_index}: {str(e)}")
+            except UnicodeDecodeError:
+                return Response(
+                    {"error": "CSV inválido: usa codificación UTF-8 (con o sin BOM)."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         
         return Response(results)
 
@@ -3249,6 +3317,9 @@ class PublicCertificateVerifyView(APIView):
             except Exception:
                 pass
 
+        masked_student_name = _mask_public_student_name(student_name)
+        masked_document_number = _mask_public_document_number(document_number)
+
         return Response(
             {
                 "valid": issue.status == CertificateIssue.STATUS_ISSUED,
@@ -3259,8 +3330,8 @@ class PublicCertificateVerifyView(APIView):
                 "seal_hash": issue.seal_hash,
                 "revoked": issue.status == CertificateIssue.STATUS_REVOKED,
                 "revoke_reason": issue.revoke_reason,
-                "student_full_name": student_name or "",
-                "document_number": document_number or "",
+                "student_full_name": masked_student_name,
+                "document_number": masked_document_number,
                 "academic_year": academic_year or "",
                 "grade": grade_name or "",
                 "grade_id": payload.get("grade_id"),
@@ -3281,6 +3352,34 @@ def _normalize_uuid_like(value: str) -> py_uuid.UUID:
     if len(hex32) != 32:
         raise ValueError("Invalid UUID")
     return py_uuid.UUID(hex=hex32)
+
+
+def _mask_public_student_name(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    tokens = [t for t in raw.split() if t]
+    if not tokens:
+        return ""
+
+    masked_tokens = []
+    for token in tokens:
+        first = token[:1]
+        masked_tokens.append(f"{first}***")
+    return " ".join(masked_tokens)
+
+
+def _mask_public_document_number(value: str | None) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    tail = digits[-4:] if digits else raw[-4:]
+    if not tail:
+        return ""
+    return f"****{tail}"
 
 
 def _sanitize_url_path(url: str) -> str:
@@ -3620,6 +3719,9 @@ class PublicCertificateVerifyUIView(View):
             except Exception:
                 pass
 
+        masked_student_name = _mask_public_student_name(student_name)
+        masked_document_number = _mask_public_document_number(document_number)
+
         final_status = payload.get("final_status")
         if not final_status and issue.enrollment:
             final_status = getattr(issue.enrollment, "final_status", "")
@@ -3715,8 +3817,8 @@ class PublicCertificateVerifyUIView(View):
             "seal_hash": issue.seal_hash,
             "revoked": issue.status == CertificateIssue.STATUS_REVOKED,
             "revoke_reason": issue.revoke_reason,
-            "student_full_name": student_name or "",
-            "document_number": document_number or "",
+            "student_full_name": masked_student_name,
+            "document_number": masked_document_number,
             "academic_year": academic_year or "",
             "grade": grade_name or "",
             "grade_id": payload.get("grade_id"),

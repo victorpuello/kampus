@@ -1,9 +1,9 @@
 from django.core.management.base import BaseCommand
-from django.core.mail import send_mail
-from django.conf import settings
 from students.models import Student, Enrollment, StudentDocument
 from academic.models import AcademicYear
-from datetime import datetime
+from django.utils import timezone
+
+from communications.email_service import send_email
 
 class Command(BaseCommand):
     help = 'Sends weekly reminders for missing student documents'
@@ -32,6 +32,7 @@ class Command(BaseCommand):
         }
 
         emails_sent = 0
+        current_week = timezone.localdate().isocalendar().week
 
         for enrollment in enrollments:
             student = enrollment.student
@@ -64,15 +65,20 @@ class Command(BaseCommand):
                     )
                     
                     try:
-                        send_mail(
-                            subject,
-                            message,
-                            settings.DEFAULT_FROM_EMAIL,
-                            [recipient_email],
-                            fail_silently=False,
+                        result = send_email(
+                            recipient_email=recipient_email,
+                            subject=subject,
+                            body_text=message,
+                            category="operational-notification",
+                            idempotency_key=f"missing-docs:{active_year.year}:student:{student.id}:week:{current_week}",
                         )
-                        emails_sent += 1
-                        self.stdout.write(f"Email sent to {recipient_email} for student {student.id}")
+                        if result.sent:
+                            emails_sent += 1
+                            self.stdout.write(f"Email sent to {recipient_email} for student {student.id}")
+                        else:
+                            self.stdout.write(
+                                f"Skipped duplicate email for {recipient_email} (key={result.delivery.idempotency_key})"
+                            )
                     except Exception as e:
                         self.stdout.write(self.style.ERROR(f"Failed to send email to {recipient_email}: {str(e)}"))
         

@@ -1,0 +1,33 @@
+services:
+  backend:
+    environment:
+      - DJANGO_ENV=production
+      - DJANGO_DEBUG=false
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - DJANGO_SECURE_SSL_REDIRECT=true
+      - DJANGO_SESSION_COOKIE_SECURE=true
+      - DJANGO_CSRF_COOKIE_SECURE=true
+      - DJANGO_SECURE_HSTS_SECONDS=${DJANGO_SECURE_HSTS_SECONDS:-31536000}
+      - DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=true
+      - DJANGO_SECURE_HSTS_PRELOAD=true
+      - KAMPUS_CREATE_SUPERUSER=false
+      - KAMPUS_RUN_MIGRATIONS=true
+
+  backend_worker:
+    environment:
+      - DJANGO_ENV=production
+      - DJANGO_DEBUG=false
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - KAMPUS_CREATE_SUPERUSER=false
+      - KAMPUS_RUN_MIGRATIONS=false
+
+  backend_scheduler:
+    environment:
+      - DJANGO_ENV=production
+      - DJANGO_DEBUG=false
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_ALLOWED_HOSTS=${DJANGO_ALLOWED_HOSTS}
+      - KAMPUS_CREATE_SUPERUSER=false
+      - KAMPUS_RUN_MIGRATIONS=false

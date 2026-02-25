@@ -23,7 +23,14 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-from .auth_views import CookieLoginAPIView, CookieLogoutAPIView, CookieRefreshAPIView, CsrfCookieAPIView
+from .auth_views import (
+    CookieLoginAPIView,
+    CookieLogoutAPIView,
+    CookieRefreshAPIView,
+    CsrfCookieAPIView,
+    PasswordResetConfirmAPIView,
+    PasswordResetRequestAPIView,
+)
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -33,6 +40,8 @@ urlpatterns = [
     path("api/auth/login/", CookieLoginAPIView.as_view(), name="auth_cookie_login"),
     path("api/auth/refresh/", CookieRefreshAPIView.as_view(), name="auth_cookie_refresh"),
     path("api/auth/logout/", CookieLogoutAPIView.as_view(), name="auth_cookie_logout"),
+    path("api/auth/password-reset/request/", PasswordResetRequestAPIView.as_view(), name="auth_password_reset_request"),
+    path("api/auth/password-reset/confirm/", PasswordResetConfirmAPIView.as_view(), name="auth_password_reset_confirm"),
     path("api/", include("users.urls")),
     path("api/", include("students.urls")),
     path("api/teachers/", include("teachers.urls")),
@@ -40,6 +49,7 @@ urlpatterns = [
     path("api/", include("attendance.urls")),
     path("api/", include("elections.urls")),
     path("api/", include("core.urls")),
+    path("api/communications/", include("communications.urls")),
     path("api/", include("notifications.urls")),
     path("api/", include("discipline.urls")),
     path("api/", include("audit.urls")),

@@ -4,6 +4,7 @@ import unicodedata
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ObserverAnnotation
+from users.security import generate_temporary_password
 
 User = get_user_model()
 
@@ -192,6 +193,7 @@ class StudentSerializer(serializers.ModelSerializer):
     family_members = FamilyMemberSerializer(many=True, read_only=True)
     novelties = StudentNoveltySerializer(many=True, read_only=True)
     documents = StudentDocumentSerializer(many=True, read_only=True)
+    temporary_password = serializers.CharField(read_only=True)
 
     class Meta:
         model = Student
@@ -242,7 +244,17 @@ class StudentSerializer(serializers.ModelSerializer):
             "family_members",
             "novelties",
             "documents",
+            "temporary_password",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        temp_password = getattr(instance, "_temporary_password", None)
+        if temp_password:
+            data["temporary_password"] = temp_password
+        else:
+            data.pop("temporary_password", None)
+        return data
 
     def get_completion(self, obj):
         mapping = self.context.get("completion_by_student_id") if isinstance(self.context, dict) else None
@@ -292,6 +304,7 @@ class StudentSerializer(serializers.ModelSerializer):
         username = self.generate_username(first_name, last_name)
         
         try:
+            temporary_password = generate_temporary_password()
             # Create User
             user = User.objects.create_user(
                 username=username,
@@ -299,11 +312,13 @@ class StudentSerializer(serializers.ModelSerializer):
                 last_name=last_name,
                 email=email,
                 role=User.ROLE_STUDENT,
-                password=username # Default password is the username
+                password=temporary_password,
+                must_change_password=True,
             )
             
             # Create Student
             student = Student.objects.create(user=user, **validated_data)
+            student._temporary_password = temporary_password
             return student
         except Exception as e:
             # If user was created but student failed, we should probably rollback or delete user

@@ -15,6 +15,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "role",
             "is_active",
+            "must_change_password",
         ]
         read_only_fields = ["role"]
 
@@ -30,6 +31,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
             "last_name",
             "role",
             "is_active",
+            "must_change_password",
         ]
 
 

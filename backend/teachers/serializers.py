@@ -5,6 +5,7 @@ from django.db.models import Sum
 from .models import Teacher
 import unicodedata
 from collections import defaultdict
+from users.security import generate_temporary_password
 
 User = get_user_model()
 
@@ -23,6 +24,7 @@ class TeacherSerializer(serializers.ModelSerializer):
     user = TeacherUserSerializer(read_only=True)
     id = serializers.ReadOnlyField(source='pk')
     assigned_hours = serializers.SerializerMethodField()
+    temporary_password = serializers.CharField(read_only=True)
 
     class Meta:
         model = Teacher
@@ -45,7 +47,17 @@ class TeacherSerializer(serializers.ModelSerializer):
             "hiring_date",
             "photo",
             "photo_thumb",
+            "temporary_password",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        temp_password = getattr(instance, "_temporary_password", None)
+        if temp_password:
+            data["temporary_password"] = temp_password
+        else:
+            data.pop("temporary_password", None)
+        return data
 
     def get_assigned_hours(self, obj):
         from academic.models import TeacherAssignment, AcademicYear
@@ -129,6 +141,7 @@ class TeacherSerializer(serializers.ModelSerializer):
         username = self.generate_username(first_name, last_name)
         
         with transaction.atomic():
+            temporary_password = generate_temporary_password()
             # Create User
             user = User.objects.create_user(
                 username=username,
@@ -136,11 +149,13 @@ class TeacherSerializer(serializers.ModelSerializer):
                 last_name=last_name,
                 email=email,
                 role=User.ROLE_TEACHER,
-                password=username # Default password is the username
+                password=temporary_password,
+                must_change_password=True,
             )
             
             # Create Teacher
             teacher = Teacher.objects.create(user=user, **validated_data)
+            teacher._temporary_password = temporary_password
             return teacher
 
     def update(self, instance, validated_data):

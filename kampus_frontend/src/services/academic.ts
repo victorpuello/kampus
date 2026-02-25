@@ -679,6 +679,10 @@ export const academicApi = {
   // Groups
   listGroups: (params?: Record<string, unknown>) => api.get<Group[]>('/api/groups/', { params }),
   getGroup: (id: number) => api.get<Group>(`/api/groups/${id}/`),
+  downloadFamilyDirectoryXlsx: (id: number) =>
+    api.get<Blob>(`/api/groups/${id}/family-directory-report/`, {
+      responseType: 'blob',
+    }),
   downloadGradeReportSheetPdf: (id: number, params?: { period?: number; subject?: string; teacher?: string; columns?: number }) =>
     api.get<Blob>(`/api/groups/${id}/grade-report-sheet/`, {
       params: {

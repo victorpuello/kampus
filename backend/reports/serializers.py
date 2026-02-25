@@ -275,6 +275,11 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             return attrs
 
+        if report_type == ReportJob.ReportType.FAMILY_DIRECTORY_BY_GROUP:
+            if role in {User.ROLE_TEACHER, User.ROLE_PARENT, User.ROLE_STUDENT}:
+                raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+            return attrs
+
         if report_type == ReportJob.ReportType.GRADE_REPORT_SHEET:
             group_id = params.get("group_id")
             if not group_id:

@@ -23,7 +23,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
+      - DJANGO_ENV=development
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-change-this-secret-before-sharing}
       - DJANGO_DEBUG=true
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
       - CORS_ALLOWED_ORIGINS=http://localhost:5173
@@ -39,7 +40,7 @@ services:
       - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
       - KAMPUS_PRIVATE_REPORTS_DIR=reports
       - KAMPUS_RUN_MIGRATIONS=true
-      - KAMPUS_CREATE_SUPERUSER=true
+      - KAMPUS_CREATE_SUPERUSER=false
     depends_on:
       - db
       - redis
@@ -51,7 +52,8 @@ services:
       - ./backend:/app
       - kampus_private_data:/data/kampus_private
     environment:
-      - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
+      - DJANGO_ENV=development
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-change-this-secret-before-sharing}
       - DJANGO_DEBUG=true
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
       - CORS_ALLOWED_ORIGINS=http://localhost:5173
@@ -79,7 +81,8 @@ services:
       - ./backend:/app
       - kampus_private_data:/data/kampus_private
     environment:
-      - DJANGO_SECRET_KEY=django-insecure-docker-dev-key
+      - DJANGO_ENV=development
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-change-this-secret-before-sharing}
       - DJANGO_DEBUG=true
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
       - CORS_ALLOWED_ORIGINS=http://localhost:5173

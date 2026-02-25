@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -23,6 +24,7 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=20, choices=ROLES)
     email = models.EmailField(unique=True, blank=True, null=True, verbose_name="Correo electrónico")
+    must_change_password = models.BooleanField(default=False)
 
     REQUIRED_FIELDS = ["email", "role"]
 
@@ -85,3 +87,28 @@ class User(AbstractUser):
         first_name = (self.first_name or "").strip()
         full_name = f"{last_name} {first_name}".strip()
         return full_name or (self.username or "")
+
+
+class PasswordResetToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="password_reset_tokens")
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(blank=True, null=True)
+    requested_ip = models.GenericIPAddressField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "created_at"]),
+            models.Index(fields=["expires_at"]),
+            models.Index(fields=["used_at"]),
+        ]
+
+    @property
+    def is_active(self) -> bool:
+        return self.used_at is None and self.expires_at > timezone.now()
+
+    def mark_used(self) -> None:
+        self.used_at = timezone.now()
+        self.save(update_fields=["used_at"])

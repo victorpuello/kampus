@@ -21,6 +21,14 @@ Está diseñado para que el equipo directivo y operativo tenga trazabilidad, con
 docker-compose up --build
 ```
 
+### Perfil de producción (override)
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config
+```
+
+> Usa el override `docker-compose.prod.yml` para forzar `DJANGO_ENV=production`, hardening HTTPS/cookies y defaults seguros.
+
 Luego abre:
 
 - Frontend: http://localhost:5173
@@ -52,6 +60,10 @@ Luego abre:
 - [Runbook jornada de votaciones](docs/runbook_jornada_votaciones_gobierno_escolar.md)
 - [Runbook verificación QR](docs/runbook_verificacion_qr.md)
 - [Runbook remediación de logros](docs/runbook_remediacion_logros_banco_deploy.md)
+- [Runbook de release seguro](docs/runbook_release_seguridad.md)
+- [Runbook Mailgun (email transaccional + marketing)](docs/runbook_mailgun_operacion.md)
+- [Guía deploy Vultr: corte a producción de correo (Mailgun)](docs/guia_deploy_vultr_docker.md#corte-a-producción-de-correo-mailgun)
+- [Checklist de cierre de auditoría de seguridad](docs/checklist_cierre_auditoria_seguridad_2026-02-23.md)
 
 ### Funcional y producto
 

@@ -48,6 +48,7 @@ export default function GroupStudents() {
 
   const [printing, setPrinting] = useState(false)
   const [printingGrades, setPrintingGrades] = useState(false)
+  const [downloadingFamilyDirectory, setDownloadingFamilyDirectory] = useState(false)
 
   const [periods, setPeriods] = useState<Period[]>([])
   const [gradeSheetAssignments, setGradeSheetAssignments] = useState<TeacherAssignment[]>([])
@@ -256,6 +257,36 @@ export default function GroupStudents() {
     }
   }
 
+  const handleDownloadFamilyDirectory = async () => {
+    if (!Number.isFinite(numericGroupId) || numericGroupId <= 0) {
+      setToast({ message: 'Grupo inválido para exportar.', type: 'error', isVisible: true })
+      return
+    }
+
+    try {
+      setDownloadingFamilyDirectory(true)
+      const res = await academicApi.downloadFamilyDirectoryXlsx(numericGroupId)
+      const blob = res.data as unknown as Blob
+      const url = URL.createObjectURL(blob)
+
+      const filename = `directorio_padres_familia_grupo_${numericGroupId}.xlsx`
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      setToast({ message: 'Directorio generado correctamente.', type: 'success', isVisible: true })
+    } catch (e) {
+      console.error(e)
+      setToast({ message: 'No se pudo generar el directorio de padres de familia.', type: 'error', isVisible: true })
+    } finally {
+      setDownloadingFamilyDirectory(false)
+    }
+  }
+
   useEffect(() => {
     if (!group?.academic_year) return
 
@@ -407,6 +438,14 @@ export default function GroupStudents() {
             disabled={printingGrades || !Number.isFinite(numericGroupId) || numericGroupId <= 0}
           >
             {printingGrades ? 'Generando…' : 'Imprimir notas'}
+          </Button>
+          <Button
+            variant="secondary"
+            className="min-h-11"
+            onClick={handleDownloadFamilyDirectory}
+            disabled={downloadingFamilyDirectory || !Number.isFinite(numericGroupId) || numericGroupId <= 0}
+          >
+            {downloadingFamilyDirectory ? 'Generando…' : 'Directorio padres (XLSX)'}
           </Button>
           <Button variant="outline" className="min-h-11" onClick={() => navigate('/groups')}>
             Volver a grupos

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import timedelta
 from typing import Iterable, Optional
 
+from django.conf import settings
 from django.utils import timezone
 
+from communications.email_service import send_email
 from users.models import User
 
 from .models import Notification
@@ -15,6 +18,59 @@ ADMIN_LIKE_ROLES = {
     User.ROLE_ADMIN,
     User.ROLE_COORDINATOR,
 }
+
+
+def _notification_absolute_url(url: str) -> str:
+    safe_url = str(url or "").strip()
+    if not safe_url:
+        return ""
+    if safe_url.startswith("http://") or safe_url.startswith("https://"):
+        return safe_url
+    if safe_url.startswith("/"):
+        base = str(getattr(settings, "KAMPUS_FRONTEND_BASE_URL", "") or "").strip().rstrip("/")
+        if base:
+            return f"{base}{safe_url}"
+    return safe_url
+
+
+def _notification_email_idempotency_key(*, recipient: User, dedupe_key: str, notification_id: int) -> str:
+    source = dedupe_key or f"notification:{notification_id}"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+    return f"notif-email:{recipient.id}:{digest}"
+
+
+def _send_notification_email(*, recipient: User, notification: Notification) -> None:
+    if not getattr(settings, "NOTIFICATIONS_EMAIL_ENABLED", True):
+        return
+
+    recipient_email = (getattr(recipient, "email", "") or "").strip()
+    if not recipient_email:
+        return
+
+    absolute_url = _notification_absolute_url(notification.url)
+    body_parts = [
+        f"Hola {recipient.get_full_name() or recipient.username},",
+        "",
+        notification.title,
+    ]
+    if notification.body:
+        body_parts.extend(["", notification.body])
+    if absolute_url:
+        body_parts.extend(["", f"Ver detalle: {absolute_url}"])
+    body_parts.extend(["", "Este mensaje fue generado automáticamente por Kampus."])
+    body_text = "\n".join(body_parts)
+
+    send_email(
+        recipient_email=recipient_email,
+        subject=f"[Kampus] {notification.title}",
+        body_text=body_text,
+        category="in-app-notification",
+        idempotency_key=_notification_email_idempotency_key(
+            recipient=recipient,
+            dedupe_key=notification.dedupe_key,
+            notification_id=notification.id,
+        ),
+    )
 
 
 def create_notification(
@@ -47,7 +103,7 @@ def create_notification(
             if existing is not None:
                 return existing
 
-    return Notification.objects.create(
+    notification = Notification.objects.create(
         recipient=recipient,
         type=type,
         title=title,
@@ -55,6 +111,8 @@ def create_notification(
         url=url,
         dedupe_key=dedupe_key,
     )
+    _send_notification_email(recipient=recipient, notification=notification)
+    return notification
 
 
 def notify_users(
@@ -84,21 +142,19 @@ def notify_users(
         if not recipients_list:
             return 0
 
-    notifications = [
-        Notification(
-            recipient=u,
-            type=type,
+    created_count = 0
+    for recipient in recipients_list:
+        create_notification(
+            recipient=recipient,
             title=title,
             body=body,
             url=url,
+            type=type,
             dedupe_key=dedupe_key,
+            dedupe_within_seconds=dedupe_within_seconds,
         )
-        for u in recipients_list
-    ]
-    if not notifications:
-        return 0
-    Notification.objects.bulk_create(notifications)
-    return len(notifications)
+        created_count += 1
+    return created_count
 
 
 def admin_like_users_qs():

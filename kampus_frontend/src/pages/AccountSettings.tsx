@@ -30,6 +30,7 @@ export default function AccountSettings() {
   )
 
   const isTeacher = user?.role === 'TEACHER'
+  const mustChangePassword = !!user?.must_change_password
   const [assignments, setAssignments] = useState<TeacherAssignment[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
@@ -44,7 +45,7 @@ export default function AccountSettings() {
 
   useEffect(() => {
     if (!canRender) return
-    if (!isTeacher) return
+    if (!isTeacher || mustChangePassword) return
 
     let cancelled = false
     const load = async () => {
@@ -72,7 +73,7 @@ export default function AccountSettings() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRender, isTeacher])
+  }, [canRender, isTeacher, mustChangePassword])
 
   const selectedAssignment = useMemo(() => {
     if (!selectedAssignmentId) return null
@@ -196,7 +197,20 @@ export default function AccountSettings() {
 
   return (
     <div className="space-y-6">
-      {isTeacher && (
+      {mustChangePassword && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Cambio obligatorio de contraseña</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-amber-700 dark:text-amber-300">
+              Tu cuenta fue creada con una contraseña temporal. Debes cambiarla ahora para continuar usando la plataforma.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isTeacher && !mustChangePassword && (
         <Card>
           <CardHeader>
             <CardTitle className="text-slate-900 dark:text-slate-100">Planillas</CardTitle>

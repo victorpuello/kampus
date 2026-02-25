@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 
 export default function ProtectedRoute() {
   const user = useAuthStore((s) => s.user)
   const fetchMe = useAuthStore((s) => s.fetchMe)
+  const location = useLocation()
   const attemptedRef = useRef(false)
   const [bootstrapping, setBootstrapping] = useState(true)
 
@@ -33,6 +34,10 @@ export default function ProtectedRoute() {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (user.must_change_password && location.pathname !== '/account') {
+    return <Navigate to="/account" replace />
   }
 
   return <Outlet />

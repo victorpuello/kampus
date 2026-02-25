@@ -22,7 +22,7 @@ export default function EnrollmentReports() {
   const isTeacher = user?.role === 'TEACHER'
   const [loading, setLoading] = useState(false)
   const [loadingFilters, setLoadingFilters] = useState(false)
-  const [activeModal, setActiveModal] = useState<null | 'ENROLLMENT_LIST' | 'BULLETINS' | 'SABANA'>(null)
+  const [activeModal, setActiveModal] = useState<null | 'ENROLLMENT_LIST' | 'BULLETINS' | 'SABANA' | 'FAMILY_DIRECTORY'>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -68,6 +68,7 @@ export default function EnrollmentReports() {
   const [bulletinJob, setBulletinJob] = useState<ReportJob | null>(null)
   const [sabanaJob, setSabanaJob] = useState<ReportJob | null>(null)
   const [enrollmentListJob, setEnrollmentListJob] = useState<ReportJob | null>(null)
+  const [familyDirectoryJob, setFamilyDirectoryJob] = useState<ReportJob | null>(null)
 
   const getFilenameFromContentDisposition = (value?: string) => {
     if (!value) return null
@@ -220,6 +221,42 @@ export default function EnrollmentReports() {
     } catch (error) {
       console.error(error)
       showToast('Error al descargar reporte', 'error')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadFamilyDirectoryByGroupPdf = async () => {
+    setLoading(true)
+    try {
+      showToast('Generando PDF…', 'info')
+
+      const created = await reportsApi.createJob({
+        report_type: 'FAMILY_DIRECTORY_BY_GROUP',
+        params: {},
+      })
+
+      setFamilyDirectoryJob(created.data)
+      const job = await pollJobUntilFinished(created.data.id, setFamilyDirectoryJob)
+
+      if (job.status !== 'SUCCEEDED') {
+        showToast(job.error_message || 'No se pudo generar el PDF', 'error')
+        return
+      }
+
+      const res = await reportsApi.downloadJob(job.id)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
+      const headers = res.headers as Record<string, string | undefined>
+      const filename =
+        getFilenameFromContentDisposition(headers?.['content-disposition']) ||
+        job.output_filename ||
+        'directorio_padres_por_grado_grupo.pdf'
+
+      downloadBlob(blob, filename)
+      showToast('PDF listo.', 'success')
+    } catch (error) {
+      console.error(error)
+      showToast('Error al generar el directorio de padres en PDF', 'error')
     } finally {
       setLoading(false)
     }
@@ -552,6 +589,13 @@ export default function EnrollmentReports() {
           icon={<FileSpreadsheet className="h-5 w-5" />}
           actionText="Abrir"
           onAction={() => setActiveModal('SABANA')}
+        />
+        <ReportCard
+          title="Directorio de padres (PDF)"
+          description="Genera el directorio de padres de familia ordenado por grado y grupo, con membrete institucional."
+          icon={<FileText className="h-5 w-5" />}
+          actionText="Abrir"
+          onAction={() => setActiveModal('FAMILY_DIRECTORY')}
         />
         <ReportCard
           title="Reporte de Seguimiento"
@@ -996,6 +1040,49 @@ export default function EnrollmentReports() {
               className="w-full"
             >
               Reintentar
+            </Button>
+          </div>
+        ) : null}
+      </Modal>
+
+      {/* Family Directory Modal */}
+      <Modal
+        isOpen={activeModal === 'FAMILY_DIRECTORY'}
+        onClose={() => setActiveModal(null)}
+        title="Directorio de padres por grado y grupo"
+        description="Genera un PDF del año lectivo activo, ordenado por grados y grupos, con membrete institucional."
+        size="lg"
+        loading={loading}
+        footer={
+          <Button variant="outline" onClick={() => setActiveModal(null)} disabled={loading}>
+            Cerrar
+          </Button>
+        }
+      >
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+          Este reporte incluye: grado, grupo, estudiante, acudiente, identificación, teléfono, dirección y parentezco.
+        </div>
+
+        <div className="mt-5">
+          <Button onClick={handleDownloadFamilyDirectoryByGroupPdf} disabled={loading} className="w-full">
+            Generar PDF
+          </Button>
+        </div>
+
+        {familyDirectoryJob ? (
+          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
+            Estado: <span className="font-medium">{familyDirectoryJob.status}</span>
+            {typeof familyDirectoryJob.progress === 'number' ? ` (${familyDirectoryJob.progress}%)` : ''}
+            {familyDirectoryJob.status === 'FAILED' && familyDirectoryJob.error_message
+              ? ` — ${familyDirectoryJob.error_message}`
+              : ''}
+          </div>
+        ) : null}
+
+        {familyDirectoryJob?.status === 'FAILED' ? (
+          <div className="mt-3">
+            <Button type="button" variant="outline" onClick={handleDownloadFamilyDirectoryByGroupPdf} disabled={loading} className="w-full">
+              Reintentar PDF
             </Button>
           </div>
         ) : null}

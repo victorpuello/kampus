@@ -19,7 +19,8 @@ export default function Login() {
     setLocalError(null)
     try {
       await login(username, password)
-      navigate('/dashboard')
+      const nextUser = useAuthStore.getState().user
+      navigate(nextUser?.must_change_password ? '/account' : '/dashboard')
     } catch {
       setLocalError('Credenciales incorrectas. Inténtalo de nuevo.')
     }
@@ -91,9 +92,8 @@ export default function Login() {
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Contraseña</Label>
                 <a 
-                  href="#" 
+                  href="/forgot-password" 
                   className="text-sm font-medium text-sky-600 hover:text-sky-500 hover:underline dark:text-sky-400 dark:hover:text-sky-300"
-                  onClick={(e) => e.preventDefault()}
                 >
                   ¿Olvidaste tu contraseña?
                 </a>

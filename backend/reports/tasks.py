@@ -27,7 +27,7 @@ from students.models import Enrollment
 
 from attendance.reports import build_attendance_manual_sheet_context
 from discipline.reports import build_case_acta_context
-from students.reports import build_enrollment_list_report_context
+from students.reports import build_enrollment_list_report_context, build_family_directory_by_group_report_context
 
 from .models import ReportJob
 from .weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
@@ -464,6 +464,10 @@ def _render_report_html(job: ReportJob) -> str:
             group_id=int(group_id) if group_id not in (None, "") else None,
         )
         return render_to_string("students/reports/enrollment_list_pdf.html", ctx)
+
+    if job.report_type == ReportJob.ReportType.FAMILY_DIRECTORY_BY_GROUP:
+        ctx = build_family_directory_by_group_report_context()
+        return render_to_string("students/reports/family_directory_by_group_pdf.html", ctx)
 
     if job.report_type == ReportJob.ReportType.GRADE_REPORT_SHEET:
         from academic.models import Group  # noqa: PLC0415
@@ -1143,6 +1147,8 @@ def generate_report_job_pdf(self, job_id: int) -> None:
             g = params.get("grade_id") or "all"
             gr = params.get("group_id") or "all"
             out_filename = f"reporte_matriculados_y{y}_g{g}_gr{gr}.pdf"
+        elif job.report_type == ReportJob.ReportType.FAMILY_DIRECTORY_BY_GROUP:
+            out_filename = "directorio_padres_por_grado_grupo.pdf"
         elif job.report_type == ReportJob.ReportType.GRADE_REPORT_SHEET:
             params = job.params or {}
             gid = params.get("group_id")

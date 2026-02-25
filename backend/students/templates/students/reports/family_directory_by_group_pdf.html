@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Directorio de padres por grupos y grados</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 1.5cm;
+    }
+    body {
+      font-family: Helvetica, sans-serif;
+      font-size: 9pt;
+      color: #0f172a;
+      margin: 0;
+      padding: 0;
+    }
+    .report-info {
+      margin-bottom: 12px;
+      background-color: #f8fafc;
+      border-radius: 4px;
+      font-size: 9pt;
+      text-align: center;
+      padding: 8px;
+    }
+    .report-info strong {
+      color: #1e293b;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .data-table th,
+    .data-table td {
+      border: 1px solid #e2e8f0;
+      padding: 4px 5px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .data-table th {
+      background-color: #f1f5f9;
+      color: #334155;
+      font-weight: bold;
+      font-size: 8pt;
+      text-transform: uppercase;
+    }
+    .data-table tbody tr:nth-child(even) {
+      background-color: #f8fafc;
+    }
+    .col-small {
+      white-space: nowrap;
+      width: 56px;
+    }
+    .col-student {
+      width: 180px;
+    }
+    .col-guardian {
+      width: 170px;
+    }
+  </style>
+</head>
+<body>
+  {% include "reports/partials/pdf_masthead.html" %}
+
+  <div class="report-info">
+    <strong>DIRECTORIO DE PADRES DE FAMILIA</strong><br>
+    Ordenado por grado y grupo — Año lectivo: {{ year_name }}
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th class="col-small">Grado</th>
+        <th class="col-small">Grupo</th>
+        <th class="col-student">Nombre del estudiante</th>
+        <th class="col-guardian">Nombre del acudiente</th>
+        <th>Identificación</th>
+        <th>Teléfono</th>
+        <th>Dirección</th>
+        <th>Parentezco</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="col-small">{{ row.grade_name|default:"-" }}</td>
+        <td class="col-small">{{ row.group_name|default:"-" }}</td>
+        <td class="col-student" style="text-transform: uppercase;">{{ row.student_name|default:"" }}</td>
+        <td class="col-guardian">{{ row.guardian_name|default:"" }}</td>
+        <td>{{ row.guardian_document|default:"" }}</td>
+        <td>{{ row.guardian_phone|default:"" }}</td>
+        <td>{{ row.guardian_address|default:"" }}</td>
+        <td>{{ row.guardian_relationship|default:"" }}</td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="8" style="text-align:center; padding: 16px;">
+          No hay matrículas activas para generar el directorio.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

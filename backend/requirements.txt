@@ -18,3 +18,4 @@ qrcode==7.4.2
 # Async PDF generation (Gold Standard)
 weasyprint==67.0
 celery[redis]==5.4.0
+django-anymail[mailgun]==12.0

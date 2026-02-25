@@ -199,6 +199,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
   const [showGroupFiltersMobile, setShowGroupFiltersMobile] = useState(false)
 
   const [printingManualSheetGroupId, setPrintingManualSheetGroupId] = useState<number | null>(null)
+  const [downloadingFamilyDirectoryGroupId, setDownloadingFamilyDirectoryGroupId] = useState<number | null>(null)
 
   const [importGroupsModalOpen, setImportGroupsModalOpen] = useState(false)
   const [importingGroups, setImportingGroups] = useState(false)
@@ -336,6 +337,30 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
       showToast('No se pudo generar la planilla de asistencia.', 'error')
     } finally {
       setPrintingManualSheetGroupId(null)
+    }
+  }
+
+  const downloadFamilyDirectorySheet = async (groupId: number) => {
+    try {
+      setDownloadingFamilyDirectoryGroupId(groupId)
+      const response = await academicApi.downloadFamilyDirectoryXlsx(groupId)
+      const blob = response.data as unknown as Blob
+      const url = URL.createObjectURL(blob)
+
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `directorio_padres_familia_grupo_${groupId}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      showToast('Directorio generado correctamente.', 'success')
+    } catch (err) {
+      console.error(err)
+      showToast('No se pudo generar el directorio de padres de familia.', 'error')
+    } finally {
+      setDownloadingFamilyDirectoryGroupId(null)
     }
   }
 
@@ -3097,6 +3122,17 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                       role="menuitem"
                                       onClick={() => {
                                         setOpenGroupActionsId(null)
+                                        downloadFamilyDirectorySheet(g.id)
+                                      }}
+                                    >
+                                      Directorio padres (XLSX)
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setOpenGroupActionsId(null)
                                         const params = new URLSearchParams()
                                         params.set('group', String(g.id))
                                         params.set('returnTo', `/groups/${g.id}/students`)
@@ -3172,6 +3208,18 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                 }}
                               >
                                 {printingManualSheetGroupId === g.id ? 'Generando…' : 'Imprimir planilla'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                className="min-h-11 w-full sm:w-auto lg:h-9"
+                                disabled={downloadingFamilyDirectoryGroupId === g.id}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  downloadFamilyDirectorySheet(g.id)
+                                }}
+                              >
+                                {downloadingFamilyDirectoryGroupId === g.id ? 'Generando…' : 'Directorio padres (XLSX)'}
                               </Button>
                             </div>
                           </div>

@@ -15,6 +15,7 @@ export interface User {
   last_name: string;
   role: string;
   is_active: boolean;
+  must_change_password?: boolean;
 }
 
 export const usersApi = {

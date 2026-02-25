@@ -10,9 +10,12 @@ Base de configuración alineada con las reglas del proyecto Kampus:
 
 from pathlib import Path
 import os
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+DJANGO_ENV = (os.getenv("DJANGO_ENV") or "development").strip().lower()
+IS_PRODUCTION = DJANGO_ENV == "production"
 
 
 # Discipline / Observador settings
@@ -23,13 +26,18 @@ DISCIPLINE_DESCARGOS_DUE_DAYS = int(os.getenv("DISCIPLINE_DESCARGOS_DUE_DAYS", "
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-@&8b1fjjrgak3)rz@qcrein4kgrshj)$4np$co9r0fc#%jwo3v",
-)
+SECRET_KEY = (os.getenv("DJANGO_SECRET_KEY") or "").strip()
+if not SECRET_KEY:
+    if IS_PRODUCTION:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DJANGO_ENV=production")
+    SECRET_KEY = "django-insecure-dev-only-change-before-shared-environments"
+if IS_PRODUCTION and (SECRET_KEY.startswith("django-insecure") or len(SECRET_KEY) < 32):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY is too weak for production")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+DEBUG = os.getenv("DJANGO_DEBUG", "false" if IS_PRODUCTION else "true").lower() == "true"
+if IS_PRODUCTION and DEBUG:
+    raise ImproperlyConfigured("DJANGO_DEBUG must be false when DJANGO_ENV=production")
 
 # Upload limits
 #
@@ -49,6 +57,8 @@ ALLOWED_HOSTS = (
     if os.getenv("DJANGO_ALLOWED_HOSTS")
     else (["*"] if DEBUG else [])
 )
+if IS_PRODUCTION and not ALLOWED_HOSTS:
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS is required when DJANGO_ENV=production")
 
 # Public-facing base URL used for QR verification links.
 # Example: https://colegio.midominio.com
@@ -58,6 +68,16 @@ PUBLIC_SITE_URL = (os.getenv("KAMPUS_PUBLIC_SITE_URL") or "").strip().rstrip("/"
 
 # Public verification throttling (DRF). Example values: "60/min", "100/hour".
 PUBLIC_VERIFY_THROTTLE_RATE = (os.getenv("KAMPUS_PUBLIC_VERIFY_THROTTLE_RATE") or "60/min").strip()
+AUTH_LOGIN_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_LOGIN_IP_THROTTLE_RATE") or "20/min").strip()
+AUTH_LOGIN_USER_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_LOGIN_USER_THROTTLE_RATE") or "10/min").strip()
+AUTH_REFRESH_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_REFRESH_IP_THROTTLE_RATE") or "60/min").strip()
+AUTH_PASSWORD_RESET_REQUEST_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWORD_RESET_REQUEST_IP_THROTTLE_RATE") or "10/min").strip()
+AUTH_PASSWORD_RESET_REQUEST_EMAIL_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWORD_RESET_REQUEST_EMAIL_THROTTLE_RATE") or "5/hour").strip()
+AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE") or "20/min").strip()
+
+PASSWORD_RESET_TOKEN_TTL_SECONDS = int(os.getenv("KAMPUS_PASSWORD_RESET_TOKEN_TTL_SECONDS", "3600"))
+KAMPUS_FRONTEND_BASE_URL = (os.getenv("KAMPUS_FRONTEND_BASE_URL") or "http://localhost:5173").strip().rstrip("/")
+NOTIFICATIONS_EMAIL_ENABLED = (os.getenv("KAMPUS_NOTIFICATIONS_EMAIL_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
 
 # Auth cookie settings (JWT in HttpOnly cookies)
 AUTH_COOKIE_ACCESS_NAME = os.getenv("KAMPUS_AUTH_COOKIE_ACCESS_NAME", "kampus_access")
@@ -66,6 +86,17 @@ AUTH_COOKIE_PATH = os.getenv("KAMPUS_AUTH_COOKIE_PATH", "/")
 AUTH_COOKIE_DOMAIN = (os.getenv("KAMPUS_AUTH_COOKIE_DOMAIN") or "").strip() or None
 AUTH_COOKIE_SAMESITE = os.getenv("KAMPUS_AUTH_COOKIE_SAMESITE", "Lax")
 AUTH_COOKIE_SECURE = os.getenv("KAMPUS_AUTH_COOKIE_SECURE", "false" if DEBUG else "true").lower() in {"1", "true", "yes"}
+
+# Security hardening (production defaults can be overridden by env vars).
+SECURE_SSL_REDIRECT = os.getenv("DJANGO_SECURE_SSL_REDIRECT", "true" if IS_PRODUCTION else "false").lower() in {"1", "true", "yes"}
+SESSION_COOKIE_SECURE = os.getenv("DJANGO_SESSION_COOKIE_SECURE", "true" if IS_PRODUCTION else "false").lower() in {"1", "true", "yes"}
+CSRF_COOKIE_SECURE = os.getenv("DJANGO_CSRF_COOKIE_SECURE", "true" if IS_PRODUCTION else "false").lower() in {"1", "true", "yes"}
+SECURE_CONTENT_TYPE_NOSNIFF = os.getenv("DJANGO_SECURE_CONTENT_TYPE_NOSNIFF", "true").lower() in {"1", "true", "yes"}
+X_FRAME_OPTIONS = os.getenv("DJANGO_X_FRAME_OPTIONS", "DENY")
+SECURE_REFERRER_POLICY = os.getenv("DJANGO_SECURE_REFERRER_POLICY", "strict-origin-when-cross-origin")
+SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "31536000" if IS_PRODUCTION else "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", "true" if IS_PRODUCTION else "false").lower() in {"1", "true", "yes"}
+SECURE_HSTS_PRELOAD = os.getenv("DJANGO_SECURE_HSTS_PRELOAD", "true" if IS_PRODUCTION else "false").lower() in {"1", "true", "yes"}
 
 # Elections hardening toggles
 ELECTIONS_REQUIRE_TOKEN_IDENTITY = os.getenv("KAMPUS_ELECTIONS_REQUIRE_TOKEN_IDENTITY", "false").lower() in {"1", "true", "yes"}
@@ -91,6 +122,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     "django_filters",
+    "anymail",
 
     # Local apps
     "core",
@@ -228,6 +260,15 @@ REST_FRAMEWORK = {
     "DEFAULT_FILTER_BACKENDS": (
         "django_filters.rest_framework.DjangoFilterBackend",
     ),
+    "DEFAULT_THROTTLE_RATES": {
+        "public_verify": PUBLIC_VERIFY_THROTTLE_RATE,
+        "auth_login_ip": AUTH_LOGIN_IP_THROTTLE_RATE,
+        "auth_login_user": AUTH_LOGIN_USER_THROTTLE_RATE,
+        "auth_refresh_ip": AUTH_REFRESH_IP_THROTTLE_RATE,
+        "auth_password_reset_request_ip": AUTH_PASSWORD_RESET_REQUEST_IP_THROTTLE_RATE,
+        "auth_password_reset_request_email": AUTH_PASSWORD_RESET_REQUEST_EMAIL_THROTTLE_RATE,
+        "auth_password_reset_confirm_ip": AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE,
+    },
 }
 
 # CORS
@@ -294,4 +335,28 @@ else:
 
 # Reports (async PDF jobs)
 REPORT_JOBS_TTL_HOURS = int(os.getenv("KAMPUS_REPORT_JOBS_TTL_HOURS", "24"))
+
+# Email (Mailgun)
+DEFAULT_FROM_EMAIL = (os.getenv("DEFAULT_FROM_EMAIL") or "no-reply@localhost").strip()
+SERVER_EMAIL = (os.getenv("SERVER_EMAIL") or DEFAULT_FROM_EMAIL).strip()
+KAMPUS_EMAIL_BACKEND = (os.getenv("KAMPUS_EMAIL_BACKEND") or "console").strip().lower()
+
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+if KAMPUS_EMAIL_BACKEND == "mailgun":
+    EMAIL_BACKEND = "anymail.backends.mailgun.EmailBackend"
+
+ANYMAIL = {
+    "MAILGUN_API_KEY": (os.getenv("MAILGUN_API_KEY") or "").strip(),
+    "MAILGUN_SENDER_DOMAIN": (os.getenv("MAILGUN_SENDER_DOMAIN") or "").strip(),
+}
+MAILGUN_API_URL = (os.getenv("MAILGUN_API_URL") or "").strip()
+if MAILGUN_API_URL:
+    ANYMAIL["MAILGUN_API_URL"] = MAILGUN_API_URL
+
+MAILGUN_WEBHOOK_SIGNING_KEY = (os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY") or "").strip()
+MAILGUN_WEBHOOK_STRICT = (os.getenv("MAILGUN_WEBHOOK_STRICT") or ("true" if IS_PRODUCTION else "false")).strip().lower() in {"1", "true", "yes"}
+
+KAMPUS_BACKEND_BASE_URL = (os.getenv("KAMPUS_BACKEND_BASE_URL") or "http://localhost:8000").strip().rstrip("/")
+MARKETING_DEFAULT_OPT_IN = (os.getenv("KAMPUS_MARKETING_DEFAULT_OPT_IN") or "false").strip().lower() in {"1", "true", "yes"}
+MARKETING_UNSUBSCRIBE_TOKEN_TTL_SECONDS = int(os.getenv("KAMPUS_MARKETING_UNSUBSCRIBE_TOKEN_TTL_SECONDS", "2592000"))
 

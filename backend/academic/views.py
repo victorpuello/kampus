@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import datetime, time
 from decimal import Decimal
+import io
 
 
 def _period_end_of_day(period: "Period"):
@@ -57,7 +58,7 @@ from students.academic_period_report import (
     generate_academic_period_group_report_pdf,
     generate_preschool_academic_period_group_report_pdf,
 )
-from students.models import Enrollment
+from students.models import Enrollment, FamilyMember
 from core.permissions import KampusModelPermissions
 from .serializers import (
     AcademicLevelSerializer,
@@ -1033,6 +1034,115 @@ class GroupViewSet(viewsets.ModelViewSet):
 
                 payload["traceback"] = traceback.format_exc()
             return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="family-directory-report",
+        permission_classes=[IsAuthenticated],
+    )
+    def family_directory_report(self, request, pk=None):
+        """Genera directorio de padres de familia (XLSX) por grupo.
+
+        GET /api/groups/{id}/family-directory-report/
+        """
+        group: Group = self.get_object()
+
+        user = getattr(request, "user", None)
+        role = getattr(user, "role", None)
+        if role not in {"SUPERADMIN", "ADMIN", "COORDINATOR"}:
+            if role == "TEACHER":
+                teacher_id = getattr(user, "id", None)
+                is_director = group.director_id == teacher_id
+                is_assigned = (
+                    TeacherAssignment.objects.filter(teacher_id=teacher_id, group_id=group.id).exists()
+                    if teacher_id is not None
+                    else False
+                )
+                if not (is_director or is_assigned):
+                    return Response(
+                        {"detail": "No tienes permisos para ver este informe."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            else:
+                return Response(
+                    {"detail": "No tienes permisos para ver este informe."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        enrollments = (
+            Enrollment.objects.select_related("student", "student__user")
+            .filter(group_id=group.id, academic_year_id=group.academic_year_id, status="ACTIVE")
+            .order_by("student__user__last_name", "student__user__first_name", "student__user__id")
+        )
+
+        student_ids = [enrollment.student_id for enrollment in enrollments]
+        family_members = (
+            FamilyMember.objects.filter(student_id__in=student_ids)
+            .order_by("student_id", "-is_main_guardian", "id")
+        )
+
+        guardian_by_student_id = {}
+        for fm in family_members:
+            if fm.student_id not in guardian_by_student_id:
+                guardian_by_student_id[fm.student_id] = fm
+
+        from openpyxl import Workbook
+        from openpyxl.utils import get_column_letter
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Directorio"
+
+        headers = [
+            "Nombre del Estudiante",
+            "Nombre del acudiente",
+            "identificación",
+            "telefono",
+            "dirección",
+            "parentezco",
+        ]
+        worksheet.append(headers)
+
+        for enrollment in enrollments:
+            student = enrollment.student
+            student_user = student.user
+            student_name = ""
+            if student_user is not None:
+                student_name = (student_user.get_full_name() or "").strip()
+            if not student_name:
+                student_name = str(student)
+
+            guardian = guardian_by_student_id.get(student.pk)
+            worksheet.append(
+                [
+                    student_name,
+                    (guardian.full_name if guardian else "") or "",
+                    (guardian.document_number if guardian else "") or "",
+                    (guardian.phone if guardian else "") or "",
+                    (guardian.address if guardian else "") or "",
+                    (guardian.relationship if guardian else "") or "",
+                ]
+            )
+
+        for col_idx, header in enumerate(headers, start=1):
+            max_len = len(str(header))
+            for cell in worksheet[get_column_letter(col_idx)]:
+                if cell.value is not None:
+                    max_len = max(max_len, len(str(cell.value)))
+            worksheet.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 48)
+
+        out = io.BytesIO()
+        workbook.save(out)
+        out.seek(0)
+
+        filename = f"directorio_padres_familia_grupo_{group.id}.xlsx"
+        response = HttpResponse(
+            out.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=False, methods=['post'], url_path='copy_from_year')
     def copy_from_year(self, request):

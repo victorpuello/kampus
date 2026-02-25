@@ -19,6 +19,7 @@ class ReportJob(models.Model):
 		DISCIPLINE_CASE_ACTA = "DISCIPLINE_CASE_ACTA", "Acta de caso disciplinario"
 		ATTENDANCE_MANUAL_SHEET = "ATTENDANCE_MANUAL_SHEET", "Planilla de asistencia (manual)"
 		ENROLLMENT_LIST = "ENROLLMENT_LIST", "Reporte de matriculados"
+		FAMILY_DIRECTORY_BY_GROUP = "FAMILY_DIRECTORY_BY_GROUP", "Directorio de padres por grados y grupos"
 		GRADE_REPORT_SHEET = "GRADE_REPORT_SHEET", "Planilla imprimible de notas"
 		TEACHER_STATISTICS_AI = "TEACHER_STATISTICS_AI", "Estadísticas IA (docente)"
 		CERTIFICATE_STUDIES = "CERTIFICATE_STUDIES", "Certificado de estudios"

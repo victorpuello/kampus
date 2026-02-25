@@ -1,0 +1,119 @@
+name: Security Release Gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'kampus_frontend/**'
+      - 'docker-compose*.yml'
+      - 'env.backend.example'
+      - '.github/workflows/security-release-gate.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  backend-security-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_ENV: production
+      DJANGO_DEBUG: 'false'
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_SECRET_KEY: ci-production-like-secret-key-abcdefghijklmnopqrstuvwxyz-0123456789
+      DJANGO_SECURE_SSL_REDIRECT: 'true'
+      DJANGO_SESSION_COOKIE_SECURE: 'true'
+      DJANGO_CSRF_COOKIE_SECURE: 'true'
+      DJANGO_SECURE_HSTS_SECONDS: '31536000'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Django deploy checks
+        run: python manage.py check --deploy
+
+      - name: Focused auth and public verification tests
+        env:
+          DJANGO_ENV: development
+          DJANGO_DEBUG: 'true'
+          DJANGO_SECURE_SSL_REDIRECT: 'false'
+        run: |
+          python manage.py test users.tests users.tests_cookie_auth students.tests.PublicCertificateVerificationNotificationTest
+
+  dependency-and-sast-scans:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install bandit pip-audit
+
+      - name: SAST (Bandit - high severity/confidence)
+        run: bandit -r backend -x backend/**/migrations,backend/**/tests -ll -ii
+
+      - name: SCA backend dependencies (pip-audit)
+        run: pip-audit -r backend/requirements.txt --progress-spinner off
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: kampus_frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: kampus_frontend
+        run: npm ci
+
+      - name: SCA frontend dependencies (npm audit high)
+        working-directory: kampus_frontend
+        run: npm audit --audit-level=high --omit=dev
+
+  frontend-quality-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kampus_frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: kampus_frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Frontend lint
+        run: npm run lint

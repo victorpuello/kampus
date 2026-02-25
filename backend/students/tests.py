@@ -9,6 +9,7 @@ from students.serializers import StudentSerializer
 from rest_framework.test import APITestCase
 from rest_framework import status
 from django.core.management import call_command
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.cache import cache
 from academic.models import AcademicYear, Grade, Group
 from academic.models import TeacherAssignment
@@ -48,6 +49,46 @@ class StudentSerializerTest(TestCase):
         self.assertEqual(data['user']['first_name'], "Maria")
         self.assertEqual(data['user']['email'], "maria@example.com")
         self.assertEqual(data['document_number'], "987654321")
+
+
+class StudentBulkImportFileValidationAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_bulk_import",
+            password="admin123",
+            email="admin_bulk_import@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    def test_bulk_import_rejects_file_larger_than_configured_limit(self):
+        header = "first_name,last_name,document_number\n"
+        row = "Ana,Prueba,12345\n"
+        oversized_content = (header + (row * 120_000)).encode("utf-8")
+
+        upload = SimpleUploadedFile(
+            "students.csv",
+            oversized_content,
+            content_type="text/csv",
+        )
+
+        with patch.dict("os.environ", {"KAMPUS_STUDENTS_IMPORT_MAX_MB": "1"}, clear=False):
+            res = self.client.post("/api/students/bulk-import/", {"file": upload}, format="multipart")
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("tamaño máximo", str(res.data.get("detail", "")).lower())
+
+    def test_bulk_import_rejects_non_utf8_csv(self):
+        content = "first_name,last_name,document_number\nJosé,Pérez,12345\n".encode("latin-1")
+        upload = SimpleUploadedFile(
+            "students.csv",
+            content,
+            content_type="text/csv",
+        )
+
+        res = self.client.post("/api/students/bulk-import/", {"file": upload}, format="multipart")
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("utf-8", str(res.data.get("detail", "")).lower())
 
 
 class StudentListPaginationAPITest(APITestCase):
@@ -1216,6 +1257,51 @@ class PublicCertificateVerificationNotificationTest(TestCase):
         res = self.client.get(url, HTTP_ACCEPT="text/html", HTTP_USER_AGENT="pytest-agent")
         self.assertEqual(res.status_code, 200)
         self.assertIn("text/html", res.get("Content-Type", ""))
+
+    def test_public_verify_api_masks_name_and_document(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={
+                "student_full_name": "Ana Maria Lopez",
+                "document_number": "1234567890",
+                "academic_year": "2026",
+                "grade_name": "5A",
+            },
+        )
+
+        res = self.client.get(
+            f"/api/public/certificates/{issue.uuid}/verify/",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+
+        self.assertEqual(data.get("student_full_name"), "A*** M*** L***")
+        self.assertEqual(data.get("document_number"), "****7890")
+        self.assertNotEqual(data.get("student_full_name"), "Ana Maria Lopez")
+        self.assertNotEqual(data.get("document_number"), "1234567890")
+
+    def test_public_verify_html_masks_name_and_document(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={
+                "student_full_name": "Ana Maria Lopez",
+                "document_number": "1234567890",
+                "academic_year": "2026",
+                "grade_name": "5A",
+            },
+        )
+
+        res = self.client.get(f"/public/certificates/{issue.uuid}/")
+        self.assertEqual(res.status_code, 200)
+        body = res.content
+
+        self.assertIn(b"A*** M*** L***", body)
+        self.assertIn(b"****7890", body)
+        self.assertNotIn(b"Ana Maria Lopez", body)
+        self.assertNotIn(b"1234567890", body)
 
     def test_public_verify_ui_not_found_is_audited(self):
         missing_uuid = py_uuid.uuid4()

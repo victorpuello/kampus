@@ -7,6 +7,8 @@ import SeoManager from './components/SeoManager'
 import { useAuthStore } from './store/auth'
 
 const Login = lazy(() => import('./pages/Login'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const StudentList = lazy(() => import('./pages/StudentList'))
 const StudentForm = lazy(() => import('./pages/StudentForm'))
 const StudentObserverPrint = lazy(() => import('./pages/StudentObserverPrint'))
@@ -109,6 +111,8 @@ export default function App() {
         <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Public QR verification (deploy-safe if /public is served by the SPA) */}
           <Route path="/public/certificates/:uuid" element={<PublicCertificateVerify />} />

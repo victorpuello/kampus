@@ -137,11 +137,11 @@ export default function PublicCertificateVerify() {
         <div className="bg-white border border-gray-200 rounded-lg p-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
-              <div className="text-gray-500">Estudiante</div>
+              <div className="text-gray-500">Estudiante (referencia)</div>
               <div className="font-medium">{data?.student_full_name || '—'}</div>
             </div>
             <div>
-              <div className="text-gray-500">Documento</div>
+              <div className="text-gray-500">Documento (enmascarado)</div>
               <div className="font-medium">{data?.document_number || '—'}</div>
             </div>
             <div>

@@ -113,7 +113,8 @@ class UserViewSet(viewsets.ModelViewSet):
             )
 
         request.user.set_password(new_password)
-        request.user.save(update_fields=["password"])
+        request.user.must_change_password = False
+        request.user.save(update_fields=["password", "must_change_password"])
         return Response({"detail": "Contraseña actualizada."}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["get"])
@@ -175,7 +176,8 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserSetPasswordSerializer(data=request.data, context={"user": target})
         serializer.is_valid(raise_exception=True)
         target.set_password(serializer.validated_data["password"])
-        target.save(update_fields=["password"])
+        target.must_change_password = True
+        target.save(update_fields=["password", "must_change_password"])
         return Response({"detail": "Contraseña actualizada."}, status=status.HTTP_200_OK)
 
 

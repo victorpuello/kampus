@@ -10,6 +10,7 @@ export type User = {
   last_name: string
   email: string
   role: string
+  must_change_password?: boolean
 }
 
 type AuthState = {

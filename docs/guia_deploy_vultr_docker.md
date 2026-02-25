@@ -16,6 +16,7 @@ Esta guía te ayudará a desplegar la aplicación Kampus en un servidor Vultr us
 10. [Mantenimiento y Actualización](#mantenimiento-y-actualización)
 11. [Backups](#backups)
 12. [Monitoreo](#monitoreo)
+13. [Corte a producción de correo (Mailgun)](#corte-a-producción-de-correo-mailgun)
 
 ---
 
@@ -378,6 +379,21 @@ CORS_ALLOWED_ORIGINS=https://tudominio.edu.co,https://www.tudominio.edu.co
 # Google Gemini API
 GOOGLE_API_KEY=tu-google-api-key-aqui
 
+# Email (Mailgun)
+KAMPUS_EMAIL_BACKEND=mailgun
+DEFAULT_FROM_EMAIL=no-reply@mg.tudominio.edu.co
+SERVER_EMAIL=no-reply@mg.tudominio.edu.co
+MAILGUN_API_KEY=key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MAILGUN_SENDER_DOMAIN=mg.tudominio.edu.co
+# US: https://api.mailgun.net/v3 | EU: https://api.eu.mailgun.net/v3
+MAILGUN_API_URL=https://api.mailgun.net/v3
+MAILGUN_WEBHOOK_SIGNING_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MAILGUN_WEBHOOK_STRICT=true
+KAMPUS_BACKEND_BASE_URL=https://api.tudominio.edu.co
+KAMPUS_MARKETING_DEFAULT_OPT_IN=false
+KAMPUS_MARKETING_UNSUBSCRIBE_TOKEN_TTL_SECONDS=2592000
+KAMPUS_NOTIFICATIONS_EMAIL_ENABLED=true
+
 # Frontend URLs
 VITE_API_BASE_URL=https://tudominio.edu.co
 VITE_APP_NAME=Kampus
@@ -394,6 +410,11 @@ python3 -c 'from django.core.management.utils import get_random_secret_key; prin
 openssl rand -base64 32
 ```
 
+Notas críticas de Mailgun:
+- `MAILGUN_API_KEY` debe ser **private key** (`key-...`), no `pubkey-...`.
+- `MAILGUN_API_URL` debe incluir `/v3` y respetar región US/EU.
+- Si usas sandbox para pruebas, autoriza destinatarios antes de enviar.
+
 ### 3. Proteger el archivo .env
 
 ```bash
@@ -403,6 +424,32 @@ chmod 600 .env
 ---
 
 ## Configurar Proxy Reverso y SSL
+
+## Corte a producción de correo (Mailgun)
+
+Checklist mínimo antes de publicar:
+
+- [ ] Dominio Mailgun verificado (SPF, DKIM y DMARC).
+- [ ] Webhook Mailgun configurado a `POST /api/communications/webhooks/mailgun/`.
+- [ ] `MAILGUN_WEBHOOK_SIGNING_KEY` correcto y `MAILGUN_WEBHOOK_STRICT=true`.
+- [ ] Variables Mailgun en `.env` revisadas por doble control.
+- [ ] Prueba de reset password y notificación operativa con resultado `SENT`.
+
+Validación post-deploy (primeros 30 minutos):
+
+```bash
+docker compose -f docker-compose.prod.yml exec backend python manage.py shell -c "from communications.models import EmailDelivery; print('sent=', EmailDelivery.objects.filter(status='SENT').count(), 'failed=', EmailDelivery.objects.filter(status='FAILED').count(), 'suppressed=', EmailDelivery.objects.filter(status='SUPPRESSED').count())"
+```
+
+Si aumenta `FAILED` por configuración externa:
+
+1. Cambia temporalmente `KAMPUS_EMAIL_BACKEND=console`.
+2. Reinicia solo backend (`docker compose -f docker-compose.prod.yml restart backend`).
+3. Corrige credenciales/región Mailgun y regresa a `mailgun`.
+4. Repite validación funcional E2E.
+
+Referencia operativa detallada:
+- [Runbook Mailgun (email transaccional + marketing)](runbook_mailgun_operacion.md)
 
 ### 1. Crear directorio para configuración de Nginx
 
