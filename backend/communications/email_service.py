@@ -13,6 +13,7 @@ from .preferences import (
     get_or_create_preference,
     is_marketing_category,
 )
+from .runtime_settings import apply_effective_mail_settings
 
 
 @dataclass
@@ -40,6 +41,7 @@ def send_email(
     idempotency_key: str = "",
     from_email: Optional[str] = None,
 ) -> EmailSendResult:
+    effective = apply_effective_mail_settings()
     existing = _resolve_existing_delivery(recipient_email, idempotency_key)
     if existing is not None:
         return EmailSendResult(sent=False, delivery=existing)
@@ -104,7 +106,7 @@ def send_email(
     message = EmailMultiAlternatives(
         subject=subject,
         body=body_text,
-        from_email=from_email,
+        from_email=from_email or effective.default_from_email,
         to=[normalized_recipient_email],
     )
 

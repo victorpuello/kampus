@@ -12,6 +12,7 @@ from .models import (
 	EmailPreference,
 	EmailPreferenceAudit,
 	EmailSuppression,
+	MailgunSettingsAudit,
 )
 from .preferences import build_unsubscribe_token
 
@@ -237,3 +238,195 @@ class CommunicationPreferencesTests(TestCase):
 		self.assertFalse(preference.marketing_opt_in)
 		suppression = EmailSuppression.objects.get(email="prefs@example.com")
 		self.assertEqual(suppression.reason, EmailSuppression.REASON_UNSUBSCRIBED)
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class MailSettingsAdminTests(TestCase):
+	def setUp(self):
+		self.admin_user = User.objects.create_user(
+			username="admin_mail_settings",
+			email="admin@example.com",
+			password="pass1234",
+			role=User.ROLE_ADMIN,
+		)
+		self.teacher_user = User.objects.create_user(
+			username="teacher_mail_settings",
+			email="teacher@example.com",
+			password="pass1234",
+			role=User.ROLE_TEACHER,
+		)
+
+		self.admin_client = APIClient()
+		self.admin_client.force_authenticate(user=self.admin_user)
+
+		self.teacher_client = APIClient()
+		self.teacher_client.force_authenticate(user=self.teacher_user)
+
+	def test_only_admin_can_read_mail_settings(self):
+		admin_response = self.admin_client.get("/api/communications/settings/mailgun/")
+		self.assertEqual(admin_response.status_code, 200)
+
+		teacher_response = self.teacher_client.get("/api/communications/settings/mailgun/")
+		self.assertEqual(teacher_response.status_code, 403)
+
+		audit_teacher_response = self.teacher_client.get("/api/communications/settings/mailgun/audits/")
+		self.assertEqual(audit_teacher_response.status_code, 403)
+
+	def test_admin_updates_mail_settings_and_response_masks_secrets(self):
+		response = self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "mailgun",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "key-test-123456",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.eu.mailgun.net",
+				"mailgun_webhook_signing_key": "sign-123456",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["kampus_email_backend"], "mailgun")
+		self.assertTrue(response.data["mailgun_api_key_configured"])
+		self.assertTrue(response.data["mailgun_webhook_signing_key_configured"])
+		self.assertNotEqual(response.data["mailgun_api_key_masked"], "")
+		self.assertNotIn("key-test-123456", response.data["mailgun_api_key_masked"])
+
+		audit = MailgunSettingsAudit.objects.first()
+		self.assertIsNotNone(audit)
+		self.assertTrue(audit.rotated_api_key)
+		self.assertTrue(audit.rotated_webhook_signing_key)
+		self.assertIn("mailgun_api_key", list(audit.changed_fields))
+		self.assertIn("mailgun_webhook_signing_key", list(audit.changed_fields))
+
+	def test_admin_can_send_test_email(self):
+		update_response = self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "console",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "",
+				"mailgun_sender_domain": "",
+				"mailgun_api_url": "",
+				"mailgun_webhook_signing_key": "",
+				"mailgun_webhook_strict": False,
+			},
+			format="json",
+		)
+		self.assertEqual(update_response.status_code, 200)
+
+		test_response = self.admin_client.post(
+			"/api/communications/settings/mailgun/test/",
+			{"test_email": "qa@example.com"},
+			format="json",
+		)
+		self.assertEqual(test_response.status_code, 200)
+		self.assertEqual(EmailDelivery.objects.filter(recipient_email="qa@example.com").count(), 1)
+
+	def test_second_update_without_secret_values_keeps_flags_false(self):
+		self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "mailgun",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "key-test-123456",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.mailgun.net",
+				"mailgun_webhook_signing_key": "sign-123456",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+
+		response = self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "mailgun",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.mailgun.net",
+				"mailgun_webhook_signing_key": "",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 200)
+		audit = MailgunSettingsAudit.objects.order_by("-created_at").first()
+		self.assertIsNotNone(audit)
+		self.assertFalse(audit.rotated_api_key)
+		self.assertFalse(audit.rotated_webhook_signing_key)
+
+	def test_admin_can_list_mail_settings_audits(self):
+		self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "mailgun",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "key-audit-123456",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.mailgun.net",
+				"mailgun_webhook_signing_key": "sign-audit-123456",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+		self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "console",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.mailgun.net",
+				"mailgun_webhook_signing_key": "",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+
+		response = self.admin_client.get("/api/communications/settings/mailgun/audits/?limit=1&offset=1")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data.get("limit"), 1)
+		self.assertEqual(response.data.get("offset"), 1)
+		self.assertTrue(response.data.get("total", 0) >= 2)
+		self.assertEqual(len(response.data.get("results", [])), 1)
+
+		first = response.data["results"][0]
+		self.assertIn("changed_fields", first)
+		self.assertIn("updated_by", first)
+		self.assertEqual(first["updated_by"]["id"], self.admin_user.id)
+
+	def test_admin_can_export_mail_settings_audits_csv(self):
+		self.admin_client.put(
+			"/api/communications/settings/mailgun/",
+			{
+				"kampus_email_backend": "mailgun",
+				"default_from_email": "no-reply@kampus.test",
+				"server_email": "server@kampus.test",
+				"mailgun_api_key": "key-csv-123456",
+				"mailgun_sender_domain": "mg.kampus.test",
+				"mailgun_api_url": "https://api.mailgun.net",
+				"mailgun_webhook_signing_key": "sign-csv-123456",
+				"mailgun_webhook_strict": True,
+			},
+			format="json",
+		)
+
+		response = self.admin_client.get("/api/communications/settings/mailgun/audits/export/")
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("text/csv", str(response.get("Content-Type", "")))
+		self.assertIn("mailgun_audits.csv", str(response.get("Content-Disposition", "")))
+		self.assertIn("changed_fields", str(response.content.decode("utf-8")))
+
+		forbidden = self.teacher_client.get("/api/communications/settings/mailgun/audits/export/")
+		self.assertEqual(forbidden.status_code, 403)

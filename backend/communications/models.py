@@ -21,6 +21,67 @@ class EmailPreference(models.Model):
 		return f"{self.email} marketing_opt_in={self.marketing_opt_in}"
 
 
+class MailgunSettings(models.Model):
+	BACKEND_CONSOLE = "console"
+	BACKEND_MAILGUN = "mailgun"
+
+	BACKEND_CHOICES = [
+		(BACKEND_CONSOLE, "Console"),
+		(BACKEND_MAILGUN, "Mailgun"),
+	]
+
+	kampus_email_backend = models.CharField(max_length=20, choices=BACKEND_CHOICES, default=BACKEND_CONSOLE)
+	default_from_email = models.EmailField(default="no-reply@localhost")
+	server_email = models.EmailField(default="no-reply@localhost")
+	mailgun_api_key = models.CharField(max_length=255, blank=True, default="")
+	mailgun_sender_domain = models.CharField(max_length=255, blank=True, default="")
+	mailgun_api_url = models.URLField(blank=True, default="")
+	mailgun_webhook_signing_key = models.CharField(max_length=255, blank=True, default="")
+	mailgun_webhook_strict = models.BooleanField(default=False)
+	updated_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="mailgun_settings_updates",
+		blank=True,
+		null=True,
+	)
+	updated_at = models.DateTimeField(auto_now=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ["-updated_at"]
+
+	def __str__(self) -> str:
+		return f"MailgunSettings backend={self.kampus_email_backend}"
+
+
+class MailgunSettingsAudit(models.Model):
+	settings_ref = models.ForeignKey(
+		MailgunSettings,
+		on_delete=models.SET_NULL,
+		related_name="audits",
+		blank=True,
+		null=True,
+	)
+	updated_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="mailgun_settings_audits",
+		blank=True,
+		null=True,
+	)
+	changed_fields = models.JSONField(default=list, blank=True)
+	rotated_api_key = models.BooleanField(default=False)
+	rotated_webhook_signing_key = models.BooleanField(default=False)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ["-created_at"]
+
+	def __str__(self) -> str:
+		return f"MailgunSettingsAudit by={self.updated_by_id or 'system'} at={self.created_at}"
+
+
 class EmailPreferenceAudit(models.Model):
 	SOURCE_USER = "USER"
 	SOURCE_SYSTEM = "SYSTEM"

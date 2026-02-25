@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 
 from django.conf import settings
 from django.core import signing
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.http import HttpResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -12,12 +17,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import EmailDelivery, EmailEvent, EmailSuppression
+from users.permissions import IsAdmin
+
+from .email_service import send_email
+from .models import EmailDelivery, EmailEvent, EmailSuppression, MailgunSettings, MailgunSettingsAudit
 from .preferences import (
 	get_or_create_preference,
 	set_marketing_preference,
 	validate_unsubscribe_token,
 )
+from .runtime_settings import apply_effective_mail_settings, get_effective_mail_settings
 
 
 def _normalize_message_id(value: str) -> str:
@@ -45,9 +54,10 @@ def _extract_message_id(event_data: dict) -> str:
 
 
 def _is_valid_mailgun_signature(payload: dict) -> bool:
-	signing_key = str(getattr(settings, "MAILGUN_WEBHOOK_SIGNING_KEY", "") or "").strip()
+	effective = get_effective_mail_settings()
+	signing_key = str(effective.mailgun_webhook_signing_key or "").strip()
 	if not signing_key:
-		return not bool(getattr(settings, "MAILGUN_WEBHOOK_STRICT", False))
+		return not bool(effective.mailgun_webhook_strict)
 
 	signature_data = payload.get("signature") if isinstance(payload.get("signature"), dict) else {}
 	timestamp = str(signature_data.get("timestamp") or "")
@@ -62,6 +72,275 @@ def _is_valid_mailgun_signature(payload: dict) -> bool:
 		digestmod=hashlib.sha256,
 	).hexdigest()
 	return hmac.compare_digest(digest, signature)
+
+
+def _mask_secret(value: str) -> str:
+	clean = str(value or "").strip()
+	if not clean:
+		return ""
+	if len(clean) <= 4:
+		return "*" * len(clean)
+	return f"{'*' * (len(clean) - 4)}{clean[-4:]}"
+
+
+def _serialize_mailgun_settings(config: MailgunSettings | None) -> dict:
+	effective = get_effective_mail_settings()
+	return {
+		"kampus_email_backend": effective.kampus_email_backend,
+		"default_from_email": effective.default_from_email,
+		"server_email": effective.server_email,
+		"mailgun_sender_domain": effective.mailgun_sender_domain,
+		"mailgun_api_url": effective.mailgun_api_url,
+		"mailgun_webhook_strict": effective.mailgun_webhook_strict,
+		"mailgun_api_key_masked": _mask_secret(effective.mailgun_api_key),
+		"mailgun_webhook_signing_key_masked": _mask_secret(effective.mailgun_webhook_signing_key),
+		"mailgun_api_key_configured": bool(effective.mailgun_api_key),
+		"mailgun_webhook_signing_key_configured": bool(effective.mailgun_webhook_signing_key),
+		"updated_at": config.updated_at if config else None,
+	}
+
+
+class MailSettingsView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		config = MailgunSettings.objects.order_by("-updated_at").first()
+		return Response(_serialize_mailgun_settings(config), status=status.HTTP_200_OK)
+
+	def put(self, request, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		kampus_email_backend = str(payload.get("kampus_email_backend") or "console").strip().lower()
+		if kampus_email_backend not in {"console", "mailgun"}:
+			return Response({"detail": "kampus_email_backend debe ser 'console' o 'mailgun'."}, status=status.HTTP_400_BAD_REQUEST)
+
+		default_from_email = str(payload.get("default_from_email") or "").strip().lower()
+		server_email = str(payload.get("server_email") or "").strip().lower()
+		mailgun_api_key = str(payload.get("mailgun_api_key") or "").strip()
+		mailgun_sender_domain = str(payload.get("mailgun_sender_domain") or "").strip().lower()
+		mailgun_api_url = str(payload.get("mailgun_api_url") or "").strip()
+		mailgun_webhook_signing_key = str(payload.get("mailgun_webhook_signing_key") or "").strip()
+		mailgun_webhook_strict = bool(payload.get("mailgun_webhook_strict"))
+
+		if not default_from_email:
+			return Response({"detail": "default_from_email es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+		if not server_email:
+			return Response({"detail": "server_email es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		try:
+			validate_email(default_from_email)
+			validate_email(server_email)
+		except ValidationError:
+			return Response({"detail": "default_from_email o server_email no son válidos."}, status=status.HTTP_400_BAD_REQUEST)
+
+		if mailgun_api_url and not (mailgun_api_url.startswith("https://") or mailgun_api_url.startswith("http://")):
+			return Response({"detail": "mailgun_api_url debe iniciar con http:// o https://."}, status=status.HTTP_400_BAD_REQUEST)
+
+		changed_fields: set[str] = set()
+		rotated_api_key = bool(mailgun_api_key)
+		rotated_webhook_signing_key = bool(mailgun_webhook_signing_key)
+
+		config = MailgunSettings.objects.order_by("-updated_at").first()
+		if config is None:
+			changed_fields.update(
+				{
+					"kampus_email_backend",
+					"default_from_email",
+					"server_email",
+					"mailgun_sender_domain",
+					"mailgun_api_url",
+					"mailgun_webhook_strict",
+				}
+			)
+			if rotated_api_key:
+				changed_fields.add("mailgun_api_key")
+			if rotated_webhook_signing_key:
+				changed_fields.add("mailgun_webhook_signing_key")
+
+			config = MailgunSettings.objects.create(
+				kampus_email_backend=kampus_email_backend,
+				default_from_email=default_from_email,
+				server_email=server_email,
+				mailgun_api_key=mailgun_api_key,
+				mailgun_sender_domain=mailgun_sender_domain,
+				mailgun_api_url=mailgun_api_url,
+				mailgun_webhook_signing_key=mailgun_webhook_signing_key,
+				mailgun_webhook_strict=mailgun_webhook_strict,
+				updated_by=request.user,
+			)
+		else:
+			if config.kampus_email_backend != kampus_email_backend:
+				changed_fields.add("kampus_email_backend")
+			if config.default_from_email != default_from_email:
+				changed_fields.add("default_from_email")
+			if config.server_email != server_email:
+				changed_fields.add("server_email")
+			if config.mailgun_sender_domain != mailgun_sender_domain:
+				changed_fields.add("mailgun_sender_domain")
+			if config.mailgun_api_url != mailgun_api_url:
+				changed_fields.add("mailgun_api_url")
+			if bool(config.mailgun_webhook_strict) != mailgun_webhook_strict:
+				changed_fields.add("mailgun_webhook_strict")
+
+			config.kampus_email_backend = kampus_email_backend
+			config.default_from_email = default_from_email
+			config.server_email = server_email
+			config.mailgun_sender_domain = mailgun_sender_domain
+			config.mailgun_api_url = mailgun_api_url
+			config.mailgun_webhook_strict = mailgun_webhook_strict
+
+			if mailgun_api_key:
+				config.mailgun_api_key = mailgun_api_key
+				changed_fields.add("mailgun_api_key")
+			if mailgun_webhook_signing_key:
+				config.mailgun_webhook_signing_key = mailgun_webhook_signing_key
+				changed_fields.add("mailgun_webhook_signing_key")
+
+			config.updated_by = request.user
+			config.save()
+
+		MailgunSettingsAudit.objects.create(
+			settings_ref=config,
+			updated_by=request.user,
+			changed_fields=sorted(changed_fields),
+			rotated_api_key=rotated_api_key,
+			rotated_webhook_signing_key=rotated_webhook_signing_key,
+		)
+
+		apply_effective_mail_settings()
+		return Response(_serialize_mailgun_settings(config), status=status.HTTP_200_OK)
+
+
+class MailSettingsTestView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, *args, **kwargs):
+		test_email = str((request.data or {}).get("test_email") or "").strip().lower()
+		if not test_email:
+			return Response({"detail": "test_email es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		try:
+			validate_email(test_email)
+		except ValidationError:
+			return Response({"detail": "test_email no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		result = send_email(
+			recipient_email=test_email,
+			subject="[Kampus] Prueba de configuración de correo",
+			body_text="Este es un correo de prueba para validar la configuración de Mailgun en Kampus.",
+			category="transactional",
+		)
+
+		if not result.sent:
+			return Response(
+				{
+					"detail": "El correo de prueba no pudo enviarse.",
+					"status": result.delivery.status,
+					"error": result.delivery.error_message,
+				},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		return Response(
+			{
+				"detail": "Correo de prueba enviado correctamente.",
+				"status": result.delivery.status,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class MailSettingsAuditListView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		limit_raw = str(request.query_params.get("limit") or "20").strip()
+		offset_raw = str(request.query_params.get("offset") or "0").strip()
+		try:
+			limit = int(limit_raw)
+		except ValueError:
+			limit = 20
+		try:
+			offset = int(offset_raw)
+		except ValueError:
+			offset = 0
+		limit = max(1, min(limit, 100))
+		offset = max(0, offset)
+
+		base_qs = MailgunSettingsAudit.objects.select_related("updated_by").order_by("-created_at")
+		total = base_qs.count()
+
+		audits = base_qs[offset: offset + limit]
+
+		results = []
+		for audit in audits:
+			user = audit.updated_by
+			results.append(
+				{
+					"id": audit.id,
+					"created_at": audit.created_at,
+					"changed_fields": list(audit.changed_fields or []),
+					"rotated_api_key": bool(audit.rotated_api_key),
+					"rotated_webhook_signing_key": bool(audit.rotated_webhook_signing_key),
+					"updated_by": {
+						"id": user.id,
+						"username": user.username,
+						"email": user.email,
+						"role": user.role,
+					} if user else None,
+				}
+			)
+
+		return Response(
+			{
+				"results": results,
+				"total": total,
+				"limit": limit,
+				"offset": offset,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class MailSettingsAuditCsvExportView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		audits = MailgunSettingsAudit.objects.select_related("updated_by").order_by("-created_at")
+
+		buffer = io.StringIO()
+		writer = csv.writer(buffer)
+		writer.writerow(
+			[
+				"id",
+				"created_at",
+				"updated_by_username",
+				"updated_by_email",
+				"updated_by_role",
+				"changed_fields",
+				"rotated_api_key",
+				"rotated_webhook_signing_key",
+			]
+		)
+
+		for audit in audits:
+			user = audit.updated_by
+			writer.writerow(
+				[
+					audit.id,
+					audit.created_at.isoformat(),
+					user.username if user else "",
+					user.email if user else "",
+					user.role if user else "",
+					";".join(list(audit.changed_fields or [])),
+					"true" if audit.rotated_api_key else "false",
+					"true" if audit.rotated_webhook_signing_key else "false",
+				]
+			)
+
+		response = HttpResponse(buffer.getvalue(), content_type="text/csv; charset=utf-8")
+		response["Content-Disposition"] = 'attachment; filename="mailgun_audits.csv"'
+		return response
 
 
 def _upsert_suppression(*, email: str, reason: str, source_event_id: str, provider: str = "mailgun") -> None:
