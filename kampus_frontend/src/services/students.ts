@@ -50,6 +50,19 @@ export interface FamilyMember {
   is_head_of_household: boolean
 }
 
+export interface FamilyMemberAutocompleteSuggestion {
+  id: number
+  full_name: string
+  document_number: string
+  relationship: string
+  phone: string
+  email: string
+  address: string
+  linked_students_count: number
+  already_linked_to_student: boolean
+  has_identity_document: boolean
+}
+
 export interface StudentNovelty {
   id: number
   student: number
@@ -340,6 +353,13 @@ export const familyMembersApi = {
     hasFile(data) ? api.post('/api/family-members/', toFormData(data)) : api.post('/api/family-members/', data),
   update: (id: number, data: Record<string, unknown>) =>
     hasFile(data) ? api.patch(`/api/family-members/${id}/`, toFormData(data)) : api.patch(`/api/family-members/${id}/`, data),
+  autocomplete: (query: string, studentId?: number) =>
+    api.get<FamilyMemberAutocompleteSuggestion[]>('/api/family-members/autocomplete/', {
+      params: {
+        q: query,
+        ...(studentId ? { student: studentId } : {}),
+      },
+    }),
   delete: (id: number) => api.delete(`/api/family-members/${id}/`),
 }
 

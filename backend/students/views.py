@@ -12,7 +12,7 @@ from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template import TemplateDoesNotExist
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Count
 from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
 from django.conf import settings
@@ -1487,22 +1487,175 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
             "identity_document_private_filename": filename,
         }
 
+    def _find_reusable_identity_member(self, document_number: str, exclude_member_id: int | None = None):
+        normalized_document = (document_number or "").strip()
+        if not normalized_document:
+            return None
+
+        candidates = FamilyMember.objects.filter(document_number__iexact=normalized_document).order_by("-id")
+        if exclude_member_id is not None:
+            candidates = candidates.exclude(pk=exclude_member_id)
+
+        for candidate in candidates:
+            if bool(candidate.identity_document) or bool((candidate.identity_document_private_relpath or "").strip()):
+                return candidate
+        return None
+
+    def _identity_payload_from_existing_member(self, member: FamilyMember | None) -> dict:
+        if member is None:
+            return {}
+
+        private_relpath = (member.identity_document_private_relpath or "").strip()
+        private_filename = (member.identity_document_private_filename or "").strip()
+        if private_relpath:
+            return {
+                "identity_document": None,
+                "identity_document_private_relpath": private_relpath,
+                "identity_document_private_filename": private_filename,
+            }
+
+        if member.identity_document:
+            return {"identity_document": member.identity_document}
+
+        return {}
+
     def perform_create(self, serializer):
         student = serializer.validated_data.get("student")
         identity_document = serializer.validated_data.get("identity_document")
+        relationship = (serializer.validated_data.get("relationship") or "").strip()
+        is_main_guardian = bool(serializer.validated_data.get("is_main_guardian"))
+        document_number = (serializer.validated_data.get("document_number") or "").strip()
         extra = {}
         if student is not None:
             extra = self._private_identity_payload(identity_document, student.pk)
+
+        requires_identity = is_main_guardian or relationship in {"Padre", "Acudiente"}
+        if requires_identity and not extra and not identity_document:
+            reusable_member = self._find_reusable_identity_member(document_number=document_number)
+            extra = self._identity_payload_from_existing_member(reusable_member)
+
         serializer.save(**extra)
 
     def perform_update(self, serializer):
         instance = serializer.instance
         student_id = getattr(getattr(instance, "student", None), "pk", None)
         identity_document = serializer.validated_data.get("identity_document")
+        relationship = (serializer.validated_data.get("relationship") if "relationship" in serializer.validated_data else getattr(instance, "relationship", "")) or ""
+        is_main_guardian = bool(
+            serializer.validated_data.get("is_main_guardian")
+            if "is_main_guardian" in serializer.validated_data
+            else getattr(instance, "is_main_guardian", False)
+        )
+        document_number = (
+            serializer.validated_data.get("document_number")
+            if "document_number" in serializer.validated_data
+            else getattr(instance, "document_number", "")
+        ) or ""
         extra = {}
         if student_id is not None:
             extra = self._private_identity_payload(identity_document, student_id)
+
+        requires_identity = is_main_guardian or relationship in {"Padre", "Acudiente"}
+        has_identity = bool(identity_document) or bool(getattr(instance, "identity_document", None)) or bool(
+            (getattr(instance, "identity_document_private_relpath", "") or "").strip()
+        )
+        if requires_identity and not extra and not has_identity:
+            reusable_member = self._find_reusable_identity_member(
+                document_number=str(document_number).strip(),
+                exclude_member_id=getattr(instance, "pk", None),
+            )
+            extra = self._identity_payload_from_existing_member(reusable_member)
+
         serializer.save(**extra)
+
+    @action(detail=False, methods=["get"], url_path="autocomplete")
+    def autocomplete(self, request):
+        query = (request.query_params.get("q") or "").strip()
+        if len(query) < 2:
+            return Response([])
+
+        queryset = self.get_queryset().select_related("student", "student__user")
+        matches = list(
+            queryset.filter(Q(document_number__icontains=query) | Q(full_name__icontains=query)).order_by("-id")[:30]
+        )
+
+        if not matches:
+            return Response([])
+
+        document_numbers = [
+            (member.document_number or "").strip()
+            for member in matches
+            if (member.document_number or "").strip()
+        ]
+        full_names = [
+            (member.full_name or "").strip()
+            for member in matches
+            if (member.full_name or "").strip()
+        ]
+
+        by_document_students_count = {
+            document: students_count
+            for document, students_count in FamilyMember.objects.filter(document_number__in=document_numbers)
+            .values("document_number")
+            .annotate(students_count=Count("student_id", distinct=True))
+            .values_list("document_number", "students_count")
+        }
+        by_name_students_count = {
+            full_name: students_count
+            for full_name, students_count in FamilyMember.objects.filter(full_name__in=full_names)
+            .values("full_name")
+            .annotate(students_count=Count("student_id", distinct=True))
+            .values_list("full_name", "students_count")
+        }
+
+        requested_student_id = request.query_params.get("student")
+        current_student_keys: set[str] = set()
+        if requested_student_id and requested_student_id.isdigit():
+            student_id = int(requested_student_id)
+            same_student_members = FamilyMember.objects.filter(student_id=student_id).only("document_number", "full_name")
+            for family_member in same_student_members:
+                key = (
+                    (family_member.document_number or "").strip().lower()
+                    or (family_member.full_name or "").strip().lower()
+                )
+                if key:
+                    current_student_keys.add(key)
+
+        suggestions = []
+        seen_keys: set[str] = set()
+        for family_member in matches:
+            document_number = (family_member.document_number or "").strip()
+            full_name = (family_member.full_name or "").strip()
+            dedupe_key = (document_number or full_name).lower()
+            if not dedupe_key or dedupe_key in seen_keys:
+                continue
+
+            seen_keys.add(dedupe_key)
+            linked_students_count = (
+                by_document_students_count.get(document_number)
+                or by_name_students_count.get(full_name)
+                or 1
+            )
+            suggestions.append(
+                {
+                    "id": family_member.id,
+                    "full_name": full_name,
+                    "document_number": document_number,
+                    "relationship": family_member.relationship,
+                    "phone": family_member.phone,
+                    "email": family_member.email,
+                    "address": family_member.address,
+                    "linked_students_count": linked_students_count,
+                    "already_linked_to_student": dedupe_key in current_student_keys,
+                    "has_identity_document": bool(family_member.identity_document)
+                    or bool((family_member.identity_document_private_relpath or "").strip()),
+                }
+            )
+
+            if len(suggestions) >= 10:
+                break
+
+        return Response(suggestions)
 
     @action(detail=True, methods=["get"], url_path="identity-document/download")
     def identity_document_download(self, request, pk=None):

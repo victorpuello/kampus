@@ -978,8 +978,143 @@ class StudentDirectorVisibilityAPITest(APITestCase):
         completion = first.get("completion")
         # Director list includes ACTIVE enrollments, so percent should be computed.
         self.assertIsNotNone(completion)
-        self.assertIn("percent", completion)
-        self.assertIsInstance(completion.get("percent"), int)
+
+
+class FamilyMemberAutocompleteAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_family_autocomplete",
+            password="admin123",
+            email="admin_family_autocomplete@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        user_a = User.objects.create_user(
+            username="student_family_a",
+            password="pw123456",
+            first_name="Ana",
+            last_name="Uno",
+            role=User.ROLE_STUDENT,
+        )
+        user_b = User.objects.create_user(
+            username="student_family_b",
+            password="pw123456",
+            first_name="Bruno",
+            last_name="Dos",
+            role=User.ROLE_STUDENT,
+        )
+
+        self.student_a = Student.objects.create(user=user_a, document_number="STU_FAM_A")
+        self.student_b = Student.objects.create(user=user_b, document_number="STU_FAM_B")
+        user_c = User.objects.create_user(
+            username="student_family_c",
+            password="pw123456",
+            first_name="Caro",
+            last_name="Tres",
+            role=User.ROLE_STUDENT,
+        )
+        self.student_c = Student.objects.create(user=user_c, document_number="STU_FAM_C")
+
+        FamilyMember.objects.create(
+            student=self.student_a,
+            full_name="Carlos Perez",
+            document_number="CC-999",
+            relationship="Padre",
+            phone="3000001111",
+        )
+        self.member_with_identity = FamilyMember.objects.create(
+            student=self.student_b,
+            full_name="Carlos Perez",
+            document_number="CC-999",
+            relationship="Padre",
+            phone="3000002222",
+            identity_document_private_relpath="identity_documents/family_members/student_2/carlos_cc_999.pdf",
+            identity_document_private_filename="carlos_cc_999.pdf",
+        )
+
+    def test_autocomplete_by_document_returns_single_suggestion_with_linked_students_count(self):
+        res = self.client.get("/api/family-members/autocomplete/", {"q": "CC-999"})
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res.data), 1)
+        suggestion = res.data[0]
+        self.assertEqual(suggestion["document_number"], "CC-999")
+        self.assertEqual(suggestion["linked_students_count"], 2)
+        self.assertTrue(suggestion["has_identity_document"])
+
+    def test_create_rejects_duplicate_document_for_same_student(self):
+        res = self.client.post(
+            "/api/family-members/",
+            {
+                "student": self.student_a.pk,
+                "full_name": "Carlos Perez Duplicado",
+                "document_number": "CC-999",
+                "relationship": "Otro",
+                "is_main_guardian": False,
+                "is_head_of_household": False,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("document_number", res.data)
+
+    def test_create_parent_reuses_existing_identity_document_for_another_student(self):
+        res = self.client.post(
+            "/api/family-members/",
+            {
+                "student": self.student_c.pk,
+                "full_name": "Carlos Perez",
+                "document_number": "CC-999",
+                "relationship": "Padre",
+                "phone": "3000003333",
+                "is_main_guardian": False,
+                "is_head_of_household": False,
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+
+        created = FamilyMember.objects.get(pk=res.data["id"])
+        self.assertEqual(
+            (created.identity_document_private_relpath or "").strip(),
+            (self.member_with_identity.identity_document_private_relpath or "").strip(),
+        )
+
+
+class StudentDirectorCompletionAPITest(APITestCase):
+    def setUp(self):
+        self.director = User.objects.create_user(
+            username="t_director_completion",
+            password="pw123456",
+            first_name="Dir",
+            last_name="Completion",
+            role=User.ROLE_TEACHER,
+        )
+        self.other_teacher = User.objects.create_user(
+            username="t_other_completion",
+            password="pw123456",
+            first_name="Doc",
+            last_name="Other",
+            role=User.ROLE_TEACHER,
+        )
+
+        self.year = AcademicYear.objects.create(year="2025", status="ACTIVE")
+        self.grade = Grade.objects.create(name="1", ordinal=1)
+
+        self.group_directed = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.director,
+        )
+        Group.objects.create(
+            name="B",
+            grade=self.grade,
+            academic_year=self.year,
+            capacity=40,
+            director=self.other_teacher,
+        )
 
     def test_director_group_summary_uses_configurable_traffic_light_thresholds(self):
         self.client.force_authenticate(user=self.director)

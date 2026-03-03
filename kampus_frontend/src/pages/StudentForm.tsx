@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { studentsApi, familyMembersApi, observerAnnotationsApi, documentsApi } from '../services/students'
-import type { FamilyMember, ObserverAnnotation, ObserverAnnotationType } from '../services/students'
+import type {
+    FamilyMember,
+    FamilyMemberAutocompleteSuggestion,
+    ObserverAnnotation,
+    ObserverAnnotationType,
+} from '../services/students'
 import StudentDocuments from '../components/students/StudentDocuments'
 import IdentityImageEditor from '../components/students/IdentityImageEditor'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -87,11 +92,50 @@ function FamilyMemberForm({
         is_main_guardian: member?.is_main_guardian || false,
         is_head_of_household: member?.is_head_of_household || false,
     })
+    const [suggestions, setSuggestions] = useState<FamilyMemberAutocompleteSuggestion[]>([])
+    const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+    const [selectedSuggestionWithIdentity, setSelectedSuggestionWithIdentity] = useState<FamilyMemberAutocompleteSuggestion | null>(null)
+
+    const lookupTerm = useMemo(() => {
+        const document = formData.document_number.trim()
+        if (document.length >= 2) return document
+        const fullName = formData.full_name.trim()
+        if (fullName.length >= 3) return fullName
+        return ''
+    }, [formData.document_number, formData.full_name])
 
     const requiresIdentity =
         formData.is_main_guardian || formData.relationship === 'Padre' || formData.relationship === 'Acudiente'
+    const existingMemberHasIdentity = Boolean((member?.identity_document_download_url || member?.identity_document || '').trim())
+    const hasReusableIdentityFromSuggestions = useMemo(() => {
+        const normalizedDocument = formData.document_number.trim().toLowerCase()
+        const normalizedName = formData.full_name.trim().toLowerCase()
+        if (!normalizedDocument && !normalizedName) return false
+
+        return suggestions.some((suggestion) => {
+            if (!suggestion.has_identity_document) return false
+            const suggestionDocument = (suggestion.document_number || '').trim().toLowerCase()
+            const suggestionName = (suggestion.full_name || '').trim().toLowerCase()
+            return (
+                (normalizedDocument && suggestionDocument === normalizedDocument) ||
+                (normalizedName && suggestionName === normalizedName)
+            )
+        })
+    }, [suggestions, formData.document_number, formData.full_name])
+    const hasReusableIdentityFromSelectedSuggestion = useMemo(() => {
+        if (!selectedSuggestionWithIdentity || !selectedSuggestionWithIdentity.has_identity_document) return false
+        const normalizedDocument = formData.document_number.trim().toLowerCase()
+        const normalizedName = formData.full_name.trim().toLowerCase()
+        const selectedDocument = (selectedSuggestionWithIdentity.document_number || '').trim().toLowerCase()
+        const selectedName = (selectedSuggestionWithIdentity.full_name || '').trim().toLowerCase()
+        return (
+            (normalizedDocument && selectedDocument === normalizedDocument) ||
+            (normalizedName && selectedName === normalizedName)
+        )
+    }, [selectedSuggestionWithIdentity, formData.document_number, formData.full_name])
+    const hasReusableIdentityDocument = hasReusableIdentityFromSuggestions || hasReusableIdentityFromSelectedSuggestion
     const requiresIdentityFile =
-        requiresIdentity && !((member?.identity_document_download_url || member?.identity_document || '').trim())
+        requiresIdentity && !existingMemberHasIdentity && !hasReusableIdentityDocument
 
     const validateMaxSize = (selectedFile: File | null): boolean => {
         if (!selectedFile) return true
@@ -105,6 +149,9 @@ function FamilyMemberForm({
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target
         setFormData(prev => ({ ...prev, [name]: value }))
+        if (name === 'document_number' || name === 'full_name') {
+            setSelectedSuggestionWithIdentity(null)
+        }
     }
 
     const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,6 +163,48 @@ function FamilyMemberForm({
         const file = e.target.files?.[0] || null
         setFormData(prev => ({ ...prev, identity_document: file }))
     }
+
+    const applySuggestion = (suggestion: FamilyMemberAutocompleteSuggestion) => {
+        setFormData(prev => ({
+            ...prev,
+            full_name: suggestion.full_name || prev.full_name,
+            document_number: suggestion.document_number || prev.document_number,
+            relationship: prev.relationship || suggestion.relationship || '',
+            phone: suggestion.phone || prev.phone,
+            email: suggestion.email || prev.email,
+            address: suggestion.address || prev.address,
+        }))
+        setSelectedSuggestionWithIdentity(suggestion.has_identity_document ? suggestion : null)
+        setSuggestions([])
+    }
+
+    useEffect(() => {
+        if (!lookupTerm) {
+            setSuggestions([])
+            setLoadingSuggestions(false)
+            return
+        }
+
+        let cancelled = false
+        const timer = window.setTimeout(async () => {
+            setLoadingSuggestions(true)
+            try {
+                const response = await familyMembersApi.autocomplete(lookupTerm, studentId)
+                if (cancelled) return
+                setSuggestions(Array.isArray(response.data) ? response.data : [])
+            } catch {
+                if (cancelled) return
+                setSuggestions([])
+            } finally {
+                if (!cancelled) setLoadingSuggestions(false)
+            }
+        }, 280)
+
+        return () => {
+            cancelled = true
+            window.clearTimeout(timer)
+        }
+    }, [lookupTerm, studentId])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -142,6 +231,7 @@ function FamilyMemberForm({
             setBackIdentity(null)
             setSingleUploadType('image')
             setEditorResetKey((prev) => prev + 1)
+            setSelectedSuggestionWithIdentity(null)
             onSave()
         } catch (error: unknown) {
             console.error(error)
@@ -158,171 +248,221 @@ function FamilyMemberForm({
                     <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{member ? 'Editar Familiar' : 'Nuevo Familiar'}</h3>
                     <button onClick={onCancel}><X className="h-5 w-5 text-slate-500 dark:text-slate-400" /></button>
                 </div>
-                <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label>Nombre Completo</Label>
-                            <Input name="full_name" value={formData.full_name} onChange={handleChange} required />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Parentesco</Label>
-                            <select
-                                name="relationship"
-                                value={formData.relationship}
-                                onChange={handleChange}
-                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                                required
-                            >
-                                <option value="">Seleccione...</option>
-                                <option value="Madre">Madre</option>
-                                <option value="Padre">Padre</option>
-                                <option value="Abuelo/a">Abuelo/a</option>
-                                <option value="Tío/a">Tío/a</option>
-                                <option value="Hermano/a">Hermano/a</option>
-                                <option value="Acudiente">Acudiente</option>
-                                <option value="Otro">Otro</option>
-                            </select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Documento</Label>
-                            <Input
-                                name="document_number"
-                                value={formData.document_number}
-                                onChange={handleChange}
-                                required={requiresIdentity}
-                            />
-                            {requiresIdentity ? (
-                                <p className="text-xs text-slate-500">Requerido para Padre/Acudiente (o acudiente principal).</p>
-                            ) : null}
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Documento de identidad (archivo)</Label>
-                            <div className="grid grid-cols-1 gap-2">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setScanMode('single')}
-                                        className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'single' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
-                                    >
-                                        Normal
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setScanMode('double')}
-                                        className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'double' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
-                                    >
-                                        Doble cara
-                                    </button>
-                                </div>
-
-                                {scanMode === 'single' ? (
-                                    <div className="space-y-2">
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setSingleUploadType('image')
-                                                    setFormData(prev => ({ ...prev, identity_document: null }))
-                                                    setEditorResetKey((prev) => prev + 1)
-                                                }}
-                                                className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'image' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
-                                            >
-                                                Foto con guía
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setSingleUploadType('pdf')
-                                                    setFormData(prev => ({ ...prev, identity_document: null }))
-                                                }}
-                                                className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'pdf' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
-                                            >
-                                                PDF
-                                            </button>
-                                        </div>
-
-                                        {singleUploadType === 'image' ? (
-                                            <IdentityImageEditor
-                                                key={`guardian-single-${editorResetKey}`}
-                                                label="Imagen del documento"
-                                                initialFile={formData.identity_document}
-                                                maxSizeMb={5}
-                                                required={requiresIdentityFile}
-                                                onProcessedFileChange={(editedFile) => setFormData(prev => ({ ...prev, identity_document: editedFile }))}
-                                            />
+                <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-5">
+                    <div className="rounded-md border border-slate-200 p-4 space-y-4 dark:border-slate-800">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Datos del familiar</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Nombre Completo</Label>
+                                <Input name="full_name" value={formData.full_name} onChange={handleChange} required />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Parentesco</Label>
+                                <select
+                                    name="relationship"
+                                    value={formData.relationship}
+                                    onChange={handleChange}
+                                    className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                    required
+                                >
+                                    <option value="">Seleccione...</option>
+                                    <option value="Madre">Madre</option>
+                                    <option value="Padre">Padre</option>
+                                    <option value="Abuelo/a">Abuelo/a</option>
+                                    <option value="Tío/a">Tío/a</option>
+                                    <option value="Hermano/a">Hermano/a</option>
+                                    <option value="Acudiente">Acudiente</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                                <Label>Documento</Label>
+                                <Input
+                                    name="document_number"
+                                    value={formData.document_number}
+                                    onChange={handleChange}
+                                    required={requiresIdentity}
+                                />
+                                {requiresIdentity ? (
+                                    <p className="text-xs text-slate-500">Requerido para Padre/Acudiente (o acudiente principal).</p>
+                                ) : null}
+                                {requiresIdentity && hasReusableIdentityDocument ? (
+                                    <p className="text-xs text-sky-700 dark:text-sky-300">
+                                        Ya existe documento de identidad para este acudiente. Se reutilizará al guardar.
+                                    </p>
+                                ) : null}
+                                {(loadingSuggestions || suggestions.length > 0 || lookupTerm) && (
+                                    <div className="mt-1 rounded-md border border-slate-200 bg-slate-50 p-2.5 dark:border-slate-700 dark:bg-slate-900/40">
+                                        <p className="text-xs text-slate-600 dark:text-slate-300">
+                                            Coincidencias por nombre/documento para evitar duplicados
+                                        </p>
+                                        {loadingSuggestions ? (
+                                            <p className="mt-1 text-xs text-slate-500">Buscando…</p>
+                                        ) : suggestions.length === 0 ? (
+                                            <p className="mt-1 text-xs text-slate-500">Sin coincidencias.</p>
                                         ) : (
-                                            <input
-                                                type="file"
-                                                accept=".pdf,application/pdf"
-                                                onChange={(e) => {
-                                                    const file = e.target.files?.[0] || null
-                                                    if (!validateMaxSize(file)) {
-                                                        e.target.value = ''
-                                                        setFormData(prev => ({ ...prev, identity_document: null }))
-                                                        return
-                                                    }
-                                                    handleIdentityFileChange(e)
-                                                }}
-                                                required={requiresIdentityFile}
-                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
-                                            />
+                                            <div className="mt-2 space-y-1">
+                                                {suggestions.map((suggestion) => (
+                                                    <button
+                                                        key={suggestion.id}
+                                                        type="button"
+                                                        onClick={() => applySuggestion(suggestion)}
+                                                        className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-left text-xs hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                                                    >
+                                                        <div className="font-medium text-slate-900 dark:text-slate-100">
+                                                            {suggestion.full_name} {suggestion.document_number ? `• ${suggestion.document_number}` : ''}
+                                                        </div>
+                                                        <div className="text-slate-600 dark:text-slate-300">
+                                                            {suggestion.relationship || 'Sin parentesco'}
+                                                            {suggestion.linked_students_count > 1
+                                                                ? ` • asociado a ${suggestion.linked_students_count} estudiantes`
+                                                                : ''}
+                                                            {suggestion.already_linked_to_student ? ' • ya está en este estudiante' : ''}
+                                                            {suggestion.has_identity_document ? ' • documento de identidad cargado' : ''}
+                                                        </div>
+                                                    </button>
+                                                ))}
+                                            </div>
                                         )}
                                     </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        <IdentityImageEditor
-                                            key={`guardian-front-${editorResetKey}`}
-                                            label="Anverso"
-                                            initialFile={frontIdentity}
-                                            maxSizeMb={5}
-                                            required={requiresIdentityFile}
-                                            onProcessedFileChange={setFrontIdentity}
-                                        />
-                                        <IdentityImageEditor
-                                            key={`guardian-back-${editorResetKey}`}
-                                            label="Reverso"
-                                            initialFile={backIdentity}
-                                            maxSizeMb={5}
-                                            required={requiresIdentityFile}
-                                            onProcessedFileChange={setBackIdentity}
-                                        />
-                                    </div>
                                 )}
                             </div>
-                            <div className="text-xs text-slate-500">
-                                {(member?.identity_document_download_url || member?.identity_document) ? (
-                                    <a
-                                        href={member.identity_document_download_url || member.identity_document || '#'}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-sky-700 hover:underline"
-                                    >
-                                        Ver archivo actual
-                                    </a>
-                                ) : (
-                                    <span>Sube PDF o imagen (JPG/PNG/WebP).</span>
-                                )}
-                                {requiresIdentityFile ? <span className="block">Requerido para Padre/Acudiente.</span> : null}
-                                {scanMode === 'double' ? (
-                                    <span className="block mt-1">Ajusta rotación y esquinas, luego aplica el ajuste para limpiar zonas no deseadas.</span>
-                                ) : null}
-                            </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Teléfono</Label>
-                            <Input name="phone" value={formData.phone} onChange={handleChange} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Email</Label>
-                            <Input name="email" type="email" value={formData.email} onChange={handleChange} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Dirección</Label>
-                            <Input name="address" value={formData.address} onChange={handleChange} />
                         </div>
                     </div>
-                    <div className="flex gap-6 pt-2">
+
+                    <div className="rounded-md border border-slate-200 p-4 space-y-4 dark:border-slate-800">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Contacto</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label>Teléfono</Label>
+                                <Input name="phone" value={formData.phone} onChange={handleChange} />
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Email</Label>
+                                <Input name="email" type="email" value={formData.email} onChange={handleChange} />
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                                <Label>Dirección</Label>
+                                <Input name="address" value={formData.address} onChange={handleChange} />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 p-4 space-y-3 dark:border-slate-800">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Documento de identidad (archivo)</h4>
+                        <div className="grid grid-cols-1 gap-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setScanMode('single')}
+                                    className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'single' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                >
+                                    Normal
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setScanMode('double')}
+                                    className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'double' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                >
+                                    Doble cara
+                                </button>
+                            </div>
+
+                            {scanMode === 'single' ? (
+                                <div className="space-y-2">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSingleUploadType('image')
+                                                setFormData(prev => ({ ...prev, identity_document: null }))
+                                                setEditorResetKey((prev) => prev + 1)
+                                            }}
+                                            className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'image' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                        >
+                                            Foto con guía
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setSingleUploadType('pdf')
+                                                setFormData(prev => ({ ...prev, identity_document: null }))
+                                            }}
+                                            className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'pdf' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                        >
+                                            PDF
+                                        </button>
+                                    </div>
+
+                                    {singleUploadType === 'image' ? (
+                                        <IdentityImageEditor
+                                            key={`guardian-single-${editorResetKey}`}
+                                            label="Imagen del documento"
+                                            initialFile={formData.identity_document}
+                                            maxSizeMb={5}
+                                            required={requiresIdentityFile}
+                                            onProcessedFileChange={(editedFile) => setFormData(prev => ({ ...prev, identity_document: editedFile }))}
+                                        />
+                                    ) : (
+                                        <input
+                                            type="file"
+                                            accept=".pdf,application/pdf"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null
+                                                if (!validateMaxSize(file)) {
+                                                    e.target.value = ''
+                                                    setFormData(prev => ({ ...prev, identity_document: null }))
+                                                    return
+                                                }
+                                                handleIdentityFileChange(e)
+                                            }}
+                                            required={requiresIdentityFile}
+                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                        />
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <IdentityImageEditor
+                                        key={`guardian-front-${editorResetKey}`}
+                                        label="Anverso"
+                                        initialFile={frontIdentity}
+                                        maxSizeMb={5}
+                                        required={requiresIdentityFile}
+                                        onProcessedFileChange={setFrontIdentity}
+                                    />
+                                    <IdentityImageEditor
+                                        key={`guardian-back-${editorResetKey}`}
+                                        label="Reverso"
+                                        initialFile={backIdentity}
+                                        maxSizeMb={5}
+                                        required={requiresIdentityFile}
+                                        onProcessedFileChange={setBackIdentity}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                            {(member?.identity_document_download_url || member?.identity_document) ? (
+                                <a
+                                    href={member.identity_document_download_url || member.identity_document || '#'}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-sky-700 hover:underline"
+                                >
+                                    Ver archivo actual
+                                </a>
+                            ) : (
+                                <span>Sube PDF o imagen (JPG/PNG/WebP).</span>
+                            )}
+                            {requiresIdentityFile ? <span className="block">Requerido para Padre/Acudiente.</span> : null}
+                            {scanMode === 'double' ? (
+                                <span className="block mt-1">Ajusta rotación y esquinas, luego aplica el ajuste para limpiar zonas no deseadas.</span>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-x-6 gap-y-2 pt-1">
                         <label className="flex items-center space-x-2 cursor-pointer">
                             <input type="checkbox" name="is_main_guardian" checked={formData.is_main_guardian} onChange={handleCheckboxChange} className="h-4 w-4 rounded border-slate-300 dark:border-slate-700" />
                             <span className="text-sm text-slate-700 dark:text-slate-300">Acudiente Principal</span>
@@ -2629,11 +2769,22 @@ export default function StudentForm() {
                                                 {member.phone}
                                             </div>
                                         </div>
-                                        {member.is_main_guardian ? (
-                                            <span className="shrink-0 px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">
-                                                Principal
-                                            </span>
-                                        ) : null}
+                                        <div className="flex shrink-0 flex-col items-end gap-1">
+                                            {member.is_main_guardian ? (
+                                                <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">
+                                                    Principal
+                                                </span>
+                                            ) : null}
+                                            {((member.identity_document_download_url || member.identity_document || '').trim()) ? (
+                                                <span className="px-2 py-1 text-xs font-semibold text-sky-700 bg-sky-100 rounded-full border border-sky-200 dark:text-sky-200 dark:bg-sky-950/30 dark:border-sky-900/40">
+                                                    Doc ID cargado
+                                                </span>
+                                            ) : (
+                                                <span className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 rounded-full border border-slate-200 dark:text-slate-300 dark:bg-slate-800/60 dark:border-slate-700">
+                                                    Sin Doc ID
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {canEdit ? (
@@ -2641,14 +2792,24 @@ export default function StudentForm() {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="w-full"
+                                                className={`w-full flex items-center justify-center gap-2 ${((member.identity_document_download_url || member.identity_document || '').trim()) ? 'border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200 dark:hover:bg-sky-950/50' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}
                                                 onClick={() => {
                                                     setEditingMember(member)
                                                     setShowFamilyModal(true)
                                                 }}
                                                 type="button"
+                                                title={((member.identity_document_download_url || member.identity_document || '').trim()) ? 'Editar familiar con documento de identidad cargado' : 'Editar familiar sin documento de identidad'}
                                             >
-                                                Editar
+                                                <span>Editar</span>
+                                                {((member.identity_document_download_url || member.identity_document || '').trim()) ? (
+                                                    <span className="rounded-full border border-sky-200 bg-sky-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:border-sky-900/40 dark:bg-sky-950/30 dark:text-sky-200">
+                                                        Doc ID
+                                                    </span>
+                                                ) : (
+                                                    <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                                                        Sin Doc
+                                                    </span>
+                                                )}
                                             </Button>
                                             <Button
                                                 variant="outline"
@@ -2674,6 +2835,7 @@ export default function StudentForm() {
                                     <th className="px-3 py-3 font-semibold sm:px-6">Parentesco</th>
                                     <th className="px-3 py-3 font-semibold sm:px-6">Teléfono</th>
                                     <th className="px-3 py-3 font-semibold sm:px-6">Acudiente</th>
+                                    <th className="px-3 py-3 font-semibold sm:px-6">Documento ID</th>
                                     {canEdit && <th className="px-3 py-3 font-semibold text-right sm:px-6">Acciones</th>}
                                 </tr>
                             </thead>
@@ -2686,12 +2848,30 @@ export default function StudentForm() {
                                         <td className="px-3 py-3 sm:px-6">
                                             {member.is_main_guardian && <span className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-100 rounded-full border border-emerald-200 dark:text-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900/40">Principal</span>}
                                         </td>
+                                        <td className="px-3 py-3 sm:px-6">
+                                            {((member.identity_document_download_url || member.identity_document || '').trim()) ? (
+                                                <span className="px-2 py-1 text-xs font-semibold text-sky-700 bg-sky-100 rounded-full border border-sky-200 dark:text-sky-200 dark:bg-sky-950/30 dark:border-sky-900/40">Cargado</span>
+                                            ) : (
+                                                <span className="px-2 py-1 text-xs font-semibold text-slate-600 bg-slate-100 rounded-full border border-slate-200 dark:text-slate-300 dark:bg-slate-800/60 dark:border-slate-700">Sin archivo</span>
+                                            )}
+                                        </td>
                                         {canEdit && (
                                           <td className="px-3 py-3 text-right sm:px-6">
                                               <div className="flex items-center justify-end gap-2">
-                                                  <Button variant="ghost" size="sm" onClick={() => { setEditingMember(member); setShowFamilyModal(true); }} type="button" className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-300">
+                                                  <Button
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={() => { setEditingMember(member); setShowFamilyModal(true); }}
+                                                      type="button"
+                                                      className={`h-8 w-8 p-0 ${((member.identity_document_download_url || member.identity_document || '').trim()) ? 'text-sky-700 hover:bg-sky-50 hover:text-sky-800 dark:text-sky-300 dark:hover:bg-sky-950/30 dark:hover:text-sky-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
+                                                      title={((member.identity_document_download_url || member.identity_document || '').trim()) ? 'Editar (con documento cargado)' : 'Editar (sin documento cargado)'}
+                                                  >
                                                       <Edit2 className="h-4 w-4" />
                                                   </Button>
+                                                  <span
+                                                      className={`inline-flex h-2.5 w-2.5 rounded-full ${((member.identity_document_download_url || member.identity_document || '').trim()) ? 'bg-sky-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                                      title={((member.identity_document_download_url || member.identity_document || '').trim()) ? 'Documento de identidad cargado' : 'Sin documento de identidad'}
+                                                  />
                                                   <Button variant="ghost" size="sm" onClick={() => handleDeleteFamilyMember(member.id)} type="button" className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300">
                                                       <Trash2 className="h-4 w-4" />
                                                   </Button>

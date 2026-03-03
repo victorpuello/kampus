@@ -354,7 +354,6 @@ export default function StudentProfile() {
                       <div className="text-xs text-slate-500">{doc.description || 'Sin descripción'}</div>
                     </div>
                   </div>
-<<<<<<< HEAD
                   <button
                     type="button"
                     onClick={() => openDocumentViewer(doc.file_download_url || doc.file || '#', `${doc.document_type} · ${new Date(doc.uploaded_at).toLocaleDateString()}`)}

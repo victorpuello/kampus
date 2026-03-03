@@ -853,8 +853,20 @@ export default function Grades() {
 
   const rowOrder = useMemo(() => (gradebook?.students ?? []).map((s) => s.enrollment_id), [gradebook?.students])
 
+  const findVisibleInputById = (id: string): HTMLInputElement | null => {
+    const all = document.querySelectorAll(`#${CSS.escape(id)}`)
+    if (all.length === 0) return null
+
+    for (const node of Array.from(all)) {
+      const input = node as HTMLInputElement
+      if (input.offsetParent !== null) return input
+    }
+
+    return all[0] as HTMLInputElement
+  }
+
   const focusCell = (enrollmentId: number, achievementId: number) => {
-    const el = document.getElementById(`gradecell-${enrollmentId}-${achievementId}`) as HTMLInputElement | null
+    const el = findVisibleInputById(`gradecell-${enrollmentId}-${achievementId}`)
     if (!el) return
     el.focus()
     try {
@@ -1313,7 +1325,7 @@ export default function Grades() {
   }
 
   const focusActivityCell = (enrollmentId: number, columnId: number) => {
-    const el = document.getElementById(`activitycell-${enrollmentId}-${columnId}`) as HTMLInputElement | null
+    const el = findVisibleInputById(`activitycell-${enrollmentId}-${columnId}`)
     if (!el) return
     el.focus()
     el.select()
@@ -1336,10 +1348,18 @@ export default function Grades() {
 
     // Grid navigation (Excel-like)
     // - Up/Down: move row
-    // - Enter: move down
+    // - Enter/Shift+Enter: move down/up
     // - Left/Right: move only when caret is at start/end
+    // - Tab/Shift+Tab: move next/previous cell
     const key = e.key
-    if (key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'Enter') {
+    if (
+      key !== 'ArrowLeft' &&
+      key !== 'ArrowRight' &&
+      key !== 'ArrowUp' &&
+      key !== 'ArrowDown' &&
+      key !== 'Enter' &&
+      key !== 'Tab'
+    ) {
       return
     }
 
@@ -1359,7 +1379,8 @@ export default function Grades() {
     let nextCol = colIndex
 
     if (key === 'ArrowUp') nextRow = rowIndex - 1
-    if (key === 'ArrowDown' || key === 'Enter') nextRow = rowIndex + 1
+    if (key === 'ArrowDown') nextRow = rowIndex + 1
+    if (key === 'Enter') nextRow = e.shiftKey ? rowIndex - 1 : rowIndex + 1
     if (key === 'ArrowLeft') {
       if (!atStart) return
       nextCol = colIndex - 1
@@ -1367,6 +1388,19 @@ export default function Grades() {
     if (key === 'ArrowRight') {
       if (!atEnd) return
       nextCol = colIndex + 1
+    }
+    if (key === 'Tab') {
+      const totalCols = activeActivityColumns.length
+      if (totalCols <= 0) return
+      const currentIndex = rowIndex * totalCols + colIndex
+      const delta = e.shiftKey ? -1 : 1
+      const nextIndex = currentIndex + delta
+      if (nextIndex < 0 || nextIndex >= rowOrder.length * totalCols) {
+        e.preventDefault()
+        return
+      }
+      nextRow = Math.floor(nextIndex / totalCols)
+      nextCol = nextIndex % totalCols
     }
 
     if (nextRow === rowIndex && nextCol === colIndex) return
@@ -1716,6 +1750,22 @@ export default function Grades() {
       // Don't steal cursor navigation unless caret is at the end
       if (start === len && end === len) moveTo(rowIdx, colIdx + 1)
       return
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      const totalCols = achievementOrder.length
+      if (totalCols <= 0) return
+
+      const currentIndex = rowIdx * totalCols + colIdx
+      const delta = e.shiftKey ? -1 : 1
+      const nextIndex = currentIndex + delta
+
+      if (nextIndex < 0 || nextIndex >= rowOrder.length * totalCols) return
+
+      const nextRow = Math.floor(nextIndex / totalCols)
+      const nextCol = nextIndex % totalCols
+      focusCell(rowOrder[nextRow], achievementOrder[nextCol].id)
     }
   }
 

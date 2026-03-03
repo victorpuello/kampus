@@ -4,6 +4,7 @@ import unicodedata
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from .models import Student, FamilyMember, Enrollment, StudentNovelty, StudentDocument, ObserverAnnotation
 from users.security import generate_temporary_password
 
@@ -186,6 +187,20 @@ class StudentNoveltySerializer(serializers.ModelSerializer):
 class FamilyMemberSerializer(serializers.ModelSerializer):
     identity_document_download_url = serializers.SerializerMethodField()
 
+    def _has_reusable_identity_document(self, document_number: str, exclude_pk: int | None = None) -> bool:
+        normalized_document = (document_number or "").strip()
+        if not normalized_document:
+            return False
+
+        candidates = FamilyMember.objects.filter(document_number__iexact=normalized_document)
+        if exclude_pk is not None:
+            candidates = candidates.exclude(pk=exclude_pk)
+
+        return candidates.filter(
+            Q(identity_document_private_relpath__gt="")
+            | (Q(identity_document__isnull=False) & ~Q(identity_document=""))
+        ).exists()
+
     class Meta:
         model = FamilyMember
         fields = [
@@ -224,9 +239,11 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
         instance = getattr(self, 'instance', None)
 
         relationship = (attrs.get('relationship') if 'relationship' in attrs else getattr(instance, 'relationship', '')) or ''
+        full_name = (attrs.get('full_name') if 'full_name' in attrs else getattr(instance, 'full_name', '')) or ''
         is_main_guardian = (
             attrs.get('is_main_guardian') if 'is_main_guardian' in attrs else getattr(instance, 'is_main_guardian', False)
         )
+        student = attrs.get('student') if 'student' in attrs else getattr(instance, 'student', None)
         document_number = (
             attrs.get('document_number') if 'document_number' in attrs else getattr(instance, 'document_number', '')
         ) or ''
@@ -249,10 +266,45 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     "document_number": "El documento de identidad es requerido para Padre/Acudiente (o acudiente principal)."
                 })
-            if not identity_document and not str(identity_document_private_relpath or '').strip():
+            has_existing_identity = bool(identity_document) or bool(str(identity_document_private_relpath or '').strip())
+            if not has_existing_identity:
+                instance_pk = getattr(instance, 'pk', None)
+                has_reusable_identity = self._has_reusable_identity_document(
+                    document_number=document_number,
+                    exclude_pk=instance_pk,
+                )
+            else:
+                has_reusable_identity = False
+
+            if not has_existing_identity and not has_reusable_identity:
                 raise serializers.ValidationError({
                     "identity_document": "Adjunta el documento de identidad (PDF o imagen) para Padre/Acudiente (o acudiente principal)."
                 })
+
+        if student is not None and document_number.strip():
+            duplicate_document_qs = FamilyMember.objects.filter(
+                student=student,
+                document_number__iexact=document_number.strip(),
+            )
+            if instance is not None:
+                duplicate_document_qs = duplicate_document_qs.exclude(pk=instance.pk)
+            if duplicate_document_qs.exists():
+                raise serializers.ValidationError(
+                    {"document_number": "Ya existe un familiar con este documento para este estudiante."}
+                )
+
+        if student is not None and full_name.strip() and relationship.strip():
+            duplicate_name_relationship_qs = FamilyMember.objects.filter(
+                student=student,
+                full_name__iexact=full_name.strip(),
+                relationship__iexact=relationship.strip(),
+            )
+            if instance is not None:
+                duplicate_name_relationship_qs = duplicate_name_relationship_qs.exclude(pk=instance.pk)
+            if duplicate_name_relationship_qs.exists():
+                raise serializers.ValidationError(
+                    {"full_name": "Ya existe un familiar con el mismo nombre y parentesco para este estudiante."}
+                )
 
         return attrs
 
