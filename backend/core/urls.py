@@ -4,6 +4,7 @@ from .views import (
     CampusViewSet,
     ConfigExportView,
     ConfigImportView,
+    SystemBackupsDeleteView,
     InstitutionViewSet,
     SystemBackupsDownloadView,
     SystemBackupsRestoreView,
@@ -25,6 +26,11 @@ urlpatterns = [
         "system/backups/<str:filename>/download/",
         SystemBackupsDownloadView.as_view(),
         name="system-backups-download",
+    ),
+    path(
+        "system/backups/<str:filename>/",
+        SystemBackupsDeleteView.as_view(),
+        name="system-backups-delete",
     ),
     path('', include(router.urls)),
 ]

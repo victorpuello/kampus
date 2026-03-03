@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { studentsApi, noveltiesApi, documentsApi } from '../services/students'
 import type { Student } from '../services/students'
+import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 
 export default function StudentProfile() {
   const { id } = useParams()
@@ -12,6 +13,8 @@ export default function StudentProfile() {
 
   // Novelty Form State
   const [isAddingNovelty, setIsAddingNovelty] = useState(false)
+  const [confirmNoveltyOpen, setConfirmNoveltyOpen] = useState(false)
+  const [submittingNovelty, setSubmittingNovelty] = useState(false)
   const [noveltyForm, setNoveltyForm] = useState({
     novelty_type: 'RETIRO',
     observation: '',
@@ -43,8 +46,13 @@ export default function StudentProfile() {
   const handleAddNovelty = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!studentId) return
-    
-    if (!confirm('¿Está seguro de registrar esta novedad? Esto podría afectar el estado del estudiante.')) return
+
+    setConfirmNoveltyOpen(true)
+  }
+
+  const confirmAddNovelty = async () => {
+    if (!studentId) return
+    setSubmittingNovelty(true)
 
     try {
       await noveltiesApi.create({
@@ -52,11 +60,14 @@ export default function StudentProfile() {
         ...noveltyForm
       })
       setIsAddingNovelty(false)
+      setConfirmNoveltyOpen(false)
       setNoveltyForm(prev => ({ ...prev, observation: '' }))
       loadStudent() // Refresh to see new novelty and potential status change
     } catch (err) {
       console.error(err)
       alert('Error al registrar la novedad')
+    } finally {
+      setSubmittingNovelty(false)
     }
   }
 
@@ -327,7 +338,7 @@ export default function StudentProfile() {
                     </div>
                   </div>
                   <a 
-                    href={doc.file} 
+                    href={doc.file_download_url || doc.file} 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-xs text-blue-600 hover:underline whitespace-nowrap"
@@ -361,6 +372,19 @@ export default function StudentProfile() {
           )}
         </section>
       </div>
+
+      <ConfirmationModal
+        isOpen={confirmNoveltyOpen}
+        onClose={() => {
+          if (!submittingNovelty) setConfirmNoveltyOpen(false)
+        }}
+        onConfirm={confirmAddNovelty}
+        title="Confirmar novedad"
+        description="¿Está seguro de registrar esta novedad? Esto podría afectar el estado del estudiante."
+        confirmText="Confirmar"
+        cancelText="Cancelar"
+        loading={submittingNovelty}
+      />
     </div>
   )
 }

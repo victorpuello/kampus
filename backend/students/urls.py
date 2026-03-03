@@ -11,6 +11,8 @@ from .views import (
     CertificateIssueDetailView,
     CertificateIssueDownloadPDFView,
     CertificateRevenueSummaryView,
+    IdentityScanPreviewView,
+    IdentityScanComposeView,
     BulkEnrollmentView
 )
 
@@ -33,5 +35,7 @@ urlpatterns = [
     path("certificates/issues/<uuid:uuid>/", CertificateIssueDetailView.as_view(), name="certificate-issue-detail"),
     path("certificates/issues/<uuid:uuid>/pdf/", CertificateIssueDownloadPDFView.as_view(), name="certificate-issue-pdf"),
     path("certificates/revenue/summary/", CertificateRevenueSummaryView.as_view(), name="certificate-revenue-summary"),
+    path("identity-scans/preview/", IdentityScanPreviewView.as_view(), name="identity-scan-preview"),
+    path("identity-scans/compose/", IdentityScanComposeView.as_view(), name="identity-scan-compose"),
 ]
 

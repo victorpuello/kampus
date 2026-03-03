@@ -439,6 +439,25 @@ class SystemBackupsDownloadView(APIView):
         return resp
 
 
+class SystemBackupsDeleteView(APIView):
+    permission_classes = [IsAdmin]
+
+    def delete(self, request, filename: str):
+        try:
+            path = _safe_backup_path(filename)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not path.exists() or not path.is_file():
+            return Response({"detail": "Backup no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not (path.name.endswith(".json") or path.name.endswith(".json.gz") or path.name.endswith(".zip")):
+            return Response({"detail": "Archivo inválido para eliminación."}, status=status.HTTP_400_BAD_REQUEST)
+
+        path.unlink()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class SystemBackupsRestoreView(APIView):
     """Restore/import from an existing backup file stored on server."""
 

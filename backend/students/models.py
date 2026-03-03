@@ -163,6 +163,8 @@ class FamilyMember(models.Model):
         verbose_name="Documento de identidad (archivo)",
         validators=[FileExtensionValidator(allowed_extensions=['pdf', 'png', 'jpg', 'jpeg', 'webp'])],
     )
+    identity_document_private_relpath = models.CharField(max_length=500, blank=True, default="")
+    identity_document_private_filename = models.CharField(max_length=255, blank=True, default="")
     relationship = models.CharField(max_length=50)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
@@ -291,7 +293,9 @@ class StudentDocument(models.Model):
     )
     student = models.ForeignKey(Student, related_name='documents', on_delete=models.CASCADE)
     document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES)
-    file = models.FileField(upload_to='student_documents/')
+    file = models.FileField(upload_to='student_documents/', blank=True, null=True)
+    file_private_relpath = models.CharField(max_length=500, blank=True, default="")
+    file_private_filename = models.CharField(max_length=255, blank=True, default="")
     description = models.CharField(max_length=200, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 

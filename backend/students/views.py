@@ -32,6 +32,7 @@ import unicodedata
 import uuid as py_uuid
 from decimal import Decimal
 from datetime import date, datetime
+from pathlib import Path
 from academic.models import AcademicLoad, AcademicYear, Grade, Group
 from academic.models import (
     Achievement,
@@ -97,6 +98,194 @@ from students.reports import sort_enrollments_for_enrollment_list
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+try:
+    from PIL import Image, ImageOps  # type: ignore
+except Exception:  # pragma: no cover
+    Image = None
+    ImageOps = None
+
+try:
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+except Exception:  # pragma: no cover
+    cv2 = None
+    np = None
+
+
+def _safe_join_private(root: Path, relpath: str) -> Path:
+    rel = Path(relpath)
+    if rel.is_absolute():
+        raise ValueError("Absolute paths are not allowed")
+    final = (root / rel).resolve()
+    root_resolved = root.resolve()
+    if root_resolved not in final.parents and final != root_resolved:
+        raise ValueError("Invalid path")
+    return final
+
+
+def _store_upload_to_private_storage(*, upload, relpath: str) -> tuple[str, str]:
+    out_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), relpath)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        upload.seek(0)
+    except Exception:
+        pass
+
+    with out_path.open("wb") as fh:
+        for chunk in upload.chunks():
+            fh.write(chunk)
+
+    return relpath, out_path.name
+
+
+def _order_quad_points(points):
+    if np is None:
+        return points
+
+    pts = np.array(points, dtype="float32")
+    rect = np.zeros((4, 2), dtype="float32")
+
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
+
+
+def _scan_document_image(upload):
+    if Image is None or ImageOps is None:
+        raise RuntimeError("Pillow no está disponible para procesar imágenes.")
+
+    upload.seek(0)
+    with Image.open(upload) as img:
+        pil_image = ImageOps.exif_transpose(img).convert("RGB")
+
+    enhanced = ImageOps.autocontrast(pil_image)
+    if cv2 is None or np is None:
+        return enhanced
+
+    try:
+        rgb_arr = np.array(enhanced)
+        bgr_arr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+        gray = cv2.cvtColor(bgr_arr, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        edges = cv2.Canny(blurred, 50, 150)
+        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
+
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return enhanced
+
+        image_area = float(bgr_arr.shape[0] * bgr_arr.shape[1])
+        quad = None
+
+        for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:12]:
+            area = float(cv2.contourArea(contour))
+            if area < image_area * 0.15:
+                continue
+
+            perimeter = cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, 0.02 * perimeter, True)
+            if len(approx) == 4:
+                quad = approx.reshape(4, 2)
+                break
+
+        if quad is None:
+            return enhanced
+
+        rect = _order_quad_points(quad)
+        (tl, tr, br, bl) = rect
+
+        width_a = np.linalg.norm(br - bl)
+        width_b = np.linalg.norm(tr - tl)
+        max_width = int(max(width_a, width_b))
+
+        height_a = np.linalg.norm(tr - br)
+        height_b = np.linalg.norm(tl - bl)
+        max_height = int(max(height_a, height_b))
+
+        if max_width < 100 or max_height < 100:
+            return enhanced
+
+        destination = np.array(
+            [[0, 0], [max_width - 1, 0], [max_width - 1, max_height - 1], [0, max_height - 1]],
+            dtype="float32",
+        )
+
+        matrix = cv2.getPerspectiveTransform(rect.astype("float32"), destination)
+        warped = cv2.warpPerspective(bgr_arr, matrix, (max_width, max_height))
+        warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+        return ImageOps.autocontrast(Image.fromarray(warped_rgb))
+    except Exception:
+        return enhanced
+
+
+def _compose_identity_pdf_bytes(front_upload, back_upload) -> bytes:
+    if Image is None or ImageOps is None:
+        raise RuntimeError("Pillow no está disponible para procesar imágenes.")
+
+    front_img = _scan_document_image(front_upload)
+    back_img = _scan_document_image(back_upload)
+
+    page_width, page_height = 1240, 1754
+    margin = 72
+    gap = 48
+    slot_height = (page_height - (2 * margin) - gap) // 2
+    slot_width = page_width - (2 * margin)
+
+    page = Image.new("RGB", (page_width, page_height), "white")
+
+    front_fit = ImageOps.contain(front_img, (slot_width, slot_height))
+    back_fit = ImageOps.contain(back_img, (slot_width, slot_height))
+
+    front_x = (page_width - front_fit.width) // 2
+    front_y = margin + (slot_height - front_fit.height) // 2
+    back_x = (page_width - back_fit.width) // 2
+    back_y = margin + slot_height + gap + (slot_height - back_fit.height) // 2
+
+    page.paste(front_fit, (front_x, front_y))
+    page.paste(back_fit, (back_x, back_y))
+
+    output = io.BytesIO()
+    page.save(output, format="PDF", resolution=150.0)
+    return output.getvalue()
+
+
+def _identity_scan_max_file_size_bytes() -> int:
+    raw_value = str(os.getenv("KAMPUS_IDENTITY_SCAN_MAX_MB", "8") or "8").strip()
+    try:
+        size_mb = int(raw_value)
+    except Exception:
+        size_mb = 8
+    if size_mb < 1:
+        size_mb = 1
+    return size_mb * 1024 * 1024
+
+
+def _validate_identity_scan_upload(upload, *, label: str = "Imagen") -> None:
+    if upload is None:
+        raise ValueError(f"{label} es requerido.")
+
+    filename = str(getattr(upload, "name", "") or "")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    allowed_extensions = {"jpg", "jpeg", "png", "webp"}
+    if ext not in allowed_extensions:
+        raise ValueError(f"{label} debe ser JPG, PNG o WebP.")
+
+    content_type = str(getattr(upload, "content_type", "") or "").lower()
+    if content_type and not content_type.startswith("image/"):
+        raise ValueError(f"{label} debe ser una imagen válida.")
+
+    max_size_bytes = _identity_scan_max_file_size_bytes()
+    upload_size = getattr(upload, "size", None)
+    if upload_size is not None and int(upload_size) > max_size_bytes:
+        max_mb = max_size_bytes // (1024 * 1024)
+        raise ValueError(f"{label} supera el tamaño máximo permitido ({max_mb} MB).")
 
 
 def _students_import_max_file_size_bytes() -> int:
@@ -1231,6 +1420,69 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
+    def _private_identity_payload(self, request, student_id: int) -> dict:
+        identity_document = request.FILES.get("identity_document")
+        if not identity_document:
+            return {}
+
+        ext = (str(getattr(identity_document, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(identity_document, "name", "")) else "pdf").lower()
+        relpath = f"identity_documents/family_members/student_{student_id}/{py_uuid.uuid4()}.{ext}".strip("/")
+        stored_relpath, filename = _store_upload_to_private_storage(upload=identity_document, relpath=relpath)
+        return {
+            "identity_document": None,
+            "identity_document_private_relpath": stored_relpath,
+            "identity_document_private_filename": filename,
+        }
+
+    def perform_create(self, serializer):
+        student = serializer.validated_data.get("student")
+        extra = {}
+        try:
+            if student is not None:
+                extra = self._private_identity_payload(self.request, student.id)
+        except Exception:
+            extra = {}
+        serializer.save(**extra)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        student_id = getattr(getattr(instance, "student", None), "id", None)
+        extra = {}
+        try:
+            if student_id is not None:
+                extra = self._private_identity_payload(self.request, student_id)
+        except Exception:
+            extra = {}
+        serializer.save(**extra)
+
+    @action(detail=True, methods=["get"], url_path="identity-document/download")
+    def identity_document_download(self, request, pk=None):
+        member: FamilyMember = self.get_object()
+
+        private_relpath = (member.identity_document_private_relpath or "").strip()
+        if private_relpath:
+            try:
+                abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), private_relpath)
+                if not abs_path.exists():
+                    return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+                filename = member.identity_document_private_filename or f"documento_identidad_{member.id}.pdf"
+                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+                response["Content-Disposition"] = f'inline; filename="{filename}"'
+                return response
+            except Exception as e:
+                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if member.identity_document:
+            try:
+                member.identity_document.open("rb")
+                response = FileResponse(member.identity_document, content_type="application/octet-stream")
+                response["Content-Disposition"] = f'inline; filename="{Path(member.identity_document.name).name}"'
+                return response
+            except Exception as e:
+                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
     queryset = (
@@ -1968,6 +2220,150 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
         if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
+
+    def _private_file_payload(self, request, student_id: int, document_type: str) -> dict:
+        upload = request.FILES.get("file")
+        if not upload:
+            return {}
+
+        if document_type not in {"IDENTITY", "GUARDIAN_IDENTITY"}:
+            return {}
+
+        ext = (str(getattr(upload, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(upload, "name", "")) else "pdf").lower()
+        relpath = f"identity_documents/students/student_{student_id}/{py_uuid.uuid4()}.{ext}".strip("/")
+        stored_relpath, filename = _store_upload_to_private_storage(upload=upload, relpath=relpath)
+        return {
+            "file": None,
+            "file_private_relpath": stored_relpath,
+            "file_private_filename": filename,
+        }
+
+    def perform_create(self, serializer):
+        student = serializer.validated_data.get("student")
+        document_type = str(serializer.validated_data.get("document_type") or "")
+        extra = {}
+        try:
+            if student is not None:
+                extra = self._private_file_payload(self.request, student.id, document_type)
+        except Exception:
+            extra = {}
+        serializer.save(**extra)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        student_id = getattr(getattr(instance, "student", None), "id", None)
+        document_type = str(serializer.validated_data.get("document_type") or getattr(instance, "document_type", ""))
+        extra = {}
+        try:
+            if student_id is not None:
+                extra = self._private_file_payload(self.request, student_id, document_type)
+        except Exception:
+            extra = {}
+        serializer.save(**extra)
+
+    @action(detail=True, methods=["get"], url_path="download")
+    def download(self, request, pk=None):
+        doc: StudentDocument = self.get_object()
+        private_relpath = (doc.file_private_relpath or "").strip()
+
+        if private_relpath:
+            try:
+                abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), private_relpath)
+                if not abs_path.exists():
+                    return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+                filename = doc.file_private_filename or f"documento_{doc.id}.pdf"
+                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+                response["Content-Disposition"] = f'inline; filename="{filename}"'
+                return response
+            except Exception as e:
+                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        if doc.file:
+            try:
+                doc.file.open("rb")
+                response = FileResponse(doc.file, content_type="application/octet-stream")
+                response["Content-Disposition"] = f'inline; filename="{Path(doc.file.name).name}"'
+                return response
+            except Exception as e:
+                return Response({"detail": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class IdentityScanComposeView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (FormParser, MultiPartParser)
+
+    def post(self, request, format=None):
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+
+        front_image = request.FILES.get("front_image")
+        back_image = request.FILES.get("back_image")
+
+        if not front_image or not back_image:
+            return Response(
+                {"detail": "Debes enviar front_image y back_image."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            _validate_identity_scan_upload(front_image, label="Anverso")
+            _validate_identity_scan_upload(back_image, label="Reverso")
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pdf_bytes = _compose_identity_pdf_bytes(front_image, back_image)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = 'attachment; filename="documento_identidad_doble_cara.pdf"'
+            return response
+        except Exception as e:
+            logger.exception(
+                "Identity scan compose failed (user_id=%s, role=%s)",
+                getattr(request.user, "id", None),
+                getattr(request.user, "role", None),
+            )
+            payload = {"detail": "No se pudo generar el PDF.", "error": str(e)}
+            if getattr(settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class IdentityScanPreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = (FormParser, MultiPartParser)
+
+    def post(self, request, format=None):
+        if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
+            return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
+
+        image = request.FILES.get("image")
+        if not image:
+            return Response({"detail": "Debes enviar image."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            _validate_identity_scan_upload(image, label="Imagen")
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            processed = _scan_document_image(image)
+            output = io.BytesIO()
+            processed.save(output, format="JPEG", quality=92, optimize=True)
+            response = HttpResponse(output.getvalue(), content_type="image/jpeg")
+            response["Content-Disposition"] = 'inline; filename="preview_scan.jpg"'
+            return response
+        except Exception as e:
+            logger.exception(
+                "Identity scan preview failed (user_id=%s, role=%s)",
+                getattr(request.user, "id", None),
+                getattr(request.user, "role", None),
+            )
+            payload = {"detail": "No se pudo procesar la imagen.", "error": str(e)}
+            if getattr(settings, "DEBUG", False):
+                payload["traceback"] = traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ObserverAnnotationViewSet(viewsets.ModelViewSet):

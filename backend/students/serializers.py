@@ -1,4 +1,5 @@
 import json
+import os
 import unicodedata
 
 from rest_framework import serializers
@@ -8,11 +9,70 @@ from users.security import generate_temporary_password
 
 User = get_user_model()
 
+
+def _identity_document_max_file_size_bytes() -> int:
+    raw_value = str(os.getenv("KAMPUS_IDENTITY_DOCUMENT_MAX_MB", "10") or "10").strip()
+    try:
+        size_mb = int(raw_value)
+    except Exception:
+        size_mb = 10
+    if size_mb < 1:
+        size_mb = 1
+    return size_mb * 1024 * 1024
+
+
+def _validate_identity_document_file(upload, *, field_name: str = "file") -> None:
+    if not upload:
+        return
+
+    filename = str(getattr(upload, "name", "") or "")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    allowed_extensions = {"pdf", "png", "jpg", "jpeg", "webp"}
+    if ext not in allowed_extensions:
+        raise serializers.ValidationError({
+            field_name: "Formato no permitido. Usa PDF, JPG, PNG o WebP.",
+        })
+
+    max_size_bytes = _identity_document_max_file_size_bytes()
+    upload_size = getattr(upload, "size", None)
+    if upload_size is not None and int(upload_size) > max_size_bytes:
+        max_mb = max_size_bytes // (1024 * 1024)
+        raise serializers.ValidationError({
+            field_name: f"El archivo supera el tamaño máximo permitido ({max_mb} MB).",
+        })
+
 class StudentDocumentSerializer(serializers.ModelSerializer):
+    file_download_url = serializers.SerializerMethodField()
+
     class Meta:
         model = StudentDocument
-        fields = ["id", "student", "document_type", "file", "description", "uploaded_at"]
+        fields = ["id", "student", "document_type", "file", "file_download_url", "description", "uploaded_at"]
         read_only_fields = ["id", "uploaded_at"]
+
+    def get_file_download_url(self, obj):
+        request = self.context.get("request") if isinstance(self.context, dict) else None
+        try:
+            if request is not None:
+                return request.build_absolute_uri(f"/api/documents/{obj.id}/download/")
+        except Exception:
+            pass
+        return f"/api/documents/{obj.id}/download/"
+
+    def validate(self, attrs):
+        instance = getattr(self, "instance", None)
+        upload = attrs.get("file") if "file" in attrs else None
+        if upload:
+            _validate_identity_document_file(upload, field_name="file")
+
+        has_public_file = bool(attrs.get("file") if "file" in attrs else getattr(instance, "file", None))
+        has_private_file = bool(
+            (attrs.get("file_private_relpath") if "file_private_relpath" in attrs else getattr(instance, "file_private_relpath", ""))
+        )
+
+        if not has_public_file and not has_private_file:
+            raise serializers.ValidationError({"file": "Debes adjuntar un archivo o generar un PDF privado."})
+
+        return attrs
 
 
 class ObserverAnnotationSerializer(serializers.ModelSerializer):
@@ -124,6 +184,8 @@ class StudentNoveltySerializer(serializers.ModelSerializer):
 
 
 class FamilyMemberSerializer(serializers.ModelSerializer):
+    identity_document_download_url = serializers.SerializerMethodField()
+
     class Meta:
         model = FamilyMember
         fields = [
@@ -133,6 +195,7 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
             "full_name",
             "document_number",
             "identity_document",
+            "identity_document_download_url",
             "relationship",
             "phone",
             "email",
@@ -141,6 +204,21 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
             "is_head_of_household",
         ]
         read_only_fields = ["id"]
+
+    def get_identity_document_download_url(self, obj):
+        request = self.context.get("request") if isinstance(self.context, dict) else None
+        has_any_document = bool(getattr(obj, "identity_document", None)) or bool(
+            (getattr(obj, "identity_document_private_relpath", "") or "").strip()
+        )
+        if not has_any_document:
+            return ""
+
+        try:
+            if request is not None:
+                return request.build_absolute_uri(f"/api/family-members/{obj.id}/identity-document/download/")
+        except Exception:
+            pass
+        return f"/api/family-members/{obj.id}/identity-document/download/"
 
     def validate(self, attrs):
         instance = getattr(self, 'instance', None)
@@ -155,6 +233,14 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
         identity_document = (
             attrs.get('identity_document') if 'identity_document' in attrs else getattr(instance, 'identity_document', None)
         )
+        if attrs.get("identity_document"):
+            _validate_identity_document_file(attrs.get("identity_document"), field_name="identity_document")
+
+        identity_document_private_relpath = (
+            attrs.get('identity_document_private_relpath')
+            if 'identity_document_private_relpath' in attrs
+            else getattr(instance, 'identity_document_private_relpath', '')
+        )
 
         requires_identity = is_main_guardian or relationship in {"Padre", "Acudiente"}
 
@@ -163,7 +249,7 @@ class FamilyMemberSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     "document_number": "El documento de identidad es requerido para Padre/Acudiente (o acudiente principal)."
                 })
-            if not identity_document:
+            if not identity_document and not str(identity_document_private_relpath or '').strip():
                 raise serializers.ValidationError({
                     "identity_document": "Adjunta el documento de identidad (PDF o imagen) para Padre/Acudiente (o acudiente principal)."
                 })

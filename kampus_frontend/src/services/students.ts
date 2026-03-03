@@ -41,6 +41,7 @@ export interface FamilyMember {
   full_name: string
   document_number: string
   identity_document?: string | null
+  identity_document_download_url?: string
   relationship: string
   phone: string
   email: string
@@ -62,7 +63,8 @@ export interface StudentDocument {
   id: number
   student: number
   document_type: 'IDENTITY' | 'GUARDIAN_IDENTITY' | 'VACCINES' | 'EPS' | 'ACADEMIC' | 'PHOTO' | 'OTHER'
-  file: string
+  file: string | null
+  file_download_url?: string
   description: string
   uploaded_at: string
 }
@@ -311,6 +313,21 @@ export const documentsApi = {
   create: (data: FormData, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void) => api.post('/api/documents/', data, {
     onUploadProgress
   }),
+  previewIdentityImage: (image: File) => {
+    const fd = new FormData()
+    fd.append('image', image)
+    return api.post<Blob>('/api/identity-scans/preview/', fd, {
+      responseType: 'blob',
+    })
+  },
+  composeIdentityPdf: (frontImage: File, backImage: File) => {
+    const fd = new FormData()
+    fd.append('front_image', frontImage)
+    fd.append('back_image', backImage)
+    return api.post<Blob>('/api/identity-scans/compose/', fd, {
+      responseType: 'blob',
+    })
+  },
   delete: (id: number) => api.delete(`/api/documents/${id}/`),
 }
 

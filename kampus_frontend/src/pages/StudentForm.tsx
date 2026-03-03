@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { studentsApi, familyMembersApi, observerAnnotationsApi } from '../services/students'
+import { studentsApi, familyMembersApi, observerAnnotationsApi, documentsApi } from '../services/students'
 import type { FamilyMember, ObserverAnnotation, ObserverAnnotationType } from '../services/students'
 import StudentDocuments from '../components/students/StudentDocuments'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
@@ -70,6 +70,12 @@ function FamilyMemberForm({
     onCancel: () => void 
 }) {
     const [loading, setLoading] = useState(false)
+    const [scanMode, setScanMode] = useState<'single' | 'double'>('single')
+    const [frontIdentity, setFrontIdentity] = useState<File | null>(null)
+    const [backIdentity, setBackIdentity] = useState<File | null>(null)
+    const [frontPreviewUrl, setFrontPreviewUrl] = useState<string>('')
+    const [backPreviewUrl, setBackPreviewUrl] = useState<string>('')
+    const [buildingPreview, setBuildingPreview] = useState<'front' | 'back' | null>(null)
     const [formData, setFormData] = useState({
         full_name: member?.full_name || '',
         document_number: member?.document_number || '',
@@ -84,7 +90,50 @@ function FamilyMemberForm({
 
     const requiresIdentity =
         formData.is_main_guardian || formData.relationship === 'Padre' || formData.relationship === 'Acudiente'
-    const requiresIdentityFile = requiresIdentity && !(member?.identity_document || '').trim()
+    const requiresIdentityFile =
+        requiresIdentity && !((member?.identity_document_download_url || member?.identity_document || '').trim())
+
+    const validateMaxSize = (selectedFile: File | null): boolean => {
+        if (!selectedFile) return true
+        if (selectedFile.size > 5 * 1024 * 1024) {
+            alert('El archivo excede el tamaño máximo de 5MB')
+            return false
+        }
+        return true
+    }
+
+    useEffect(() => {
+        return () => {
+            if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+            if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+        }
+    }, [frontPreviewUrl, backPreviewUrl])
+
+    const buildPreview = async (selectedFile: File, side: 'front' | 'back') => {
+        setBuildingPreview(side)
+        try {
+            const response = await documentsApi.previewIdentityImage(selectedFile)
+            const blobUrl = URL.createObjectURL(response.data)
+            if (side === 'front') {
+                if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+                setFrontPreviewUrl(blobUrl)
+            } else {
+                if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+                setBackPreviewUrl(blobUrl)
+            }
+        } catch {
+            const fallbackUrl = URL.createObjectURL(selectedFile)
+            if (side === 'front') {
+                if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+                setFrontPreviewUrl(fallbackUrl)
+            } else {
+                if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+                setBackPreviewUrl(fallbackUrl)
+            }
+        } finally {
+            setBuildingPreview(null)
+        }
+    }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target
@@ -106,6 +155,17 @@ function FamilyMemberForm({
         setLoading(true)
         try {
             const payload: Record<string, unknown> = { ...formData, student: studentId }
+
+            if (scanMode === 'double') {
+                if (!frontIdentity || !backIdentity) {
+                    alert('Adjunta anverso y reverso del documento.')
+                    return
+                }
+                const response = await documentsApi.composeIdentityPdf(frontIdentity, backIdentity)
+                const pdfBlob = response.data
+                payload.identity_document = new File([pdfBlob], `acudiente_doble_cara_${Date.now()}.pdf`, { type: 'application/pdf' })
+            }
+
             if (member) {
                 await familyMembersApi.update(member.id, payload)
             } else {
@@ -167,17 +227,94 @@ function FamilyMemberForm({
 
                         <div className="space-y-2">
                             <Label>Documento de identidad (archivo)</Label>
-                            <input
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={handleIdentityFileChange}
-                                required={requiresIdentityFile}
-                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
-                            />
+                            <div className="grid grid-cols-1 gap-2">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setScanMode('single')}
+                                        className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'single' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                    >
+                                        Normal
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setScanMode('double')}
+                                        className={`h-10 rounded-md border px-3 text-sm ${scanMode === 'double' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                    >
+                                        Doble cara
+                                    </button>
+                                </div>
+
+                                {scanMode === 'single' ? (
+                                    <input
+                                        type="file"
+                                        capture="environment"
+                                        accept="image/*,application/pdf"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0] || null
+                                            if (!validateMaxSize(file)) {
+                                                e.target.value = ''
+                                                setFormData(prev => ({ ...prev, identity_document: null }))
+                                                return
+                                            }
+                                            handleIdentityFileChange(e)
+                                        }}
+                                        required={requiresIdentityFile}
+                                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                    />
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        <input
+                                            type="file"
+                                            capture="environment"
+                                            accept="image/*,.jpg,.jpeg,.png,.webp"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null
+                                                if (!validateMaxSize(file)) {
+                                                    e.target.value = ''
+                                                    setFrontIdentity(null)
+                                                    return
+                                                }
+                                                setFrontIdentity(file)
+                                                if (file) {
+                                                    void buildPreview(file, 'front')
+                                                }
+                                            }}
+                                            required={requiresIdentityFile}
+                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                        />
+                                        {frontPreviewUrl ? (
+                                            <img src={frontPreviewUrl} alt="Vista previa anverso" className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+                                        ) : null}
+                                        <input
+                                            type="file"
+                                            capture="environment"
+                                            accept="image/*,.jpg,.jpeg,.png,.webp"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null
+                                                if (!validateMaxSize(file)) {
+                                                    e.target.value = ''
+                                                    setBackIdentity(null)
+                                                    return
+                                                }
+                                                setBackIdentity(file)
+                                                if (file) {
+                                                    void buildPreview(file, 'back')
+                                                }
+                                            }}
+                                            required={requiresIdentityFile}
+                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                        />
+                                        {backPreviewUrl ? (
+                                            <img src={backPreviewUrl} alt="Vista previa reverso" className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+                                        ) : null}
+                                    </div>
+                                )}
+                            </div>
                             <div className="text-xs text-slate-500">
-                                {member?.identity_document ? (
+                                {(member?.identity_document_download_url || member?.identity_document) ? (
                                     <a
-                                        href={member.identity_document}
+                                        href={member.identity_document_download_url || member.identity_document || '#'}
                                         target="_blank"
                                         rel="noreferrer"
                                         className="text-sky-700 hover:underline"
@@ -188,6 +325,9 @@ function FamilyMemberForm({
                                     <span>Sube PDF o imagen (JPG/PNG/WebP).</span>
                                 )}
                                 {requiresIdentityFile ? <span className="block">Requerido para Padre/Acudiente.</span> : null}
+                                {scanMode === 'double' ? (
+                                    <span className="block mt-1">{buildingPreview ? 'Procesando vista previa automática…' : 'Vista previa aplicada con corrección de perspectiva.'}</span>
+                                ) : null}
                             </div>
                         </div>
                         <div className="space-y-2">
@@ -390,6 +530,7 @@ export default function StudentForm() {
     const [certificateIssuesError, setCertificateIssuesError] = useState<string | null>(null)
     const [downloadingIssueUuid, setDownloadingIssueUuid] = useState<string | null>(null)
     const [revokingIssueUuid, setRevokingIssueUuid] = useState<string | null>(null)
+    const [certificateIssueToConfirm, setCertificateIssueToConfirm] = useState<CertificateIssueListItem | null>(null)
 
     const downloadBlob = (blob: Blob, filename: string) => {
         const url = window.URL.createObjectURL(blob)
@@ -503,10 +644,14 @@ export default function StudentForm() {
     }
 
     const handleRevokeOrDeleteIssue = async (issue: CertificateIssueListItem) => {
+        setCertificateIssueToConfirm(issue)
+    }
+
+    const confirmRevokeOrDeleteIssue = async () => {
+        if (!certificateIssueToConfirm) return
+        const issue = certificateIssueToConfirm
         const isIssued = issue.status === 'ISSUED'
         const actionLabel = isIssued ? 'anular' : 'eliminar'
-        const ok = window.confirm(`¿Seguro que deseas ${actionLabel} este certificado?`)
-        if (!ok) return
 
         const reason = isIssued
             ? (window.prompt('Motivo de anulación (opcional):') || '').trim()
@@ -522,6 +667,7 @@ export default function StudentForm() {
             showToast(getErrorDetail(err) || `Error al ${actionLabel} el certificado.`, 'error')
         } finally {
             setRevokingIssueUuid(null)
+            setCertificateIssueToConfirm(null)
         }
     }
 
@@ -875,6 +1021,7 @@ export default function StudentForm() {
 
   // Family Members State
   const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([])
+    const [familyMemberToDeleteId, setFamilyMemberToDeleteId] = useState<number | null>(null)
   const [showFamilyModal, setShowFamilyModal] = useState(false)
   const [editingMember, setEditingMember] = useState<FamilyMember | undefined>(undefined)
 
@@ -1126,9 +1273,14 @@ export default function StudentForm() {
   }
 
   const handleDeleteFamilyMember = async (memberId: number) => {
-    if (!confirm('¿Estás seguro de eliminar este familiar?')) return
+        setFamilyMemberToDeleteId(memberId)
+    }
+
+    const confirmDeleteFamilyMember = async () => {
+        if (!familyMemberToDeleteId) return
     try {
-        await familyMembersApi.delete(memberId)
+                await familyMembersApi.delete(familyMemberToDeleteId)
+                setFamilyMemberToDeleteId(null)
         refreshFamilyMembers()
     } catch (error) {
         console.error(error)
@@ -2727,6 +2879,33 @@ export default function StudentForm() {
                         }}
                     />
                 )}
+
+                <ConfirmationModal
+                    isOpen={!!certificateIssueToConfirm}
+                    onClose={() => {
+                        if (!revokingIssueUuid) setCertificateIssueToConfirm(null)
+                    }}
+                    onConfirm={confirmRevokeOrDeleteIssue}
+                    title={certificateIssueToConfirm?.status === 'ISSUED' ? 'Anular certificado' : 'Eliminar certificado'}
+                    description={certificateIssueToConfirm?.status === 'ISSUED'
+                        ? '¿Seguro que deseas anular este certificado?'
+                        : '¿Seguro que deseas eliminar este certificado?'}
+                    confirmText={certificateIssueToConfirm?.status === 'ISSUED' ? 'Anular' : 'Eliminar'}
+                    cancelText="Cancelar"
+                    variant="destructive"
+                    loading={!!revokingIssueUuid}
+                />
+
+                <ConfirmationModal
+                    isOpen={familyMemberToDeleteId !== null}
+                    onClose={() => setFamilyMemberToDeleteId(null)}
+                    onConfirm={confirmDeleteFamilyMember}
+                    title="Eliminar familiar"
+                    description="¿Estás seguro de eliminar este familiar?"
+                    confirmText="Eliminar"
+                    cancelText="Cancelar"
+                    variant="destructive"
+                />
 
                 <ConfirmationModal
                     isOpen={!!annotationToDelete}

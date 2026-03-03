@@ -15,11 +15,26 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
   const [guardianIdentityDocs, setGuardianIdentityDocs] = useState<FamilyMember[]>([])
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadMode, setUploadMode] = useState<'single' | 'double'>('single')
   
   // Upload Form
   const [file, setFile] = useState<File | null>(null)
+  const [frontFile, setFrontFile] = useState<File | null>(null)
+  const [backFile, setBackFile] = useState<File | null>(null)
+  const [frontPreviewUrl, setFrontPreviewUrl] = useState<string>('')
+  const [backPreviewUrl, setBackPreviewUrl] = useState<string>('')
+  const [buildingPreview, setBuildingPreview] = useState<'front' | 'back' | null>(null)
   const [docType, setDocType] = useState('OTHER')
   const [description, setDescription] = useState('')
+
+  const validateMaxSize = (selectedFile: File | null): boolean => {
+    if (!selectedFile) return true
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      alert('El archivo excede el tamaño máximo de 5MB')
+      return false
+    }
+    return true
+  }
 
   const loadDocuments = useCallback(async () => {
     setLoading(true)
@@ -34,7 +49,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
 
       const fm = response.data.family_members || []
       setGuardianIdentityDocs(
-        fm.filter((m) => !!(m.identity_document || '').trim())
+        fm.filter((m) => !!((m.identity_document_download_url || m.identity_document || '').trim()))
       )
     } catch (error) {
       console.error('Error loading documents:', error)
@@ -47,22 +62,72 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
     loadDocuments()
   }, [loadDocuments])
 
+  useEffect(() => {
+    return () => {
+      if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+      if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+    }
+  }, [frontPreviewUrl, backPreviewUrl])
+
+  const buildPreview = async (selectedFile: File, side: 'front' | 'back') => {
+    setBuildingPreview(side)
+    try {
+      const response = await documentsApi.previewIdentityImage(selectedFile)
+      const blobUrl = URL.createObjectURL(response.data)
+      if (side === 'front') {
+        if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+        setFrontPreviewUrl(blobUrl)
+      } else {
+        if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+        setBackPreviewUrl(blobUrl)
+      }
+    } catch {
+      const fallbackUrl = URL.createObjectURL(selectedFile)
+      if (side === 'front') {
+        if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+        setFrontPreviewUrl(fallbackUrl)
+      } else {
+        if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+        setBackPreviewUrl(fallbackUrl)
+      }
+    } finally {
+      setBuildingPreview(null)
+    }
+  }
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!file) return
+    if (uploadMode === 'single' && !file) return
+    if (uploadMode === 'double' && (!frontFile || !backFile)) return
 
     setUploading(true)
-    const formData = new FormData()
-    formData.append('student', String(studentId))
-    formData.append('file', file)
-    formData.append('document_type', docType)
-    formData.append('description', description)
 
     try {
+      const formData = new FormData()
+      formData.append('student', String(studentId))
+      formData.append('document_type', docType)
+      formData.append('description', description)
+
+      if (uploadMode === 'double') {
+        const response = await documentsApi.composeIdentityPdf(frontFile as File, backFile as File)
+        const pdfBlob = response.data
+        const mergedFile = new File([pdfBlob], `documento_doble_cara_${Date.now()}.pdf`, { type: 'application/pdf' })
+        formData.append('file', mergedFile)
+      } else {
+        formData.append('file', file as File)
+      }
+
       await documentsApi.create(formData)
       setFile(null)
+      setFrontFile(null)
+      setBackFile(null)
+      if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
+      if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
+      setFrontPreviewUrl('')
+      setBackPreviewUrl('')
       setDescription('')
       setDocType('OTHER')
+      setUploadMode('single')
       loadDocuments() // Reload list
     } catch (error) {
       console.error('Error uploading document:', error)
@@ -128,28 +193,103 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
-              <Label>Archivo</Label>
-              <Input
-                type="file"
-                onChange={(e) => {
-                  const selectedFile = e.target.files ? e.target.files[0] : null
-                  if (selectedFile && selectedFile.size > 5 * 1024 * 1024) {
-                    alert('El archivo excede el tamaño máximo de 5MB')
-                    e.target.value = ''
-                    setFile(null)
-                  } else {
-                    setFile(selectedFile)
-                  }
-                }}
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-              />
-              <p className="text-xs text-slate-500 dark:text-slate-400">Formatos: PDF, JPG, PNG, WebP. Máximo 5MB.</p>
+              <Label>Modo de captura</Label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('single')}
+                  className={`h-10 rounded-md border px-3 text-sm ${uploadMode === 'single' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                >
+                  Foto/archivo normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUploadMode('double')}
+                  className={`h-10 rounded-md border px-3 text-sm ${uploadMode === 'double' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300'}`}
+                >
+                  Doble cara (anverso + reverso)
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400">En móviles puedes usar cámara nativa al tocar seleccionar archivo.</p>
             </div>
+            
+            {uploadMode === 'single' ? (
+              <div className="space-y-2">
+                <Label>Archivo</Label>
+                <Input
+                  type="file"
+                  capture="environment"
+                  onChange={(e) => {
+                    const selectedFile = e.target.files ? e.target.files[0] : null
+                    if (!validateMaxSize(selectedFile)) {
+                      e.target.value = ''
+                      setFile(null)
+                      return
+                    }
+                    setFile(selectedFile)
+                  }}
+                  accept=".pdf,.jpg,.jpeg,.png,.webp,image/*"
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400">Formatos: PDF, JPG, PNG, WebP. Máximo 5MB.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Anverso</Label>
+                  <Input
+                    type="file"
+                    capture="environment"
+                    onChange={(e) => {
+                      const selectedFile = e.target.files ? e.target.files[0] : null
+                      if (!validateMaxSize(selectedFile)) {
+                        e.target.value = ''
+                        setFrontFile(null)
+                        return
+                      }
+                      setFrontFile(selectedFile)
+                      if (selectedFile) {
+                        void buildPreview(selectedFile, 'front')
+                      }
+                    }}
+                    accept="image/*,.jpg,.jpeg,.png,.webp"
+                  />
+                  {frontPreviewUrl ? (
+                    <img src={frontPreviewUrl} alt="Vista previa anverso" className="mt-2 h-28 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label>Reverso</Label>
+                  <Input
+                    type="file"
+                    capture="environment"
+                    onChange={(e) => {
+                      const selectedFile = e.target.files ? e.target.files[0] : null
+                      if (!validateMaxSize(selectedFile)) {
+                        e.target.value = ''
+                        setBackFile(null)
+                        return
+                      }
+                      setBackFile(selectedFile)
+                      if (selectedFile) {
+                        void buildPreview(selectedFile, 'back')
+                      }
+                    }}
+                    accept="image/*,.jpg,.jpeg,.png,.webp"
+                  />
+                  {backPreviewUrl ? (
+                    <img src={backPreviewUrl} alt="Vista previa reverso" className="mt-2 h-28 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+                  ) : null}
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 md:col-span-2">
+                  {buildingPreview ? 'Procesando vista previa automática...' : 'Se generará un PDF de una sola hoja con ambas caras centradas.'}
+                </p>
+              </div>
+            )}
 
             <div className="flex justify-end">
-              <Button type="submit" disabled={uploading || !file}>
+              <Button type="submit" disabled={uploading || (uploadMode === 'single' ? !file : (!frontFile || !backFile))}>
                 <Upload className="mr-2 h-4 w-4" />
                 {uploading ? 'Subiendo...' : 'Subir Documento'}
               </Button>
@@ -194,7 +334,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                           <a
-                            href={m.identity_document || '#'}
+                            href={m.identity_document_download_url || m.identity_document || '#'}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
@@ -244,7 +384,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                           <a
-                            href={doc.file}
+                            href={doc.file_download_url || doc.file}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"

@@ -65,6 +65,9 @@ export const systemApi = {
       responseType: 'blob',
     }),
 
+  deleteBackup: (filename: string) =>
+    api.delete<void>(`/api/system/backups/${encodeURIComponent(filename)}/`),
+
   restoreFromExisting: (params: { filename: string; mode: 'restore' | 'import'; confirm?: boolean }) =>
     api.post<{ detail: string; mode: string; filename: string }>('/api/system/backups/restore/', {
       filename: params.filename,

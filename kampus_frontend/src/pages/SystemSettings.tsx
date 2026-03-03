@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
+import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { systemApi, type BackupItem, type MailgunSettingsAuditItem, type MailgunSettingsPayload } from '../services/system'
 
 type SystemTab = 'mailgun' | 'audits' | 'backups' | 'restore'
@@ -56,9 +57,12 @@ export default function SystemSettings() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [backupMessage, setBackupMessage] = useState<string | null>(null)
   const [backups, setBackups] = useState<BackupItem[]>([])
 
   const [creating, setCreating] = useState(false)
+  const [deletingFilename, setDeletingFilename] = useState<string | null>(null)
+  const [deleteConfirmFilename, setDeleteConfirmFilename] = useState<string | null>(null)
   const [includeMedia, setIncludeMedia] = useState(true)
 
   const [mode, setMode] = useState<'restore' | 'import'>('import')
@@ -285,6 +289,7 @@ export default function SystemSettings() {
   const createBackup = async () => {
     setCreating(true)
     setError(null)
+    setBackupMessage(null)
     try {
       await systemApi.createBackup({ include_media: includeMedia })
       await loadBackups()
@@ -292,6 +297,25 @@ export default function SystemSettings() {
       setError('No se pudo crear el backup.')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const deleteBackup = async (filename: string) => {
+    setDeletingFilename(filename)
+    setError(null)
+    setBackupMessage(null)
+    try {
+      await systemApi.deleteBackup(filename)
+      if (selectedFilename === filename) {
+        setSelectedFilename('')
+      }
+      await loadBackups()
+      setBackupMessage(`Backup eliminado: ${filename}`)
+    } catch {
+      setError('No se pudo eliminar el backup.')
+    } finally {
+      setDeletingFilename(null)
+      setDeleteConfirmFilename(null)
     }
   }
 
@@ -420,6 +444,12 @@ export default function SystemSettings() {
       {restoreMessage ? (
         <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">
           {restoreMessage}
+        </div>
+      ) : null}
+
+      {backupMessage ? (
+        <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 text-sm dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">
+          {backupMessage}
         </div>
       ) : null}
 
@@ -722,9 +752,20 @@ export default function SystemSettings() {
                       <td className="px-6 py-4">{formatDate(b.created_at)}</td>
                       <td className="px-6 py-4 text-right">{formatSize(b.size_bytes)}</td>
                       <td className="px-6 py-4 text-right">
-                        <Button variant="outline" size="sm" className="min-h-10" onClick={() => download(b.filename)}>
-                          Descargar
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="outline" size="sm" className="min-h-10" onClick={() => download(b.filename)}>
+                            Descargar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="min-h-10"
+                            onClick={() => setDeleteConfirmFilename(b.filename)}
+                            disabled={deletingFilename === b.filename}
+                          >
+                            {deletingFilename === b.filename ? 'Eliminando…' : 'Eliminar'}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -740,9 +781,20 @@ export default function SystemSettings() {
                       <div className="mt-2 text-xs text-slate-600 dark:text-slate-300">{formatDate(b.created_at)}</div>
                       <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{formatSize(b.size_bytes)}</div>
                       <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-                        <Button variant="outline" size="sm" className="min-h-11 w-full" onClick={() => download(b.filename)}>
-                          Descargar
-                        </Button>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <Button variant="outline" size="sm" className="min-h-11 w-full" onClick={() => download(b.filename)}>
+                            Descargar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="min-h-11 w-full"
+                            onClick={() => setDeleteConfirmFilename(b.filename)}
+                            disabled={deletingFilename === b.filename}
+                          >
+                            {deletingFilename === b.filename ? 'Eliminando…' : 'Eliminar'}
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -840,6 +892,24 @@ export default function SystemSettings() {
         </CardContent>
       </Card>
       ) : null}
+
+      <ConfirmationModal
+        isOpen={deleteConfirmFilename !== null}
+        onClose={() => {
+          if (!deletingFilename) setDeleteConfirmFilename(null)
+        }}
+        onConfirm={() => {
+          if (deleteConfirmFilename) {
+            void deleteBackup(deleteConfirmFilename)
+          }
+        }}
+        title="Eliminar backup"
+        description={`¿Seguro que deseas eliminar el backup "${deleteConfirmFilename || ''}"? Esta acción no se puede deshacer.`}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={deletingFilename !== null}
+      />
     </div>
   )
 }

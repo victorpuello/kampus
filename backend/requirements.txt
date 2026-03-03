@@ -4,6 +4,7 @@ django-cors-headers==4.9.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 Pillow==12.1.1
+opencv-python-headless==4.12.0.88
 psycopg2-binary==2.9.11
 PyJWT==2.10.1
 sqlparse==0.5.4

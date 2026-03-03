@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Toast, type ToastType } from '../components/ui/Toast'
+import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { ArrowLeft, Save, Plus, Trash2, BookOpen } from 'lucide-react'
 import { useAuthStore } from '../store/auth'
 
@@ -53,6 +54,8 @@ export default function TeacherForm() {
   const isTeacher = user?.role === 'TEACHER'
 
   const [loading, setLoading] = useState(false)
+  const [deleteAssignmentId, setDeleteAssignmentId] = useState<number | null>(null)
+  const [deletingAssignment, setDeletingAssignment] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -237,16 +240,20 @@ export default function TeacherForm() {
     }
   }
 
-  const handleDeleteAssignment = async (assignmentId: number) => {
-    if (!confirm('¿Está seguro de eliminar esta asignación?')) return
+  const handleDeleteAssignment = async () => {
+    if (!deleteAssignmentId) return
+    setDeletingAssignment(true)
 
     try {
-      await academicApi.deleteAssignment(assignmentId)
-      setAssignments(assignments.filter(a => a.id !== assignmentId))
+      await academicApi.deleteAssignment(deleteAssignmentId)
+      setAssignments(assignments.filter(a => a.id !== deleteAssignmentId))
       showToast('Asignación eliminada correctamente', 'success')
+      setDeleteAssignmentId(null)
     } catch (error) {
       console.error(error)
       showToast('Error al eliminar asignación', 'error')
+    } finally {
+      setDeletingAssignment(false)
     }
   }
 
@@ -892,7 +899,7 @@ export default function TeacherForm() {
                               variant="ghost" 
                               size="sm" 
                               className="min-h-11 w-full text-red-600 hover:bg-red-50 hover:text-red-700 sm:w-auto"
-                              onClick={() => handleDeleteAssignment(assignment.id)}
+                              onClick={() => setDeleteAssignmentId(assignment.id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -906,6 +913,20 @@ export default function TeacherForm() {
           </Card>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={deleteAssignmentId !== null}
+        onClose={() => {
+          if (!deletingAssignment) setDeleteAssignmentId(null)
+        }}
+        onConfirm={handleDeleteAssignment}
+        title="Eliminar asignación"
+        description="¿Está seguro de eliminar esta asignación?"
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={deletingAssignment}
+      />
     </div>
   )
 }
