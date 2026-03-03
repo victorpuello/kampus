@@ -338,7 +338,7 @@ export default function StudentProfile() {
                     </div>
                   </div>
                   <a 
-                    href={doc.file_download_url || doc.file} 
+                    href={doc.file_download_url ?? doc.file ?? undefined} 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-xs text-blue-600 hover:underline whitespace-nowrap"

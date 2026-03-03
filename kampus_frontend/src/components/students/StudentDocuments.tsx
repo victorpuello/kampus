@@ -384,7 +384,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                         </div>
                         <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
                           <a
-                            href={doc.file_download_url || doc.file}
+                            href={doc.file_download_url ?? doc.file ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-sm text-blue-600 hover:underline flex items-center justify-center dark:text-sky-400"
