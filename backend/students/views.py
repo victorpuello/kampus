@@ -9,6 +9,7 @@ from django.http import FileResponse, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.template import TemplateDoesNotExist
 from django.db import transaction
 from django.db.models import Q, Sum
@@ -23,6 +24,7 @@ import hashlib
 import base64
 import io
 import os
+import mimetypes
 import logging
 import secrets
 import random
@@ -138,6 +140,57 @@ def _store_upload_to_private_storage(*, upload, relpath: str) -> tuple[str, str]
             fh.write(chunk)
 
     return relpath, out_path.name
+
+
+def _compress_image_upload_if_needed(upload):
+    if not upload:
+        return upload
+
+    filename = str(getattr(upload, "name", "") or "")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    content_type = str(getattr(upload, "content_type", "") or "").lower()
+
+    is_pdf = ext == "pdf" or content_type == "application/pdf"
+    if is_pdf:
+        return upload
+
+    if Image is None or ImageOps is None:
+        return upload
+
+    raw_quality = str(os.getenv("KAMPUS_IMAGE_WEBP_QUALITY", "80") or "80").strip()
+    try:
+        webp_quality = int(raw_quality)
+    except Exception:
+        webp_quality = 80
+    webp_quality = max(1, min(100, webp_quality))
+
+    raw_method = str(os.getenv("KAMPUS_IMAGE_WEBP_METHOD", "6") or "6").strip()
+    try:
+        webp_method = int(raw_method)
+    except Exception:
+        webp_method = 6
+    webp_method = max(0, min(6, webp_method))
+
+    try:
+        upload.seek(0)
+    except Exception:
+        pass
+
+    try:
+        with Image.open(upload) as img:
+            normalized = ImageOps.exif_transpose(img)
+            mode = "RGBA" if "A" in normalized.getbands() else "RGB"
+            normalized = normalized.convert(mode)
+
+            out = io.BytesIO()
+            normalized.save(out, format="WEBP", quality=webp_quality, method=webp_method)
+            content = out.getvalue()
+
+        base_name = Path(filename).stem or "documento"
+        compressed_name = f"{base_name}.webp"
+        return SimpleUploadedFile(compressed_name, content, content_type="image/webp")
+    except Exception:
+        return upload
 
 
 def _order_quad_points(points):
@@ -1420,14 +1473,14 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
             return Response({"detail": "No tienes permisos para modificar familiares."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
-    def _private_identity_payload(self, request, student_id: int) -> dict:
-        identity_document = request.FILES.get("identity_document")
+    def _private_identity_payload(self, identity_document, student_id: int) -> dict:
         if not identity_document:
             return {}
 
-        ext = (str(getattr(identity_document, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(identity_document, "name", "")) else "pdf").lower()
+        prepared_upload = _compress_image_upload_if_needed(identity_document)
+        ext = (str(getattr(prepared_upload, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(prepared_upload, "name", "")) else "pdf").lower()
         relpath = f"identity_documents/family_members/student_{student_id}/{py_uuid.uuid4()}.{ext}".strip("/")
-        stored_relpath, filename = _store_upload_to_private_storage(upload=identity_document, relpath=relpath)
+        stored_relpath, filename = _store_upload_to_private_storage(upload=prepared_upload, relpath=relpath)
         return {
             "identity_document": None,
             "identity_document_private_relpath": stored_relpath,
@@ -1436,23 +1489,19 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         student = serializer.validated_data.get("student")
+        identity_document = serializer.validated_data.get("identity_document")
         extra = {}
-        try:
-            if student is not None:
-                extra = self._private_identity_payload(self.request, student.id)
-        except Exception:
-            extra = {}
+        if student is not None:
+            extra = self._private_identity_payload(identity_document, student.pk)
         serializer.save(**extra)
 
     def perform_update(self, serializer):
         instance = serializer.instance
-        student_id = getattr(getattr(instance, "student", None), "id", None)
+        student_id = getattr(getattr(instance, "student", None), "pk", None)
+        identity_document = serializer.validated_data.get("identity_document")
         extra = {}
-        try:
-            if student_id is not None:
-                extra = self._private_identity_payload(self.request, student_id)
-        except Exception:
-            extra = {}
+        if student_id is not None:
+            extra = self._private_identity_payload(identity_document, student_id)
         serializer.save(**extra)
 
     @action(detail=True, methods=["get"], url_path="identity-document/download")
@@ -1466,7 +1515,8 @@ class FamilyMemberViewSet(viewsets.ModelViewSet):
                 if not abs_path.exists():
                     return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
                 filename = member.identity_document_private_filename or f"documento_identidad_{member.id}.pdf"
-                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+                guessed_content_type = mimetypes.guess_type(str(abs_path))[0] or "application/octet-stream"
+                response = FileResponse(open(abs_path, "rb"), content_type=guessed_content_type)
                 response["Content-Disposition"] = f'inline; filename="{filename}"'
                 return response
             except Exception as e:
@@ -2221,17 +2271,17 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
         return super().destroy(request, *args, **kwargs)
 
-    def _private_file_payload(self, request, student_id: int, document_type: str) -> dict:
-        upload = request.FILES.get("file")
+    def _private_file_payload(self, upload, student_id: int, document_type: str) -> dict:
         if not upload:
             return {}
 
         if document_type not in {"IDENTITY", "GUARDIAN_IDENTITY"}:
             return {}
 
-        ext = (str(getattr(upload, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(upload, "name", "")) else "pdf").lower()
+        prepared_upload = _compress_image_upload_if_needed(upload)
+        ext = (str(getattr(prepared_upload, "name", "")).rsplit(".", 1)[-1] if "." in str(getattr(prepared_upload, "name", "")) else "pdf").lower()
         relpath = f"identity_documents/students/student_{student_id}/{py_uuid.uuid4()}.{ext}".strip("/")
-        stored_relpath, filename = _store_upload_to_private_storage(upload=upload, relpath=relpath)
+        stored_relpath, filename = _store_upload_to_private_storage(upload=prepared_upload, relpath=relpath)
         return {
             "file": None,
             "file_private_relpath": stored_relpath,
@@ -2241,24 +2291,30 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         student = serializer.validated_data.get("student")
         document_type = str(serializer.validated_data.get("document_type") or "")
+        upload = serializer.validated_data.get("file")
+
+        if upload and document_type not in {"IDENTITY", "GUARDIAN_IDENTITY"}:
+            serializer.validated_data["file"] = _compress_image_upload_if_needed(upload)
+            upload = serializer.validated_data.get("file")
+
         extra = {}
-        try:
-            if student is not None:
-                extra = self._private_file_payload(self.request, student.id, document_type)
-        except Exception:
-            extra = {}
+        if student is not None:
+            extra = self._private_file_payload(upload, student.pk, document_type)
         serializer.save(**extra)
 
     def perform_update(self, serializer):
         instance = serializer.instance
-        student_id = getattr(getattr(instance, "student", None), "id", None)
+        student_id = getattr(getattr(instance, "student", None), "pk", None)
         document_type = str(serializer.validated_data.get("document_type") or getattr(instance, "document_type", ""))
+        upload = serializer.validated_data.get("file")
+
+        if upload and document_type not in {"IDENTITY", "GUARDIAN_IDENTITY"}:
+            serializer.validated_data["file"] = _compress_image_upload_if_needed(upload)
+            upload = serializer.validated_data.get("file")
+
         extra = {}
-        try:
-            if student_id is not None:
-                extra = self._private_file_payload(self.request, student_id, document_type)
-        except Exception:
-            extra = {}
+        if student_id is not None:
+            extra = self._private_file_payload(upload, student_id, document_type)
         serializer.save(**extra)
 
     @action(detail=True, methods=["get"], url_path="download")
@@ -2272,7 +2328,8 @@ class StudentDocumentViewSet(viewsets.ModelViewSet):
                 if not abs_path.exists():
                     return Response({"detail": "Documento no encontrado."}, status=status.HTTP_404_NOT_FOUND)
                 filename = doc.file_private_filename or f"documento_{doc.id}.pdf"
-                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+                guessed_content_type = mimetypes.guess_type(str(abs_path))[0] or "application/octet-stream"
+                response = FileResponse(open(abs_path, "rb"), content_type=guessed_content_type)
                 response["Content-Disposition"] = f'inline; filename="{filename}"'
                 return response
             except Exception as e:

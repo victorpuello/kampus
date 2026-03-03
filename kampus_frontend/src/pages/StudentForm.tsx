@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { studentsApi, familyMembersApi, observerAnnotationsApi, documentsApi } from '../services/students'
 import type { FamilyMember, ObserverAnnotation, ObserverAnnotationType } from '../services/students'
 import StudentDocuments from '../components/students/StudentDocuments'
+import IdentityImageEditor from '../components/students/IdentityImageEditor'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -71,11 +72,10 @@ function FamilyMemberForm({
 }) {
     const [loading, setLoading] = useState(false)
     const [scanMode, setScanMode] = useState<'single' | 'double'>('single')
+    const [singleUploadType, setSingleUploadType] = useState<'image' | 'pdf'>('image')
+    const [editorResetKey, setEditorResetKey] = useState(0)
     const [frontIdentity, setFrontIdentity] = useState<File | null>(null)
     const [backIdentity, setBackIdentity] = useState<File | null>(null)
-    const [frontPreviewUrl, setFrontPreviewUrl] = useState<string>('')
-    const [backPreviewUrl, setBackPreviewUrl] = useState<string>('')
-    const [buildingPreview, setBuildingPreview] = useState<'front' | 'back' | null>(null)
     const [formData, setFormData] = useState({
         full_name: member?.full_name || '',
         document_number: member?.document_number || '',
@@ -100,39 +100,6 @@ function FamilyMemberForm({
             return false
         }
         return true
-    }
-
-    useEffect(() => {
-        return () => {
-            if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
-            if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
-        }
-    }, [frontPreviewUrl, backPreviewUrl])
-
-    const buildPreview = async (selectedFile: File, side: 'front' | 'back') => {
-        setBuildingPreview(side)
-        try {
-            const response = await documentsApi.previewIdentityImage(selectedFile)
-            const blobUrl = URL.createObjectURL(response.data)
-            if (side === 'front') {
-                if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
-                setFrontPreviewUrl(blobUrl)
-            } else {
-                if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
-                setBackPreviewUrl(blobUrl)
-            }
-        } catch {
-            const fallbackUrl = URL.createObjectURL(selectedFile)
-            if (side === 'front') {
-                if (frontPreviewUrl) URL.revokeObjectURL(frontPreviewUrl)
-                setFrontPreviewUrl(fallbackUrl)
-            } else {
-                if (backPreviewUrl) URL.revokeObjectURL(backPreviewUrl)
-                setBackPreviewUrl(fallbackUrl)
-            }
-        } finally {
-            setBuildingPreview(null)
-        }
     }
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -171,6 +138,10 @@ function FamilyMemberForm({
             } else {
                 await familyMembersApi.create(payload)
             }
+            setFrontIdentity(null)
+            setBackIdentity(null)
+            setSingleUploadType('image')
+            setEditorResetKey((prev) => prev + 1)
             onSave()
         } catch (error: unknown) {
             console.error(error)
@@ -246,68 +217,76 @@ function FamilyMemberForm({
                                 </div>
 
                                 {scanMode === 'single' ? (
-                                    <input
-                                        type="file"
-                                        capture="environment"
-                                        accept="image/*,application/pdf"
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0] || null
-                                            if (!validateMaxSize(file)) {
-                                                e.target.value = ''
-                                                setFormData(prev => ({ ...prev, identity_document: null }))
-                                                return
-                                            }
-                                            handleIdentityFileChange(e)
-                                        }}
-                                        required={requiresIdentityFile}
-                                        className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
-                                    />
+                                    <div className="space-y-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSingleUploadType('image')
+                                                    setFormData(prev => ({ ...prev, identity_document: null }))
+                                                    setEditorResetKey((prev) => prev + 1)
+                                                }}
+                                                className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'image' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                            >
+                                                Foto con guía
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSingleUploadType('pdf')
+                                                    setFormData(prev => ({ ...prev, identity_document: null }))
+                                                }}
+                                                className={`h-10 rounded-md border px-3 text-sm ${singleUploadType === 'pdf' ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-sky-400 dark:bg-sky-950/40 dark:text-sky-300' : 'border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}
+                                            >
+                                                PDF
+                                            </button>
+                                        </div>
+
+                                        {singleUploadType === 'image' ? (
+                                            <IdentityImageEditor
+                                                key={`guardian-single-${editorResetKey}`}
+                                                label="Imagen del documento"
+                                                initialFile={formData.identity_document}
+                                                maxSizeMb={5}
+                                                required={requiresIdentityFile}
+                                                onProcessedFileChange={(editedFile) => setFormData(prev => ({ ...prev, identity_document: editedFile }))}
+                                            />
+                                        ) : (
+                                            <input
+                                                type="file"
+                                                accept=".pdf,application/pdf"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0] || null
+                                                    if (!validateMaxSize(file)) {
+                                                        e.target.value = ''
+                                                        setFormData(prev => ({ ...prev, identity_document: null }))
+                                                        return
+                                                    }
+                                                    handleIdentityFileChange(e)
+                                                }}
+                                                required={requiresIdentityFile}
+                                                className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                            />
+                                        )}
+                                    </div>
                                 ) : (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        <input
-                                            type="file"
-                                            capture="environment"
-                                            accept="image/*,.jpg,.jpeg,.png,.webp"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0] || null
-                                                if (!validateMaxSize(file)) {
-                                                    e.target.value = ''
-                                                    setFrontIdentity(null)
-                                                    return
-                                                }
-                                                setFrontIdentity(file)
-                                                if (file) {
-                                                    void buildPreview(file, 'front')
-                                                }
-                                            }}
+                                        <IdentityImageEditor
+                                            key={`guardian-front-${editorResetKey}`}
+                                            label="Anverso"
+                                            initialFile={frontIdentity}
+                                            maxSizeMb={5}
                                             required={requiresIdentityFile}
-                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                            onProcessedFileChange={setFrontIdentity}
                                         />
-                                        {frontPreviewUrl ? (
-                                            <img src={frontPreviewUrl} alt="Vista previa anverso" className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
-                                        ) : null}
-                                        <input
-                                            type="file"
-                                            capture="environment"
-                                            accept="image/*,.jpg,.jpeg,.png,.webp"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0] || null
-                                                if (!validateMaxSize(file)) {
-                                                    e.target.value = ''
-                                                    setBackIdentity(null)
-                                                    return
-                                                }
-                                                setBackIdentity(file)
-                                                if (file) {
-                                                    void buildPreview(file, 'back')
-                                                }
-                                            }}
+                                        <IdentityImageEditor
+                                            key={`guardian-back-${editorResetKey}`}
+                                            label="Reverso"
+                                            initialFile={backIdentity}
+                                            maxSizeMb={5}
                                             required={requiresIdentityFile}
-                                            className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
+                                            onProcessedFileChange={setBackIdentity}
                                         />
-                                        {backPreviewUrl ? (
-                                            <img src={backPreviewUrl} alt="Vista previa reverso" className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
-                                        ) : null}
                                     </div>
                                 )}
                             </div>
@@ -326,7 +305,7 @@ function FamilyMemberForm({
                                 )}
                                 {requiresIdentityFile ? <span className="block">Requerido para Padre/Acudiente.</span> : null}
                                 {scanMode === 'double' ? (
-                                    <span className="block mt-1">{buildingPreview ? 'Procesando vista previa automática…' : 'Vista previa aplicada con corrección de perspectiva.'}</span>
+                                    <span className="block mt-1">Ajusta rotación y esquinas, luego aplica el ajuste para limpiar zonas no deseadas.</span>
                                 ) : null}
                             </div>
                         </div>
@@ -498,6 +477,7 @@ export default function StudentForm() {
   const isEditing = !!id
     const user = useAuthStore((s) => s.user)
     const isTeacher = user?.role === 'TEACHER'
+    const showHistoryImport = import.meta.env.VITE_ENABLE_HISTORY_IMPORT === 'true'
         const isAdministrativeStaff =
                 user?.role === 'ADMIN' ||
                 user?.role === 'SUPERADMIN' ||
@@ -2751,7 +2731,7 @@ export default function StudentForm() {
                 </Card>
             ) : (
                 <div className="space-y-6">
-                    {!blockedHistoryImport && studentId && (
+                    {showHistoryImport && !blockedHistoryImport && studentId && (
                         <Card>
                             <CardHeader>
                                 <CardTitle>Importar historial académico externo</CardTitle>

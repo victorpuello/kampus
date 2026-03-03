@@ -71,6 +71,6 @@ test('teacher sidebar shows assignment and attendance options', async ({ page })
   }
 
   const sidebarNav = page.locator('nav')
-  await expect(sidebarNav.getByText(/asignación académica|asignacion académica/i)).toBeVisible()
-  await expect(sidebarNav.getByText(/tomar asistencias/i)).toBeVisible()
+  await expect(sidebarNav.locator('a[href="/my-assignment"]')).toBeVisible()
+  await expect(sidebarNav.locator('a[href="/attendance"]')).toBeVisible()
 })

@@ -1,7 +1,7 @@
 # Plan de implementación: Escaneo de identidad doble cara en una sola hoja PDF
 
 Fecha: 2026-03-02
-Estado: En ejecución (Sprint 1-5 en curso)
+Estado: En ejecución (Sprint 1-5 implementado + hardening de compresión y UX móvil)
 
 ## Objetivo
 Implementar captura de documento de identidad en modo normal o doble cara (anverso/reverso), con generación de PDF de una sola hoja, y acceso seguro para estudiante y acudiente.
@@ -59,6 +59,9 @@ Implementar captura de documento de identidad en modo normal o doble cara (anver
 - Pipeline backend de detección de contornos y corrección de perspectiva para mejorar recorte automático.
 - Prueba E2E Playwright del flujo de escaneo doble cara (preview + PDF + upload).
 - Prueba E2E de fallback: preview fallido con vista previa local + bloqueo de upload cuando falla composición.
+- Compresión automática de imágenes (no PDF) al guardar documentos, incluyendo identidad privada.
+- Compresión WEBP configurable por entorno (`quality` y `method`) para balancear peso/calidad por ambiente.
+- Suite de pruebas backend para validar compresión de imagen, preservación de PDF y efecto real de `KAMPUS_IMAGE_WEBP_QUALITY`.
 
 ## Riesgos abiertos / siguiente iteración
 - Calidad variable en condiciones de baja luz, desenfoque y reflejos del documento; requiere afinación de thresholds CV por dispositivo.
@@ -74,8 +77,11 @@ Implementar captura de documento de identidad en modo normal o doble cara (anver
   - Verificar variables opcionales:
     - `KAMPUS_IDENTITY_SCAN_MAX_MB` (default: 8)
     - `KAMPUS_IDENTITY_DOCUMENT_MAX_MB` (default: 10)
+    - `KAMPUS_IMAGE_WEBP_QUALITY` (1..100, default: 80)
+    - `KAMPUS_IMAGE_WEBP_METHOD` (0..6, default: 6)
 - Pruebas automatizadas
   - `python backend/manage.py test students.test_identity_scan`
+  - `python backend/manage.py test students.test_document_compression`
   - `cd kampus_frontend && npm run lint`
   - `cd kampus_frontend && npx playwright test tests/e2e/identity-scan.spec.ts`
 - Smoke manual recomendado

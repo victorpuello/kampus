@@ -313,6 +313,10 @@ export const documentsApi = {
   create: (data: FormData, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void) => api.post('/api/documents/', data, {
     onUploadProgress
   }),
+  previewDocumentByUrl: (url: string) =>
+    api.get<Blob>(url, {
+      responseType: 'blob',
+    }),
   previewIdentityImage: (image: File) => {
     const fd = new FormData()
     fd.append('image', image)

@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { studentsApi, noveltiesApi, documentsApi } from '../services/students'
 import type { Student } from '../services/students'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
+import DocumentViewerModal from '../components/documents/DocumentViewerModal'
 
 export default function StudentProfile() {
   const { id } = useParams()
@@ -28,6 +29,9 @@ export default function StudentProfile() {
     description: '',
     file: null as File | null
   })
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [viewerTitle, setViewerTitle] = useState('Documento')
+  const [viewerSourceUrl, setViewerSourceUrl] = useState('')
 
   const loadStudent = useCallback(() => {
     if (!studentId) return
@@ -90,6 +94,19 @@ export default function StudentProfile() {
       console.error(err)
       alert('Error al subir documento')
     }
+  }
+
+  const openDocumentViewer = (url: string, title: string) => {
+    if (!url || url === '#') return
+    setViewerTitle(title)
+    setViewerSourceUrl(url)
+    setViewerOpen(true)
+  }
+
+  const closeDocumentViewer = () => {
+    setViewerOpen(false)
+    setViewerTitle('Documento')
+    setViewerSourceUrl('')
   }
 
   if (loading && !data) return <div className="p-6">Cargando…</div>
@@ -337,14 +354,14 @@ export default function StudentProfile() {
                       <div className="text-xs text-slate-500">{doc.description || 'Sin descripción'}</div>
                     </div>
                   </div>
-                  <a 
-                    href={doc.file_download_url ?? doc.file ?? undefined} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
+<<<<<<< HEAD
+                  <button
+                    type="button"
+                    onClick={() => openDocumentViewer(doc.file_download_url || doc.file || '#', `${doc.document_type} · ${new Date(doc.uploaded_at).toLocaleDateString()}`)}
                     className="text-xs text-blue-600 hover:underline whitespace-nowrap"
                   >
                     Ver / Descargar
-                  </a>
+                  </button>
                 </div>
               ))
             ) : (
@@ -384,6 +401,13 @@ export default function StudentProfile() {
         confirmText="Confirmar"
         cancelText="Cancelar"
         loading={submittingNovelty}
+      />
+
+      <DocumentViewerModal
+        isOpen={viewerOpen}
+        onClose={closeDocumentViewer}
+        title={viewerTitle}
+        sourceUrl={viewerSourceUrl}
       />
     </div>
   )
