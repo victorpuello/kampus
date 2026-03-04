@@ -7,6 +7,15 @@ from rest_framework.test import APITestCase
 from .models import PasswordResetToken
 
 
+TEST_CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "users-tests-cookie-auth",
+    }
+}
+
+
+@override_settings(CACHES=TEST_CACHES)
 class CookieAuthFlowTests(APITestCase):
     def setUp(self):
         user_model = get_user_model()
@@ -106,6 +115,7 @@ class CookieAuthFlowTests(APITestCase):
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     KAMPUS_FRONTEND_BASE_URL="http://localhost:5173",
+    CACHES=TEST_CACHES,
 )
 class PasswordResetFlowTests(APITestCase):
     def setUp(self):

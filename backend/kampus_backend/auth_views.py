@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
-from communications.email_service import send_email
+from communications.template_service import send_templated_email
 from users.models import PasswordResetToken
 from .throttles import (
     AuthLoginIPRateThrottle,
@@ -188,17 +188,14 @@ class PasswordResetRequestAPIView(APIView):
                 )
 
             reset_url = f"{settings.KAMPUS_FRONTEND_BASE_URL}/reset-password?token={token}"
-            body = (
-                "Hola,\n\n"
-                "Recibimos una solicitud para restablecer tu contraseña en Kampus.\n"
-                f"Usa este enlace para continuar: {reset_url}\n\n"
-                "Si no solicitaste este cambio, ignora este mensaje.\n"
-                "Este enlace vence en 1 hora."
-            )
-            send_email(
+            send_templated_email(
+                slug="password-reset",
                 recipient_email=user.email,
-                subject="Restablecer contraseña - Kampus",
-                body_text=body,
+                context={
+                    "reset_url": reset_url,
+                    "user_email": user.email,
+                    "ttl_hours": 1,
+                },
                 category="password-reset",
                 idempotency_key=f"password-reset:{user.id}:{token_hash[:16]}",
             )

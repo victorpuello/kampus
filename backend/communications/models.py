@@ -119,6 +119,42 @@ class EmailPreferenceAudit(models.Model):
 		return f"{self.preference.email}: {self.previous_marketing_opt_in}->{self.new_marketing_opt_in}"
 
 
+class EmailTemplate(models.Model):
+	TYPE_TRANSACTIONAL = "transactional"
+	TYPE_MARKETING = "marketing"
+
+	TYPE_CHOICES = [
+		(TYPE_TRANSACTIONAL, "Transactional"),
+		(TYPE_MARKETING, "Marketing"),
+	]
+
+	slug = models.SlugField(max_length=80, unique=True)
+	name = models.CharField(max_length=120)
+	description = models.CharField(max_length=255, blank=True, default="")
+	template_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default=TYPE_TRANSACTIONAL)
+	category = models.CharField(max_length=50, default="transactional")
+	subject_template = models.CharField(max_length=255)
+	body_text_template = models.TextField(blank=True, default="")
+	body_html_template = models.TextField(blank=True, default="")
+	allowed_variables = models.JSONField(default=list, blank=True)
+	is_active = models.BooleanField(default=True)
+	updated_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="email_templates_updates",
+		blank=True,
+		null=True,
+	)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ["slug"]
+
+	def __str__(self) -> str:
+		return f"{self.slug} ({self.template_type})"
+
+
 class EmailDelivery(models.Model):
 	STATUS_PENDING = "PENDING"
 	STATUS_SENT = "SENT"

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import timedelta
 from typing import Iterable, Optional
 
@@ -8,9 +9,13 @@ from django.conf import settings
 from django.utils import timezone
 
 from communications.email_service import send_email
+from communications.template_service import send_templated_email
 from users.models import User
 
 from .models import Notification
+
+
+logger = logging.getLogger(__name__)
 
 
 ADMIN_LIKE_ROLES = {
@@ -39,6 +44,17 @@ def _notification_email_idempotency_key(*, recipient: User, dedupe_key: str, not
     return f"notif-email:{recipient.id}:{digest}"
 
 
+def _notification_template_slug(notification_type: str) -> str:
+    normalized = str(notification_type or "").strip().upper()
+    if normalized == "NOVELTY_SLA_TEACHER":
+        return "novelty-sla-teacher"
+    if normalized == "NOVELTY_SLA_ADMIN":
+        return "novelty-sla-admin"
+    if normalized == "NOVELTY_SLA_COORDINATOR":
+        return "novelty-sla-coordinator"
+    return "in-app-notification-generic"
+
+
 def _send_notification_email(*, recipient: User, notification: Notification) -> None:
     if not getattr(settings, "NOTIFICATIONS_EMAIL_ENABLED", True):
         return
@@ -47,7 +63,7 @@ def _send_notification_email(*, recipient: User, notification: Notification) -> 
     if not recipient_email:
         return
 
-    absolute_url = _notification_absolute_url(notification.url)
+    absolute_url = _notification_absolute_url(notification.url) or _notification_absolute_url("/notifications")
     body_parts = [
         f"Hola {recipient.get_full_name() or recipient.username},",
         "",
@@ -60,16 +76,42 @@ def _send_notification_email(*, recipient: User, notification: Notification) -> 
     body_parts.extend(["", "Este mensaje fue generado automáticamente por Kampus."])
     body_text = "\n".join(body_parts)
 
+    email_idempotency = _notification_email_idempotency_key(
+        recipient=recipient,
+        dedupe_key=notification.dedupe_key,
+        notification_id=notification.id,
+    )
+
+    template_slug = _notification_template_slug(notification.type)
+    template_context = {
+        "recipient_name": recipient.get_full_name() or recipient.username,
+        "title": notification.title,
+        "body": notification.body or "Tienes una nueva notificación en Kampus.",
+        "action_url": absolute_url,
+    }
+
+    try:
+        send_templated_email(
+            slug=template_slug,
+            recipient_email=recipient_email,
+            context=template_context,
+            category="in-app-notification",
+            idempotency_key=email_idempotency,
+        )
+        return
+    except Exception:
+        logger.exception(
+            "Failed sending templated notification email (template=%s, notification_id=%s)",
+            template_slug,
+            notification.id,
+        )
+
     send_email(
         recipient_email=recipient_email,
         subject=f"[Kampus] {notification.title}",
         body_text=body_text,
         category="in-app-notification",
-        idempotency_key=_notification_email_idempotency_key(
-            recipient=recipient,
-            dedupe_key=notification.dedupe_key,
-            notification_id=notification.id,
-        ),
+        idempotency_key=email_idempotency,
     )
 
 

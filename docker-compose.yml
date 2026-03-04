@@ -36,6 +36,11 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_NOTIFICATIONS_ALERT_MAX_FAILED=10
+      - KAMPUS_NOTIFICATIONS_ALERT_MAX_SUPPRESSED=50
+      - KAMPUS_NOTIFICATIONS_ALERT_MIN_SUCCESS_RATE=90.0
+      - KAMPUS_NOTIFICATIONS_ALERT_FAIL_ON_BREACH=false
+      - KAMPUS_NOTIFICATIONS_ALERT_NOTIFY_ADMINS=false
       - KAMPUS_CACHE_URL=redis://redis:6379/1
       - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
       - KAMPUS_PRIVATE_REPORTS_DIR=reports
@@ -75,6 +80,43 @@ services:
       - redis
     command: celery -A kampus_backend worker -l INFO
 
+  backend_beat:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+      - kampus_private_data:/data/kampus_private
+    environment:
+      - DJANGO_ENV=development
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY:-dev-only-change-this-secret-before-sharing}
+      - DJANGO_DEBUG=true
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - CORS_ALLOWED_ORIGINS=http://localhost:5173
+      - POSTGRES_DB=kampus
+      - POSTGRES_USER=kampus
+      - POSTGRES_PASSWORD=kampus
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - KAMPUS_CACHE_URL=redis://redis:6379/1
+      - KAMPUS_PRIVATE_STORAGE_ROOT=/data/kampus_private
+      - KAMPUS_PRIVATE_REPORTS_DIR=reports
+      - KAMPUS_RUN_MIGRATIONS=false
+      - KAMPUS_CREATE_SUPERUSER=false
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED=false
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_MINUTE=0
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_HOUR=8
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_DAY_OF_WEEK=1-5
+      - KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED=false
+      - KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE=15
+      - KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR=*
+      - KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK=1-5
+    depends_on:
+      - db
+      - redis
+    command: celery -A kampus_backend beat -l INFO
+
   backend_scheduler:
     build: ./backend
     volumes:
@@ -111,12 +153,30 @@ services:
       - ELECTION_CENSUS_SYNC_SOURCE_FILE=
       - ELECTION_CENSUS_SYNC_ACADEMIC_YEAR_ID=
       - ELECTION_CENSUS_SYNC_APPLY=true
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED=true
+      - KAMPUS_NOVELTIES_SLA_DAYS=3
+      - KAMPUS_NOVELTIES_SLA_TEACHER_DAYS=3
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_TEACHERS_ENABLED=true
+      - KAMPUS_NOVELTIES_SLA_ESCALATE_ADMIN_DAYS=3
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_ADMINS_ENABLED=true
+      - KAMPUS_NOVELTIES_SLA_ESCALATE_COORDINATOR_DAYS=5
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_COORDINATORS_ENABLED=true
+      - KAMPUS_NOVELTIES_SLA_LOOP_ENABLED=true
+      - KAMPUS_NOVELTIES_SLA_DEDUPE_WITHIN_SECONDS=90000
+      - KAMPUS_NOVELTIES_SLA_NOTIFY_INTERVAL_SECONDS=86400
+      - KAMPUS_NOTIFICATIONS_HEALTH_LOOP_ENABLED=true
+      - KAMPUS_NOTIFICATIONS_HEALTH_INTERVAL_SECONDS=3600
+      - KAMPUS_NOTIFICATIONS_ALERT_MAX_FAILED=10
+      - KAMPUS_NOTIFICATIONS_ALERT_MAX_SUPPRESSED=50
+      - KAMPUS_NOTIFICATIONS_ALERT_MIN_SUCCESS_RATE=90.0
+      - KAMPUS_NOTIFICATIONS_ALERT_FAIL_ON_BREACH=false
+      - KAMPUS_NOTIFICATIONS_ALERT_NOTIFY_ADMINS=false
     depends_on:
       - db
       - redis
     command: >
       sh -c "
-        echo 'Starting backend scheduler (descargos + attendance + reports + election census sync)';
+        echo 'Starting backend scheduler (descargos + attendance + reports + election census sync + novelties SLA)';
 
         ( while true; do
             python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
@@ -166,6 +226,20 @@ services:
               fi;
             fi;
             sleep $${ELECTION_CENSUS_SYNC_INTERVAL_SECONDS:-1800};
+          done ) &
+
+        ( while true; do
+            if [ \"$${KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED:-true}\" = \"true\" ] && [ \"$${KAMPUS_NOVELTIES_SLA_LOOP_ENABLED:-true}\" = \"true\" ]; then
+              python manage.py notify_novelties_sla;
+            fi;
+            sleep $${KAMPUS_NOVELTIES_SLA_NOTIFY_INTERVAL_SECONDS:-86400};
+          done ) &
+
+        ( while true; do
+            if [ \"$${KAMPUS_NOTIFICATIONS_HEALTH_LOOP_ENABLED:-true}\" = \"true\" ]; then
+              python manage.py check_notifications_health --no-fail-on-breach;
+            fi;
+            sleep $${KAMPUS_NOTIFICATIONS_HEALTH_INTERVAL_SECONDS:-3600};
           done ) &
 
         wait

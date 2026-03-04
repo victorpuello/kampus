@@ -57,6 +57,46 @@ export type MailgunSettingsAuditListResponse = {
   offset: number
 }
 
+export type EmailTemplateType = 'transactional' | 'marketing'
+
+export type EmailTemplateItem = {
+  id: number
+  slug: string
+  name: string
+  description: string
+  template_type: EmailTemplateType
+  category: string
+  subject_template: string
+  body_text_template: string
+  body_html_template: string
+  allowed_variables: string[]
+  is_active: boolean
+  updated_at: string
+}
+
+export type EmailTemplateListResponse = {
+  results: EmailTemplateItem[]
+}
+
+export type EmailTemplatePayload = {
+  slug: string
+  name: string
+  description: string
+  template_type: EmailTemplateType
+  category: string
+  subject_template: string
+  body_text_template: string
+  body_html_template: string
+  allowed_variables: string[]
+  is_active: boolean
+}
+
+export type EmailTemplatePreviewResponse = {
+  subject: string
+  body_text: string
+  body_html: string
+}
+
 export const systemApi = {
   listBackups: () => api.get<{ results: BackupItem[] }>('/api/system/backups/'),
 
@@ -113,5 +153,24 @@ export const systemApi = {
   exportMailgunSettingsAuditsCsv: (environment: MailSettingsEnvironment = 'development') =>
     api.get<Blob>(`/api/communications/settings/mailgun/audits/export/?environment=${environment}`, {
       responseType: 'blob',
+    }),
+
+  listEmailTemplates: () => api.get<EmailTemplateListResponse>('/api/communications/settings/email-templates/'),
+
+  getEmailTemplate: (slug: string) =>
+    api.get<EmailTemplateItem>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/`),
+
+  upsertEmailTemplate: (slug: string, payload: EmailTemplatePayload) =>
+    api.put<EmailTemplateItem>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/`, payload),
+
+  previewEmailTemplate: (slug: string, context: Record<string, unknown>) =>
+    api.post<EmailTemplatePreviewResponse>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/preview/`, {
+      context,
+    }),
+
+  sendEmailTemplateTest: (slug: string, testEmail: string, context: Record<string, unknown>) =>
+    api.post<{ detail: string; status: string; error?: string }>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/test/`, {
+      test_email: testEmail,
+      context,
     }),
 }

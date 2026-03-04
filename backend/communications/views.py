@@ -11,6 +11,7 @@ from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.http import HttpResponse
+from django.utils.text import slugify
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
@@ -20,14 +21,14 @@ from rest_framework.views import APIView
 
 from users.permissions import IsAdmin
 
-from .email_service import send_email
-from .models import EmailDelivery, EmailEvent, EmailSuppression, MailgunSettings, MailgunSettingsAudit
+from .models import EmailDelivery, EmailEvent, EmailSuppression, EmailTemplate, MailgunSettings, MailgunSettingsAudit
 from .preferences import (
 	get_or_create_preference,
 	set_marketing_preference,
 	validate_unsubscribe_token,
 )
 from .runtime_settings import apply_effective_mail_settings, get_effective_mail_settings
+from .template_service import list_template_defaults, render_email_template, send_templated_email
 
 
 logger = logging.getLogger(__name__)
@@ -120,6 +121,23 @@ def _serialize_mailgun_settings(config: MailgunSettings | None, *, environment: 
 		"mailgun_api_key_configured": bool(effective.mailgun_api_key),
 		"mailgun_webhook_signing_key_configured": bool(effective.mailgun_webhook_signing_key),
 		"updated_at": config.updated_at if config else None,
+	}
+
+
+def _serialize_email_template(template: EmailTemplate) -> dict:
+	return {
+		"id": template.id,
+		"slug": template.slug,
+		"name": template.name,
+		"description": template.description,
+		"template_type": template.template_type,
+		"category": template.category,
+		"subject_template": template.subject_template,
+		"body_text_template": template.body_text_template,
+		"body_html_template": template.body_html_template,
+		"allowed_variables": list(template.allowed_variables or []),
+		"is_active": bool(template.is_active),
+		"updated_at": template.updated_at,
 	}
 
 
@@ -271,10 +289,10 @@ class MailSettingsTestView(APIView):
 			logger.warning("Mailgun test email rejected: invalid format '%s' by user_id=%s", test_email, getattr(request.user, "id", None))
 			return Response({"detail": "test_email no es válido."}, status=status.HTTP_400_BAD_REQUEST)
 
-		result = send_email(
+		result = send_templated_email(
+			slug="mail-settings-test",
 			recipient_email=test_email,
-			subject="[Kampus] Prueba de configuración de correo",
-			body_text="Este es un correo de prueba para validar la configuración de Mailgun en Kampus.",
+			context={"environment": environment},
 			category="transactional",
 			environment=environment,
 		)
@@ -287,6 +305,171 @@ class MailSettingsTestView(APIView):
 				result.delivery.error_message,
 				getattr(request.user, "id", None),
 			)
+			return Response(
+				{
+					"detail": "El correo de prueba no pudo enviarse.",
+					"status": result.delivery.status,
+					"error": result.delivery.error_message,
+				},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		return Response(
+			{
+				"detail": "Correo de prueba enviado correctamente.",
+				"status": result.delivery.status,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class EmailTemplateListView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		for default in list_template_defaults():
+			EmailTemplate.objects.get_or_create(
+				slug=default["slug"],
+				defaults={
+					"name": default["name"],
+					"description": default["description"],
+					"template_type": default["template_type"],
+					"category": default["category"],
+					"subject_template": default["subject_template"],
+					"body_text_template": default["body_text_template"],
+					"body_html_template": default["body_html_template"],
+					"allowed_variables": default["allowed_variables"],
+					"is_active": True,
+				},
+			)
+
+		templates = EmailTemplate.objects.order_by("slug")
+		results = [_serialize_email_template(template) for template in templates]
+		return Response({"results": results}, status=status.HTTP_200_OK)
+
+
+class EmailTemplateDetailView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, slug: str, *args, **kwargs):
+		template = EmailTemplate.objects.filter(slug=slug).first()
+		if template is None:
+			return Response({"detail": "Plantilla no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+		return Response(_serialize_email_template(template), status=status.HTTP_200_OK)
+
+	def put(self, request, slug: str, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		normalized_slug = slugify(str(payload.get("slug") or slug).strip())
+		if not normalized_slug:
+			return Response({"detail": "slug es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		name = str(payload.get("name") or "").strip()
+		subject_template = str(payload.get("subject_template") or "").strip()
+		if not name:
+			return Response({"detail": "name es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+		if not subject_template:
+			return Response({"detail": "subject_template es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		template_type = str(payload.get("template_type") or EmailTemplate.TYPE_TRANSACTIONAL).strip().lower()
+		if template_type not in {EmailTemplate.TYPE_TRANSACTIONAL, EmailTemplate.TYPE_MARKETING}:
+			return Response({"detail": "template_type debe ser 'transactional' o 'marketing'."}, status=status.HTTP_400_BAD_REQUEST)
+
+		allowed_variables = payload.get("allowed_variables") or []
+		if not isinstance(allowed_variables, list) or not all(isinstance(item, str) for item in allowed_variables):
+			return Response({"detail": "allowed_variables debe ser una lista de strings."}, status=status.HTTP_400_BAD_REQUEST)
+
+		template = EmailTemplate.objects.filter(slug=slug).first()
+		if template is None and normalized_slug != slug:
+			template = EmailTemplate.objects.filter(slug=normalized_slug).first()
+
+		if template is None and EmailTemplate.objects.filter(slug=normalized_slug).exists():
+			return Response({"detail": "Ya existe otra plantilla con ese slug."}, status=status.HTTP_400_BAD_REQUEST)
+
+		if template is None:
+			template = EmailTemplate.objects.create(
+				slug=normalized_slug,
+				name=name,
+				description=str(payload.get("description") or "").strip(),
+				template_type=template_type,
+				category=str(payload.get("category") or "transactional").strip() or "transactional",
+				subject_template=subject_template,
+				body_text_template=str(payload.get("body_text_template") or ""),
+				body_html_template=str(payload.get("body_html_template") or ""),
+				allowed_variables=allowed_variables,
+				is_active=bool(payload.get("is_active", True)),
+				updated_by=request.user,
+			)
+		else:
+			if normalized_slug != template.slug and EmailTemplate.objects.filter(slug=normalized_slug).exclude(id=template.id).exists():
+				return Response({"detail": "Ya existe otra plantilla con ese slug."}, status=status.HTTP_400_BAD_REQUEST)
+
+			template.slug = normalized_slug
+			template.name = name
+			template.description = str(payload.get("description") or "").strip()
+			template.template_type = template_type
+			template.category = str(payload.get("category") or "transactional").strip() or "transactional"
+			template.subject_template = subject_template
+			template.body_text_template = str(payload.get("body_text_template") or "")
+			template.body_html_template = str(payload.get("body_html_template") or "")
+			template.allowed_variables = allowed_variables
+			template.is_active = bool(payload.get("is_active", True))
+			template.updated_by = request.user
+			template.save()
+
+		return Response(_serialize_email_template(template), status=status.HTTP_200_OK)
+
+
+class EmailTemplatePreviewView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, slug: str, *args, **kwargs):
+		template = EmailTemplate.objects.filter(slug=slug).first()
+		if template is None:
+			return Response({"detail": "Plantilla no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+
+		context = (request.data or {}).get("context") if isinstance(request.data, dict) else {}
+		if context is None:
+			context = {}
+		if not isinstance(context, dict):
+			return Response({"detail": "context debe ser un objeto JSON."}, status=status.HTTP_400_BAD_REQUEST)
+
+		rendered = render_email_template(slug=slug, context=context)
+		return Response(
+			{
+				"subject": rendered.subject,
+				"body_text": rendered.body_text,
+				"body_html": rendered.body_html,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class EmailTemplateSendTestView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, slug: str, *args, **kwargs):
+		test_email = str((request.data or {}).get("test_email") or "").strip().lower()
+		if not test_email:
+			return Response({"detail": "test_email es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+		try:
+			validate_email(test_email)
+		except ValidationError:
+			return Response({"detail": "test_email no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		context = (request.data or {}).get("context") if isinstance(request.data, dict) else {}
+		if context is None:
+			context = {}
+		if not isinstance(context, dict):
+			return Response({"detail": "context debe ser un objeto JSON."}, status=status.HTTP_400_BAD_REQUEST)
+
+		result = send_templated_email(
+			slug=slug,
+			recipient_email=test_email,
+			context=context,
+		)
+
+		if not result.sent:
 			return Response(
 				{
 					"detail": "El correo de prueba no pudo enviarse.",

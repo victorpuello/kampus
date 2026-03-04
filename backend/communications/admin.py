@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import EmailDelivery, EmailEvent, EmailPreference, EmailPreferenceAudit, EmailSuppression
+from .models import EmailDelivery, EmailEvent, EmailPreference, EmailPreferenceAudit, EmailSuppression, EmailTemplate
 
 
 @admin.register(EmailDelivery)
@@ -59,3 +59,10 @@ class EmailPreferenceAuditAdmin(admin.ModelAdmin):
 	)
 	search_fields = ("preference__email", "notes")
 	list_filter = ("source", "created_at")
+
+
+@admin.register(EmailTemplate)
+class EmailTemplateAdmin(admin.ModelAdmin):
+	list_display = ("slug", "name", "template_type", "category", "is_active", "updated_at")
+	search_fields = ("slug", "name", "description", "category")
+	list_filter = ("template_type", "is_active", "updated_at")

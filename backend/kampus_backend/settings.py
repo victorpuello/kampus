@@ -10,6 +10,7 @@ Base de configuración alineada con las reglas del proyecto Kampus:
 
 from pathlib import Path
 import os
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -308,6 +309,36 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
+
+KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED = (os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
+KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED = (os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED") or "false").strip().lower() in {"1", "true", "yes"}
+KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_MINUTE = int(os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_MINUTE", "0"))
+KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_HOUR = int(os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_HOUR", "8"))
+KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_DAY_OF_WEEK = (os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_DAY_OF_WEEK") or "1-5").strip()
+KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED = (os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED") or "false").strip().lower() in {"1", "true", "yes"}
+KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE = int(os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE", "15"))
+KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR = (os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR") or "*").strip()
+KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK = (os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK") or "1-5").strip()
+
+CELERY_BEAT_SCHEDULE = {}
+if KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED and KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED:
+    CELERY_BEAT_SCHEDULE["notify-novelties-sla"] = {
+        "task": "novelties.notify_novelties_sla",
+        "schedule": crontab(
+            minute=KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_MINUTE,
+            hour=KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_HOUR,
+            day_of_week=KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_DAY_OF_WEEK,
+        ),
+    }
+if KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED:
+    CELERY_BEAT_SCHEDULE["check-notifications-health"] = {
+        "task": "notifications.check_notifications_health",
+        "schedule": crontab(
+            minute=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE,
+            hour=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR,
+            day_of_week=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK,
+        ),
+    }
 
 # Cache
 #

@@ -1,5 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
+from django.utils import timezone
+from datetime import timedelta
+from unittest.mock import patch
 from rest_framework.test import APITestCase
 from rest_framework import status
 
@@ -7,8 +11,8 @@ from students.models import Student
 from core.models import Institution, Campus
 from academic.models import AcademicYear, AcademicLevel, Grade, Group
 from students.models import Enrollment
-
 from .models import NoveltyType, NoveltyReason, NoveltyCase, NoveltyRequiredDocumentRule, CapacityBucket
+from notifications.models import Notification
 
 
 User = get_user_model()
@@ -561,3 +565,142 @@ class NoveltiesCapacityPolicyAPITest(APITestCase):
         self.assertEqual(res_exec.status_code, status.HTTP_400_BAD_REQUEST, res_exec.data)
         self.e2.refresh_from_db()
         self.assertEqual(self.e2.group_id, self.src_group.id)
+
+
+class NoveltySlaNotificationsCommandTests(APITestCase):
+    def setUp(self):
+        self.superadmin = User.objects.create_superuser(
+            username="nov_sla_superadmin",
+            password="admin123",
+            email="nov_sla_superadmin@example.com",
+            role=getattr(User, "ROLE_SUPERADMIN", "SUPERADMIN"),
+        )
+        self.admin = User.objects.create_superuser(
+            username="nov_sla_admin",
+            password="admin123",
+            email="nov_sla_admin@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.unrelated_coordinator = User.objects.create_user(
+            username="nov_sla_coordinator_unrelated",
+            password="admin123",
+            email="nov_sla_coordinator_unrelated@example.com",
+            role=getattr(User, "ROLE_COORDINATOR", "COORDINATOR"),
+        )
+        self.coordinator = User.objects.create_user(
+            username="nov_sla_coordinator",
+            password="admin123",
+            email="nov_sla_coordinator@example.com",
+            role=getattr(User, "ROLE_COORDINATOR", "COORDINATOR"),
+        )
+        self.teacher = User.objects.create_user(
+            username="nov_sla_teacher",
+            password="admin123",
+            email="nov_sla_teacher@example.com",
+            role=getattr(User, "ROLE_TEACHER", "TEACHER"),
+        )
+
+        student_user = User.objects.create_user(
+            username="nov_sla_student",
+            password="admin123",
+            role=getattr(User, "ROLE_STUDENT", "STUDENT"),
+        )
+        self.student = Student.objects.create(user=student_user, document_number="NOVSLA001")
+
+        self.institution = Institution.objects.create(name="Institución SLA")
+        self.institution.rector = self.admin
+        self.institution.save(update_fields=["rector"])
+
+        self.campus = Campus.objects.create(
+            institution=self.institution,
+            name="Sede SLA",
+            coordinator=self.coordinator,
+        )
+        self.academic_year = AcademicYear.objects.create(year=2031, status=AcademicYear.STATUS_ACTIVE)
+        self.level = AcademicLevel.objects.create(name="Básica SLA", level_type="BASIC")
+        self.grade = Grade.objects.create(name="5", level=self.level, ordinal=5)
+        self.group = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            campus=self.campus,
+            academic_year=self.academic_year,
+            director=self.teacher,
+            capacity=40,
+        )
+        Enrollment.objects.create(
+            student=self.student,
+            academic_year=self.academic_year,
+            grade=self.grade,
+            group=self.group,
+            campus=self.campus,
+            status="ACTIVE",
+        )
+
+        self.novelty_type = NoveltyType.objects.create(code="traslado_sla", name="Traslado SLA", is_active=True)
+        self.reason = NoveltyReason.objects.create(novelty_type=self.novelty_type, name="Solicitud")
+
+    def _create_case_in_review(self, *, days_old: int):
+        case = NoveltyCase.objects.create(
+            student=self.student,
+            institution=self.institution,
+            novelty_type=self.novelty_type,
+            novelty_reason=self.reason,
+            status=NoveltyCase.Status.IN_REVIEW,
+            created_by=self.teacher,
+        )
+        stale_time = timezone.now() - timedelta(days=days_old)
+        NoveltyCase.objects.filter(id=case.id).update(updated_at=stale_time)
+        return case
+
+    @patch.dict(
+        "os.environ",
+        {
+            "KAMPUS_NOVELTIES_SLA_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_TEACHER_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_ESCALATE_ADMIN_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_ESCALATE_COORDINATOR_DAYS": "5",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_TEACHERS_ENABLED": "true",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_ADMINS_ENABLED": "true",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_COORDINATORS_ENABLED": "true",
+            "KAMPUS_NOTIFICATIONS_EMAIL_ENABLED": "false",
+        },
+        clear=False,
+    )
+    def test_notifies_teacher_and_admin_before_coordinator_threshold(self):
+        self._create_case_in_review(days_old=4)
+
+        call_command("notify_novelties_sla")
+
+        teacher_types = set(Notification.objects.filter(recipient=self.teacher).values_list("type", flat=True))
+        admin_types = set(Notification.objects.filter(recipient=self.admin).values_list("type", flat=True))
+        superadmin_types = set(Notification.objects.filter(recipient=self.superadmin).values_list("type", flat=True))
+        coordinator_types = set(Notification.objects.filter(recipient=self.coordinator).values_list("type", flat=True))
+
+        self.assertIn("NOVELTY_SLA_TEACHER", teacher_types)
+        self.assertIn("NOVELTY_SLA_ADMIN", admin_types)
+        self.assertIn("NOVELTY_SLA_ADMIN", superadmin_types)
+        self.assertNotIn("NOVELTY_SLA_COORDINATOR", coordinator_types)
+
+    @patch.dict(
+        "os.environ",
+        {
+            "KAMPUS_NOVELTIES_SLA_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_TEACHER_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_ESCALATE_ADMIN_DAYS": "3",
+            "KAMPUS_NOVELTIES_SLA_ESCALATE_COORDINATOR_DAYS": "5",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_TEACHERS_ENABLED": "true",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_ADMINS_ENABLED": "true",
+            "KAMPUS_NOVELTIES_SLA_NOTIFY_COORDINATORS_ENABLED": "true",
+            "KAMPUS_NOTIFICATIONS_EMAIL_ENABLED": "false",
+        },
+        clear=False,
+    )
+    def test_notifies_coordinator_after_critical_threshold(self):
+        self._create_case_in_review(days_old=6)
+
+        call_command("notify_novelties_sla")
+
+        coordinator_types = set(Notification.objects.filter(recipient=self.coordinator).values_list("type", flat=True))
+        unrelated_coordinator_types = set(Notification.objects.filter(recipient=self.unrelated_coordinator).values_list("type", flat=True))
+        self.assertIn("NOVELTY_SLA_COORDINATOR", coordinator_types)
+        self.assertNotIn("NOVELTY_SLA_COORDINATOR", unrelated_coordinator_types)

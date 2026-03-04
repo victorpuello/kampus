@@ -22,6 +22,54 @@ class EmailSendResult:
     delivery: EmailDelivery
 
 
+_LEGAL_DISCLAIMER_TEXT = (
+    "ESTE CORREO ES ÚNICAMENTE INFORMATIVO - POR FAVOR NO RESPONDER ESTE MENSAJE\n"
+    "NO RESPONDER - Mensaje generado automáticamente.\n"
+    "Si tienes alguna consulta con respecto a este correo, puedes contactarte directamente con la Entidad Territorial donde radicaste tu solicitud.\n"
+    "Este correo es únicamente informativo y es de uso exclusivo del destinatario(a); puede contener información privilegiada y/o confidencial. "
+    "Si no eres el destinatario(a), deberás eliminarlo inmediatamente. El mal uso, divulgación no autorizada, alteración y/o modificación "
+    "malintencionada de este mensaje y sus anexos está estrictamente prohibido y puede ser legalmente sancionado."
+)
+
+
+def _append_legal_disclaimer_text(content: str) -> str:
+    base = str(content or "").rstrip()
+    if _LEGAL_DISCLAIMER_TEXT in base:
+        return base
+    if not base:
+        return _LEGAL_DISCLAIMER_TEXT
+    return f"{base}\n\n{_LEGAL_DISCLAIMER_TEXT}"
+
+
+def _append_legal_disclaimer_html(content: str) -> str:
+    base = str(content or "").rstrip()
+    marker = "data-kampus-legal-disclaimer"
+    if marker in base:
+        return base
+
+    disclaimer_block = (
+        '<div data-kampus-legal-disclaimer="true" style="margin-top:24px;padding-top:14px;border-top:1px solid #e2e8f0;'
+        'font-size:11px;line-height:1.55;color:#64748b;">'
+        '<p style="margin:0 0 8px 0;"><strong>ESTE CORREO ES ÚNICAMENTE INFORMATIVO - POR FAVOR NO RESPONDER ESTE MENSAJE.</strong><br />'
+        'NO RESPONDER - Mensaje generado automáticamente.</p>'
+        '<p style="margin:0 0 8px 0;">Si tienes alguna consulta con respecto a este correo, puedes contactarte directamente con la Entidad Territorial '
+        'donde radicaste tu solicitud.</p>'
+        '<p style="margin:0;">Este correo es únicamente informativo y es de uso exclusivo del destinatario(a); puede contener información privilegiada '
+        'y/o confidencial. Si no eres el destinatario(a), deberás eliminarlo inmediatamente. El mal uso, divulgación no autorizada, alteración '
+        'y/o modificación malintencionada de este mensaje y sus anexos está estrictamente prohibido y puede ser legalmente sancionado.</p>'
+        '</div>'
+    )
+
+    if not base:
+        return disclaimer_block
+
+    lower_base = base.lower()
+    body_close_idx = lower_base.rfind("</body>")
+    if body_close_idx != -1:
+        return f"{base[:body_close_idx]}{disclaimer_block}{base[body_close_idx:]}"
+    return f"{base}{disclaimer_block}"
+
+
 def _resolve_existing_delivery(recipient_email: str, idempotency_key: str) -> Optional[EmailDelivery]:
     if not idempotency_key:
         return None
@@ -48,6 +96,8 @@ def send_email(
         return EmailSendResult(sent=False, delivery=existing)
 
     normalized_recipient_email = (recipient_email or "").strip().lower()
+    normalized_body_text = _append_legal_disclaimer_text(body_text)
+    normalized_body_html = _append_legal_disclaimer_html(body_html) if body_html else ""
     is_marketing = is_marketing_category(category)
 
     if is_marketing:
@@ -56,8 +106,8 @@ def send_email(
             delivery = EmailDelivery.objects.create(
                 recipient_email=normalized_recipient_email,
                 subject=subject,
-                body_text=body_text,
-                body_html=body_html,
+                body_text=normalized_body_text,
+                body_html=normalized_body_html,
                 category=category,
                 idempotency_key=idempotency_key,
                 status=EmailDelivery.STATUS_SUPPRESSED,
@@ -79,8 +129,8 @@ def send_email(
         delivery = EmailDelivery.objects.create(
             recipient_email=normalized_recipient_email,
             subject=subject,
-            body_text=body_text,
-            body_html=body_html,
+            body_text=normalized_body_text,
+            body_html=normalized_body_html,
             category=category,
             idempotency_key=idempotency_key,
             status=EmailDelivery.STATUS_SUPPRESSED,
@@ -92,8 +142,8 @@ def send_email(
         delivery = EmailDelivery.objects.create(
             recipient_email=normalized_recipient_email,
             subject=subject,
-            body_text=body_text,
-            body_html=body_html,
+            body_text=normalized_body_text,
+            body_html=normalized_body_html,
             category=category,
             idempotency_key=idempotency_key,
             status=EmailDelivery.STATUS_PENDING,
@@ -106,7 +156,7 @@ def send_email(
 
     message = EmailMultiAlternatives(
         subject=subject,
-        body=body_text,
+        body=normalized_body_text,
         from_email=from_email or effective.default_from_email,
         to=[normalized_recipient_email],
     )
@@ -114,13 +164,13 @@ def send_email(
     if is_marketing:
         unsubscribe_url = build_unsubscribe_url(email=normalized_recipient_email)
         if unsubscribe_url:
-            message.body = f"{body_text}\n\nPara dejar de recibir estos correos: {unsubscribe_url}"
+            message.body = f"{normalized_body_text}\n\nPara dejar de recibir estos correos: {unsubscribe_url}"
             message.extra_headers = {
                 "List-Unsubscribe": f"<{unsubscribe_url}>",
                 "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
             }
-    if body_html:
-        message.attach_alternative(body_html, "text/html")
+    if normalized_body_html:
+        message.attach_alternative(normalized_body_html, "text/html")
 
     message.tags = [category]
     message.metadata = {

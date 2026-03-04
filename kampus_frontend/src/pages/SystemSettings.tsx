@@ -3,21 +3,26 @@ import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
+import { EmailTemplateSettingsCard } from '../components/system/EmailTemplateSettingsCard'
 import { systemApi, type BackupItem, type MailgunSettingsAuditItem, type MailgunSettingsPayload, type MailSettingsEnvironment } from '../services/system'
 
-type SystemTab = 'mailgun' | 'audits' | 'backups' | 'restore'
+type SystemTab = 'mailgun' | 'templates' | 'audits' | 'backups' | 'restore'
 
 const MAIL_SETTINGS_ENV_OPTIONS: { value: MailSettingsEnvironment; label: string; hint: string }[] = [
   { value: 'development', label: 'Desarrollo', hint: 'Pruebas locales y staging' },
   { value: 'production', label: 'Producción', hint: 'Configuración real de envío' },
 ]
 
-const SYSTEM_TABS: SystemTab[] = ['mailgun', 'audits', 'backups', 'restore']
+const SYSTEM_TABS: SystemTab[] = ['mailgun', 'templates', 'audits', 'backups', 'restore']
 
 const SYSTEM_TAB_META: Record<SystemTab, { title: string; description: string }> = {
   mailgun: {
     title: 'Configuración de correo',
     description: 'Configura Mailgun y valida el envío de notificaciones por email.',
+  },
+  templates: {
+    title: 'Plantillas de correo',
+    description: 'Administra diseño, contenido y previsualización de plantillas transaccionales y marketing.',
   },
   audits: {
     title: 'Auditoría de cambios',
@@ -420,6 +425,14 @@ export default function SystemSettings() {
           Mailgun
         </Button>
         <Button
+          variant={activeTab === 'templates' ? 'default' : 'outline'}
+          size="sm"
+          className="min-h-10"
+          onClick={() => setActiveTab('templates')}
+        >
+          Plantillas
+        </Button>
+        <Button
           variant={activeTab === 'audits' ? 'default' : 'outline'}
           size="sm"
           className="min-h-10"
@@ -644,6 +657,8 @@ export default function SystemSettings() {
         </CardContent>
       </Card>
       ) : null}
+
+      {activeTab === 'templates' ? <EmailTemplateSettingsCard /> : null}
 
       {activeTab === 'audits' ? (
       <Card>
