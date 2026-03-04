@@ -77,7 +77,11 @@ AUTH_PASSWORD_RESET_REQUEST_EMAIL_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWO
 AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE") or "20/min").strip()
 
 PASSWORD_RESET_TOKEN_TTL_SECONDS = int(os.getenv("KAMPUS_PASSWORD_RESET_TOKEN_TTL_SECONDS", "3600"))
-KAMPUS_FRONTEND_BASE_URL = (os.getenv("KAMPUS_FRONTEND_BASE_URL") or "http://localhost:5173").strip().rstrip("/")
+KAMPUS_FRONTEND_BASE_URL = (
+    os.getenv("KAMPUS_FRONTEND_BASE_URL")
+    or PUBLIC_SITE_URL
+    or "http://localhost:5173"
+).strip().rstrip("/")
 NOTIFICATIONS_EMAIL_ENABLED = (os.getenv("KAMPUS_NOTIFICATIONS_EMAIL_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
 
 # Auth cookie settings (JWT in HttpOnly cookies)

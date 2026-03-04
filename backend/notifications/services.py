@@ -32,7 +32,10 @@ def _notification_absolute_url(url: str) -> str:
     if safe_url.startswith("http://") or safe_url.startswith("https://"):
         return safe_url
     if safe_url.startswith("/"):
-        base = str(getattr(settings, "KAMPUS_FRONTEND_BASE_URL", "") or "").strip().rstrip("/")
+        base = (
+            str(getattr(settings, "KAMPUS_FRONTEND_BASE_URL", "") or "").strip().rstrip("/")
+            or str(getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+        )
         if base:
             return f"{base}{safe_url}"
     return safe_url
