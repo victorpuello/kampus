@@ -297,7 +297,10 @@ def _absolute_media_url(url: str) -> str:
         return ""
     if clean.startswith("http://") or clean.startswith("https://"):
         return clean
-    base = str(getattr(settings, "KAMPUS_BACKEND_BASE_URL", "") or "").strip().rstrip("/")
+    base = (
+        str(getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+        or str(getattr(settings, "KAMPUS_BACKEND_BASE_URL", "") or "").strip().rstrip("/")
+    )
     if not base:
         return clean
     if clean.startswith("/"):
