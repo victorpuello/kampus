@@ -33,6 +33,15 @@ from .runtime_settings import apply_effective_mail_settings, get_effective_mail_
 logger = logging.getLogger(__name__)
 
 
+def _resolve_mail_settings_environment(raw_value: object) -> str:
+	environment = str(raw_value or "").strip().lower()
+	if environment in {MailgunSettings.ENV_DEVELOPMENT, MailgunSettings.ENV_PRODUCTION}:
+		return environment
+	if bool(getattr(settings, "IS_PRODUCTION", False)):
+		return MailgunSettings.ENV_PRODUCTION
+	return MailgunSettings.ENV_DEVELOPMENT
+
+
 def _normalize_message_id(value: str) -> str:
 	raw = str(value or "").strip()
 	if raw.startswith("<") and raw.endswith(">") and len(raw) >= 2:
@@ -87,9 +96,19 @@ def _mask_secret(value: str) -> str:
 	return f"{'*' * (len(clean) - 4)}{clean[-4:]}"
 
 
-def _serialize_mailgun_settings(config: MailgunSettings | None) -> dict:
-	effective = get_effective_mail_settings()
+def _normalize_mailgun_api_url(value: str) -> str:
+	clean = str(value or "").strip().rstrip("/")
+	if not clean:
+		return ""
+	if clean in {"https://api.mailgun.net", "https://api.eu.mailgun.net"}:
+		return f"{clean}/v3"
+	return clean
+
+
+def _serialize_mailgun_settings(config: MailgunSettings | None, *, environment: str | None = None) -> dict:
+	effective = get_effective_mail_settings(environment=(config.environment if config else environment))
 	return {
+		"environment": effective.environment,
 		"kampus_email_backend": effective.kampus_email_backend,
 		"default_from_email": effective.default_from_email,
 		"server_email": effective.server_email,
@@ -108,11 +127,14 @@ class MailSettingsView(APIView):
 	permission_classes = [IsAdmin]
 
 	def get(self, request, *args, **kwargs):
-		config = MailgunSettings.objects.order_by("-updated_at").first()
-		return Response(_serialize_mailgun_settings(config), status=status.HTTP_200_OK)
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
+		config = MailgunSettings.objects.filter(environment=environment).order_by("-updated_at").first()
+		return Response(_serialize_mailgun_settings(config, environment=environment), status=status.HTTP_200_OK)
 
 	def put(self, request, *args, **kwargs):
 		payload = request.data if isinstance(request.data, dict) else {}
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment") or payload.get("environment"))
+		config = MailgunSettings.objects.filter(environment=environment).order_by("-updated_at").first()
 
 		kampus_email_backend = str(payload.get("kampus_email_backend") or "console").strip().lower()
 		if kampus_email_backend not in {"console", "mailgun"}:
@@ -122,7 +144,7 @@ class MailSettingsView(APIView):
 		server_email = str(payload.get("server_email") or "").strip().lower()
 		mailgun_api_key = str(payload.get("mailgun_api_key") or "").strip()
 		mailgun_sender_domain = str(payload.get("mailgun_sender_domain") or "").strip().lower()
-		mailgun_api_url = str(payload.get("mailgun_api_url") or "").strip()
+		mailgun_api_url = _normalize_mailgun_api_url(payload.get("mailgun_api_url") or "")
 		mailgun_webhook_signing_key = str(payload.get("mailgun_webhook_signing_key") or "").strip()
 		mailgun_webhook_strict = bool(payload.get("mailgun_webhook_strict"))
 
@@ -139,15 +161,29 @@ class MailSettingsView(APIView):
 
 		if mailgun_api_url and not (mailgun_api_url.startswith("https://") or mailgun_api_url.startswith("http://")):
 			return Response({"detail": "mailgun_api_url debe iniciar con http:// o https://."}, status=status.HTTP_400_BAD_REQUEST)
+		if mailgun_api_url and not mailgun_api_url.endswith("/v3"):
+			return Response({"detail": "mailgun_api_url debe terminar en /v3 (ej: https://api.mailgun.net/v3)."}, status=status.HTTP_400_BAD_REQUEST)
+
+		effective_api_key = mailgun_api_key or (config.mailgun_api_key if config else "")
+		effective_webhook_key = mailgun_webhook_signing_key or (config.mailgun_webhook_signing_key if config else "")
+
+		if kampus_email_backend == "mailgun":
+			if not mailgun_sender_domain:
+				return Response({"detail": "mailgun_sender_domain es requerido cuando el backend es mailgun."}, status=status.HTTP_400_BAD_REQUEST)
+			if not effective_api_key:
+				return Response({"detail": "mailgun_api_key es requerido cuando el backend es mailgun."}, status=status.HTTP_400_BAD_REQUEST)
+			if str(effective_api_key).lower().startswith("pubkey-"):
+				return Response({"detail": "mailgun_api_key no puede ser una public key (pubkey-...). Usa una private key de Mailgun."}, status=status.HTTP_400_BAD_REQUEST)
+			if mailgun_webhook_strict and not effective_webhook_key:
+				return Response({"detail": "mailgun_webhook_signing_key es requerido cuando mailgun_webhook_strict=true."}, status=status.HTTP_400_BAD_REQUEST)
 
 		changed_fields: set[str] = set()
 		rotated_api_key = bool(mailgun_api_key)
 		rotated_webhook_signing_key = bool(mailgun_webhook_signing_key)
-
-		config = MailgunSettings.objects.order_by("-updated_at").first()
 		if config is None:
 			changed_fields.update(
 				{
+					"environment",
 					"kampus_email_backend",
 					"default_from_email",
 					"server_email",
@@ -162,6 +198,7 @@ class MailSettingsView(APIView):
 				changed_fields.add("mailgun_webhook_signing_key")
 
 			config = MailgunSettings.objects.create(
+				environment=environment,
 				kampus_email_backend=kampus_email_backend,
 				default_from_email=default_from_email,
 				server_email=server_email,
@@ -173,6 +210,8 @@ class MailSettingsView(APIView):
 				updated_by=request.user,
 			)
 		else:
+			if config.environment != environment:
+				changed_fields.add("environment")
 			if config.kampus_email_backend != kampus_email_backend:
 				changed_fields.add("kampus_email_backend")
 			if config.default_from_email != default_from_email:
@@ -186,6 +225,7 @@ class MailSettingsView(APIView):
 			if bool(config.mailgun_webhook_strict) != mailgun_webhook_strict:
 				changed_fields.add("mailgun_webhook_strict")
 
+			config.environment = environment
 			config.kampus_email_backend = kampus_email_backend
 			config.default_from_email = default_from_email
 			config.server_email = server_email
@@ -212,13 +252,14 @@ class MailSettingsView(APIView):
 		)
 
 		apply_effective_mail_settings()
-		return Response(_serialize_mailgun_settings(config), status=status.HTTP_200_OK)
+		return Response(_serialize_mailgun_settings(config, environment=environment), status=status.HTTP_200_OK)
 
 
 class MailSettingsTestView(APIView):
 	permission_classes = [IsAdmin]
 
 	def post(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment") or (request.data or {}).get("environment"))
 		test_email = str((request.data or {}).get("test_email") or "").strip().lower()
 		if not test_email:
 			logger.warning("Mailgun test email rejected: empty test_email by user_id=%s", getattr(request.user, "id", None))
@@ -235,6 +276,7 @@ class MailSettingsTestView(APIView):
 			subject="[Kampus] Prueba de configuración de correo",
 			body_text="Este es un correo de prueba para validar la configuración de Mailgun en Kampus.",
 			category="transactional",
+			environment=environment,
 		)
 
 		if not result.sent:
@@ -267,6 +309,7 @@ class MailSettingsAuditListView(APIView):
 	permission_classes = [IsAdmin]
 
 	def get(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
 		limit_raw = str(request.query_params.get("limit") or "20").strip()
 		offset_raw = str(request.query_params.get("offset") or "0").strip()
 		try:
@@ -280,7 +323,7 @@ class MailSettingsAuditListView(APIView):
 		limit = max(1, min(limit, 100))
 		offset = max(0, offset)
 
-		base_qs = MailgunSettingsAudit.objects.select_related("updated_by").order_by("-created_at")
+		base_qs = MailgunSettingsAudit.objects.select_related("updated_by", "settings_ref").filter(settings_ref__environment=environment).order_by("-created_at")
 		total = base_qs.count()
 
 		audits = base_qs[offset: offset + limit]
@@ -291,6 +334,7 @@ class MailSettingsAuditListView(APIView):
 			results.append(
 				{
 					"id": audit.id,
+					"environment": audit.settings_ref.environment if audit.settings_ref else environment,
 					"created_at": audit.created_at,
 					"changed_fields": list(audit.changed_fields or []),
 					"rotated_api_key": bool(audit.rotated_api_key),
@@ -319,13 +363,15 @@ class MailSettingsAuditCsvExportView(APIView):
 	permission_classes = [IsAdmin]
 
 	def get(self, request, *args, **kwargs):
-		audits = MailgunSettingsAudit.objects.select_related("updated_by").order_by("-created_at")
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
+		audits = MailgunSettingsAudit.objects.select_related("updated_by", "settings_ref").filter(settings_ref__environment=environment).order_by("-created_at")
 
 		buffer = io.StringIO()
 		writer = csv.writer(buffer)
 		writer.writerow(
 			[
 				"id",
+				"environment",
 				"created_at",
 				"updated_by_username",
 				"updated_by_email",
@@ -341,6 +387,7 @@ class MailSettingsAuditCsvExportView(APIView):
 			writer.writerow(
 				[
 					audit.id,
+					audit.settings_ref.environment if audit.settings_ref else environment,
 					audit.created_at.isoformat(),
 					user.username if user else "",
 					user.email if user else "",

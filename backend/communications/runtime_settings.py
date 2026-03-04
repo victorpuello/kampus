@@ -10,6 +10,7 @@ from .models import MailgunSettings
 
 @dataclass
 class EffectiveMailSettings:
+    environment: str
     kampus_email_backend: str
     email_backend: str
     default_from_email: str
@@ -27,7 +28,21 @@ def _safe_env_bool(value: object, *, fallback: bool = False) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes"}
 
 
-def _build_from_env() -> EffectiveMailSettings:
+def _resolve_environment(environment: str | None = None) -> str:
+    requested = str(environment or "").strip().lower()
+    if requested in {MailgunSettings.ENV_DEVELOPMENT, MailgunSettings.ENV_PRODUCTION}:
+        return requested
+
+    configured = str(getattr(settings, "KAMPUS_MAIL_SETTINGS_ENV", "") or "").strip().lower()
+    if configured in {MailgunSettings.ENV_DEVELOPMENT, MailgunSettings.ENV_PRODUCTION}:
+        return configured
+
+    is_production = bool(getattr(settings, "IS_PRODUCTION", False))
+    return MailgunSettings.ENV_PRODUCTION if is_production else MailgunSettings.ENV_DEVELOPMENT
+
+
+def _build_from_env(*, environment: str | None = None) -> EffectiveMailSettings:
+    resolved_environment = _resolve_environment(environment)
     kampus_email_backend = str(getattr(settings, "KAMPUS_EMAIL_BACKEND", "console") or "console").strip().lower()
     if kampus_email_backend not in {"console", "mailgun"}:
         kampus_email_backend = "console"
@@ -46,6 +61,7 @@ def _build_from_env() -> EffectiveMailSettings:
     anymail = getattr(settings, "ANYMAIL", {}) if isinstance(getattr(settings, "ANYMAIL", {}), dict) else {}
 
     return EffectiveMailSettings(
+        environment=resolved_environment,
         kampus_email_backend=kampus_email_backend,
         email_backend=email_backend,
         default_from_email=str(getattr(settings, "DEFAULT_FROM_EMAIL", "no-reply@localhost") or "no-reply@localhost").strip(),
@@ -58,14 +74,15 @@ def _build_from_env() -> EffectiveMailSettings:
     )
 
 
-def get_effective_mail_settings() -> EffectiveMailSettings:
+def get_effective_mail_settings(environment: str | None = None) -> EffectiveMailSettings:
+    resolved_environment = _resolve_environment(environment)
     try:
-        config = MailgunSettings.objects.order_by("-updated_at").first()
+        config = MailgunSettings.objects.filter(environment=resolved_environment).order_by("-updated_at").first()
     except (OperationalError, ProgrammingError):
         config = None
 
     if config is None:
-        return _build_from_env()
+        return _build_from_env(environment=resolved_environment)
 
     kampus_email_backend = str(config.kampus_email_backend or "console").strip().lower()
     if kampus_email_backend not in {"console", "mailgun"}:
@@ -76,6 +93,7 @@ def get_effective_mail_settings() -> EffectiveMailSettings:
         email_backend = "anymail.backends.mailgun.EmailBackend"
 
     return EffectiveMailSettings(
+        environment=str(config.environment or resolved_environment).strip().lower() or resolved_environment,
         kampus_email_backend=kampus_email_backend,
         email_backend=email_backend,
         default_from_email=str(config.default_from_email or "no-reply@localhost").strip(),
@@ -88,8 +106,8 @@ def get_effective_mail_settings() -> EffectiveMailSettings:
     )
 
 
-def apply_effective_mail_settings() -> EffectiveMailSettings:
-    effective = get_effective_mail_settings()
+def apply_effective_mail_settings(environment: str | None = None) -> EffectiveMailSettings:
+    effective = get_effective_mail_settings(environment=environment)
 
     settings.KAMPUS_EMAIL_BACKEND = effective.kampus_email_backend
     settings.EMAIL_BACKEND = effective.email_backend

@@ -40,8 +40,9 @@ def send_email(
     category: str = "transactional",
     idempotency_key: str = "",
     from_email: Optional[str] = None,
+    environment: Optional[str] = None,
 ) -> EmailSendResult:
-    effective = apply_effective_mail_settings()
+    effective = apply_effective_mail_settings(environment=environment)
     existing = _resolve_existing_delivery(recipient_email, idempotency_key)
     if existing is not None:
         return EmailSendResult(sent=False, delivery=existing)

@@ -3,9 +3,14 @@ import { useAuthStore } from '../store/auth'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
-import { systemApi, type BackupItem, type MailgunSettingsAuditItem, type MailgunSettingsPayload } from '../services/system'
+import { systemApi, type BackupItem, type MailgunSettingsAuditItem, type MailgunSettingsPayload, type MailSettingsEnvironment } from '../services/system'
 
 type SystemTab = 'mailgun' | 'audits' | 'backups' | 'restore'
+
+const MAIL_SETTINGS_ENV_OPTIONS: { value: MailSettingsEnvironment; label: string; hint: string }[] = [
+  { value: 'development', label: 'Desarrollo', hint: 'Pruebas locales y staging' },
+  { value: 'production', label: 'Producción', hint: 'Configuración real de envío' },
+]
 
 const SYSTEM_TABS: SystemTab[] = ['mailgun', 'audits', 'backups', 'restore']
 
@@ -98,6 +103,7 @@ export default function SystemSettings() {
   const [mailgunAuditsLimit] = useState(10)
   const [mailgunAuditsOffset, setMailgunAuditsOffset] = useState(0)
   const [mailgunAuditsTotal, setMailgunAuditsTotal] = useState(0)
+  const [mailSettingsEnvironment, setMailSettingsEnvironment] = useState<MailSettingsEnvironment>('development')
 
   const canRunDestructive = mode !== 'restore' || confirm
 
@@ -115,11 +121,11 @@ export default function SystemSettings() {
     }
   }, [])
 
-  const loadMailgunSettings = useCallback(async () => {
+  const loadMailgunSettings = useCallback(async (environment: MailSettingsEnvironment) => {
     setMailgunLoading(true)
     setMailgunError(null)
     try {
-      const res = await systemApi.getMailgunSettings()
+      const res = await systemApi.getMailgunSettings(environment)
       const data = res.data
       setMailgunForm({
         kampus_email_backend: data.kampus_email_backend,
@@ -130,6 +136,7 @@ export default function SystemSettings() {
         mailgun_webhook_strict: data.mailgun_webhook_strict,
         mailgun_api_key: '',
         mailgun_webhook_signing_key: '',
+        environment,
       })
       setMailgunApiKeyMasked(data.mailgun_api_key_masked)
       setMailgunWebhookMasked(data.mailgun_webhook_signing_key_masked)
@@ -142,10 +149,10 @@ export default function SystemSettings() {
     }
   }, [])
 
-  const loadMailgunAudits = useCallback(async (offset = 0) => {
+  const loadMailgunAudits = useCallback(async (environment: MailSettingsEnvironment, offset = 0) => {
     setMailgunAuditsLoading(true)
     try {
-      const res = await systemApi.getMailgunSettingsAudits(mailgunAuditsLimit, offset)
+      const res = await systemApi.getMailgunSettingsAudits(environment, mailgunAuditsLimit, offset)
       setMailgunAudits(res.data.results || [])
       setMailgunAuditsOffset(res.data.offset || 0)
       setMailgunAuditsTotal(res.data.total || 0)
@@ -160,9 +167,9 @@ export default function SystemSettings() {
   useEffect(() => {
     if (!isAdmin) return
     loadBackups()
-    loadMailgunSettings()
-    loadMailgunAudits(0)
-  }, [isAdmin, loadBackups, loadMailgunSettings, loadMailgunAudits])
+    loadMailgunSettings(mailSettingsEnvironment)
+    loadMailgunAudits(mailSettingsEnvironment, 0)
+  }, [isAdmin, loadBackups, loadMailgunSettings, loadMailgunAudits, mailSettingsEnvironment])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -192,7 +199,7 @@ export default function SystemSettings() {
     setMailgunError(null)
     setMailgunMessage(null)
     try {
-      const res = await systemApi.updateMailgunSettings(mailgunForm)
+      const res = await systemApi.updateMailgunSettings(mailgunForm, mailSettingsEnvironment)
       const data = res.data
       setMailgunApiKeyMasked(data.mailgun_api_key_masked)
       setMailgunWebhookMasked(data.mailgun_webhook_signing_key_masked)
@@ -200,11 +207,12 @@ export default function SystemSettings() {
       setMailgunWebhookConfigured(data.mailgun_webhook_signing_key_configured)
       setMailgunForm((prev) => ({
         ...prev,
+        environment: mailSettingsEnvironment,
         mailgun_api_key: '',
         mailgun_webhook_signing_key: '',
       }))
-      await loadMailgunAudits(0)
-      setMailgunMessage('Configuración de correo guardada correctamente.')
+      await loadMailgunAudits(mailSettingsEnvironment, 0)
+      setMailgunMessage(`Configuración de correo guardada correctamente en ${mailSettingsEnvironment === 'development' ? 'Desarrollo' : 'Producción'}.`)
     } catch (error) {
       setMailgunError(getRequestErrorMessage(error, 'No se pudo guardar la configuración de Mailgun.'))
     } finally {
@@ -222,7 +230,7 @@ export default function SystemSettings() {
     setMailgunError(null)
     setMailgunMessage(null)
     try {
-      const res = await systemApi.sendMailgunTestEmail(testEmail.trim())
+      const res = await systemApi.sendMailgunTestEmail(testEmail.trim(), mailSettingsEnvironment)
       setMailgunMessage(res.data.detail || 'Correo de prueba enviado correctamente.')
     } catch (error) {
       setMailgunError(getRequestErrorMessage(error, 'No se pudo enviar el correo de prueba.'))
@@ -234,12 +242,12 @@ export default function SystemSettings() {
   const exportMailgunAuditsCsv = async () => {
     setMailgunAuditsExporting(true)
     try {
-      const res = await systemApi.exportMailgunSettingsAuditsCsv()
+      const res = await systemApi.exportMailgunSettingsAuditsCsv(mailSettingsEnvironment)
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'text/csv' })
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.setAttribute('download', 'mailgun_audits.csv')
+      link.setAttribute('download', `mailgun_audits_${mailSettingsEnvironment}.csv`)
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -479,6 +487,34 @@ export default function SystemSettings() {
             </div>
           ) : null}
 
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Entorno de configuración</div>
+            <div className="flex flex-wrap gap-2">
+              {MAIL_SETTINGS_ENV_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    setMailSettingsEnvironment(option.value)
+                    setMailgunMessage(null)
+                    setMailgunError(null)
+                  }}
+                  className={`min-h-10 rounded-md border px-3 py-2 text-left text-sm transition-colors ${mailSettingsEnvironment === option.value
+                    ? 'border-blue-600 bg-blue-50 text-blue-700 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-200'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
+                    }`}
+                  disabled={mailgunLoading || mailgunSaving || mailgunTesting}
+                >
+                  <div className="font-medium">{option.label}</div>
+                  <div className="text-xs opacity-80">{option.hint}</div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              Estás editando: <strong>{mailSettingsEnvironment === 'development' ? 'Desarrollo' : 'Producción'}</strong>. Los datos se guardan por separado.
+            </div>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               Backend de correo
@@ -536,29 +572,35 @@ export default function SystemSettings() {
               <input
                 type="url"
                 className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                placeholder="https://api.mailgun.net"
+                placeholder="https://api.mailgun.net/v3"
                 value={mailgunForm.mailgun_api_url}
                 onChange={(e) => setMailgunForm((prev) => ({ ...prev, mailgun_api_url: e.target.value }))}
                 disabled={mailgunLoading || mailgunSaving}
               />
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Usa <strong>https://api.mailgun.net/v3</strong> (US) o <strong>https://api.eu.mailgun.net/v3</strong> (EU).
+              </span>
             </label>
 
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               Mailgun API Key {mailgunApiKeyConfigured ? '(configurada)' : '(no configurada)'}
               <input
                 type="password"
+                autoComplete="new-password"
                 className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 placeholder={mailgunApiKeyMasked || 'Ingresa nueva API key'}
                 value={mailgunForm.mailgun_api_key || ''}
                 onChange={(e) => setMailgunForm((prev) => ({ ...prev, mailgun_api_key: e.target.value }))}
                 disabled={mailgunLoading || mailgunSaving}
               />
+              <span className="text-xs text-slate-500 dark:text-slate-400">Usa una private key de Mailgun (normalmente inicia con <strong>key-...</strong>).</span>
             </label>
 
             <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
               Webhook Signing Key {mailgunWebhookConfigured ? '(configurada)' : '(no configurada)'}
               <input
                 type="password"
+                autoComplete="new-password"
                 className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 placeholder={mailgunWebhookMasked || 'Ingresa nueva signing key'}
                 value={mailgunForm.mailgun_webhook_signing_key || ''}
@@ -617,7 +659,7 @@ export default function SystemSettings() {
             >
               {mailgunAuditsExporting ? 'Exportando…' : 'Exportar CSV'}
             </Button>
-            <Button variant="outline" size="sm" className="min-h-10" onClick={() => loadMailgunAudits(mailgunAuditsOffset)}>
+            <Button variant="outline" size="sm" className="min-h-10" onClick={() => loadMailgunAudits(mailSettingsEnvironment, mailgunAuditsOffset)}>
               Actualizar historial
             </Button>
           </div>
@@ -672,7 +714,7 @@ export default function SystemSettings() {
                     size="sm"
                     className="min-h-9"
                     disabled={mailgunAuditsOffset <= 0 || mailgunAuditsLoading}
-                    onClick={() => loadMailgunAudits(Math.max(0, mailgunAuditsOffset - mailgunAuditsLimit))}
+                    onClick={() => loadMailgunAudits(mailSettingsEnvironment, Math.max(0, mailgunAuditsOffset - mailgunAuditsLimit))}
                   >
                     Anterior
                   </Button>
@@ -681,7 +723,7 @@ export default function SystemSettings() {
                     size="sm"
                     className="min-h-9"
                     disabled={mailgunAuditsOffset + mailgunAudits.length >= mailgunAuditsTotal || mailgunAuditsLoading}
-                    onClick={() => loadMailgunAudits(mailgunAuditsOffset + mailgunAuditsLimit)}
+                    onClick={() => loadMailgunAudits(mailSettingsEnvironment, mailgunAuditsOffset + mailgunAuditsLimit)}
                   >
                     Siguiente
                   </Button>

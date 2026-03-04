@@ -1,5 +1,7 @@
 import { api } from './api'
 
+export type MailSettingsEnvironment = 'development' | 'production'
+
 export type BackupItem = {
   filename: string
   size_bytes: number
@@ -7,6 +9,7 @@ export type BackupItem = {
 }
 
 export type MailgunSettingsResponse = {
+  environment: MailSettingsEnvironment
   kampus_email_backend: 'console' | 'mailgun'
   default_from_email: string
   server_email: string
@@ -21,6 +24,7 @@ export type MailgunSettingsResponse = {
 }
 
 export type MailgunSettingsPayload = {
+  environment?: MailSettingsEnvironment
   kampus_email_backend: 'console' | 'mailgun'
   default_from_email: string
   server_email: string
@@ -33,6 +37,7 @@ export type MailgunSettingsPayload = {
 
 export type MailgunSettingsAuditItem = {
   id: number
+  environment: MailSettingsEnvironment
   created_at: string
   changed_fields: string[]
   rotated_api_key: boolean
@@ -87,21 +92,26 @@ export const systemApi = {
 
   },
 
-  getMailgunSettings: () => api.get<MailgunSettingsResponse>('/api/communications/settings/mailgun/'),
+  getMailgunSettings: (environment: MailSettingsEnvironment = 'development') =>
+    api.get<MailgunSettingsResponse>(`/api/communications/settings/mailgun/?environment=${environment}`),
 
-  updateMailgunSettings: (payload: MailgunSettingsPayload) =>
-    api.put<MailgunSettingsResponse>('/api/communications/settings/mailgun/', payload),
-
-  sendMailgunTestEmail: (testEmail: string) =>
-    api.post<{ detail: string; status: string; error?: string }>('/api/communications/settings/mailgun/test/', {
-      test_email: testEmail,
+  updateMailgunSettings: (payload: MailgunSettingsPayload, environment: MailSettingsEnvironment = 'development') =>
+    api.put<MailgunSettingsResponse>(`/api/communications/settings/mailgun/?environment=${environment}`, {
+      ...payload,
+      environment,
     }),
 
-  getMailgunSettingsAudits: (limit = 20, offset = 0) =>
-    api.get<MailgunSettingsAuditListResponse>(`/api/communications/settings/mailgun/audits/?limit=${limit}&offset=${offset}`),
+  sendMailgunTestEmail: (testEmail: string, environment: MailSettingsEnvironment = 'development') =>
+    api.post<{ detail: string; status: string; error?: string }>(`/api/communications/settings/mailgun/test/?environment=${environment}`, {
+      test_email: testEmail,
+      environment,
+    }),
 
-  exportMailgunSettingsAuditsCsv: () =>
-    api.get<Blob>('/api/communications/settings/mailgun/audits/export/', {
+  getMailgunSettingsAudits: (environment: MailSettingsEnvironment = 'development', limit = 20, offset = 0) =>
+    api.get<MailgunSettingsAuditListResponse>(`/api/communications/settings/mailgun/audits/?environment=${environment}&limit=${limit}&offset=${offset}`),
+
+  exportMailgunSettingsAuditsCsv: (environment: MailSettingsEnvironment = 'development') =>
+    api.get<Blob>(`/api/communications/settings/mailgun/audits/export/?environment=${environment}`, {
       responseType: 'blob',
     }),
 }

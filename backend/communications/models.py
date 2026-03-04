@@ -22,6 +22,14 @@ class EmailPreference(models.Model):
 
 
 class MailgunSettings(models.Model):
+	ENV_DEVELOPMENT = "development"
+	ENV_PRODUCTION = "production"
+
+	ENVIRONMENT_CHOICES = [
+		(ENV_DEVELOPMENT, "Development"),
+		(ENV_PRODUCTION, "Production"),
+	]
+
 	BACKEND_CONSOLE = "console"
 	BACKEND_MAILGUN = "mailgun"
 
@@ -30,6 +38,7 @@ class MailgunSettings(models.Model):
 		(BACKEND_MAILGUN, "Mailgun"),
 	]
 
+	environment = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default=ENV_DEVELOPMENT)
 	kampus_email_backend = models.CharField(max_length=20, choices=BACKEND_CHOICES, default=BACKEND_CONSOLE)
 	default_from_email = models.EmailField(default="no-reply@localhost")
 	server_email = models.EmailField(default="no-reply@localhost")
@@ -50,9 +59,12 @@ class MailgunSettings(models.Model):
 
 	class Meta:
 		ordering = ["-updated_at"]
+		constraints = [
+			models.UniqueConstraint(fields=["environment"], name="communications_unique_mailgun_settings_environment"),
+		]
 
 	def __str__(self) -> str:
-		return f"MailgunSettings backend={self.kampus_email_backend}"
+		return f"MailgunSettings env={self.environment} backend={self.kampus_email_backend}"
 
 
 class MailgunSettingsAudit(models.Model):

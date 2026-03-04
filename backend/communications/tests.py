@@ -327,6 +327,49 @@ class MailSettingsAdminTests(TestCase):
 		self.assertEqual(test_response.status_code, 200)
 		self.assertEqual(EmailDelivery.objects.filter(recipient_email="qa@example.com").count(), 1)
 
+	def test_mail_settings_are_isolated_by_environment(self):
+		dev_update = self.admin_client.put(
+			"/api/communications/settings/mailgun/?environment=development",
+			{
+				"kampus_email_backend": "console",
+				"default_from_email": "dev-no-reply@kampus.test",
+				"server_email": "dev-server@kampus.test",
+				"mailgun_api_key": "",
+				"mailgun_sender_domain": "",
+				"mailgun_api_url": "",
+				"mailgun_webhook_signing_key": "",
+				"mailgun_webhook_strict": False,
+			},
+			format="json",
+		)
+		self.assertEqual(dev_update.status_code, 200)
+
+		prod_update = self.admin_client.put(
+			"/api/communications/settings/mailgun/?environment=production",
+			{
+				"kampus_email_backend": "console",
+				"default_from_email": "prod-no-reply@kampus.test",
+				"server_email": "prod-server@kampus.test",
+				"mailgun_api_key": "",
+				"mailgun_sender_domain": "",
+				"mailgun_api_url": "",
+				"mailgun_webhook_signing_key": "",
+				"mailgun_webhook_strict": False,
+			},
+			format="json",
+		)
+		self.assertEqual(prod_update.status_code, 200)
+
+		dev_read = self.admin_client.get("/api/communications/settings/mailgun/?environment=development")
+		prod_read = self.admin_client.get("/api/communications/settings/mailgun/?environment=production")
+
+		self.assertEqual(dev_read.status_code, 200)
+		self.assertEqual(prod_read.status_code, 200)
+		self.assertEqual(dev_read.data["environment"], "development")
+		self.assertEqual(prod_read.data["environment"], "production")
+		self.assertEqual(dev_read.data["default_from_email"], "dev-no-reply@kampus.test")
+		self.assertEqual(prod_read.data["default_from_email"], "prod-no-reply@kampus.test")
+
 	def test_second_update_without_secret_values_keeps_flags_false(self):
 		self.admin_client.put(
 			"/api/communications/settings/mailgun/",

@@ -355,6 +355,7 @@ if MAILGUN_API_URL:
 
 MAILGUN_WEBHOOK_SIGNING_KEY = (os.getenv("MAILGUN_WEBHOOK_SIGNING_KEY") or "").strip()
 MAILGUN_WEBHOOK_STRICT = (os.getenv("MAILGUN_WEBHOOK_STRICT") or ("true" if IS_PRODUCTION else "false")).strip().lower() in {"1", "true", "yes"}
+KAMPUS_MAIL_SETTINGS_ENV = (os.getenv("KAMPUS_MAIL_SETTINGS_ENV") or ("production" if IS_PRODUCTION else "development")).strip().lower()
 
 KAMPUS_BACKEND_BASE_URL = (os.getenv("KAMPUS_BACKEND_BASE_URL") or "http://localhost:8000").strip().rstrip("/")
 MARKETING_DEFAULT_OPT_IN = (os.getenv("KAMPUS_MARKETING_DEFAULT_OPT_IN") or "false").strip().lower() in {"1", "true", "yes"}
