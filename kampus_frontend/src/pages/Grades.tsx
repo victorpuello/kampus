@@ -83,6 +83,7 @@ export default function Grades() {
   const [availableSheets, setAvailableSheets] = useState<GradebookAvailableSheet[]>([])
   const [loadingSheets, setLoadingSheets] = useState(false)
   const [sheetsPage, setSheetsPage] = useState(1)
+  const [downloadingGroupReport, setDownloadingGroupReport] = useState(false)
 
   const [adminSheets, setAdminSheets] = useState<GradeSheetListItem[]>([])
   const [adminSheetsCount, setAdminSheetsCount] = useState(0)
@@ -207,28 +208,34 @@ export default function Grades() {
   }
 
   const handleDownloadGroupReport = useCallback(async () => {
-    const groupId = gradebook?.teacher_assignment?.group ?? selectedGroupId
     const periodId = gradebook?.period?.id ?? selectedPeriodId
+    const teacherAssignmentId = gradebook?.teacher_assignment?.id ?? selectedTeacherAssignmentId
 
-    if (!groupId || !periodId) {
-      showToast('Selecciona grupo y periodo.', 'error')
+    if (!teacherAssignmentId || !periodId) {
+      showToast('Selecciona planilla y periodo.', 'error')
       return
     }
 
+    setDownloadingGroupReport(true)
     try {
-      const res = await academicApi.downloadAcademicPeriodReportByGroup(groupId, periodId)
+      showToast('Generando informe de planilla diligenciada...', 'info')
+
+      const res = await academicApi.downloadGradebookFilledReport(teacherAssignmentId, periodId)
       const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
       const headers = res.headers as Record<string, string | undefined>
       const filename =
         getFilenameFromContentDisposition(headers?.['content-disposition']) ||
-        `informe-academico-grupo-${groupId}-period-${periodId}.pdf`
+        `planilla-diligenciada-${teacherAssignmentId}-periodo-${periodId}.pdf`
 
       downloadBlob(blob, filename)
+      showToast('Informe de planilla diligenciada descargado.', 'success')
     } catch (e) {
       console.error(e)
-      showToast('Error al descargar el informe del grupo', 'error')
+      showToast('Error al descargar el informe de la planilla diligenciada', 'error')
+    } finally {
+      setDownloadingGroupReport(false)
     }
-  }, [gradebook?.period?.id, gradebook?.teacher_assignment?.group, selectedGroupId, selectedPeriodId, showToast])
+  }, [gradebook?.period?.id, gradebook?.teacher_assignment?.id, selectedPeriodId, selectedTeacherAssignmentId, showToast])
 
   const selectedPeriod = useMemo(() => {
     if (!selectedPeriodId) return null
@@ -2656,10 +2663,10 @@ export default function Grades() {
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadGroupReport}
-                  disabled={!gradebook}
-                  title="Descargar informe académico del grupo"
+                  disabled={!gradebook || downloadingGroupReport}
+                  title="Descargar informe de la planilla actual diligenciada"
                 >
-                  Descargar informe (grupo)
+                  {downloadingGroupReport ? 'Generando informe...' : 'Descargar informe planilla'}
                 </Button>
 
                 <div className="inline-flex rounded-md border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -3140,7 +3147,7 @@ export default function Grades() {
                                 ? cols.map((c, idx) => (
                                     <th
                                       key={c.id}
-                                      className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold normal-case ${tone.groupBg}`}
+                                      className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold normal-case ${tone.groupBg} w-[125px] min-w-[125px] max-w-[125px]`}
                                       title={c.label}
                                     >
                                       {editingActivityColumnId === c.id && !periodIsClosed ? (
@@ -3150,7 +3157,7 @@ export default function Grades() {
                                             onChange={(e) => setEditingActivityColumnLabel(e.target.value)}
                                             onKeyDown={handleActivityColumnLabelKeyDown}
                                             disabled={savingActivityColumnEdit}
-                                            className="h-8 w-40 px-2 text-sm"
+                                            className="h-8 min-w-0 flex-1 px-2 text-sm"
                                             autoFocus
                                             aria-label="Editar nombre de columna de actividad"
                                           />
@@ -3179,10 +3186,11 @@ export default function Grades() {
                                             type="button"
                                             onClick={() => startEditActivityColumn(c.id, c.label)}
                                             disabled={periodIsClosed}
-                                            className="text-left w-full hover:underline disabled:no-underline disabled:opacity-60"
+                                            className="text-left w-full min-w-0 hover:underline disabled:no-underline disabled:opacity-60"
+                                            title={c.label}
                                           >
                                             <span className="sm:hidden">{`A${idx + 1}`}</span>
-                                            <span className="hidden sm:inline">{c.label}</span>
+                                            <span className="hidden sm:block truncate">{c.label.length > 9 ? `${c.label.slice(0, 9)}...` : c.label}</span>
                                           </button>
                                           {!periodIsClosed && (
                                             <button

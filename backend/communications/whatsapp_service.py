@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+from http.client import HTTPSConnection
 from dataclasses import dataclass
 from typing import Optional
-from urllib import error, request
+from urllib import parse, request
 
 from django.conf import settings
 from django.apps import apps
@@ -144,9 +145,30 @@ def _perform_whatsapp_send(payload: dict) -> tuple[str, dict, str, str]:
         method="POST",
     )
 
+    parsed_endpoint = parse.urlparse(endpoint)
+    if parsed_endpoint.scheme.lower() != "https" or not parsed_endpoint.netloc:
+        return "", {}, "INVALID_ENDPOINT", "WhatsApp endpoint must use HTTPS."
+
+    path = parsed_endpoint.path or "/"
+    if parsed_endpoint.query:
+        path = f"{path}?{parsed_endpoint.query}"
+
     try:
-        with request.urlopen(req, timeout=int(effective.http_timeout_seconds or 12)) as response:
+        timeout_seconds = int(effective.http_timeout_seconds or 12)
+        conn = HTTPSConnection(parsed_endpoint.netloc, timeout=timeout_seconds)
+        try:
+            conn.request(
+                req.get_method(),
+                path,
+                body=encoded_payload,
+                headers=dict(req.header_items()),
+            )
+            response = conn.getresponse()
             raw_body = response.read().decode("utf-8")
+
+            if response.status >= 400:
+                return "", {}, str(response.status), raw_body[:4000]
+
             provider_data = json.loads(raw_body) if raw_body else {}
             provider_messages = provider_data.get("messages") if isinstance(provider_data, dict) else []
             provider_message_id = ""
@@ -155,13 +177,8 @@ def _perform_whatsapp_send(payload: dict) -> tuple[str, dict, str, str]:
                 if isinstance(first, dict):
                     provider_message_id = str(first.get("id") or "")
             return provider_message_id, provider_data if isinstance(provider_data, dict) else {"raw": raw_body}, "", ""
-    except error.HTTPError as exc:
-        response_body = ""
-        try:
-            response_body = exc.read().decode("utf-8")
-        except Exception:
-            response_body = str(exc)
-        return "", {}, str(exc.code), response_body[:4000]
+        finally:
+            conn.close()
     except Exception as exc:  # pragma: no cover - defensive guard
         return "", {}, "UNEXPECTED_ERROR", str(exc)
 

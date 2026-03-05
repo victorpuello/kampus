@@ -1,411 +1,368 @@
 # Estado actual de notificaciones en Kampus (contexto para integracion WhatsApp Meta)
 
-## 1. Resumen breve del proyecto
+Actualizado: 2026-03-05
 
-Kampus es una plataforma educativa tipo monolito modular (Django REST + React) que centraliza procesos academicos y administrativos: estudiantes, docentes, asistencia, observador/convivencia, novedades, comisiones, reportes y comunicaciones.
+## 1. Que es Kampus (contexto rapido para nuevo integrante)
 
-- Backend: `backend/` (Django + DRF + Celery + Redis + Postgres/SQLite)
-- Frontend: `kampus_frontend/` (React + TypeScript + Vite)
-- API base: bajo `/api/` en `backend/kampus_backend/urls.py`
+Kampus es un monorepo educativo con backend en Django REST y frontend en React + TypeScript.
 
-En materia de comunicaciones, hoy Kampus maneja 3 canales principales:
+- Backend: `backend/`
+- Frontend: `kampus_frontend/`
+- API principal: `backend/kampus_backend/urls.py`
+- Persistencia: Postgres en docker, con fallback a SQLite en local si no hay `POSTGRES_DB`
+- Jobs async: Celery + Redis
+- Ejecucion periodica: Celery Beat y tambien loops en `backend_scheduler`
 
-- Notificacion interna (in-app): tabla `notifications_notification`
-- Correo saliente: stack `communications` con Mailgun/console + trazabilidad de entrega
-- WhatsApp (Meta Cloud API): ya existe implementacion base operativa para envio y recepcion de estados
+En terminos de comunicaciones, hoy existen 3 capas conectadas:
 
-Este documento describe el estado real actual para que una persona nueva pueda entrar a desarrollar/ajustar la integracion de notificaciones con Meta (WhatsApp) con contexto tecnico completo.
+1. Notificacion interna (in-app) en app `notifications`.
+2. Correo saliente (Mailgun/console) en app `communications`.
+3. Canal WhatsApp (Meta Cloud API) tambien en `communications`, ya operativo con envio y webhook.
 
-## 2. Arquitectura funcional de notificaciones
+Este documento describe como se mueve una notificacion hoy y cual es el estado real para continuar la integracion con Meta/WhatsApp sin perder contexto.
 
-### 2.1 Capas principales
+## 2. Vista general de arquitectura de notificaciones
 
-- Capa de dominio (modulos de negocio): `academic`, `discipline`, `novelties`, `teachers`, `students`, `attendance`, etc.
-- Capa de notificaciones in-app: app `notifications`
-- Capa de comunicaciones externas (email/whatsapp): app `communications`
-- Capa de orquestacion operativa: Celery tasks + management commands + scheduler + consola de operaciones (`reports`)
+### 2.1 Piezas principales
 
-### 2.2 Flujo conceptual actual
+- Modelo in-app: `backend/notifications/models.py` (`Notification`).
+- Servicio de orquestacion: `backend/notifications/services.py`.
+- Outbox por canal: `NotificationDispatch` en `backend/notifications/models.py`.
+- Procesador de outbox: `backend/notifications/dispatch.py` + command `process_notification_dispatches`.
+- Envio correo: `backend/communications/email_service.py` y `template_service.py`.
+- Envio WhatsApp: `backend/communications/whatsapp_service.py`.
+- Webhooks: `MailgunWebhookView` y `WhatsAppMetaWebhookView` en `backend/communications/views.py`.
+- API in-app para frontend: `backend/notifications/views.py`.
 
-1. Un evento de negocio llama `create_notification(...)` o `notify_users(...)`.
-2. Se crea el registro in-app (`Notification`).
-3. En el mismo flujo se intenta enviar correo (si esta habilitado).
-4. Si WhatsApp global esta habilitado, se encola tarea Celery para envio por WhatsApp.
-5. Webhooks de Mailgun/Meta actualizan estado de entregas y supresiones.
+### 2.2 Flujo funcional actual (end-to-end)
 
-## 3. Notificaciones internas (in-app)
+1. Un modulo de negocio llama `create_notification(...)` o `notify_users(...)`.
+2. Se crea registro in-app en `Notification`.
+3. Se hace upsert de `NotificationType` si llega `type`.
+4. Se crea `NotificationDispatch` para email (si canal aplica).
+5. Se crea `NotificationDispatch` para WhatsApp (si canal aplica).
+6. Si `KAMPUS_NOTIFICATIONS_OUTBOX_ONLY=false`:
+   - email se intenta enviar en el mismo flujo con `_send_notification_email(...)`;
+   - WhatsApp se encola con Celery (`send_notification_whatsapp_task`) en `transaction.on_commit(...)`.
+7. Si `KAMPUS_NOTIFICATIONS_OUTBOX_ONLY=true`, ambos canales quedan diferidos al outbox.
+8. El command/tarea `process_notification_dispatches` consume pendientes/fallidos y aplica retries con backoff.
+9. Webhooks (Mailgun/Meta) actualizan estados de deliveries y supresiones.
 
-### 3.1 Modelo y estado de lectura
+## 3. Notificacion interna (in-app)
 
-Archivo clave: `backend/notifications/models.py`
+### 3.1 Modelo
+
+Archivo: `backend/notifications/models.py`
 
 `Notification` guarda:
 
-- `recipient` (usuario destino)
-- `type`, `title`, `body`, `url`
-- `dedupe_key` (evita spam por eventos repetidos)
-- `created_at`, `read_at`
+- `recipient`
+- `dedupe_key`
+- `type`
+- `title`
+- `body`
+- `url`
+- `created_at`
+- `read_at`
 
-Estado:
+Estado de lectura:
 
-- No leida: `read_at = null`
-- Leida: `read_at != null`
+- No leida: `read_at is null`
+- Leida: `read_at is not null`
 
-Indices relevantes:
+Indices importantes:
 
-- `(recipient, read_at, created_at)` para bandeja y conteo
-- `(recipient, dedupe_key, created_at)` para deduplicacion reciente
+- `(recipient, read_at, created_at)` para bandeja/conteo.
+- `(recipient, dedupe_key, created_at)` para dedupe.
 
-### 3.2 Servicio central de creacion
+### 3.2 API in-app
 
-Archivo clave: `backend/notifications/services.py`
+Archivos:
 
-Funciones:
+- `backend/notifications/urls.py`
+- `backend/notifications/views.py`
+- `backend/notifications/serializers.py`
 
-- `create_notification(...)`
-- `notify_users(...)`
-- `mark_all_read_for_user(...)`
-- `admin_like_users_qs()`
-
-Reglas importantes:
-
-- Deduplicacion temporal por `dedupe_key + dedupe_within_seconds`
-- `notify_users` filtra usuarios que ya recibieron la misma clave en la ventana
-- `create_notification` crea 1 registro y dispara canales externos
-
-### 3.3 API de consumo in-app
-
-Backend:
+Endpoints:
 
 - `GET /api/notifications/`
 - `GET /api/notifications/unread-count/`
 - `POST /api/notifications/{id}/mark-read/`
 - `POST /api/notifications/mark-all-read/`
 
+### 3.3 Consumo frontend
+
 Archivos:
 
-- `backend/notifications/views.py`
-- `backend/notifications/urls.py`
+- `kampus_frontend/src/services/notifications.ts`
+- `kampus_frontend/src/pages/Notifications.tsx`
+- `kampus_frontend/src/layouts/DashboardLayout.tsx`
 
-Frontend:
+Comportamiento actual UI:
 
-- Servicio API: `kampus_frontend/src/services/notifications.ts`
-- Pantalla de bandeja: `kampus_frontend/src/pages/Notifications.tsx`
-- Badge y preview en layout: `kampus_frontend/src/layouts/DashboardLayout.tsx`
+- Poll de no leidas cada 30s en `DashboardLayout`.
+- Evento local `kampus:notifications-updated` para sincronizar badge/vistas.
+- Bandeja dedicada en `/notifications` con filtro, busqueda, detalle, mark-read y mark-all-read.
 
 ## 4. Correo saliente (estado actual)
 
-## 4.1 Configuracion efectiva
+### 4.1 Modelo de datos de email
+
+Archivo: `backend/communications/models.py`
+
+Tablas clave:
+
+- `EmailDelivery`: trazabilidad de cada intento (`PENDING`, `SENT`, `FAILED`, `SUPPRESSED`).
+- `EmailSuppression`: supresion por hard bounce, complaint, unsubscribed, etc.
+- `EmailEvent`: eventos webhook deduplicados por `provider_event_id`.
+- `EmailTemplate`: plantillas editables.
+- `EmailPreference` y `EmailPreferenceAudit`: opt-in marketing.
+- `MailgunSettings` y `MailgunSettingsAudit`: configuracion por entorno y trazabilidad de cambios.
+
+### 4.2 Configuracion efectiva (env + DB)
 
 Archivos:
 
 - `backend/kampus_backend/settings.py`
 - `backend/communications/runtime_settings.py`
 
-Fuentes de configuracion:
+Regla actual:
 
-- Variables de entorno
-- Override persistido por entorno (`development` / `production`) en `MailgunSettings`
+- Se parte de variables de entorno.
+- Si existe `MailgunSettings` para el entorno efectivo (`development` o `production`), esa configuracion prevalece.
+- `apply_effective_mail_settings(...)` actualiza `settings` en runtime.
 
-`apply_effective_mail_settings(...)` aplica en runtime:
+Variables relevantes (ejemplos):
 
-- `EMAIL_BACKEND` (`console` o `anymail.backends.mailgun.EmailBackend`)
-- `DEFAULT_FROM_EMAIL`, `SERVER_EMAIL`
-- `ANYMAIL` y claves Mailgun
+- `KAMPUS_EMAIL_BACKEND`
+- `DEFAULT_FROM_EMAIL`
+- `MAILGUN_API_KEY`
+- `MAILGUN_SENDER_DOMAIN`
+- `MAILGUN_WEBHOOK_SIGNING_KEY`
 
-### 4.2 Motor de envio y trazabilidad
+### 4.3 Envio de correo
 
-Archivo clave: `backend/communications/email_service.py`
+Archivo: `backend/communications/email_service.py`
 
 `send_email(...)` implementa:
 
-- Idempotencia por `recipient_email + idempotency_key`
-- Registro de entrega en `EmailDelivery` (PENDING/SENT/FAILED/SUPPRESSED)
-- Bloqueo por supresiones (`EmailSuppression`)
-- Regla marketing: requiere `marketing_opt_in=true`
-- Incluson automatica de disclaimer legal
-- Encabezados `List-Unsubscribe` para marketing
+- Idempotencia por `(recipient_email, idempotency_key)`.
+- Registro persistente en `EmailDelivery`.
+- Supresion por tabla `EmailSuppression`.
+- Bloqueo marketing si `marketing_opt_in=false`.
+- Disclaimer legal agregado automatico (texto/html).
+- `List-Unsubscribe` para categorias marketing.
 
-Modelo de datos correo (en `backend/communications/models.py`):
+### 4.4 Plantillas de correo
 
-- `EmailPreference`, `EmailPreferenceAudit`
-- `EmailTemplate`
-- `EmailDelivery`
-- `EmailSuppression`
-- `EmailEvent` (eventos webhook)
-- `MailgunSettings`, `MailgunSettingsAudit`
+Archivo: `backend/communications/template_service.py`
 
-### 4.3 Plantillas de correo
+- Catalogo base incluye `in-app-notification-generic`, `novelty-sla-*`, `password-reset`, etc.
+- Para notificaciones in-app se usa `send_templated_email(...)` y, si falla, fallback a `send_email(...)` plano.
 
-Archivo clave: `backend/communications/template_service.py`
+Mapeo de plantillas por tipo (hoy):
 
-Existe catalogo base de plantillas, por ejemplo:
+- `NOVELTY_SLA_TEACHER` -> `novelty-sla-teacher`
+- `NOVELTY_SLA_ADMIN` -> `novelty-sla-admin`
+- `NOVELTY_SLA_COORDINATOR` -> `novelty-sla-coordinator`
+- Otros -> `in-app-notification-generic`
 
-- `password-reset`
-- `mail-settings-test`
-- `in-app-notification-generic`
-- `novelty-sla-teacher`
-- `novelty-sla-admin`
-- `novelty-sla-coordinator`
+### 4.5 Relacion Notification -> email
 
-`send_templated_email(...)` renderiza template + contexto + branding institucional y termina en `send_email(...)`.
+Archivo: `backend/notifications/services.py`
 
-### 4.4 Relacion in-app -> email
+- Se crea `NotificationDispatch` canal `EMAIL`.
+- Adicionalmente, si `KAMPUS_NOTIFICATIONS_OUTBOX_ONLY=false`, se envia en caliente via `_send_notification_email(...)`.
+- El idempotency key de email se deriva de `dedupe_key` o `notification_id` (hash sha256 recortado).
 
-En `create_notification(...)` se llama `_send_notification_email(...)`.
+### 4.6 Webhook Mailgun
 
-Comportamiento:
+Archivos:
 
-- Respeta `NOTIFICATIONS_EMAIL_ENABLED`
-- Si hay correo del usuario: intenta template por tipo
-- Si falla template: fallback a `send_email(...)` con cuerpo plano
-
-Nota importante de arquitectura:
-
-- El envio de correo se ejecuta sincronamente dentro del flujo que crea la notificacion (no va por Celery hoy).
-
-### 4.5 Webhook de Mailgun
+- `backend/communications/urls.py`
+- `backend/communications/views.py`
 
 Endpoint:
 
 - `POST /api/communications/webhooks/mailgun/`
 
-Archivo: `backend/communications/views.py` (`MailgunWebhookView`)
-
 Proceso:
 
-- Valida firma (`mailgun_webhook_signing_key`, modo estricto configurable)
-- Deduplica eventos por `provider_event_id`
-- Registra `EmailEvent`
-- Actualiza `EmailDelivery` (delivered/failed/complained/unsubscribed)
-- Actualiza supresiones (`EmailSuppression`)
+1. Validacion de firma Mailgun (`MAILGUN_WEBHOOK_SIGNING_KEY`, strict configurable).
+2. Dedupe de eventos por `provider_event_id`.
+3. Persistencia de `EmailEvent`.
+4. Actualizacion de `EmailDelivery`.
+5. Gestion de supresiones (`EmailSuppression`) para `failed`, `complained`, `unsubscribed`.
 
 ## 5. WhatsApp actual (Meta Cloud API)
 
-Aunque el objetivo de este documento es enfatizar internas + correo, para integracion Meta es clave conocer lo que ya existe.
+### 5.1 Estado de madurez actual
 
-### 5.1 Configuracion y modelos
+El canal no esta solo en plan: ya existe implementacion funcional de envio, trazabilidad, supresion y webhook. La integracion pendiente normalmente sera endurecer reglas de negocio, plantillas y operacion, no partir desde cero.
 
-Modelos en `backend/communications/models.py`:
+### 5.2 Modelo de datos WhatsApp
 
-- `WhatsAppSettings`
-- `WhatsAppContact` (telefono por usuario)
-- `WhatsAppTemplateMap` (notification_type -> template Meta)
-- `WhatsAppDelivery`
-- `WhatsAppEvent`
-- `WhatsAppSuppression`
-- `WhatsAppInstitutionMetric`
+Archivo: `backend/communications/models.py`
 
-Settings runtime:
+Tablas clave:
 
-- `KAMPUS_WHATSAPP_*` en `backend/kampus_backend/settings.py`
-- Resolucion efectiva en `backend/communications/runtime_settings.py`
+- `WhatsAppSettings`: config por entorno.
+- `WhatsAppContact`: telefono por usuario (OneToOne).
+- `WhatsAppTemplateMap`: mapeo `notification_type -> template_name`.
+- `WhatsAppDelivery`: tracking (`PENDING`, `SENT`, `DELIVERED`, `READ`, `FAILED`, `SUPPRESSED`, `SKIPPED`).
+- `WhatsAppSuppression`: numeros bloqueados/suprimidos.
+- `WhatsAppEvent`: eventos webhook deduplicados.
+- `WhatsAppInstitutionMetric`: metricas por institucion y ventana temporal.
 
-### 5.2 Envio
-
-Archivo clave: `backend/communications/whatsapp_service.py`
-
-Rutas de envio:
-
-- `send_whatsapp(...)` (texto)
-- `send_whatsapp_template(...)` (template Meta)
-- `send_whatsapp_notification(...)` (decision por `send_mode` + mapeo)
-
-Reglas:
-
-- Requiere canal habilitado (`enabled=true`)
-- Idempotencia por `recipient_phone + idempotency_key`
-- Soporta supresiones
-- Registra `WhatsAppDelivery` con estados
-
-### 5.3 Relacion in-app -> WhatsApp
-
-En `backend/notifications/services.py`:
-
-- Si `KAMPUS_WHATSAPP_ENABLED=true`, se programa `send_notification_whatsapp_task` en `transaction.on_commit(...)`
-
-Tarea:
-
-- `notifications.send_notification_whatsapp` en `backend/notifications/tasks.py`
-- Busca `WhatsAppContact` activo
-- Resuelve institucion para metricas
-- Llama `send_whatsapp_notification(...)`
-
-### 5.4 Webhook Meta
-
-Endpoint actual:
-
-- `GET/POST /api/communications/webhooks/whatsapp/meta/`
-
-Archivo: `backend/communications/views.py` (`WhatsAppMetaWebhookView`)
-
-GET:
-
-- Verificacion de webhook con `hub.verify_token` y `hub.challenge`
-
-POST:
-
-- Valida firma HMAC `X-Hub-Signature-256` con `app_secret`
-- Usa `request._request.body` para evitar errores de raw body ya parseado
-- Extrae estados (`sent`, `delivered`, `read`, `failed`)
-- Registra `WhatsAppEvent`
-- Actualiza `WhatsAppDelivery`
-- Crea/actualiza `WhatsAppSuppression` segun codigos de error
-
-## 6. Jobs, scheduler y ejecucion periodica
-
-Kampus hoy usa 2 mecanismos de ejecucion periodica en paralelo:
-
-- Celery Beat (`backend_beat`)
-- Scheduler tipo bucle en contenedor `backend_scheduler` (while true + management commands)
-
-Esto da flexibilidad, pero obliga a tener claridad para no duplicar responsabilidades.
-
-### 6.1 Jobs periodicos en Celery Beat
-
-Configurados en `backend/kampus_backend/settings.py` via `CELERY_BEAT_SCHEDULE`:
-
-- `novelties.notify_novelties_sla`
-- `notifications.check_notifications_health`
-- `notifications.check_whatsapp_health` (si `KAMPUS_WHATSAPP_HEALTH_BEAT_ENABLED=true`)
-- `teachers.notify_pending_planning_teachers`
-
-### 6.2 Jobs en backend_scheduler (loops)
-
-Definidos en `docker-compose.yml` servicio `backend_scheduler`:
-
-- `notify_descargos_deadlines`
-- `close_expired_attendance_sessions`
-- `cleanup_report_jobs`
-- `sync_election_census`
-- `notify_novelties_sla`
-- `check_notifications_health --no-fail-on-breach`
-
-Observacion operativa:
-
-- Si se habilitan simultaneamente loops y beat para la misma responsabilidad, se puede incrementar riesgo de ejecucion duplicada (mitigada parcialmente por dedupe/idempotencia, pero no ideal).
-
-### 6.3 Commands de salud y alerta
-
-`check_notifications_health` (`backend/notifications/management/commands/check_notifications_health.py`):
-
-- Ventana configurable (`--hours`)
-- Evalua `EmailDelivery`: sent/failed/suppressed
-- Breach por umbrales (`max_failed`, `max_suppressed`, `min_success_rate`)
-- Puede notificar admins con `notify_users(...)`
-- Puede fallar comando segun bandera (`fail-on-breach`)
-
-`check_whatsapp_health` (`backend/communications/management/commands/check_whatsapp_health.py`):
-
-- Evalua `WhatsAppDelivery`: sent/delivered/read/failed/suppressed
-- Calcula `success_rate`
-- Persiste metricas por institucion en `WhatsAppInstitutionMetric`
-- Puede notificar admins in-app
-
-### 6.4 Trazabilidad de ejecuciones periodicas
-
-Modelo `PeriodicJobRun` (`backend/reports/models.py`):
-
-- Estados: `PENDING/RUNNING/SUCCEEDED/FAILED`
-- Guarda salida (`output_text`) y error
-
-Modelo `PeriodicJobRuntimeConfig`:
-
-- `enabled_override`
-- `params_override`
-- `schedule_override`
-
-Las tasks wrapper (`novelties/tasks.py`, `teachers/tasks.py`, `notifications/tasks.py`) actualizan `PeriodicJobRun` al ejecutar comandos.
-
-## 7. Casos de negocio que hoy disparan notificaciones
-
-No es una lista exhaustiva de todo el repo, pero si de los flujos mas relevantes identificados en codigo.
-
-### 7.1 Planeacion docente
-
-Archivo: `backend/teachers/management/commands/notify_pending_planning_teachers.py`
-
-- Detecta docentes con planeacion faltante o incompleta
-- Crea notificaciones tipo:
-  - `PLANNING_REMINDER_MISSING`
-  - `PLANNING_REMINDER_INCOMPLETE`
-
-### 7.2 SLA de novedades
-
-Archivo: `backend/novelties/management/commands/notify_novelties_sla.py`
-
-- Notifica docentes por casos IN_REVIEW vencidos
-- Escala a admins/coordinadores
-- Tipos:
-  - `NOVELTY_SLA_TEACHER`
-  - `NOVELTY_SLA_ADMIN`
-  - `NOVELTY_SLA_COORDINATOR`
-
-### 7.3 Disciplina / observador
+### 5.3 Configuracion efectiva de WhatsApp
 
 Archivos:
 
-- `backend/discipline/views.py`
-- `backend/discipline/management/commands/notify_descargos_deadlines.py`
+- `backend/kampus_backend/settings.py`
+- `backend/communications/runtime_settings.py`
 
-Incluye:
+Variables relevantes:
 
-- Notificacion al crear caso disciplinario
-- Notificacion a acudientes cuando aplica
-- Alertas por plazos de descargos por vencer/vencidos
+- `KAMPUS_WHATSAPP_ENABLED`
+- `KAMPUS_WHATSAPP_PHONE_NUMBER_ID`
+- `KAMPUS_WHATSAPP_ACCESS_TOKEN`
+- `KAMPUS_WHATSAPP_APP_SECRET`
+- `KAMPUS_WHATSAPP_WEBHOOK_VERIFY_TOKEN`
+- `KAMPUS_WHATSAPP_SEND_MODE` (`template` o `text`)
+- `KAMPUS_WHATSAPP_TEMPLATE_FALLBACK_NAME`
+- `KAMPUS_WHATSAPP_ALLOW_TEXT_WITHOUT_TEMPLATE`
+- limites throttle por telefono e institucion
 
-### 7.4 Solicitudes de edicion academica
+### 5.4 Envio WhatsApp
 
-Archivo: `backend/academic/views.py`
+Archivo: `backend/communications/whatsapp_service.py`
 
-- Al crear solicitud: notifica admins (`EDIT_REQUEST_PENDING`)
-- Al aprobar/rechazar: notifica docente (`EDIT_REQUEST_APPROVED` / `EDIT_REQUEST_REJECTED`)
+Funciones:
 
-### 7.5 Observador automatico por bajo desempeño
+- `send_whatsapp(...)`: mensaje texto.
+- `send_whatsapp_template(...)`: plantilla Meta.
+- `send_whatsapp_notification(...)`: wrapper para notificaciones.
 
-Archivo: `backend/students/services/observer_annotations.py`
+Logica de `send_whatsapp_notification(...)`:
 
-- Cuando hay mas de 3 asignaturas en bajo desempeño, crea alerta al director de grupo (`OBSERVADOR_ALERT`)
+1. Lee configuracion efectiva (`enabled`, `send_mode`, fallback template).
+2. Busca `WhatsAppTemplateMap` por `notification_type`.
+3. Si modo template y hay template: envia template con parametros.
+4. Si falta template:
+   - si tipo requiere plantilla o `ALLOW_TEXT_WITHOUT_TEMPLATE=false`, crea `SKIPPED` con `NO_TEMPLATE`.
+   - si esta permitido, hace fallback a texto.
+5. Aplica idempotencia por `(recipient_phone, idempotency_key)`.
+6. Aplica throttle por minuto (telefono/institucion) via cache.
+7. Registra `WhatsAppDelivery` y metadata de proveedor.
 
-### 7.6 Asistencia
+### 5.5 Relacion Notification -> WhatsApp
 
-Archivo: `backend/attendance/views.py`
+Archivos:
 
-- Solicitud de eliminacion de planilla por docente notifica a perfiles administrativos (`ATTENDANCE_DELETE_REQUEST`)
+- `backend/notifications/services.py`
+- `backend/notifications/tasks.py`
 
-### 7.7 Comisiones academicas
+Flujo:
 
-Archivo: `backend/academic/commission_views.py`
+- En `create_notification(...)` se crea `NotificationDispatch` canal `WHATSAPP` si canal habilitado por config global y por `NotificationType`.
+- Si no es outbox-only, se encola `send_notification_whatsapp_task`.
+- La task valida contacto activo en `WhatsAppContact`, construye fallback text y llama `send_whatsapp_notification(...)`.
 
-- Generacion de acta de compromiso puede notificar director de grupo (`COMMISSION_ACTA`)
+### 5.6 Webhook Meta
 
-### 7.8 Verificacion publica de certificados
+Archivos:
 
-Archivo: `backend/students/views.py`
+- `backend/communications/urls.py`
+- `backend/communications/views.py`
 
-- Accesos a verificacion publica disparan aviso a usuarios admin-like (`CERTIFICATE_VERIFY`)
+Endpoint:
 
-## 8. Endpoints de administracion y observabilidad utiles para onboarding
+- `GET /api/communications/webhooks/whatsapp/meta/` (verificacion)
+- `POST /api/communications/webhooks/whatsapp/meta/` (eventos)
 
-## 8.1 Comunicaciones
+Proceso POST:
 
-- `GET/PUT /api/communications/settings/mailgun/`
-- `POST /api/communications/settings/mailgun/test/`
-- `GET /api/communications/settings/mailgun/audits/`
-- `GET /api/communications/settings/mailgun/audits/export/`
+1. Validacion HMAC `X-Hub-Signature-256` con `app_secret`.
+2. Extraccion de `statuses` (`sent`, `delivered`, `read`, `failed`).
+3. Dedupe por `provider_event_id` en `WhatsAppEvent`.
+4. Actualizacion de estado en `WhatsAppDelivery`.
+5. Clasificacion de errores y supresion permanente en `WhatsAppSuppression` para ciertos codigos.
 
-- `GET/PUT /api/communications/settings/whatsapp/`
-- `GET/PUT /api/communications/settings/whatsapp/templates/`
-- `PUT/DELETE /api/communications/settings/whatsapp/templates/{map_id}/`
-- `GET /api/communications/settings/whatsapp/health/`
-- `GET/PUT/DELETE /api/communications/whatsapp/me/`
+## 6. Outbox y retries (pieza critica para integracion)
 
-- `POST /api/communications/webhooks/mailgun/`
-- `GET/POST /api/communications/webhooks/whatsapp/meta/`
+### 6.1 NotificationDispatch
 
-## 8.2 Operaciones de jobs
+Archivo: `backend/notifications/models.py`
 
-En `reports`:
+Campos operativos:
+
+- `channel` (`EMAIL`, `WHATSAPP`)
+- `status` (`PENDING`, `IN_PROGRESS`, `SUCCEEDED`, `FAILED`, `DEAD_LETTER`)
+- `attempts`
+- `next_retry_at`
+- `idempotency_key`
+- `payload`, `error_message`, `processed_at`
+
+Garantias:
+
+- Unique parcial por `(channel, idempotency_key)` cuando key no vacia.
+- Idempotencia de outbox sin romper flujo de negocio (captura `IntegrityError`).
+
+### 6.2 Procesador del outbox
+
+Archivos:
+
+- `backend/notifications/management/commands/process_notification_dispatches.py`
+- `backend/notifications/dispatch.py`
+
+Comportamiento:
+
+- Toma lote de `PENDING` y `FAILED` listos para reintento (`next_retry_at <= now`).
+- Hace claim optimista de filas (`status -> IN_PROGRESS`) para evitar doble proceso.
+- Ejecuta canal email o whatsapp.
+- Exito: `SUCCEEDED` + `processed_at`.
+- Error: `FAILED` con backoff exponencial (tope 1h); cuando supera max retries pasa a `DEAD_LETTER`.
+
+## 7. Jobs periodicos y scheduler (estado real)
+
+### 7.1 Celery Beat
+
+Archivo: `backend/kampus_backend/settings.py`
+
+Jobs de notificaciones/comunicaciones disponibles por toggles env:
+
+- `notifications.check_notifications_health`
+- `notifications.check_whatsapp_health`
+- `notifications.process_dispatch_outbox`
+- `notifications.check_dispatch_outbox_health`
+
+Todos se activan con flags `*_BEAT_ENABLED`.
+
+### 7.2 backend_scheduler por loops
+
+Archivo: `docker-compose.yml` (servicio `backend_scheduler`)
+
+Tambien ejecuta loops de comandos, incluyendo:
+
+- `check_notifications_health --no-fail-on-breach`
+- `process_notification_dispatches` (si loop enabled)
+
+Implicacion operativa:
+
+- Existen dos mecanismos (Beat y loops). Si se habilitan ambos para el mismo job, hay riesgo de duplicidad de ejecucion.
+- Hay locks por cache en varias tasks wrapper para mitigar overlap, pero la recomendacion es definir una sola via por ambiente.
+
+### 7.3 Comandos de salud
+
+- `check_notifications_health` (`backend/notifications/management/commands/check_notifications_health.py`): analiza `EmailDelivery` en ventana, aplica umbrales y puede crear alerta in-app a admins.
+- `check_whatsapp_health` (`backend/communications/management/commands/check_whatsapp_health.py`): analiza `WhatsAppDelivery`, calcula success rate, guarda metricas por institucion y puede alertar admins.
+- `check_dispatch_outbox_health` (`backend/notifications/management/commands/check_dispatch_outbox_health.py`): monitorea acumulacion `PENDING/FAILED/DEAD_LETTER` y edad de pendientes.
+
+## 8. Consola operativa para jobs y observabilidad
+
+Archivo: `backend/reports/views.py`
+
+Endpoints de operaciones relevantes:
 
 - `GET /api/reports/operations/jobs/overview/`
 - `POST /api/reports/operations/jobs/run-now/`
@@ -414,70 +371,80 @@ En `reports`:
 - `POST /api/reports/operations/jobs/params/`
 - `POST /api/reports/operations/jobs/schedule/`
 
-Nota:
+`run-now` soporta hoy estos `job_key`:
 
-- En consola de operaciones actualmente se exponen 3 job keys (`notify-novelties-sla`, `check-notifications-health`, `notify-pending-planning-teachers`).
-- `check-whatsapp-health` si existe como task/command, pero no aparece en ese snapshot de jobs de operaciones hoy.
+- `notify-novelties-sla`
+- `check-notifications-health`
+- `check-whatsapp-health`
+- `process-notification-dispatch-outbox`
+- `check-dispatch-outbox-health`
+- `notify-pending-planning-teachers`
 
-## 9. Mecanismos de control anti-duplicado
+Tambien hay endpoint de salud WhatsApp:
 
-Hay dos estrategias complementarias:
+- `GET /api/communications/settings/whatsapp/health/`
 
-- Deduplicacion funcional (notificaciones): `dedupe_key + dedupe_within_seconds`
-- Idempotencia de canal:
-  - Email: `notif-email:{user}:{hash}`
-  - WhatsApp: `notif-wa:{user}:{hash}`
+Y baseline de notificaciones:
 
-El hash base se deriva de `dedupe_key` o del `notification_id` si no hay dedupe key.
+- `GET /api/communications/settings/notifications/baseline/`
 
-## 10. Estado actual y recomendaciones para quien entra a integrar Meta
+## 9. Donde se generan notificaciones de negocio (ejemplos importantes)
 
-### 10.1 Lo que ya esta resuelto
+Buscando usos de `create_notification(...)` y `notify_users(...)` se ven, entre otros:
 
-- Canal in-app estable y ampliamente usado por dominios
-- Puente in-app -> email implementado con templates y trazabilidad
-- Puente in-app -> WhatsApp implementado con task asincrona
-- Webhook Meta implementado con verificacion y actualizacion de estados
-- Mapeo `notification_type -> template Meta` disponible por API/admin
-- Endpoint de salud WhatsApp disponible
+- `backend/novelties/management/commands/notify_novelties_sla.py`
+- `backend/teachers/management/commands/notify_pending_planning_teachers.py`
+- `backend/attendance/views.py`
+- `backend/academic/views.py`
+- `backend/academic/commission_views.py`
+- `backend/students/services/observer_annotations.py`
+- `backend/students/views.py`
 
-### 10.2 Puntos a vigilar al iniciar desarrollo
+Esto confirma que el sistema de notificaciones ya esta transversal a varios modulos de negocio.
 
-- Correo se envia de forma sincronica en `create_notification` (impacto en latencia de requests mas sensibles)
-- Coexisten Beat y scheduler por loops: revisar estrategia por entorno para evitar duplicidad operativa
-- Alinear `notification_type` usados por negocio con `WhatsAppTemplateMap` para maximo coverage
-- Confirmar politicas de supresion/errores Meta para codigos nuevos
-- Incluir `check-whatsapp-health` dentro de la consola de operaciones si se requiere control unificado
+## 10. Riesgos tecnicos y puntos finos a cuidar en la integracion Meta
 
-### 10.3 Checklist tecnico inicial recomendado
+1. Doble via de ejecucion periodica (Beat + loops).
+   - Definir una estrategia por ambiente para evitar ruido operativo.
 
-1. Validar settings efectivos por entorno (`/settings/whatsapp` y `/settings/mailgun`).
-2. Verificar que usuarios de prueba tengan `WhatsAppContact` activo.
-3. Confirmar mapeos activos en `/settings/whatsapp/templates/` para tipos de notificacion de mayor trafico.
-4. Disparar un flujo real de negocio que cree `Notification` y validar cascada:
-   - `Notification` creada
-   - `EmailDelivery` generado
-   - `WhatsAppDelivery` generado
-5. Confirmar callback Meta en `/webhooks/whatsapp/meta/` y transicion a `DELIVERED/READ`.
-6. Revisar `GET /api/communications/settings/whatsapp/health/?hours=24`.
+2. Mezcla de envio inmediato y outbox.
+   - Hoy puede haber envio en caliente y tambien registro outbox del mismo evento; esto mejora resiliencia, pero hay que vigilar consistencia de politicas para evitar confusiones operativas.
 
-## 11. Mapa rapido de archivos clave
+3. Plantillas WhatsApp por tipo.
+   - Si `send_mode=template` y no hay mapeo/fallback, se generan `SKIPPED:NO_TEMPLATE`.
+   - La calidad de la integracion depende de completar `WhatsAppTemplateMap` para tipos reales.
 
-- Nucleo notificaciones: `backend/notifications/services.py`
-- Modelo in-app: `backend/notifications/models.py`
-- API in-app: `backend/notifications/views.py`
-- Tasks notificaciones: `backend/notifications/tasks.py`
+4. Datos de contacto.
+   - Sin `WhatsAppContact` activo no hay envio por WhatsApp.
 
-- Modelos comunicaciones: `backend/communications/models.py`
-- Email service: `backend/communications/email_service.py`
-- Templates email: `backend/communications/template_service.py`
-- WhatsApp service: `backend/communications/whatsapp_service.py`
-- Views/webhooks/settings: `backend/communications/views.py`
-- URLs comunicaciones: `backend/communications/urls.py`
+5. Idempotencia por canal.
+   - Mantener `idempotency_key` estable por evento de negocio para no duplicar envios.
 
-- Runtime settings: `backend/communications/runtime_settings.py`
-- Settings globales: `backend/kampus_backend/settings.py`
-- Entrypoint API: `backend/kampus_backend/urls.py`
+6. Supresiones.
+   - Email y WhatsApp tienen tablas de supresion; cualquier nueva logica debe respetarlas.
 
-- Jobs operativos y trazabilidad: `backend/reports/models.py`, `backend/reports/views.py`, `backend/reports/urls.py`
-- Scheduler loops dev: `docker-compose.yml` (servicio `backend_scheduler`)
+## 11. Recomendacion de onboarding tecnico para el nuevo desarrollador
+
+Orden sugerido para entrar al modulo:
+
+1. Leer este archivo y luego `docs/guia_configuracion_whatsapp_meta_cloud_api.md`.
+2. Revisar `backend/notifications/services.py` y `backend/notifications/dispatch.py`.
+3. Revisar `backend/communications/whatsapp_service.py` y `backend/communications/views.py` (webhook).
+4. Validar `WhatsAppSettings` y `WhatsAppTemplateMap` via endpoints admin.
+5. Probar flujo completo:
+   - crear notificacion de un tipo conocido,
+   - verificar registro in-app,
+   - verificar `NotificationDispatch`,
+   - verificar `WhatsAppDelivery`,
+   - simular/recibir webhook y confirmar cambio de estado.
+
+## 12. Resumen ejecutivo
+
+Estado actual del proyecto en notificaciones:
+
+- In-app: estable y ya integrado al frontend.
+- Email: maduro, con templates, idempotencia, webhook y supresiones.
+- WhatsApp Meta: base funcional completa (envio, template map, webhook, metricas, supresiones).
+- Operacion: existe monitoreo de salud y outbox, con capacidad de ejecucion manual y programada.
+
+Para la integracion Meta que sigue, el trabajo principal es consolidar reglas, cobertura de plantillas por tipo de notificacion, y estandarizar operacion (scheduler/outbox), mas que construir infraestructura desde cero.

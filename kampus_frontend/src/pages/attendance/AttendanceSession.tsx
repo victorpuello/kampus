@@ -409,6 +409,7 @@ export default function AttendanceSession() {
     prevLockedRef.current = locked
 
     if (!wasLocked && locked) {
+      setShowCompletion(false)
       const isAuto = autoCloseTimeoutFiredRef.current
       autoCloseTimeoutFiredRef.current = false
 
@@ -722,6 +723,7 @@ export default function AttendanceSession() {
 
     try {
       await closeAttendanceSession(sessionId)
+      setShowCompletion(false)
       setInfo('Clase cerrada.')
       await load()
     } catch (err) {

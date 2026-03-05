@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 from datetime import datetime, time
 from decimal import Decimal
+from pathlib import Path
 import io
 
 
@@ -59,6 +60,7 @@ from students.academic_period_report import (
     generate_preschool_academic_period_group_report_pdf,
 )
 from students.models import Enrollment, FamilyMember
+from core.models import Institution
 from core.permissions import KampusModelPermissions
 from .serializers import (
     AcademicLevelSerializer,
@@ -2413,6 +2415,223 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             ]
 
         return Response(payload)
+
+    @action(detail=False, methods=["get"], url_path="gradebook-filled-report")
+    def gradebook_filled_report(self, request):
+        """Genera PDF de la planilla *actual* con notas diligenciadas.
+
+        A diferencia de la sabana o boletin, este reporte usa exactamente la
+        planilla del docente/asignacion/periodo actual y muestra solo columnas
+        y filas con notas diligenciadas.
+
+        GET /api/grade-sheets/gradebook-filled-report/?teacher_assignment=<id>&period=<id>&format=pdf|html
+        """
+
+        gradebook_response = self.gradebook(request)
+        if gradebook_response.status_code != status.HTTP_200_OK:
+            return gradebook_response
+
+        payload = gradebook_response.data
+
+        teacher_assignment_id = request.query_params.get("teacher_assignment")
+        period_id = request.query_params.get("period")
+        if not teacher_assignment_id or not period_id:
+            return Response(
+                {"error": "teacher_assignment y period son requeridos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            teacher_assignment = self._get_teacher_assignment(int(teacher_assignment_id))
+        except TeacherAssignment.DoesNotExist:
+            return Response({"error": "TeacherAssignment no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            period = Period.objects.select_related("academic_year").get(id=int(period_id))
+        except Period.DoesNotExist:
+            return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
+
+        fmt = (request.query_params.get("format") or "pdf").strip().lower()
+
+        def _fmt_score(value):
+            if value is None:
+                return ""
+            try:
+                return f"{Decimal(str(value)):.2f}"
+            except Exception:
+                return str(value)
+
+        students = payload.get("students") or []
+        computed_by_enrollment = {
+            int(item.get("enrollment_id")): item for item in (payload.get("computed") or [])
+        }
+        achievements = payload.get("achievements") or []
+        achievement_label_by_id = {int(a.get("id")): f"L{idx + 1}" for idx, a in enumerate(achievements)}
+        achievement_desc_by_id = {
+            int(a.get("id")): (a.get("description") or "").strip() for a in achievements
+        }
+
+        grading_mode = (payload.get("gradesheet") or {}).get("grading_mode")
+        columns = []
+        column_groups = []
+        rows = []
+
+        if grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES and payload.get("activity_columns"):
+            activity_columns = payload.get("activity_columns") or []
+            activity_cells = payload.get("activity_cells") or []
+
+            # Keep only columns that have at least one diligenced score.
+            filled_column_ids = {
+                int(c.get("column"))
+                for c in activity_cells
+                if c.get("score") is not None and c.get("column") is not None
+            }
+
+            ordered_columns = [c for c in activity_columns if int(c.get("id")) in filled_column_ids]
+            columns = [
+                {
+                    "id": int(c.get("id")),
+                    "group_label": achievement_label_by_id.get(int(c.get("achievement")), "L?"),
+                    "label": (c.get("label") or "Actividad").strip(),
+                    "description": achievement_desc_by_id.get(int(c.get("achievement")), ""),
+                }
+                for c in ordered_columns
+            ]
+
+            for col in columns:
+                if not column_groups or column_groups[-1]["label"] != col["group_label"]:
+                    column_groups.append({"label": col["group_label"], "count": 1})
+                else:
+                    column_groups[-1]["count"] += 1
+
+            score_by_cell = {
+                (int(c.get("enrollment")), int(c.get("column"))): c.get("score")
+                for c in activity_cells
+                if c.get("enrollment") is not None and c.get("column") is not None
+            }
+
+            for s in students:
+                enrollment_id = int(s.get("enrollment_id"))
+                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
+                if all(score is None for score in raw_scores):
+                    continue
+
+                rows.append(
+                    {
+                        "index": len(rows) + 1,
+                        "student_name": s.get("student_name") or "",
+                        "scores": [_fmt_score(score) for score in raw_scores],
+                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
+                    }
+                )
+        else:
+            cells = payload.get("cells") or []
+
+            # Keep only achievements that have at least one diligenced score.
+            filled_achievement_ids = {
+                int(c.get("achievement"))
+                for c in cells
+                if c.get("score") is not None and c.get("achievement") is not None
+            }
+
+            ordered_achievements = [a for a in achievements if int(a.get("id")) in filled_achievement_ids]
+            columns = [
+                {
+                    "id": int(a.get("id")),
+                    "group_label": "Logro",
+                    "label": f"L{idx + 1}",
+                    "description": (a.get("description") or "").strip(),
+                }
+                for idx, a in enumerate(ordered_achievements)
+            ]
+
+            score_by_cell = {
+                (int(c.get("enrollment")), int(c.get("achievement"))): c.get("score")
+                for c in cells
+                if c.get("enrollment") is not None and c.get("achievement") is not None
+            }
+
+            for s in students:
+                enrollment_id = int(s.get("enrollment_id"))
+                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
+                if all(score is None for score in raw_scores):
+                    continue
+
+                rows.append(
+                    {
+                        "index": len(rows) + 1,
+                        "student_name": s.get("student_name") or "",
+                        "scores": [_fmt_score(score) for score in raw_scores],
+                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
+                    }
+                )
+
+        if not columns or not rows:
+            return Response(
+                {"error": "La planilla actual no tiene notas diligenciadas para generar el informe."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.template.loader import render_to_string
+
+        generated_at = timezone.localtime().strftime("%Y-%m-%d %H:%M")
+        grade_name = ""
+        try:
+            if teacher_assignment.group and teacher_assignment.group.grade:
+                grade_name = teacher_assignment.group.grade.name or ""
+        except Exception:
+            grade_name = ""
+
+        context = {
+            "title": "Informe de planilla diligenciada",
+            "grading_mode": grading_mode or GradeSheet.GRADING_MODE_ACHIEVEMENT,
+            "group_name": teacher_assignment.group.name if teacher_assignment.group else "",
+            "grade_name": grade_name,
+            "subject_name": teacher_assignment.academic_load.subject.name if teacher_assignment.academic_load else "",
+            "period_name": period.name,
+            "generated_at": generated_at,
+            "columns": columns,
+            "column_groups": column_groups,
+            "rows": rows,
+        }
+
+        institution = Institution.objects.first() or Institution()
+        institution_logo_src = ""
+        try:
+            if getattr(institution, "pdf_show_logo", True) and getattr(institution, "logo", None):
+                logo_field = institution.logo
+                if getattr(logo_field, "path", None) and Path(logo_field.path).exists():
+                    institution_logo_src = Path(logo_field.path).resolve().as_uri()
+                elif getattr(logo_field, "url", None):
+                    institution_logo_src = logo_field.url
+        except Exception:
+            institution_logo_src = ""
+
+        context["institution_logo_src"] = institution_logo_src
+
+        html_string = render_to_string("academic/reports/gradebook_filled_report_pdf.html", context)
+
+        if fmt == "html":
+            return HttpResponse(html_string, content_type="text/html; charset=utf-8")
+
+        from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html
+
+        try:
+            filename = f"planilla-diligenciada-{teacher_assignment.group.name}-{period.name}.pdf".replace(" ", "_")
+            pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            return response
+        except WeasyPrintUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception as e:
+            payload = {"detail": "Error generating PDF", "error": str(e)}
+            from django.conf import settings as _settings
+            import traceback as _traceback
+
+            if getattr(_settings, "DEBUG", False):
+                payload["traceback"] = _traceback.format_exc()
+            return Response(payload, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=["post"], url_path="set-grading-mode")
     def set_grading_mode(self, request):

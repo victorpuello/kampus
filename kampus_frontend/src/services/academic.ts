@@ -767,6 +767,15 @@ export const academicApi = {
     api.post<ActivityColumnsBulkUpsertResponse>('/api/grade-sheets/activity-columns/bulk-upsert/', data),
   bulkUpsertActivityGrades: (data: { teacher_assignment: number; period: number; grades: ActivityGradeUpsert[] }) =>
     api.post<ActivityGradesBulkUpsertResponse>('/api/grade-sheets/activity-grades/bulk-upsert/', data),
+  downloadGradebookFilledReport: (teacherAssignmentId: number, periodId: number) =>
+    api.get<Blob>('/api/grade-sheets/gradebook-filled-report/', {
+      params: {
+        teacher_assignment: teacherAssignmentId,
+        period: periodId,
+        format: 'pdf',
+      },
+      responseType: 'blob',
+    }),
 
   // Edit windows: requests/grants
   createEditRequest: (data: {
