@@ -1,19 +1,89 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Optional
 from urllib import error, request
 
 from django.conf import settings
+from django.apps import apps
+from django.core.cache import cache
 from django.db import IntegrityError
 from django.utils import timezone
 
 from core.models import Institution
 
 from .models import WhatsAppDelivery, WhatsAppSuppression, WhatsAppTemplateMap
+from .observability import emit_notification_event
 from .runtime_settings import get_effective_whatsapp_settings
+
+
+logger = logging.getLogger(__name__)
+
+
+def classify_whatsapp_error(error_code: str) -> str:
+    code = str(error_code or "").strip()
+    if not code:
+        return "IGNORE"
+    if code in {"131009", "131026", "131030", "131047", "131051", "100"}:
+        return "PERMANENT"
+    if code in {"4", "80007", "130429", "131048", "2", "1"}:
+        return "RETRYABLE"
+    return "RETRYABLE"
+
+
+def _consume_throttle(*, recipient_phone: str, institution_id: Optional[int]) -> tuple[bool, str]:
+    per_phone_per_minute = int(getattr(settings, "KAMPUS_WHATSAPP_THROTTLE_PER_PHONE_PER_MINUTE", 20) or 20)
+    per_institution_per_minute = int(
+        getattr(settings, "KAMPUS_WHATSAPP_THROTTLE_PER_INSTITUTION_PER_MINUTE", 200) or 200
+    )
+    now_key = timezone.now().strftime("%Y%m%d%H%M")
+    phone_key = f"wa:throttle:phone:{recipient_phone}:{now_key}"
+
+    if cache.add(phone_key, 1, timeout=90):
+        phone_count = 1
+    else:
+        phone_count = cache.incr(phone_key)
+
+    if phone_count > max(1, per_phone_per_minute):
+        return False, WhatsAppDelivery.SKIP_REASON_THROTTLED
+
+    if institution_id:
+        inst_key = f"wa:throttle:inst:{institution_id}:{now_key}"
+        if cache.add(inst_key, 1, timeout=90):
+            inst_count = 1
+        else:
+            inst_count = cache.incr(inst_key)
+        if inst_count > max(1, per_institution_per_minute):
+            return False, WhatsAppDelivery.SKIP_REASON_THROTTLED
+
+    return True, ""
+
+
+def _create_skipped_delivery(
+    *,
+    recipient_phone: str,
+    message_text: str,
+    category: str,
+    idempotency_key: str,
+    institution_id: Optional[int],
+    skip_reason: str,
+    error_message: str,
+    metadata: Optional[dict] = None,
+) -> WhatsAppDelivery:
+    return WhatsAppDelivery.objects.create(
+        institution_id=_resolve_institution_id(institution_id),
+        recipient_phone=_normalize_phone(recipient_phone),
+        message_text=message_text,
+        category=category,
+        idempotency_key=idempotency_key,
+        status=WhatsAppDelivery.STATUS_SKIPPED,
+        skip_reason=skip_reason,
+        error_message=error_message,
+        metadata=metadata or {},
+    )
 
 
 @dataclass
@@ -166,10 +236,27 @@ def send_whatsapp(
             category=category,
             idempotency_key=idempotency_key,
             status=WhatsAppDelivery.STATUS_SUPPRESSED,
+            skip_reason=WhatsAppDelivery.SKIP_REASON_SUPPRESSED,
             error_message=f"Suppressed recipient ({suppression.reason})",
             metadata={"reason": suppression.reason},
         )
         return WhatsAppSendResult(sent=False, delivery=delivery)
+
+    allowed, skip_reason = _consume_throttle(
+        recipient_phone=normalized_phone,
+        institution_id=_resolve_institution_id(institution_id),
+    )
+    if not allowed:
+        skipped = _create_skipped_delivery(
+            recipient_phone=normalized_phone,
+            message_text=message_text,
+            category=category,
+            idempotency_key=idempotency_key,
+            institution_id=institution_id,
+            skip_reason=skip_reason,
+            error_message="WhatsApp throttling policy blocked send",
+        )
+        return WhatsAppSendResult(sent=False, delivery=skipped)
 
     try:
         delivery = WhatsAppDelivery.objects.create(
@@ -197,9 +284,19 @@ def send_whatsapp(
     }
     provider_message_id, provider_metadata, error_code, error_message = _perform_whatsapp_send(payload)
     if error_code:
+        classification = classify_whatsapp_error(error_code)
         delivery.status = WhatsAppDelivery.STATUS_FAILED
         delivery.error_code = error_code
         delivery.error_message = error_message
+        if classification == "PERMANENT":
+            WhatsAppSuppression.objects.update_or_create(
+                phone_number=normalized_phone,
+                defaults={
+                    "reason": WhatsAppSuppression.REASON_POLICY_BLOCK,
+                    "provider": "meta_cloud_api",
+                    "source_event_id": delivery.idempotency_key or str(delivery.id),
+                },
+            )
         delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
         return WhatsAppSendResult(sent=False, delivery=delivery)
 
@@ -254,10 +351,28 @@ def send_whatsapp_template(
             category=category,
             idempotency_key=idempotency_key,
             status=WhatsAppDelivery.STATUS_SUPPRESSED,
+            skip_reason=WhatsAppDelivery.SKIP_REASON_SUPPRESSED,
             error_message=f"Suppressed recipient ({suppression.reason})",
             metadata={"reason": suppression.reason, "template_name": template_name},
         )
         return WhatsAppSendResult(sent=False, delivery=delivery)
+
+    allowed, skip_reason = _consume_throttle(
+        recipient_phone=normalized_phone,
+        institution_id=_resolve_institution_id(institution_id),
+    )
+    if not allowed:
+        skipped = _create_skipped_delivery(
+            recipient_phone=normalized_phone,
+            message_text=f"template:{template_name}",
+            category=category,
+            idempotency_key=idempotency_key,
+            institution_id=institution_id,
+            skip_reason=skip_reason,
+            error_message="WhatsApp throttling policy blocked send",
+            metadata={"template_name": template_name},
+        )
+        return WhatsAppSendResult(sent=False, delivery=skipped)
 
     try:
         delivery = WhatsAppDelivery.objects.create(
@@ -296,9 +411,19 @@ def send_whatsapp_template(
 
     provider_message_id, provider_metadata, error_code, error_message = _perform_whatsapp_send(payload)
     if error_code:
+        classification = classify_whatsapp_error(error_code)
         delivery.status = WhatsAppDelivery.STATUS_FAILED
         delivery.error_code = error_code
         delivery.error_message = error_message
+        if classification == "PERMANENT":
+            WhatsAppSuppression.objects.update_or_create(
+                phone_number=normalized_phone,
+                defaults={
+                    "reason": WhatsAppSuppression.REASON_POLICY_BLOCK,
+                    "provider": "meta_cloud_api",
+                    "source_event_id": delivery.idempotency_key or str(delivery.id),
+                },
+            )
         delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
         return WhatsAppSendResult(sent=False, delivery=delivery)
 
@@ -338,10 +463,44 @@ def send_whatsapp_notification(
     fallback_text: str,
     institution_id: Optional[int] = None,
 ) -> WhatsAppSendResult:
+    emit_notification_event(
+        logger,
+        event="channel.whatsapp.send.start",
+        notification_id="",
+        dedupe_key="",
+        idempotency_key=idempotency_key,
+        channel="whatsapp",
+        institution_id=(institution_id or ""),
+        notification_type=notification_type,
+        recipient_phone=recipient_phone,
+    )
+
     effective = get_effective_whatsapp_settings()
     send_mode = str(effective.send_mode or "template").strip().lower()
     normalized_type = str(notification_type or "").strip().upper()
     template_map = WhatsAppTemplateMap.objects.filter(notification_type=normalized_type, is_active=True).first()
+    allow_text_without_template = bool(
+        getattr(settings, "KAMPUS_WHATSAPP_ALLOW_TEXT_WITHOUT_TEMPLATE", False)
+    )
+
+    if not bool(effective.enabled):
+        delivery = _create_skipped_delivery(
+            recipient_phone=recipient_phone,
+            message_text=fallback_text,
+            category="in-app-notification",
+            idempotency_key=idempotency_key,
+            institution_id=institution_id,
+            skip_reason=WhatsAppDelivery.SKIP_REASON_DISABLED,
+            error_message="WhatsApp channel disabled",
+            metadata={"notification_type": normalized_type},
+        )
+        return WhatsAppSendResult(sent=False, delivery=delivery)
+
+    requires_template = False
+    if normalized_type:
+        NotificationType = apps.get_model("notifications", "NotificationType")
+        notification_type_cfg = NotificationType.objects.filter(code=normalized_type).first()
+        requires_template = bool(notification_type_cfg.whatsapp_requires_template) if notification_type_cfg else False
 
     if send_mode == "template":
         fallback_template_name = str(effective.template_fallback_name or "").strip()
@@ -361,7 +520,7 @@ def send_whatsapp_notification(
 
             mapped_components = template_map.default_components if (template_map and isinstance(template_map.default_components, list)) else None
 
-            return send_whatsapp_template(
+            result = send_whatsapp_template(
                 recipient_phone=recipient_phone,
                 template_name=template_name,
                 language_code=language_code,
@@ -373,11 +532,64 @@ def send_whatsapp_notification(
                 metadata={"notification_type": normalized_type},
                 institution_id=institution_id,
             )
+            emit_notification_event(
+                logger,
+                event="channel.whatsapp.send.result",
+                notification_id="",
+                dedupe_key="",
+                idempotency_key=idempotency_key,
+                channel="whatsapp",
+                institution_id=(institution_id or ""),
+                status=result.delivery.status,
+                delivery_id=result.delivery.id,
+                provider_message_id=result.delivery.provider_message_id,
+                send_mode="template",
+                template_name=template_name,
+            )
+            return result
+        if requires_template or (not allow_text_without_template):
+            skipped = _create_skipped_delivery(
+                recipient_phone=recipient_phone,
+                message_text=fallback_text,
+                category="in-app-notification",
+                idempotency_key=idempotency_key,
+                institution_id=institution_id,
+                skip_reason=WhatsAppDelivery.SKIP_REASON_NO_TEMPLATE,
+                error_message="No active template map and fallback text disabled",
+                metadata={"notification_type": normalized_type},
+            )
+            emit_notification_event(
+                logger,
+                event="channel.whatsapp.send.skipped.no_template",
+                notification_id="",
+                dedupe_key="",
+                idempotency_key=idempotency_key,
+                channel="whatsapp",
+                institution_id=(institution_id or ""),
+                status=skipped.status,
+                delivery_id=skipped.id,
+                skip_reason=skipped.skip_reason,
+            )
+            return WhatsAppSendResult(sent=False, delivery=skipped)
 
-    return send_whatsapp(
+    result = send_whatsapp(
         recipient_phone=recipient_phone,
         message_text=fallback_text,
         category="in-app-notification",
         idempotency_key=idempotency_key,
         institution_id=institution_id,
     )
+    emit_notification_event(
+        logger,
+        event="channel.whatsapp.send.result",
+        notification_id="",
+        dedupe_key="",
+        idempotency_key=idempotency_key,
+        channel="whatsapp",
+        institution_id=(institution_id or ""),
+        status=result.delivery.status,
+        delivery_id=result.delivery.id,
+        provider_message_id=result.delivery.provider_message_id,
+        send_mode="text",
+    )
+    return result

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -7,6 +8,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import IntegrityError
 from django.utils import timezone
 
+from .observability import emit_notification_event
 from .models import EmailDelivery, EmailSuppression
 from .preferences import (
     build_unsubscribe_url,
@@ -14,6 +16,9 @@ from .preferences import (
     is_marketing_category,
 )
 from .runtime_settings import apply_effective_mail_settings
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -90,9 +95,32 @@ def send_email(
     from_email: Optional[str] = None,
     environment: Optional[str] = None,
 ) -> EmailSendResult:
+    emit_notification_event(
+        logger=logger,
+        event="channel.email.send.start",
+        notification_id="",
+        dedupe_key="",
+        idempotency_key=idempotency_key,
+        channel="email",
+        institution_id="",
+        recipient_email=recipient_email,
+        category=category,
+    )
+
     effective = apply_effective_mail_settings(environment=environment)
     existing = _resolve_existing_delivery(recipient_email, idempotency_key)
     if existing is not None:
+        emit_notification_event(
+            logger=logger,
+            event="channel.email.send.skipped.idempotent_hit",
+            notification_id="",
+            dedupe_key="",
+            idempotency_key=idempotency_key,
+            channel="email",
+            institution_id="",
+            delivery_id=existing.id,
+            status=existing.status,
+        )
         return EmailSendResult(sent=False, delivery=existing)
 
     normalized_recipient_email = (recipient_email or "").strip().lower()
@@ -112,6 +140,17 @@ def send_email(
                 idempotency_key=idempotency_key,
                 status=EmailDelivery.STATUS_SUPPRESSED,
                 error_message="Suppressed recipient (marketing_opt_in=false)",
+            )
+            emit_notification_event(
+                logger=logger,
+                event="channel.email.send.suppressed.marketing_opt_out",
+                notification_id="",
+                dedupe_key="",
+                idempotency_key=idempotency_key,
+                channel="email",
+                institution_id="",
+                delivery_id=delivery.id,
+                status=delivery.status,
             )
             return EmailSendResult(sent=False, delivery=delivery)
 
@@ -135,6 +174,18 @@ def send_email(
             idempotency_key=idempotency_key,
             status=EmailDelivery.STATUS_SUPPRESSED,
             error_message=f"Suppressed recipient ({suppression.reason})",
+        )
+        emit_notification_event(
+            logger=logger,
+            event="channel.email.send.suppressed.recipient",
+            notification_id="",
+            dedupe_key="",
+            idempotency_key=idempotency_key,
+            channel="email",
+            institution_id="",
+            delivery_id=delivery.id,
+            status=delivery.status,
+            suppression_reason=suppression.reason,
         )
         return EmailSendResult(sent=False, delivery=delivery)
 
@@ -191,4 +242,16 @@ def send_email(
         delivery.error_message = str(exc)
 
     delivery.save(update_fields=["status", "provider_message_id", "sent_at", "error_message", "updated_at"])
+    emit_notification_event(
+        logger=logger,
+        event="channel.email.send.result",
+        notification_id="",
+        dedupe_key="",
+        idempotency_key=idempotency_key,
+        channel="email",
+        institution_id="",
+        delivery_id=delivery.id,
+        status=delivery.status,
+        provider_message_id=delivery.provider_message_id,
+    )
     return EmailSendResult(sent=delivery.status == EmailDelivery.STATUS_SENT, delivery=delivery)

@@ -1,12 +1,15 @@
 from pathlib import Path
 import os
 import re
+import csv
+from io import StringIO
 
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models import Count
 
 from django.conf import settings
+from django.core.management import call_command
 from django.http import HttpResponse
 from django.http import FileResponse
 from rest_framework import status, viewsets
@@ -21,13 +24,19 @@ from users.permissions import IsSuperAdmin
 from communications.models import EmailDelivery
 from notifications.models import Notification
 from novelties.tasks import notify_novelties_sla_task
-from notifications.tasks import check_notifications_health_task
+from notifications.tasks import (
+	check_dispatch_outbox_health_task,
+	check_notifications_health_task,
+	check_whatsapp_health_task,
+	process_dispatch_outbox_task,
+)
 from teachers.tasks import notify_pending_planning_teachers_task
 
 from .models import PeriodicJobRun, PeriodicJobRuntimeConfig, ReportJob, ReportJobEvent
 from .serializers import ReportJobCreateSerializer, ReportJobSerializer
 from .tasks import _render_report_html, generate_report_job_pdf
 from .weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html
+from notifications.models import NotificationDispatch
 
 
 def _is_admin(user: User) -> bool:
@@ -147,6 +156,51 @@ def _build_periodic_jobs_snapshot() -> list[dict]:
 				"minute": getattr(settings, "KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE", 15),
 				"hour": getattr(settings, "KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR", "*"),
 				"day_of_week": getattr(settings, "KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK", "1-5"),
+			},
+		},
+		{
+			"key": "check-whatsapp-health",
+			"task": "notifications.check_whatsapp_health",
+			"editable_params": [],
+			"default_params": {},
+			"default_enabled": bool(getattr(settings, "KAMPUS_WHATSAPP_HEALTH_BEAT_ENABLED", False)),
+			"schedule": {
+				"minute": getattr(settings, "KAMPUS_WHATSAPP_HEALTH_BEAT_MINUTE", "30"),
+				"hour": getattr(settings, "KAMPUS_WHATSAPP_HEALTH_BEAT_HOUR", "*"),
+				"day_of_week": getattr(settings, "KAMPUS_WHATSAPP_HEALTH_BEAT_DAY_OF_WEEK", "1-5"),
+			},
+		},
+		{
+			"key": "process-notification-dispatch-outbox",
+			"task": "notifications.process_dispatch_outbox",
+			"editable_params": ["batch_size", "max_retries"],
+			"default_params": {
+				"batch_size": int(os.getenv("KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_BATCH_SIZE", "100")),
+				"max_retries": int(os.getenv("KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_MAX_RETRIES", "5")),
+			},
+			"default_enabled": bool(getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_BEAT_ENABLED", False)),
+			"schedule": {
+				"minute": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_BEAT_MINUTE", "*/2"),
+				"hour": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_BEAT_HOUR", "*"),
+				"day_of_week": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_OUTBOX_BEAT_DAY_OF_WEEK", "*"),
+			},
+		},
+		{
+			"key": "check-dispatch-outbox-health",
+			"task": "notifications.check_dispatch_outbox_health",
+			"editable_params": ["max_pending", "max_failed", "max_oldest_pending_age_seconds"],
+			"default_params": {
+				"max_pending": int(os.getenv("KAMPUS_NOTIFICATIONS_DISPATCH_ALERT_MAX_PENDING", "500")),
+				"max_failed": int(os.getenv("KAMPUS_NOTIFICATIONS_DISPATCH_ALERT_MAX_FAILED", "100")),
+				"max_oldest_pending_age_seconds": int(
+					os.getenv("KAMPUS_NOTIFICATIONS_DISPATCH_ALERT_MAX_OLDEST_PENDING_AGE_SECONDS", "900")
+				),
+			},
+			"default_enabled": bool(getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_HEALTH_BEAT_ENABLED", False)),
+			"schedule": {
+				"minute": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_HEALTH_BEAT_MINUTE", "*/5"),
+				"hour": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_HEALTH_BEAT_HOUR", "*"),
+				"day_of_week": getattr(settings, "KAMPUS_NOTIFICATIONS_DISPATCH_HEALTH_BEAT_DAY_OF_WEEK", "*"),
 			},
 		},
 		{
@@ -286,6 +340,9 @@ class OperationsRunNowAPIView(APIView):
 	TASK_DISPATCH = {
 		"notify-novelties-sla": notify_novelties_sla_task,
 		"check-notifications-health": check_notifications_health_task,
+		"check-whatsapp-health": check_whatsapp_health_task,
+		"process-notification-dispatch-outbox": process_dispatch_outbox_task,
+		"check-dispatch-outbox-health": check_dispatch_outbox_health_task,
 		"notify-pending-planning-teachers": notify_pending_planning_teachers_task,
 	}
 
@@ -307,6 +364,16 @@ class OperationsRunNowAPIView(APIView):
 					"supported_job_keys": sorted(self.TASK_DISPATCH.keys()),
 				},
 				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		running = PeriodicJobRun.objects.filter(
+			job_key=job_key,
+			status=PeriodicJobRun.Status.RUNNING,
+		).exists()
+		if running:
+			return Response(
+				{"detail": "Ya existe una ejecución RUNNING para este job_key."},
+				status=status.HTTP_409_CONFLICT,
 			)
 
 		run = PeriodicJobRun.objects.create(
@@ -426,6 +493,9 @@ class OperationsPeriodicJobToggleAPIView(APIView):
 	ALLOWED_JOB_KEYS = {
 		"notify-novelties-sla",
 		"check-notifications-health",
+		"check-whatsapp-health",
+		"process-notification-dispatch-outbox",
+		"check-dispatch-outbox-health",
 		"notify-pending-planning-teachers",
 	}
 
@@ -472,6 +542,16 @@ class OperationsPeriodicJobParamsAPIView(APIView):
 		"check-notifications-health": {
 			"max_failed": {"type": int, "min": 0, "max": 100000},
 			"max_suppressed": {"type": int, "min": 0, "max": 100000},
+		},
+		"process-notification-dispatch-outbox": {
+			"batch_size": {"type": int, "min": 1, "max": 10000},
+			"max_retries": {"type": int, "min": 1, "max": 100},
+		},
+		"check-dispatch-outbox-health": {
+			"max_pending": {"type": int, "min": 0, "max": 1000000},
+			"max_failed": {"type": int, "min": 0, "max": 1000000},
+			"max_dead_letter": {"type": int, "min": 0, "max": 1000000},
+			"max_oldest_pending_age_seconds": {"type": int, "min": 0, "max": 604800},
 		},
 		"notify-pending-planning-teachers": {"dedupe_within_seconds": {"type": int, "min": 0, "max": 604800}},
 	}
@@ -542,6 +622,9 @@ class OperationsPeriodicJobScheduleAPIView(APIView):
 	ALLOWED_JOB_KEYS = {
 		"notify-novelties-sla",
 		"check-notifications-health",
+		"check-whatsapp-health",
+		"process-notification-dispatch-outbox",
+		"check-dispatch-outbox-health",
 		"notify-pending-planning-teachers",
 	}
 
@@ -619,6 +702,93 @@ class OperationsPeriodicJobScheduleAPIView(APIView):
 			},
 			status=status.HTTP_200_OK,
 		)
+
+
+class OperationsDispatchRetryFailedAPIView(APIView):
+	permission_classes = [IsSuperAdmin]
+
+	def post(self, request, *args, **kwargs):
+		channel = str(request.data.get("channel") or "").strip().upper()
+		limit = request.data.get("limit", 100)
+		try:
+			limit_int = max(1, int(limit))
+		except (TypeError, ValueError):
+			return Response({"detail": "limit debe ser entero"}, status=status.HTTP_400_BAD_REQUEST)
+
+		if channel and channel not in {
+			NotificationDispatch.CHANNEL_EMAIL,
+			NotificationDispatch.CHANNEL_WHATSAPP,
+		}:
+			return Response({"detail": "channel inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+		buffer = StringIO()
+		call_command(
+			"retry_notification_dispatches",
+			channel=channel,
+			limit=limit_int,
+			stdout=buffer,
+		)
+		return Response(
+			{
+				"detail": "Retry ejecutado",
+				"channel": channel or "ALL",
+				"limit": limit_int,
+				"output": buffer.getvalue().strip(),
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class OperationsDispatchExportAPIView(APIView):
+	permission_classes = [IsSuperAdmin]
+
+	def get(self, request, *args, **kwargs):
+		status_filter = str(request.query_params.get("status") or "").strip().upper()
+		channel_filter = str(request.query_params.get("channel") or "").strip().upper()
+
+		qs = NotificationDispatch.objects.select_related("notification", "notification__recipient").order_by("-created_at")
+		if status_filter:
+			qs = qs.filter(status=status_filter)
+		if channel_filter:
+			qs = qs.filter(channel=channel_filter)
+
+		response = HttpResponse(content_type="text/csv")
+		response["Content-Disposition"] = "attachment; filename=notification_dispatches.csv"
+		writer = csv.writer(response)
+		writer.writerow(
+			[
+				"id",
+				"notification_id",
+				"recipient_id",
+				"channel",
+				"status",
+				"attempts",
+				"idempotency_key",
+				"next_retry_at",
+				"error_message",
+				"created_at",
+				"updated_at",
+			]
+		)
+
+		for row in qs[:10000]:
+			writer.writerow(
+				[
+					row.id,
+					row.notification_id,
+					row.notification.recipient_id,
+					row.channel,
+					row.status,
+					row.attempts,
+					row.idempotency_key,
+					row.next_retry_at.isoformat() if row.next_retry_at else "",
+					row.error_message,
+					row.created_at.isoformat() if row.created_at else "",
+					row.updated_at.isoformat() if row.updated_at else "",
+				]
+			)
+
+		return response
 
 
 class PdfHealthcheckAPIView(APIView):

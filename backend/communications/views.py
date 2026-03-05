@@ -40,7 +40,9 @@ from .runtime_settings import (
 	get_effective_mail_settings,
 	get_effective_whatsapp_settings,
 )
+from .management.commands.notifications_baseline_snapshot import build_notifications_baseline_snapshot
 from .template_service import list_template_defaults, render_email_template, send_templated_email
+from .whatsapp_service import classify_whatsapp_error
 
 
 logger = logging.getLogger(__name__)
@@ -962,6 +964,27 @@ class WhatsAppHealthView(APIView):
 		)
 
 
+class NotificationsBaselineView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		hours_raw = str(request.query_params.get("hours") or "24").strip()
+		types_days_raw = str(request.query_params.get("types_days") or "30").strip()
+
+		try:
+			hours = max(1, int(hours_raw))
+		except ValueError:
+			hours = 24
+
+		try:
+			types_days = max(1, int(types_days_raw))
+		except ValueError:
+			types_days = 30
+
+		payload = build_notifications_baseline_snapshot(hours=hours, types_days=types_days)
+		return Response(payload, status=status.HTTP_200_OK)
+
+
 def _upsert_suppression(*, email: str, reason: str, source_event_id: str, provider: str = "mailgun") -> None:
 	normalized_email = str(email or "").strip().lower()
 	if not normalized_email:
@@ -1099,30 +1122,34 @@ def _update_whatsapp_delivery_status(*, event_type: str, provider_message_id: st
 
 	if event_type == "sent":
 		delivery.status = WhatsAppDelivery.STATUS_SENT
+		delivery.skip_reason = ""
 		delivery.error_code = ""
 		delivery.error_message = ""
-		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		delivery.save(update_fields=["status", "skip_reason", "error_code", "error_message", "updated_at"])
 		return
 
 	if event_type == "delivered":
 		delivery.status = WhatsAppDelivery.STATUS_DELIVERED
+		delivery.skip_reason = ""
 		delivery.error_code = ""
 		delivery.error_message = ""
-		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		delivery.save(update_fields=["status", "skip_reason", "error_code", "error_message", "updated_at"])
 		return
 
 	if event_type == "read":
 		delivery.status = WhatsAppDelivery.STATUS_READ
+		delivery.skip_reason = ""
 		delivery.error_code = ""
 		delivery.error_message = ""
-		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		delivery.save(update_fields=["status", "skip_reason", "error_code", "error_message", "updated_at"])
 		return
 
 	if event_type == "failed":
 		delivery.status = WhatsAppDelivery.STATUS_FAILED
+		delivery.skip_reason = ""
 		delivery.error_code = error_code
 		delivery.error_message = error_message or "WhatsApp provider failure"
-		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		delivery.save(update_fields=["status", "skip_reason", "error_code", "error_message", "updated_at"])
 
 
 def _upsert_whatsapp_suppression(*, event_type: str, recipient_phone: str, provider_event_id: str, error_code: str) -> None:
@@ -1131,6 +1158,9 @@ def _upsert_whatsapp_suppression(*, event_type: str, recipient_phone: str, provi
 		return
 
 	if event_type != "failed":
+		return
+
+	if classify_whatsapp_error(error_code) != "PERMANENT":
 		return
 
 	reason = ""

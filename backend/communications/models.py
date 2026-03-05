@@ -322,6 +322,7 @@ class WhatsAppDelivery(models.Model):
 	STATUS_READ = "READ"
 	STATUS_FAILED = "FAILED"
 	STATUS_SUPPRESSED = "SUPPRESSED"
+	STATUS_SKIPPED = "SKIPPED"
 
 	STATUS_CHOICES = [
 		(STATUS_PENDING, "Pending"),
@@ -330,6 +331,21 @@ class WhatsAppDelivery(models.Model):
 		(STATUS_READ, "Read"),
 		(STATUS_FAILED, "Failed"),
 		(STATUS_SUPPRESSED, "Suppressed"),
+		(STATUS_SKIPPED, "Skipped"),
+	]
+
+	SKIP_REASON_NO_TEMPLATE = "NO_TEMPLATE"
+	SKIP_REASON_NO_CONTACT = "NO_CONTACT"
+	SKIP_REASON_SUPPRESSED = "SUPPRESSED"
+	SKIP_REASON_DISABLED = "DISABLED"
+	SKIP_REASON_THROTTLED = "THROTTLED"
+
+	SKIP_REASON_CHOICES = [
+		(SKIP_REASON_NO_TEMPLATE, "No template"),
+		(SKIP_REASON_NO_CONTACT, "No contact"),
+		(SKIP_REASON_SUPPRESSED, "Suppressed"),
+		(SKIP_REASON_DISABLED, "Disabled"),
+		(SKIP_REASON_THROTTLED, "Throttled"),
 	]
 
 	institution = models.ForeignKey(
@@ -347,6 +363,7 @@ class WhatsAppDelivery(models.Model):
 	idempotency_key = models.CharField(max_length=150, blank=True, default="", db_index=True)
 	status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING)
 	error_code = models.CharField(max_length=30, blank=True, default="")
+	skip_reason = models.CharField(max_length=30, choices=SKIP_REASON_CHOICES, blank=True, default="")
 	error_message = models.TextField(blank=True, default="")
 	metadata = models.JSONField(default=dict, blank=True)
 	sent_at = models.DateTimeField(blank=True, null=True)

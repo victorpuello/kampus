@@ -1,13 +1,15 @@
 from django.test import TestCase
 from django.test import override_settings
 from django.db.utils import OperationalError
+from django.core.management import call_command
 import hashlib
 import hmac
 import json
+from io import StringIO
 from unittest.mock import patch
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
-from notifications.models import Notification
+from notifications.models import Notification, NotificationType
 from notifications.tasks import send_notification_whatsapp_task
 
 from .email_service import send_email
@@ -84,6 +86,20 @@ class EmailServiceTests(TestCase):
 
 		self.assertFalse(result.sent)
 		self.assertEqual(result.delivery.status, EmailDelivery.STATUS_SUPPRESSED)
+
+	def test_send_email_emits_structured_log_events(self):
+		with self.assertLogs("communications.email_service", level="INFO") as captured:
+			send_email(
+				recipient_email="log@example.com",
+				subject="Log test",
+				body_text="Log body",
+				category="transactional",
+				idempotency_key="log-key-1",
+			)
+
+		joined = "\n".join(captured.output)
+		self.assertIn("channel.email.send.start", joined)
+		self.assertIn("channel.email.send.result", joined)
 
 	@override_settings(KAMPUS_BACKEND_BASE_URL="http://localhost:8000")
 	def test_marketing_email_requires_opt_in_and_allows_transactional_when_unsubscribed(self):
@@ -485,6 +501,70 @@ class MailSettingsAdminTests(TestCase):
 		forbidden = self.teacher_client.get("/api/communications/settings/mailgun/audits/export/")
 		self.assertEqual(forbidden.status_code, 403)
 
+	def test_admin_can_read_notifications_baseline_and_teacher_cannot(self):
+		EmailDelivery.objects.create(
+			recipient_email="base@example.com",
+			subject="base",
+			body_text="base",
+			status=EmailDelivery.STATUS_SENT,
+		)
+		WhatsAppDelivery.objects.create(
+			recipient_phone="+573000000001",
+			status=WhatsAppDelivery.STATUS_DELIVERED,
+		)
+
+		admin_response = self.admin_client.get("/api/communications/settings/notifications/baseline/?hours=24&types_days=30")
+		self.assertEqual(admin_response.status_code, 200)
+		self.assertIn("whatsapp", admin_response.data)
+		self.assertIn("email", admin_response.data)
+		self.assertIn("notification_types", admin_response.data)
+		self.assertIn("dispatch_outbox", admin_response.data)
+
+		teacher_response = self.teacher_client.get("/api/communications/settings/notifications/baseline/")
+		self.assertEqual(teacher_response.status_code, 403)
+
+
+class NotificationsBaselineCommandTests(TestCase):
+	def setUp(self):
+		self.user = User.objects.create_user(
+			username="baseline_user",
+			email="baseline@example.com",
+			password="pass1234",
+			role=User.ROLE_ADMIN,
+		)
+
+	def test_notifications_baseline_snapshot_command_outputs_expected_shape(self):
+		Notification.objects.create(
+			recipient=self.user,
+			title="N1",
+			body="B1",
+			type="NOVELTY_SLA_TEACHER",
+			dedupe_key="base:notif:1",
+		)
+		EmailDelivery.objects.create(
+			recipient_email="cmd@example.com",
+			subject="cmd",
+			body_text="cmd",
+			status=EmailDelivery.STATUS_SENT,
+		)
+		WhatsAppDelivery.objects.create(
+			recipient_phone="+573000000002",
+			status=WhatsAppDelivery.STATUS_FAILED,
+			error_code="131000",
+		)
+
+		output = StringIO()
+		call_command("notifications_baseline_snapshot", "--hours", "24", "--types-days", "30", stdout=output)
+		payload = json.loads(output.getvalue().strip())
+
+		self.assertEqual(payload["window_hours"], 24)
+		self.assertEqual(payload["types_window_days"], 30)
+		self.assertIn("whatsapp", payload)
+		self.assertIn("email", payload)
+		self.assertIn("notification_types", payload)
+		self.assertIn("dispatch_outbox", payload)
+		self.assertTrue(isinstance(payload["notification_types"]["top_volume"], list))
+
 
 @override_settings(
 	KAMPUS_WHATSAPP_WEBHOOK_VERIFY_TOKEN="verify-me",
@@ -776,6 +856,53 @@ class WhatsAppTemplateSendTests(TestCase):
 		payload = json.loads(captured["body"])
 		self.assertEqual(payload["type"], "template")
 		self.assertEqual(payload["template"]["name"], "novelty_sla_admin_v1")
+
+
+@override_settings(
+	KAMPUS_WHATSAPP_ENABLED=True,
+	KAMPUS_WHATSAPP_SEND_MODE="template",
+	KAMPUS_WHATSAPP_ALLOW_TEXT_WITHOUT_TEMPLATE=False,
+)
+class WhatsAppPolicySkipTests(TestCase):
+	def test_send_notification_skips_when_no_template_and_text_fallback_disabled(self):
+		result = send_whatsapp_notification(
+			recipient_phone="+573009999999",
+			notification_type="TYPE_WITHOUT_MAP",
+			recipient_name="User",
+			title="Titulo",
+			body="Cuerpo",
+			action_url="https://example.com/n/1",
+			idempotency_key="wa-skip-no-template-1",
+			fallback_text="fallback",
+		)
+
+		self.assertFalse(result.sent)
+		self.assertEqual(result.delivery.status, WhatsAppDelivery.STATUS_SKIPPED)
+		self.assertEqual(result.delivery.skip_reason, WhatsAppDelivery.SKIP_REASON_NO_TEMPLATE)
+
+	def test_notification_type_requires_template_forces_skip_even_when_text_fallback_enabled(self):
+		NotificationType.objects.create(
+			code="TYPE_REQUIRES_TEMPLATE",
+			email_enabled=True,
+			whatsapp_enabled=True,
+			whatsapp_requires_template=True,
+		)
+
+		with override_settings(KAMPUS_WHATSAPP_ALLOW_TEXT_WITHOUT_TEMPLATE=True):
+			result = send_whatsapp_notification(
+				recipient_phone="+573009999998",
+				notification_type="TYPE_REQUIRES_TEMPLATE",
+				recipient_name="User",
+				title="Titulo",
+				body="Cuerpo",
+				action_url="https://example.com/n/2",
+				idempotency_key="wa-skip-requires-template-1",
+				fallback_text="fallback",
+			)
+
+		self.assertFalse(result.sent)
+		self.assertEqual(result.delivery.status, WhatsAppDelivery.STATUS_SKIPPED)
+		self.assertEqual(result.delivery.skip_reason, WhatsAppDelivery.SKIP_REASON_NO_TEMPLATE)
 
 
 @override_settings(

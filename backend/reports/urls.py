@@ -6,6 +6,8 @@ from .views import (
 	OperationsPeriodicJobToggleAPIView,
 	OperationsPeriodicJobParamsAPIView,
 	OperationsPeriodicJobScheduleAPIView,
+	OperationsDispatchRetryFailedAPIView,
+	OperationsDispatchExportAPIView,
 	OperationsPeriodicRunLogsAPIView,
 	OperationsRunLogsAPIView,
 	OperationsRunNowAPIView,
@@ -30,4 +32,6 @@ urlpatterns = [
 	path("reports/operations/jobs/toggle/", OperationsPeriodicJobToggleAPIView.as_view(), name="reports-ops-toggle"),
 	path("reports/operations/jobs/params/", OperationsPeriodicJobParamsAPIView.as_view(), name="reports-ops-params"),
 	path("reports/operations/jobs/schedule/", OperationsPeriodicJobScheduleAPIView.as_view(), name="reports-ops-schedule"),
+	path("reports/operations/jobs/dispatch/retry-failed/", OperationsDispatchRetryFailedAPIView.as_view(), name="reports-ops-dispatch-retry"),
+	path("reports/operations/jobs/dispatch/export/", OperationsDispatchExportAPIView.as_view(), name="reports-ops-dispatch-export"),
 ]

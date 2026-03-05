@@ -6,14 +6,16 @@ from datetime import timedelta
 from typing import Iterable, Optional
 
 from django.conf import settings
+from django.db import IntegrityError
 from django.db import transaction
 from django.utils import timezone
 
 from communications.email_service import send_email
+from communications.observability import emit_notification_event
 from communications.template_service import send_templated_email
 from users.models import User
 
-from .models import Notification
+from .models import Notification, NotificationDispatch, NotificationType
 
 
 logger = logging.getLogger(__name__)
@@ -65,12 +67,68 @@ def _notification_template_slug(notification_type: str) -> str:
     return "in-app-notification-generic"
 
 
+def _create_dispatch_record(
+    *,
+    notification: Notification,
+    channel: str,
+    idempotency_key: str,
+    payload: dict,
+) -> None:
+    try:
+        NotificationDispatch.objects.create(
+            notification=notification,
+            channel=channel,
+            idempotency_key=idempotency_key,
+            status=NotificationDispatch.STATUS_PENDING,
+            payload=payload,
+        )
+    except IntegrityError:
+        # Outbox should be idempotent and never break business flows.
+        return
+
+
+def _upsert_notification_type(notification_type: str) -> NotificationType | None:
+    normalized = str(notification_type or "").strip().upper()
+    if not normalized:
+        return None
+    obj, _ = NotificationType.objects.get_or_create(code=normalized)
+    return obj
+
+
 def _send_notification_email(*, recipient: User, notification: Notification) -> None:
+    emit_notification_event(
+        logger,
+        event="notification.email.dispatch.start",
+        notification_id=notification.id,
+        dedupe_key=notification.dedupe_key,
+        idempotency_key="",
+        channel="email",
+        institution_id="",
+    )
+
     if not getattr(settings, "NOTIFICATIONS_EMAIL_ENABLED", True):
+        emit_notification_event(
+            logger,
+            event="notification.email.dispatch.skipped.disabled",
+            notification_id=notification.id,
+            dedupe_key=notification.dedupe_key,
+            idempotency_key="",
+            channel="email",
+            institution_id="",
+        )
         return
 
     recipient_email = (getattr(recipient, "email", "") or "").strip()
     if not recipient_email:
+        emit_notification_event(
+            logger,
+            event="notification.email.dispatch.skipped.no_recipient_email",
+            notification_id=notification.id,
+            dedupe_key=notification.dedupe_key,
+            idempotency_key="",
+            channel="email",
+            institution_id="",
+        )
         return
 
     absolute_url = _notification_absolute_url(notification.url) or _notification_absolute_url("/notifications")
@@ -108,12 +166,30 @@ def _send_notification_email(*, recipient: User, notification: Notification) -> 
             category="in-app-notification",
             idempotency_key=email_idempotency,
         )
+        emit_notification_event(
+            logger,
+            event="notification.email.dispatch.sent.template",
+            notification_id=notification.id,
+            dedupe_key=notification.dedupe_key,
+            idempotency_key=email_idempotency,
+            channel="email",
+            institution_id="",
+        )
         return
     except Exception:
         logger.exception(
             "Failed sending templated notification email (template=%s, notification_id=%s)",
             template_slug,
             notification.id,
+        )
+        emit_notification_event(
+            logger,
+            event="notification.email.dispatch.template_failed",
+            notification_id=notification.id,
+            dedupe_key=notification.dedupe_key,
+            idempotency_key=email_idempotency,
+            channel="email",
+            institution_id="",
         )
 
     send_email(
@@ -122,6 +198,15 @@ def _send_notification_email(*, recipient: User, notification: Notification) -> 
         body_text=body_text,
         category="in-app-notification",
         idempotency_key=email_idempotency,
+    )
+    emit_notification_event(
+        logger,
+        event="notification.email.dispatch.sent.fallback",
+        notification_id=notification.id,
+        dedupe_key=notification.dedupe_key,
+        idempotency_key=email_idempotency,
+        channel="email",
+        institution_id="",
     )
 
 
@@ -135,6 +220,8 @@ def create_notification(
     dedupe_key: str = "",
     dedupe_within_seconds: Optional[int] = None,
 ) -> Notification:
+    outbox_only = bool(getattr(settings, "KAMPUS_NOTIFICATIONS_OUTBOX_ONLY", False))
+
     if dedupe_within_seconds is not None and dedupe_key:
         since = timezone.now() - timedelta(seconds=int(dedupe_within_seconds))
         if Notification.objects.filter(
@@ -163,9 +250,57 @@ def create_notification(
         url=url,
         dedupe_key=dedupe_key,
     )
-    _send_notification_email(recipient=recipient, notification=notification)
+    emit_notification_event(
+        logger,
+        event="notification.created",
+        notification_id=notification.id,
+        dedupe_key=notification.dedupe_key,
+        idempotency_key="",
+        channel="in_app",
+        institution_id="",
+    )
 
-    if getattr(settings, "KAMPUS_WHATSAPP_ENABLED", False):
+    notification_type_cfg = _upsert_notification_type(notification.type)
+
+    recipient_email = (getattr(recipient, "email", "") or "").strip()
+    email_channel_enabled = bool(getattr(settings, "NOTIFICATIONS_EMAIL_ENABLED", True))
+    if notification_type_cfg is not None:
+        email_channel_enabled = email_channel_enabled and bool(notification_type_cfg.email_enabled)
+
+    if email_channel_enabled and recipient_email:
+        email_idempotency = _notification_email_idempotency_key(
+            recipient=recipient,
+            dedupe_key=notification.dedupe_key,
+            notification_id=notification.id,
+        )
+        _create_dispatch_record(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+            idempotency_key=email_idempotency,
+            payload={
+                "recipient_email": recipient_email,
+                "notification_type": notification.type,
+            },
+        )
+
+    if not outbox_only:
+        _send_notification_email(recipient=recipient, notification=notification)
+    else:
+        emit_notification_event(
+            logger,
+            event="notification.email.dispatch.deferred.outbox_only",
+            notification_id=notification.id,
+            dedupe_key=notification.dedupe_key,
+            idempotency_key="",
+            channel="email",
+            institution_id="",
+        )
+
+    whatsapp_channel_enabled = bool(getattr(settings, "KAMPUS_WHATSAPP_ENABLED", False))
+    if notification_type_cfg is not None:
+        whatsapp_channel_enabled = whatsapp_channel_enabled and bool(notification_type_cfg.whatsapp_enabled)
+
+    if whatsapp_channel_enabled:
         from .tasks import send_notification_whatsapp_task
 
         whatsapp_idempotency = _notification_whatsapp_idempotency_key(
@@ -173,12 +308,38 @@ def create_notification(
             dedupe_key=notification.dedupe_key,
             notification_id=notification.id,
         )
-        transaction.on_commit(
-            lambda: send_notification_whatsapp_task.delay(
-                notification_id=notification.id,
-                idempotency_key=whatsapp_idempotency,
-            )
+        _create_dispatch_record(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_WHATSAPP,
+            idempotency_key=whatsapp_idempotency,
+            payload={"notification_type": notification.type},
         )
+        if not outbox_only:
+            transaction.on_commit(
+                lambda: send_notification_whatsapp_task.delay(
+                    notification_id=notification.id,
+                    idempotency_key=whatsapp_idempotency,
+                )
+            )
+            emit_notification_event(
+                logger,
+                event="notification.whatsapp.task_enqueued",
+                notification_id=notification.id,
+                dedupe_key=notification.dedupe_key,
+                idempotency_key=whatsapp_idempotency,
+                channel="whatsapp",
+                institution_id="",
+            )
+        else:
+            emit_notification_event(
+                logger,
+                event="notification.whatsapp.dispatch.deferred.outbox_only",
+                notification_id=notification.id,
+                dedupe_key=notification.dedupe_key,
+                idempotency_key=whatsapp_idempotency,
+                channel="whatsapp",
+                institution_id="",
+            )
     return notification
 
 

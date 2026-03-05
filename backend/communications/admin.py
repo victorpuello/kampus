@@ -96,13 +96,14 @@ class WhatsAppDeliveryAdmin(admin.ModelAdmin):
 		"recipient_phone",
 		"category",
 		"status",
+		"skip_reason",
 		"provider",
 		"provider_message_id",
 		"sent_at",
 		"created_at",
 	)
 	search_fields = ("recipient_phone", "provider_message_id", "idempotency_key", "error_code")
-	list_filter = ("status", "category", "provider", "created_at")
+	list_filter = ("status", "skip_reason", "category", "provider", "created_at")
 
 
 @admin.register(WhatsAppSuppression)

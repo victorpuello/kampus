@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from io import StringIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -11,7 +12,7 @@ from django.utils import timezone
 
 from communications.models import EmailDelivery
 
-from .models import Notification
+from .models import Notification, NotificationDispatch, NotificationType
 from .services import create_notification, notify_users
 
 
@@ -106,6 +107,118 @@ class NotificationEmailChannelTests(TestCase):
         self.assertIsNotNone(delivery)
         self.assertIn("http://localhost:5173/notifications", delivery.body_text)
         self.assertIn("Si el botón no funciona, usa este enlace de respaldo", delivery.body_html)
+
+    def test_create_notification_creates_email_dispatch_outbox_row(self):
+        notification = create_notification(
+            recipient=self.user,
+            title="Outbox email",
+            body="Prueba outbox email",
+            type="system",
+            dedupe_key="notif:outbox:email:1",
+        )
+
+        dispatch = NotificationDispatch.objects.filter(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+        ).first()
+        self.assertIsNotNone(dispatch)
+        self.assertEqual(dispatch.status, NotificationDispatch.STATUS_PENDING)
+        self.assertTrue(bool(dispatch.idempotency_key))
+
+    def test_create_notification_emits_structured_log_events(self):
+        with self.assertLogs("notifications.services", level="INFO") as captured:
+            create_notification(
+                recipient=self.user,
+                title="Outbox log",
+                body="Prueba logging",
+                type="system",
+                dedupe_key="notif:outbox:log:1",
+            )
+
+        joined = "\n".join(captured.output)
+        self.assertIn("notification.created", joined)
+        self.assertIn("notification.email.dispatch.start", joined)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+    KAMPUS_WHATSAPP_ENABLED=True,
+)
+class NotificationOutboxWhatsAppTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="notif_outbox_wa_user",
+            email="notif_outbox_wa@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_create_notification_creates_whatsapp_dispatch_outbox_row_when_enabled(self):
+        with patch("notifications.tasks.send_notification_whatsapp_task.delay"):
+            notification = create_notification(
+                recipient=self.user,
+                title="Outbox WA",
+                body="Prueba outbox whatsapp",
+                type="NOVELTY_SLA_ADMIN",
+                dedupe_key="notif:outbox:wa:1",
+            )
+
+        dispatch = NotificationDispatch.objects.filter(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_WHATSAPP,
+        ).first()
+        self.assertIsNotNone(dispatch)
+        self.assertEqual(dispatch.status, NotificationDispatch.STATUS_PENDING)
+        self.assertTrue(bool(dispatch.idempotency_key))
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+    KAMPUS_WHATSAPP_ENABLED=True,
+    KAMPUS_NOTIFICATIONS_OUTBOX_ONLY=True,
+)
+class NotificationOutboxOnlyModeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="notif_outbox_only_user",
+            email="notif_outbox_only@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_create_notification_does_not_send_email_immediately_in_outbox_only_mode(self):
+        create_notification(
+            recipient=self.user,
+            title="Outbox only email",
+            body="No immediate email expected",
+            type="system",
+            dedupe_key="notif:outbox-only:email:1",
+        )
+
+        self.assertEqual(len(mail.outbox), 0)
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+        self.assertEqual(
+            NotificationDispatch.objects.filter(channel=NotificationDispatch.CHANNEL_EMAIL).count(),
+            1,
+        )
+
+    def test_create_notification_does_not_enqueue_whatsapp_task_in_outbox_only_mode(self):
+        with patch("notifications.tasks.send_notification_whatsapp_task.delay") as mocked_delay:
+            create_notification(
+                recipient=self.user,
+                title="Outbox only wa",
+                body="No immediate task expected",
+                type="NOVELTY_SLA_ADMIN",
+                dedupe_key="notif:outbox-only:wa:1",
+            )
+
+        mocked_delay.assert_not_called()
+        self.assertEqual(
+            NotificationDispatch.objects.filter(channel=NotificationDispatch.CHANNEL_WHATSAPP).count(),
+            1,
+        )
 
 
 class NotificationObservabilityCommandsTests(TestCase):
@@ -217,3 +330,229 @@ class NotificationObservabilityCommandsTests(TestCase):
             stdout=output,
         )
         self.assertIn("ALERT", output.getvalue())
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+    KAMPUS_WHATSAPP_ENABLED=True,
+)
+class NotificationDispatchProcessingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="dispatch_user",
+            email="dispatch@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_process_dispatches_marks_email_dispatch_succeeded_without_duplicate_delivery(self):
+        notification = create_notification(
+            recipient=self.user,
+            title="Dispatch email",
+            body="Procesar outbox email",
+            type="system",
+            dedupe_key="dispatch:email:1",
+        )
+
+        initial_deliveries = EmailDelivery.objects.count()
+        self.assertEqual(initial_deliveries, 1)
+
+        output = StringIO()
+        call_command("process_notification_dispatches", "--batch-size", "20", stdout=output)
+
+        email_dispatch = NotificationDispatch.objects.filter(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+        ).first()
+        self.assertIsNotNone(email_dispatch)
+        self.assertEqual(email_dispatch.status, NotificationDispatch.STATUS_SUCCEEDED)
+        self.assertEqual(EmailDelivery.objects.count(), initial_deliveries)
+
+    def test_process_dispatches_marks_whatsapp_dispatch_succeeded_when_no_contact(self):
+        with patch("notifications.tasks.send_notification_whatsapp_task.delay"):
+            notification = create_notification(
+                recipient=self.user,
+                title="Dispatch wa",
+                body="Procesar outbox wa",
+                type="NOVELTY_SLA_ADMIN",
+                dedupe_key="dispatch:wa:1",
+            )
+
+        output = StringIO()
+        call_command("process_notification_dispatches", "--batch-size", "20", stdout=output)
+
+        wa_dispatch = NotificationDispatch.objects.filter(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_WHATSAPP,
+        ).first()
+        self.assertIsNotNone(wa_dispatch)
+        self.assertEqual(wa_dispatch.status, NotificationDispatch.STATUS_SUCCEEDED)
+        self.assertEqual((wa_dispatch.payload or {}).get("result"), "skipped_no_active_contact")
+
+
+class DispatchOutboxHealthCommandTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="dispatch_health_user",
+            email="dispatch_health@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_check_dispatch_outbox_health_ok_when_within_thresholds(self):
+        notification = Notification.objects.create(
+            recipient=self.user,
+            title="Outbox healthy",
+            body="OK",
+            type="system",
+            dedupe_key="dispatch:health:ok",
+        )
+        NotificationDispatch.objects.create(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+            idempotency_key="dispatch-health-ok-1",
+            status=NotificationDispatch.STATUS_PENDING,
+            payload={},
+        )
+
+        output = StringIO()
+        call_command(
+            "check_dispatch_outbox_health",
+            "--max-pending",
+            "10",
+            "--max-failed",
+            "10",
+            "--max-oldest-pending-age-seconds",
+            "999999",
+            stdout=output,
+        )
+        self.assertIn("OK", output.getvalue())
+
+    def test_check_dispatch_outbox_health_raises_on_breach(self):
+        old_created_at = timezone.now() - timedelta(hours=2)
+        notification = Notification.objects.create(
+            recipient=self.user,
+            title="Outbox breach",
+            body="ALERT",
+            type="system",
+            dedupe_key="dispatch:health:breach",
+        )
+        dispatch = NotificationDispatch.objects.create(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+            idempotency_key="dispatch-health-breach-1",
+            status=NotificationDispatch.STATUS_PENDING,
+            payload={},
+        )
+        NotificationDispatch.objects.filter(id=dispatch.id).update(created_at=old_created_at)
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "check_dispatch_outbox_health",
+                "--max-pending",
+                "0",
+                "--max-oldest-pending-age-seconds",
+                "60",
+                "--fail-on-breach",
+            )
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+    KAMPUS_WHATSAPP_ENABLED=True,
+)
+class NotificationTypeCatalogTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="notif_type_user",
+            email="notif_type@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_create_notification_upserts_notification_type_catalog(self):
+        create_notification(
+            recipient=self.user,
+            title="Catalog",
+            body="Catalog",
+            type="NOVELTY_SLA_ADMIN",
+            dedupe_key="notif:type:catalog:1",
+        )
+        self.assertTrue(NotificationType.objects.filter(code="NOVELTY_SLA_ADMIN").exists())
+
+    def test_notification_type_can_disable_email_dispatch_creation(self):
+        NotificationType.objects.create(code="TYPE_NO_EMAIL", email_enabled=False, whatsapp_enabled=True)
+        notification = create_notification(
+            recipient=self.user,
+            title="No email",
+            body="No email",
+            type="TYPE_NO_EMAIL",
+            dedupe_key="notif:type:no-email:1",
+        )
+        self.assertFalse(
+            NotificationDispatch.objects.filter(
+                notification=notification,
+                channel=NotificationDispatch.CHANNEL_EMAIL,
+            ).exists()
+        )
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+)
+class NotificationDispatchDlqTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="dispatch_dlq_user",
+            email="dispatch_dlq@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_failed_dispatch_moves_to_dead_letter_after_max_retries(self):
+        notification = Notification.objects.create(
+            recipient=self.user,
+            title="DLQ",
+            body="DLQ",
+            type="system",
+            dedupe_key="dispatch:dlq:1",
+        )
+        dispatch = NotificationDispatch.objects.create(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+            idempotency_key="dispatch-dlq-1",
+            status=NotificationDispatch.STATUS_PENDING,
+            payload={},
+        )
+
+        with patch("notifications.dispatch._process_email_dispatch", side_effect=Exception("boom")):
+            call_command("process_notification_dispatches", "--batch-size", "20", "--max-retries", "1")
+
+        dispatch.refresh_from_db()
+        self.assertEqual(dispatch.status, NotificationDispatch.STATUS_DEAD_LETTER)
+
+    def test_retry_notification_dispatches_requeues_dead_letter(self):
+        notification = Notification.objects.create(
+            recipient=self.user,
+            title="Retry",
+            body="Retry",
+            type="system",
+            dedupe_key="dispatch:retry:1",
+        )
+        dispatch = NotificationDispatch.objects.create(
+            notification=notification,
+            channel=NotificationDispatch.CHANNEL_EMAIL,
+            idempotency_key="dispatch-retry-1",
+            status=NotificationDispatch.STATUS_DEAD_LETTER,
+            payload={},
+            error_message="boom",
+        )
+
+        call_command("retry_notification_dispatches", "--channel", "EMAIL", "--limit", "10")
+
+        dispatch.refresh_from_db()
+        self.assertEqual(dispatch.status, NotificationDispatch.STATUS_PENDING)
+        self.assertEqual(dispatch.error_message, "")

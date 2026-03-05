@@ -4,6 +4,7 @@ import logging
 from io import StringIO
 
 from celery import shared_task
+from django.core.cache import cache
 from django.core.management import call_command
 
 from reports.models import PeriodicJobRun
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 @shared_task(name="teachers.notify_pending_planning_teachers")
 def notify_pending_planning_teachers_task(periodic_run_id: int | None = None) -> None:
+    lock_key = "periodic-job-lock:notify-pending-planning-teachers"
+    if not cache.add(lock_key, "1", timeout=3600):
+        logger.info("Skipping notify_pending_planning_teachers task because lock is active")
+        return
+
     run = PeriodicJobRun.objects.filter(id=periodic_run_id).first() if periodic_run_id else None
     buffer = StringIO()
 
@@ -32,3 +38,5 @@ def notify_pending_planning_teachers_task(periodic_run_id: int | None = None) ->
             )
         logger.exception("Failed executing scheduled task notify_pending_planning_teachers")
         raise
+    finally:
+        cache.delete(lock_key)
