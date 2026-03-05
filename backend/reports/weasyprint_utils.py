@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import mimetypes
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -37,6 +39,30 @@ class WeasyPrintUnavailableError(RuntimeError):
     pass
 
 
+# 1x1 transparent PNG used as a safe placeholder when local image assets are missing.
+_TRANSPARENT_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7nL5sAAAAASUVORK5CYII="
+)
+
+
+def _missing_local_resource_response(path: Path):
+    mime_type, _ = mimetypes.guess_type(str(path))
+    if (mime_type or "").startswith("image/"):
+        return {
+            "string": _TRANSPARENT_PNG_BYTES,
+            "mime_type": "image/png",
+            "encoding": None,
+            "redirected_url": path.resolve().as_uri(),
+        }
+
+    return {
+        "string": b"",
+        "mime_type": mime_type or "application/octet-stream",
+        "encoding": None,
+        "redirected_url": path.resolve().as_uri(),
+    }
+
+
 def weasyprint_url_fetcher(url: str):
     """Map /media and /static URLs to local files.
 
@@ -70,17 +96,62 @@ def weasyprint_url_fetcher(url: str):
         return default_url_fetcher(url)
 
     if not file_path.exists():
-        from weasyprint.urls import default_url_fetcher  # noqa: PLC0415
-
-        return default_url_fetcher(url)
+        return _missing_local_resource_response(file_path)
 
     mime_type, _ = mimetypes.guess_type(str(file_path))
     return {
-        "file_obj": open(file_path, "rb"),
+        # Use local filename + file:// URL so WeasyPrint never tries to re-open
+        # the original '/media/...' URL path as a filesystem path.
+        "filename": str(file_path.resolve()),
         "mime_type": mime_type or "application/octet-stream",
         "encoding": None,
-        "redirected_url": url,
+        "redirected_url": file_path.resolve().as_uri(),
     }
+
+
+def _rewrite_local_media_urls(content: str) -> str:
+    if not content:
+        return content
+
+    media_url = (getattr(settings, "MEDIA_URL", "") or "").rstrip("/") + "/"
+    if not media_url:
+        return content
+
+    media_path_prefix = media_url
+
+    def _resolve_media_target(rel: str) -> str:
+        rel_clean = str(rel or "").lstrip("/")
+        file_path = Path(settings.MEDIA_ROOT) / rel_clean
+        if file_path.exists():
+            return file_path.resolve().as_uri()
+
+        mime_type, _ = mimetypes.guess_type(rel_clean)
+        if (mime_type or "").startswith("image/"):
+            return "data:image/png;base64," + base64.b64encode(_TRANSPARENT_PNG_BYTES).decode("ascii")
+        return "about:blank"
+
+    # Replace quoted URLs in HTML attributes.
+    quoted_pattern = re.compile(r"(?P<q>['\"])" + re.escape(media_path_prefix) + r"(?P<rel>[^'\"]+)(?P=q)")
+
+    def _quoted_repl(match: re.Match[str]) -> str:
+        q = match.group("q")
+        rel = match.group("rel")
+        return f"{q}{_resolve_media_target(rel)}{q}"
+
+    content = quoted_pattern.sub(_quoted_repl, content)
+
+    # Replace CSS url(/media/...) patterns.
+    css_url_pattern = re.compile(
+        r"url\((?P<q>['\"]?)" + re.escape(media_path_prefix) + r"(?P<rel>[^)'\"]+)(?P=q)\)",
+        flags=re.IGNORECASE,
+    )
+
+    def _css_repl(match: re.Match[str]) -> str:
+        q = match.group("q") or ""
+        rel = match.group("rel")
+        return f"url({q}{_resolve_media_target(rel)}{q})"
+
+    return css_url_pattern.sub(_css_repl, content)
 
 
 def render_pdf_bytes_from_html(*, html: str, base_url: str | None = None, extra_css: str = "") -> bytes:
@@ -96,9 +167,10 @@ def render_pdf_bytes_from_html(*, html: str, base_url: str | None = None, extra_
             "https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation"
         ) from e
 
-    stylesheets = [CSS(string=PDF_BASE_CSS)]
+    html = _rewrite_local_media_urls(html)
+    stylesheets = [CSS(string=_rewrite_local_media_urls(PDF_BASE_CSS))]
     if extra_css:
-        stylesheets.append(CSS(string=extra_css))
+        stylesheets.append(CSS(string=_rewrite_local_media_urls(extra_css)))
 
     return HTML(
         string=html,

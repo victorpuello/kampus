@@ -17,6 +17,7 @@ const routePrefetchers: RoutePrefetcher[] = [
   { prefix: '/promotion', load: () => import('../pages/PromotionWorkflow') },
   { prefix: '/commissions', load: () => import('../pages/CommissionsWorkflow') },
   { prefix: '/academic-config', load: () => import('../pages/AcademicConfigPanel') },
+  { prefix: '/operations/jobs', load: () => import('../pages/OperationsJobsConsole') },
 ]
 
 const normalizePath = (path: string) => path.split('?')[0].split('#')[0]

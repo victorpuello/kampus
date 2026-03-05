@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from communications.models import EmailDelivery
+from reports.models import PeriodicJobRuntimeConfig
 
 from notifications.services import admin_like_users_qs, notify_users
 
@@ -86,6 +87,13 @@ class Command(BaseCommand):
         max_suppressed = max(0, int(options["max_suppressed"]))
         min_success_rate = float(options["min_success_rate"])
         notify_admins = bool(options["notify_admins"])
+
+        runtime_cfg = PeriodicJobRuntimeConfig.objects.filter(job_key="check-notifications-health").first()
+        runtime_params = (runtime_cfg.params_override or {}) if runtime_cfg else {}
+        if isinstance(runtime_params.get("max_failed"), int):
+            max_failed = max(0, int(runtime_params["max_failed"]))
+        if isinstance(runtime_params.get("max_suppressed"), int):
+            max_suppressed = max(0, int(runtime_params["max_suppressed"]))
 
         default_fail = _env_bool("KAMPUS_NOTIFICATIONS_ALERT_FAIL_ON_BREACH", True)
         if bool(options["no_fail_on_breach"]):

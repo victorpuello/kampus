@@ -40,7 +40,6 @@ import { academicApi } from '../services/academic'
 import { enrollmentsApi, type Enrollment } from '../services/enrollments'
 import { disciplineApi, type DisciplineCaseListItem } from '../services/discipline'
 import { certificatesApi, type CertificateIssueListItem } from '../services/certificates'
-import { reportsApi, type ReportJob } from '../services/reports'
 import type { StudentCompletion } from '../services/students'
 import { StudentCompletionBar } from '../components/students/StudentCompletionBar'
 
@@ -643,8 +642,6 @@ export default function StudentForm() {
         setToast({ message, type, isVisible: true })
     }
 
-    const [issuingStudyCertificatePdf, setIssuingStudyCertificatePdf] = useState(false)
-
     const [certificateIssues, setCertificateIssues] = useState<CertificateIssueListItem[]>([])
     const [certificateIssuesLoading, setCertificateIssuesLoading] = useState(false)
     const [certificateIssuesError, setCertificateIssuesError] = useState<string | null>(null)
@@ -679,48 +676,6 @@ export default function StudentForm() {
         }
 
         showToast(`${fallbackMessage}${statusText}`, 'error')
-    }
-
-    const pollJobUntilFinished = async (jobId: number): Promise<ReportJob> => {
-        let attempt = 0
-        const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
-
-        for (;;) {
-            const res = await reportsApi.getJob(jobId)
-            const job = res.data
-            if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
-            attempt += 1
-            await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
-        }
-    }
-
-    const handleIssueStudyCertificatePdf = async () => {
-        if (!currentEnrollment) {
-            showToast('El estudiante no tiene matrícula activa.', 'error')
-            return
-        }
-
-        setIssuingStudyCertificatePdf(true)
-        try {
-            const created = await certificatesApi.issueStudies({ enrollment_id: Number(currentEnrollment.id) })
-            const job = await pollJobUntilFinished(created.data.id)
-            if (job.status !== 'SUCCEEDED') {
-                showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
-                return
-            }
-
-            const res = await reportsApi.downloadJob(job.id)
-            const blob = res.data instanceof Blob ? res.data : new Blob([res.data])
-            const doc = (formData.document_number || '').trim()
-            const filename = doc ? `certificado-estudios-${doc}.pdf` : 'certificado-estudios.pdf'
-            downloadBlob(blob, filename)
-            showToast('Certificado generado.', 'success')
-        } catch (err: unknown) {
-            console.error(err)
-            await showAxiosBlobError(err, 'Error generando certificado')
-        } finally {
-            setIssuingStudyCertificatePdf(false)
-        }
     }
 
     const refreshCertificateIssues = async () => {
@@ -1614,16 +1569,6 @@ export default function StudentForm() {
                                 >
                                     <GraduationCap className="h-4 w-4 mr-2" />
                                     Certificación (vista)
-                                </Button>
-                                <Button
-                                    variant="default"
-                                    size="sm"
-                                    disabled={issuingStudyCertificatePdf || currentEnrollmentLoading || !currentEnrollment}
-                                    onClick={handleIssueStudyCertificatePdf}
-                                    title={!currentEnrollment ? 'Requiere matrícula activa' : 'Generar certificado oficial en PDF'}
-                                    className="shrink-0"
-                                >
-                                    {issuingStudyCertificatePdf ? 'Generando…' : 'Generar PDF'}
                                 </Button>
                             </>
                         )}
@@ -2549,19 +2494,6 @@ export default function StudentForm() {
                                 >
                                     <RefreshCcw className="h-4 w-4 mr-2" />
                                     Actualizar
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    disabled={
-                                        issuingStudyCertificatePdf ||
-                                        currentEnrollmentLoading ||
-                                        !currentEnrollment
-                                    }
-                                    onClick={handleIssueStudyCertificatePdf}
-                                    title={!currentEnrollment ? 'Requiere matrícula activa' : 'Generar PDF oficial'}
-                                >
-                                    <GraduationCap className="h-4 w-4 mr-2" />
-                                    {issuingStudyCertificatePdf ? 'Generando…' : 'Generar PDF'}
                                 </Button>
                             </div>
                         </div>

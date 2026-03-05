@@ -4,6 +4,21 @@ Prioridades: [P0] crítico/MVP, [P1] importante, [P2] siguiente iteración, [P3]
 
 ## 🐛 BUGS A CORREGIR
 
+## Sprint Actual - Recordatorios de Planeacion Docente
+- ✅ Command `notify_pending_planning_teachers` implementado con reglas `0%` y `<100%` para periodo actual.
+- ✅ Mensajes incluyen fecha de cierre (`planning_edit_until` o fin de `end_date`) y CTA a `/planning`.
+- ✅ Canales activos via `notify_users`: in-app + correo.
+- ✅ Deduplicación diaria por docente/periodo/categoría.
+- ✅ Task Celery `teachers.notify_pending_planning_teachers` creada.
+- ✅ Schedule Beat configurado en `settings.py` por env vars `KAMPUS_PLANNING_REMINDER_*`.
+- ✅ Variables documentadas en `env.backend.example`.
+- ✅ Tests backend del feature (`teachers.test_planning_reminders`) pasando.
+- ✅ `docker-compose.prod.yml` activado por defecto con `KAMPUS_PLANNING_REMINDER_BEAT_ENABLED=true`.
+- ✅ Guia operativa creada: `docs/guia_despliegue_recordatorios_planeacion.md`.
+- [ ] Desplegar cambios en producción y reiniciar `backend_beat` + `backend_worker`.
+- [ ] Verificar primera ejecución programada en logs y muestreo de `Notification`/`EmailDelivery`.
+- [ ] Monitorear 24h con `check_notifications_health` para confirmar impacto de tasa de éxito.
+
 ### [P1] Autenticación en generación de reportes (9 dic 2025)
 **Estado:** Investigado, fallo de autenticación en frontend
 **Síntomas:**

@@ -8,6 +8,7 @@ from django.db.models import Count
 from django.utils import timezone
 
 from notifications.services import notify_users
+from reports.models import PeriodicJobRuntimeConfig
 from students.models import Enrollment
 from novelties.models import NoveltyCase
 from users.models import User
@@ -96,6 +97,10 @@ class Command(BaseCommand):
         admin_days = _env_int("KAMPUS_NOVELTIES_SLA_ESCALATE_ADMIN_DAYS", base_days)
         coordinator_days = _env_int("KAMPUS_NOVELTIES_SLA_ESCALATE_COORDINATOR_DAYS", 5)
         dedupe_within_seconds = _env_int("KAMPUS_NOVELTIES_SLA_DEDUPE_WITHIN_SECONDS", 90000)
+
+        runtime_cfg = PeriodicJobRuntimeConfig.objects.filter(job_key="notify-novelties-sla").first()
+        if runtime_cfg and isinstance((runtime_cfg.params_override or {}).get("dedupe_within_seconds"), int):
+            dedupe_within_seconds = max(0, int(runtime_cfg.params_override["dedupe_within_seconds"]))
 
         notify_teachers = _env_bool("KAMPUS_NOVELTIES_SLA_NOTIFY_TEACHERS_ENABLED", True)
         notify_admins = _env_bool("KAMPUS_NOVELTIES_SLA_NOTIFY_ADMINS_ENABLED", True)

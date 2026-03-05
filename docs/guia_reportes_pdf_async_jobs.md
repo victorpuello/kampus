@@ -162,3 +162,69 @@ Descarga:
   - Logs del worker (busca `report_job.failed`).
 - Si la descarga da 409:
   - El job aún no está en `SUCCEEDED` o no tiene `output_relpath`.
+
+---
+
+## 7) Punto crítico: `/media` en contenedores (evitar `FileNotFoundError`)
+
+Síntoma típico en `backend_worker`:
+
+```text
+FileNotFoundError: [Errno 2] No such file or directory: '/media/institutions/letterheads/...'
+```
+
+Contexto real observado:
+- Django usa `MEDIA_ROOT=/app/media`.
+- Durante render PDF (WeasyPrint), algunos recursos pueden terminar resolviéndose como ruta absoluta `/media/...`.
+- Si `/media` no está montado dentro del contenedor (`backend_worker`), el archivo existe en `/app/media` pero falla al abrir `/media/...`.
+
+### Configuración obligatoria de volúmenes (dev y prod)
+
+En `docker-compose.yml` deben estar estos mounts:
+
+- `backend`:
+  - `./backend:/app`
+  - `./backend/media:/media`
+- `backend_worker`:
+  - `./backend:/app`
+  - `./backend/media:/media`
+- `backend_scheduler`:
+  - `./backend:/app`
+  - `./backend/media:/media`
+
+Recomendado también en `backend_beat` para consistencia operativa.
+
+Nota para producción:
+- `docker-compose.prod.yml` es un override. Si no redefine `volumes`, hereda los de `docker-compose.yml`.
+- Asegúrate de desplegar SIEMPRE ambos archivos (`-f docker-compose.yml -f docker-compose.prod.yml`).
+
+### Aplicación de cambios en deploy
+
+```bash
+docker compose up -d --force-recreate backend backend_worker backend_scheduler backend_beat
+```
+
+### Verificación post-deploy (obligatoria)
+
+1. Confirmar visibilidad de archivos en `/media` dentro del worker:
+
+```bash
+docker compose exec -T backend_worker sh -lc 'ls -l /media/institutions/letterheads | head'
+```
+
+2. Confirmar ausencia de errores recientes de jobs PDF:
+
+```bash
+docker compose logs --since 10m backend_worker | grep -Ei 'FileNotFoundError|No such file or directory|report_job.failed' || true
+```
+
+3. Smoke test rápido de WeasyPrint con una imagen de `/media`:
+
+```bash
+docker compose exec -T backend_worker python manage.py shell -c "from reports.weasyprint_utils import render_pdf_bytes_from_html; html='<html><body><img src=\"/media/institutions/letterheads/memebreteineplavi.png\"/></body></html>'; pdf=render_pdf_bytes_from_html(html=html, base_url='/app'); print('pdf_ok=', isinstance(pdf,(bytes,bytearray)), 'size=', len(pdf))"
+```
+
+### Operación después de corregir el mount
+
+- Si hay jobs en `FAILED` por este incidente, reintentar generación con un job nuevo.
+- No uses jobs viejos para validar fix: pueden contener estados previos (`FAILED`) que no cambian.

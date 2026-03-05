@@ -235,9 +235,11 @@ USE_TZ = True
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
-# Archivos de medios (si aplica en el futuro)
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+# Archivos de medios
+# Permite override por entorno (p.ej. contenedores con volumen dedicado).
+_media_url_raw = (os.getenv("DJANGO_MEDIA_URL") or "/media/").strip()
+MEDIA_URL = f"/{_media_url_raw.strip('/')}/" if _media_url_raw.strip("/") else "/media/"
+MEDIA_ROOT = Path((os.getenv("DJANGO_MEDIA_ROOT") or str(BASE_DIR / "media")).strip())
 
 # Storage privado (fuera de MEDIA)
 #
@@ -323,6 +325,11 @@ KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED = (os.getenv("KAMPUS_NOTIFICATIONS_HEAL
 KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE = int(os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE", "15"))
 KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR = (os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR") or "*").strip()
 KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK = (os.getenv("KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK") or "1-5").strip()
+KAMPUS_PLANNING_REMINDER_ENABLED = (os.getenv("KAMPUS_PLANNING_REMINDER_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
+KAMPUS_PLANNING_REMINDER_BEAT_ENABLED = (os.getenv("KAMPUS_PLANNING_REMINDER_BEAT_ENABLED") or "false").strip().lower() in {"1", "true", "yes"}
+KAMPUS_PLANNING_REMINDER_BEAT_MINUTE = int(os.getenv("KAMPUS_PLANNING_REMINDER_BEAT_MINUTE", "0"))
+KAMPUS_PLANNING_REMINDER_BEAT_HOUR = int(os.getenv("KAMPUS_PLANNING_REMINDER_BEAT_HOUR", "7"))
+KAMPUS_PLANNING_REMINDER_BEAT_DAY_OF_WEEK = (os.getenv("KAMPUS_PLANNING_REMINDER_BEAT_DAY_OF_WEEK") or "1-5").strip()
 
 CELERY_BEAT_SCHEDULE = {}
 if KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED and KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED:
@@ -341,6 +348,15 @@ if KAMPUS_NOTIFICATIONS_HEALTH_BEAT_ENABLED:
             minute=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_MINUTE,
             hour=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_HOUR,
             day_of_week=KAMPUS_NOTIFICATIONS_HEALTH_BEAT_DAY_OF_WEEK,
+        ),
+    }
+if KAMPUS_PLANNING_REMINDER_ENABLED and KAMPUS_PLANNING_REMINDER_BEAT_ENABLED:
+    CELERY_BEAT_SCHEDULE["notify-pending-planning-teachers"] = {
+        "task": "teachers.notify_pending_planning_teachers",
+        "schedule": crontab(
+            minute=KAMPUS_PLANNING_REMINDER_BEAT_MINUTE,
+            hour=KAMPUS_PLANNING_REMINDER_BEAT_HOUR,
+            day_of_week=KAMPUS_PLANNING_REMINDER_BEAT_DAY_OF_WEEK,
         ),
     }
 

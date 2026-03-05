@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -9,7 +9,7 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from .models import ReportJob
+from .models import PeriodicJobRun, ReportJob
 from .weasyprint_utils import WeasyPrintUnavailableError
 
 
@@ -161,6 +161,336 @@ class ReportJobVerificationTests(APITestCase):
 
 
 class ReportJobApiTests(APITestCase):
+	def test_operations_overview_requires_superadmin(self):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_ops_overview", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.get("/api/reports/operations/jobs/overview/")
+		self.assertEqual(res.status_code, 403)
+
+	def test_operations_overview_returns_data_for_superadmin(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_overview", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.get("/api/reports/operations/jobs/overview/")
+		self.assertEqual(res.status_code, 200)
+		self.assertIn("report_jobs", res.data)
+		self.assertIn("periodic_jobs", res.data)
+		self.assertIn("latest_runs", res.data)
+
+	@patch.dict("reports.views.OperationsRunNowAPIView.TASK_DISPATCH", clear=True)
+	def test_operations_run_now_dispatches_for_superadmin(self):
+		from reports.views import OperationsRunNowAPIView  # noqa: PLC0415
+
+		mock_result = MagicMock()
+		mock_result.id = "task-123"
+		mock_task = MagicMock()
+		mock_task.delay.return_value = mock_result
+		mock_task.name = "novelties.notify_novelties_sla"
+		OperationsRunNowAPIView.TASK_DISPATCH["notify-novelties-sla"] = mock_task
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_run_now", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/run-now/",
+			{"job_key": "notify-novelties-sla"},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 202)
+		self.assertTrue(res.data.get("dispatched"))
+		self.assertEqual(res.data.get("task_id"), "task-123")
+		run_id = res.data.get("run_id")
+		self.assertIsNotNone(run_id)
+		run = PeriodicJobRun.objects.get(id=run_id)
+		self.assertEqual(run.job_key, "notify-novelties-sla")
+		self.assertEqual(run.status, PeriodicJobRun.Status.PENDING)
+		mock_task.delay.assert_called_once_with(periodic_run_id=run.id)
+
+	def test_operations_run_now_rejects_unknown_job_key(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_badkey", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/run-now/",
+			{"job_key": "unknown-job"},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 400)
+		self.assertIn("supported_job_keys", res.data)
+
+	@patch.dict("reports.views.OperationsRunNowAPIView.TASK_DISPATCH", clear=True)
+	def test_operations_run_now_rejects_when_job_is_paused(self):
+		from reports.models import PeriodicJobRuntimeConfig  # noqa: PLC0415
+		from reports.views import OperationsRunNowAPIView  # noqa: PLC0415
+
+		mock_result = MagicMock()
+		mock_result.id = "task-456"
+		mock_task = MagicMock()
+		mock_task.delay.return_value = mock_result
+		mock_task.name = "novelties.notify_novelties_sla"
+		OperationsRunNowAPIView.TASK_DISPATCH["notify-novelties-sla"] = mock_task
+
+		PeriodicJobRuntimeConfig.objects.create(job_key="notify-novelties-sla", enabled_override=False)
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_paused", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/run-now/",
+			{"job_key": "notify-novelties-sla"},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 409)
+		mock_task.delay.assert_not_called()
+
+	def test_operations_toggle_updates_job_runtime_override(self):
+		from reports.models import PeriodicJobRuntimeConfig  # noqa: PLC0415
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_toggle", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/toggle/",
+			{"job_key": "notify-novelties-sla", "enabled": False},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data.get("job_key"), "notify-novelties-sla")
+		self.assertFalse(res.data.get("enabled"))
+
+		obj = PeriodicJobRuntimeConfig.objects.get(job_key="notify-novelties-sla")
+		self.assertFalse(obj.enabled_override)
+
+	def test_operations_toggle_requires_superadmin(self):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_ops_toggle", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/toggle/",
+			{"job_key": "notify-novelties-sla", "enabled": False},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 403)
+
+	def test_operations_params_updates_runtime_override(self):
+		from reports.models import PeriodicJobRuntimeConfig  # noqa: PLC0415
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_params", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/params/",
+			{"job_key": "notify-pending-planning-teachers", "params": {"dedupe_within_seconds": 120}},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data.get("job_key"), "notify-pending-planning-teachers")
+		self.assertEqual(res.data.get("params_override", {}).get("dedupe_within_seconds"), 120)
+
+		cfg = PeriodicJobRuntimeConfig.objects.get(job_key="notify-pending-planning-teachers")
+		self.assertEqual((cfg.params_override or {}).get("dedupe_within_seconds"), 120)
+
+	def test_operations_params_rejects_invalid_value(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_params_bad", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/params/",
+			{"job_key": "notify-pending-planning-teachers", "params": {"dedupe_within_seconds": -1}},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 400)
+
+	def test_operations_params_requires_superadmin(self):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_ops_params", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/params/",
+			{"job_key": "notify-pending-planning-teachers", "params": {"dedupe_within_seconds": 120}},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 403)
+
+	def test_operations_params_updates_notifications_health_thresholds(self):
+		from reports.models import PeriodicJobRuntimeConfig  # noqa: PLC0415
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_params_health", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/params/",
+			{
+				"job_key": "check-notifications-health",
+				"params": {"max_failed": 7, "max_suppressed": 31},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data.get("params_override", {}).get("max_failed"), 7)
+		self.assertEqual(res.data.get("params_override", {}).get("max_suppressed"), 31)
+
+		cfg = PeriodicJobRuntimeConfig.objects.get(job_key="check-notifications-health")
+		self.assertEqual((cfg.params_override or {}).get("max_failed"), 7)
+		self.assertEqual((cfg.params_override or {}).get("max_suppressed"), 31)
+
+	def test_operations_schedule_updates_runtime_override(self):
+		from reports.models import PeriodicJobRuntimeConfig  # noqa: PLC0415
+
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_schedule", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/schedule/",
+			{
+				"job_key": "notify-pending-planning-teachers",
+				"schedule": {"minute": "5", "hour": "6", "day_of_week": "1-5"},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 200)
+		self.assertTrue(res.data.get("scheduler_restart_required"))
+
+		cfg = PeriodicJobRuntimeConfig.objects.get(job_key="notify-pending-planning-teachers")
+		self.assertEqual((cfg.schedule_override or {}).get("minute"), "5")
+		self.assertEqual((cfg.schedule_override or {}).get("hour"), "6")
+		self.assertEqual((cfg.schedule_override or {}).get("day_of_week"), "1-5")
+
+	def test_operations_schedule_requires_superadmin(self):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_ops_schedule", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/schedule/",
+			{
+				"job_key": "notify-pending-planning-teachers",
+				"schedule": {"minute": "5", "hour": "6", "day_of_week": "1-5"},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 403)
+
+	def test_operations_schedule_rejects_invalid_minute(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_schedule_min", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/schedule/",
+			{
+				"job_key": "notify-pending-planning-teachers",
+				"schedule": {"minute": "99", "hour": "6", "day_of_week": "1-5"},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 400)
+		self.assertIn("schedule.minute", str(res.data.get("detail", "")))
+
+	def test_operations_schedule_rejects_invalid_hour(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_schedule_hour", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/schedule/",
+			{
+				"job_key": "notify-pending-planning-teachers",
+				"schedule": {"minute": "5", "hour": "44", "day_of_week": "1-5"},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 400)
+		self.assertIn("schedule.hour", str(res.data.get("detail", "")))
+
+	def test_operations_schedule_rejects_invalid_day_of_week(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_schedule_dow", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		res = self.client.post(
+			"/api/reports/operations/jobs/schedule/",
+			{
+				"job_key": "notify-pending-planning-teachers",
+				"schedule": {"minute": "5", "hour": "6", "day_of_week": "9"},
+			},
+			format="json",
+		)
+		self.assertEqual(res.status_code, 400)
+		self.assertIn("schedule.day_of_week", str(res.data.get("detail", "")))
+
+	def test_operations_run_logs_requires_superadmin(self):
+		User = get_user_model()
+		admin = User.objects.create_user(username="admin_ops_run_logs", password="p1", role=User.ROLE_ADMIN)
+		self.client.force_authenticate(user=admin)
+
+		job = ReportJob.objects.create(
+			created_by=admin,
+			report_type=ReportJob.ReportType.DUMMY,
+			params={},
+			status=ReportJob.Status.FAILED,
+			error_code="X",
+			error_message="fallo prueba",
+		)
+		job.add_event(event_type="FAILED", level="ERROR", message="fallo prueba")
+
+		res = self.client.get(f"/api/reports/operations/jobs/runs/{job.id}/logs/")
+		self.assertEqual(res.status_code, 403)
+
+	def test_operations_run_logs_returns_events_for_superadmin(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_run_logs", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		job = ReportJob.objects.create(
+			created_by=superadmin,
+			report_type=ReportJob.ReportType.DUMMY,
+			params={},
+			status=ReportJob.Status.FAILED,
+			error_code="X",
+			error_message="fallo prueba",
+		)
+		job.add_event(event_type="RUNNING", level="INFO", message="inicio")
+		job.add_event(event_type="FAILED", level="ERROR", message="fallo prueba")
+
+		res = self.client.get(f"/api/reports/operations/jobs/runs/{job.id}/logs/")
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data.get("run", {}).get("id"), job.id)
+		self.assertEqual(res.data.get("run", {}).get("status"), ReportJob.Status.FAILED)
+		self.assertGreaterEqual(len(res.data.get("events", [])), 2)
+
+	def test_operations_periodic_run_logs_returns_payload_for_superadmin(self):
+		User = get_user_model()
+		superadmin = User.objects.create_user(username="superadmin_ops_periodic_logs", password="p1", role=User.ROLE_SUPERADMIN)
+		self.client.force_authenticate(user=superadmin)
+
+		run = PeriodicJobRun.objects.create(
+			job_key="notify-pending-planning-teachers",
+			task_name="teachers.notify_pending_planning_teachers",
+			triggered_by=superadmin,
+			status=PeriodicJobRun.Status.SUCCEEDED,
+			output_text="ok",
+		)
+
+		res = self.client.get(f"/api/reports/operations/jobs/periodic-runs/{run.id}/logs/")
+		self.assertEqual(res.status_code, 200)
+		self.assertEqual(res.data.get("run", {}).get("id"), run.id)
+		self.assertEqual(res.data.get("run", {}).get("status"), PeriodicJobRun.Status.SUCCEEDED)
+		self.assertGreaterEqual(len(res.data.get("events", [])), 1)
+
 	def test_pdf_healthcheck_requires_authentication(self):
 		res = self.client.get("/api/reports/health/pdf/")
 		self.assertEqual(res.status_code, 401)

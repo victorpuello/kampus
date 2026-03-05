@@ -57,6 +57,7 @@ Luego abre:
 ### Deploy y operación
 
 - [Guía de deploy en Vultr con Docker](docs/guia_deploy_vultr_docker.md)
+- [Guía de reportes PDF asíncronos (incluye troubleshooting de /media)](docs/guia_reportes_pdf_async_jobs.md)
 - [Runbook jornada de votaciones](docs/runbook_jornada_votaciones_gobierno_escolar.md)
 - [Runbook verificación QR](docs/runbook_verificacion_qr.md)
 - [Runbook remediación de logros](docs/runbook_remediacion_logros_banco_deploy.md)

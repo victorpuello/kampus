@@ -143,3 +143,74 @@ class ReportJobEvent(models.Model):
 
 	def __str__(self) -> str:
 		return f"ReportJobEvent({self.id}) {self.event_type}"
+
+
+class PeriodicJobRuntimeConfig(models.Model):
+	# Key must match the scheduler key used in CELERY_BEAT_SCHEDULE and operations UI.
+	job_key = models.CharField(max_length=80, unique=True)
+	# Null means "fallback to env settings"; True/False explicitly overrides runtime enabled state.
+	enabled_override = models.BooleanField(null=True, blank=True)
+	# Dynamic operational parameters editable from the operations console.
+	params_override = models.JSONField(default=dict, blank=True)
+	# Optional cron-like runtime override for periodic schedule metadata.
+	schedule_override = models.JSONField(default=dict, blank=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ["job_key"]
+
+	def __str__(self) -> str:
+		return f"PeriodicJobRuntimeConfig({self.job_key})={self.enabled_override}"
+
+
+class PeriodicJobRun(models.Model):
+	class Status(models.TextChoices):
+		PENDING = "PENDING", "Pendiente"
+		RUNNING = "RUNNING", "En ejecucion"
+		SUCCEEDED = "SUCCEEDED", "Completado"
+		FAILED = "FAILED", "Fallido"
+
+	job_key = models.CharField(max_length=80, db_index=True)
+	task_name = models.CharField(max_length=120)
+	triggered_by = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.SET_NULL,
+		related_name="periodic_job_runs",
+		null=True,
+		blank=True,
+	)
+	celery_task_id = models.CharField(max_length=100, blank=True, default="")
+	status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+	created_at = models.DateTimeField(auto_now_add=True)
+	started_at = models.DateTimeField(null=True, blank=True)
+	finished_at = models.DateTimeField(null=True, blank=True)
+	error_message = models.TextField(blank=True, default="")
+	output_text = models.TextField(blank=True, default="")
+
+	class Meta:
+		ordering = ["-created_at", "-id"]
+
+	def mark_running(self) -> None:
+		self.status = self.Status.RUNNING
+		if self.started_at is None:
+			self.started_at = timezone.now()
+		self.save(update_fields=["status", "started_at"])
+
+	def mark_succeeded(self, *, output_text: str = "") -> None:
+		self.status = self.Status.SUCCEEDED
+		self.finished_at = timezone.now()
+		if output_text:
+			self.output_text = output_text
+		self.error_message = ""
+		self.save(update_fields=["status", "finished_at", "output_text", "error_message"])
+
+	def mark_failed(self, *, error_message: str = "", output_text: str = "") -> None:
+		self.status = self.Status.FAILED
+		self.finished_at = timezone.now()
+		if output_text:
+			self.output_text = output_text
+		self.error_message = error_message or ""
+		self.save(update_fields=["status", "finished_at", "output_text", "error_message"])
+
+	def __str__(self) -> str:
+		return f"PeriodicJobRun({self.id}) {self.job_key} {self.status}"

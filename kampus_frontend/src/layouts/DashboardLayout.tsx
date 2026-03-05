@@ -17,7 +17,8 @@ import {
   Moon,
   ChevronDown,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Activity
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { academicApi } from '../services/academic'
@@ -105,6 +106,7 @@ export default function DashboardLayout() {
   }
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+  const isSuperAdmin = user?.role === 'SUPERADMIN'
   const canResetElectionTokens =
     user?.role === 'ADMIN' ||
     user?.role === 'SUPERADMIN' ||
@@ -587,6 +589,15 @@ export default function DashboardLayout() {
             } as NavigationItem,
           ]
         : []),
+      ...(isSuperAdmin
+        ? [
+            {
+              name: 'Operaciones',
+              icon: Activity,
+              children: [{ name: 'Jobs', href: '/operations/jobs' }],
+            } as NavigationItem,
+          ]
+        : []),
       { name: 'Reportes', href: '/enrollments/reports', icon: BarChart3 },
       ...(isAdministrativeStaff
         ? [
@@ -634,6 +645,7 @@ export default function DashboardLayout() {
   }, [
     canManageRbac,
     canResetElectionTokens,
+    isSuperAdmin,
     isAdministrativeStaff,
     isParent,
     isTeacher,

@@ -1223,14 +1223,33 @@ def generate_report_job_pdf(self, job_id: int) -> None:
         )
 
     except Exception as exc:  # noqa: BLE001
-        # Certificates should not remain valid if PDF generation fails.
         if job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:
             try:
                 from students.models import CertificateIssue  # noqa: PLC0415
 
-                params = job.params or {}
-                cu = str(params.get("certificate_uuid") or "").strip()
-                CertificateIssue.objects.filter(uuid=cu, status=CertificateIssue.STATUS_PENDING).delete()
+                # If the issue no longer exists, retries won't recover.
+                if isinstance(exc, CertificateIssue.DoesNotExist):
+                    job.mark_failed(
+                        error_code="CERTIFICATE_ISSUE_NOT_FOUND",
+                        error_message="CertificateIssue no existe o fue eliminado antes de completar el job.",
+                    )
+                    logger.exception(
+                        "report_job.failed_non_retriable",
+                        extra={
+                            "job_id": job.id,
+                            "report_type": job.report_type,
+                        },
+                    )
+                    return
+
+                # Revoke pending certificate only on the last retry attempt.
+                current_retries = int(getattr(self.request, "retries", 0) or 0)
+                max_retries = int(getattr(self, "max_retries", 0) or 0)
+                is_last_attempt = current_retries >= max_retries
+                if is_last_attempt:
+                    params = job.params or {}
+                    cu = str(params.get("certificate_uuid") or "").strip()
+                    CertificateIssue.objects.filter(uuid=cu, status=CertificateIssue.STATUS_PENDING).delete()
             except Exception:
                 pass
 

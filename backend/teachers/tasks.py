@@ -12,8 +12,8 @@ from reports.models import PeriodicJobRun
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="notifications.check_notifications_health")
-def check_notifications_health_task(periodic_run_id: int | None = None) -> None:
+@shared_task(name="teachers.notify_pending_planning_teachers")
+def notify_pending_planning_teachers_task(periodic_run_id: int | None = None) -> None:
     run = PeriodicJobRun.objects.filter(id=periodic_run_id).first() if periodic_run_id else None
     buffer = StringIO()
 
@@ -21,14 +21,14 @@ def check_notifications_health_task(periodic_run_id: int | None = None) -> None:
         run.mark_running()
 
     try:
-        call_command("check_notifications_health", stdout=buffer, stderr=buffer)
+        call_command("notify_pending_planning_teachers", stdout=buffer, stderr=buffer)
         if run is not None:
             run.mark_succeeded(output_text=buffer.getvalue().strip()[:20000])
     except Exception:
         if run is not None:
             run.mark_failed(
-                error_message="Error ejecutando check_notifications_health",
+                error_message="Error ejecutando notify_pending_planning_teachers",
                 output_text=buffer.getvalue().strip()[:20000],
             )
-        logger.exception("Failed executing scheduled task check_notifications_health")
+        logger.exception("Failed executing scheduled task notify_pending_planning_teachers")
         raise

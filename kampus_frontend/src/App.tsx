@@ -60,6 +60,7 @@ const ElectionTokenReset = lazy(() => import('./pages/ElectionTokenReset'))
 const ElectionProcessesManage = lazy(() => import('./pages/ElectionProcessesManage'))
 const ElectionCensusManage = lazy(() => import('./pages/ElectionCensusManage'))
 const ElectionLiveDashboard = lazy(() => import('./pages/ElectionLiveDashboard'))
+const OperationsJobsConsole = lazy(() => import('./pages/OperationsJobsConsole'))
 const NoveltiesInbox = lazy(() => import('./pages/NoveltiesInbox'))
 const NoveltyCaseDetail = lazy(() => import('./pages/NoveltyCaseDetail'))
 const NoveltyCaseNew = lazy(() => import('./pages/NoveltyCaseNew'))
@@ -172,6 +173,7 @@ export default function App() {
             <Route path="/gobierno-escolar/procesos" element={<ElectionProcessesManage />} />
             <Route path="/gobierno-escolar/censo" element={<ElectionCensusManage />} />
             <Route path="/gobierno-escolar/monitoreo" element={<ElectionLiveDashboard />} />
+            <Route path="/operations/jobs" element={<OperationsJobsConsole />} />
             <Route path="/votaciones/reset-token" element={<ElectionTokenReset />} />
             <Route path="/administrativos/certificados" element={<AdministrativeCertificates />} />
             <Route path="/administrativos/certificados/preview" element={<AdministrativeCertificatesPreview />} />
