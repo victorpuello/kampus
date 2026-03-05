@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import csv
+from datetime import timedelta
 import hashlib
 import hmac
 import io
 import logging
+import re
 
 from django.conf import settings
 from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import models
+from django.db.utils import OperationalError, ProgrammingError
 from django.http import HttpResponse
+from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -21,13 +26,20 @@ from rest_framework.views import APIView
 
 from users.permissions import IsAdmin
 
-from .models import EmailDelivery, EmailEvent, EmailSuppression, EmailTemplate, MailgunSettings, MailgunSettingsAudit
+from .models import EmailDelivery, EmailEvent, EmailSuppression, EmailTemplate, MailgunSettings, MailgunSettingsAudit, WhatsAppSettings
+from .models import WhatsAppContact, WhatsAppDelivery, WhatsAppEvent, WhatsAppInstitutionMetric, WhatsAppSuppression, WhatsAppTemplateMap
+from django.db.models import Count
 from .preferences import (
 	get_or_create_preference,
 	set_marketing_preference,
 	validate_unsubscribe_token,
 )
-from .runtime_settings import apply_effective_mail_settings, get_effective_mail_settings
+from .runtime_settings import (
+	apply_effective_mail_settings,
+	apply_effective_whatsapp_settings,
+	get_effective_mail_settings,
+	get_effective_whatsapp_settings,
+)
 from .template_service import list_template_defaults, render_email_template, send_templated_email
 
 
@@ -88,6 +100,21 @@ def _is_valid_mailgun_signature(payload: dict) -> bool:
 	return hmac.compare_digest(digest, signature)
 
 
+def _is_valid_whatsapp_signature(request, raw_body: bytes) -> bool:
+	effective = get_effective_whatsapp_settings()
+	app_secret = str(effective.app_secret or "").strip()
+	if not app_secret:
+		return not bool(effective.webhook_strict)
+
+	signature = str(request.headers.get("X-Hub-Signature-256") or "").strip()
+	if not signature.startswith("sha256="):
+		return False
+
+	received_digest = signature.split("=", 1)[1]
+	computed_digest = hmac.new(app_secret.encode("utf-8"), msg=raw_body, digestmod=hashlib.sha256).hexdigest()
+	return hmac.compare_digest(received_digest, computed_digest)
+
+
 def _mask_secret(value: str) -> str:
 	clean = str(value or "").strip()
 	if not clean:
@@ -95,6 +122,52 @@ def _mask_secret(value: str) -> str:
 	if len(clean) <= 4:
 		return "*" * len(clean)
 	return f"{'*' * (len(clean) - 4)}{clean[-4:]}"
+
+
+def _normalize_whatsapp_phone(value: str) -> str:
+	clean = re.sub(r"[^0-9+]", "", str(value or "").strip())
+	if clean.startswith("00"):
+		clean = f"+{clean[2:]}"
+	elif clean and not clean.startswith("+"):
+		if len(clean) == 10 and clean.startswith("3"):
+			# Colombia local mobile number -> E.164 with country code.
+			clean = f"+57{clean}"
+		else:
+			clean = f"+{clean}"
+
+	if not re.fullmatch(r"\+[1-9][0-9]{7,14}", clean):
+		return ""
+	return clean
+
+
+def _serialize_whatsapp_contact(contact: WhatsAppContact | None) -> dict:
+	if contact is None:
+		return {
+			"has_contact": False,
+			"phone_number": "",
+			"is_active": False,
+			"updated_at": None,
+		}
+	return {
+		"has_contact": True,
+		"phone_number": contact.phone_number,
+		"is_active": bool(contact.is_active),
+		"updated_at": contact.updated_at,
+	}
+
+
+def _serialize_whatsapp_template_map(template_map: WhatsAppTemplateMap) -> dict:
+	return {
+		"id": template_map.id,
+		"notification_type": template_map.notification_type,
+		"template_name": template_map.template_name,
+		"language_code": template_map.language_code,
+		"body_parameter_names": list(template_map.body_parameter_names or []),
+		"default_components": list(template_map.default_components or []),
+		"category": template_map.category,
+		"is_active": bool(template_map.is_active),
+		"updated_at": template_map.updated_at,
+	}
 
 
 def _normalize_mailgun_api_url(value: str) -> str:
@@ -138,6 +211,29 @@ def _serialize_email_template(template: EmailTemplate) -> dict:
 		"allowed_variables": list(template.allowed_variables or []),
 		"is_active": bool(template.is_active),
 		"updated_at": template.updated_at,
+	}
+
+
+def _serialize_whatsapp_settings(config: WhatsAppSettings | None, *, environment: str | None = None) -> dict:
+	effective = get_effective_whatsapp_settings(environment=(config.environment if config else environment))
+	return {
+		"environment": effective.environment,
+		"enabled": bool(effective.enabled),
+		"provider": effective.provider,
+		"graph_base_url": effective.graph_base_url,
+		"api_version": effective.api_version,
+		"phone_number_id": effective.phone_number_id,
+		"access_token_masked": _mask_secret(effective.access_token),
+		"app_secret_masked": _mask_secret(effective.app_secret),
+		"webhook_verify_token_masked": _mask_secret(effective.webhook_verify_token),
+		"webhook_strict": bool(effective.webhook_strict),
+		"http_timeout_seconds": int(effective.http_timeout_seconds),
+		"send_mode": effective.send_mode,
+		"template_fallback_name": effective.template_fallback_name,
+		"access_token_configured": bool(effective.access_token),
+		"app_secret_configured": bool(effective.app_secret),
+		"webhook_verify_token_configured": bool(effective.webhook_verify_token),
+		"updated_at": config.updated_at if config else None,
 	}
 
 
@@ -271,6 +367,95 @@ class MailSettingsView(APIView):
 
 		apply_effective_mail_settings()
 		return Response(_serialize_mailgun_settings(config, environment=environment), status=status.HTTP_200_OK)
+
+
+class WhatsAppSettingsView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
+		try:
+			config = WhatsAppSettings.objects.filter(environment=environment).order_by("-updated_at").first()
+		except (OperationalError, ProgrammingError):
+			# Keep endpoint operable even when schema is temporarily out-of-sync.
+			config = None
+		return Response(_serialize_whatsapp_settings(config, environment=environment), status=status.HTTP_200_OK)
+
+	def put(self, request, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment") or payload.get("environment"))
+		try:
+			config = WhatsAppSettings.objects.filter(environment=environment).order_by("-updated_at").first()
+		except (OperationalError, ProgrammingError):
+			return Response(
+				{"detail": "La tabla de configuración de WhatsApp no está disponible. Ejecuta migraciones y reintenta."},
+				status=status.HTTP_503_SERVICE_UNAVAILABLE,
+			)
+
+		provider = str(payload.get("provider") or "meta_cloud_api").strip().lower()
+		graph_base_url = str(payload.get("graph_base_url") or "https://graph.facebook.com").strip().rstrip("/")
+		api_version = str(payload.get("api_version") or "v21.0").strip()
+		phone_number_id = str(payload.get("phone_number_id") or "").strip()
+		access_token = str(payload.get("access_token") or "").strip()
+		app_secret = str(payload.get("app_secret") or "").strip()
+		webhook_verify_token = str(payload.get("webhook_verify_token") or "").strip()
+		http_timeout_seconds = int(payload.get("http_timeout_seconds") or 12)
+		send_mode = str(payload.get("send_mode") or "template").strip().lower()
+		template_fallback_name = str(payload.get("template_fallback_name") or "").strip()
+		enabled = bool(payload.get("enabled", False))
+		webhook_strict = bool(payload.get("webhook_strict", True))
+
+		if not graph_base_url.startswith("http://") and not graph_base_url.startswith("https://"):
+			return Response({"detail": "graph_base_url debe iniciar con http:// o https://."}, status=status.HTTP_400_BAD_REQUEST)
+		if send_mode not in {"template", "text"}:
+			return Response({"detail": "send_mode debe ser 'template' o 'text'."}, status=status.HTTP_400_BAD_REQUEST)
+		if http_timeout_seconds < 3 or http_timeout_seconds > 120:
+			return Response({"detail": "http_timeout_seconds debe estar entre 3 y 120."}, status=status.HTTP_400_BAD_REQUEST)
+
+		effective_access_token = access_token or (config.access_token if config else "")
+		effective_phone_number_id = phone_number_id or (config.phone_number_id if config else "")
+		if enabled and (not effective_access_token or not effective_phone_number_id):
+			return Response({"detail": "Para habilitar WhatsApp, phone_number_id y access_token son obligatorios."}, status=status.HTTP_400_BAD_REQUEST)
+
+		if config is None:
+			config = WhatsAppSettings.objects.create(
+				environment=environment,
+				enabled=enabled,
+				provider=provider,
+				graph_base_url=graph_base_url,
+				api_version=api_version,
+				phone_number_id=phone_number_id,
+				access_token=access_token,
+				app_secret=app_secret,
+				webhook_verify_token=webhook_verify_token,
+				webhook_strict=webhook_strict,
+				http_timeout_seconds=http_timeout_seconds,
+				send_mode=send_mode,
+				template_fallback_name=template_fallback_name,
+				updated_by=request.user,
+			)
+		else:
+			config.enabled = enabled
+			config.provider = provider
+			config.graph_base_url = graph_base_url
+			config.api_version = api_version
+			config.webhook_strict = webhook_strict
+			config.http_timeout_seconds = http_timeout_seconds
+			config.send_mode = send_mode
+			config.template_fallback_name = template_fallback_name
+			if phone_number_id:
+				config.phone_number_id = phone_number_id
+			if access_token:
+				config.access_token = access_token
+			if app_secret:
+				config.app_secret = app_secret
+			if webhook_verify_token:
+				config.webhook_verify_token = webhook_verify_token
+			config.updated_by = request.user
+			config.save()
+
+		apply_effective_whatsapp_settings(environment=environment)
+		return Response(_serialize_whatsapp_settings(config, environment=environment), status=status.HTTP_200_OK)
 
 
 class MailSettingsTestView(APIView):
@@ -586,6 +771,197 @@ class MailSettingsAuditCsvExportView(APIView):
 		return response
 
 
+class WhatsAppTemplateMapListView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		template_maps = WhatsAppTemplateMap.objects.order_by("notification_type")
+		results = [_serialize_whatsapp_template_map(item) for item in template_maps]
+		return Response({"results": results}, status=status.HTTP_200_OK)
+
+	def put(self, request, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		notification_type = str(payload.get("notification_type") or "").strip().upper()
+		template_name = str(payload.get("template_name") or "").strip()
+		language_code = str(payload.get("language_code") or "es_CO").strip() or "es_CO"
+		body_parameter_names = payload.get("body_parameter_names") or []
+		default_components = payload.get("default_components") or []
+		category = str(payload.get("category") or WhatsAppTemplateMap.CATEGORY_UTILITY).strip().lower()
+		is_active = bool(payload.get("is_active", True))
+
+		if not notification_type:
+			return Response({"detail": "notification_type es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+		if not template_name:
+			return Response({"detail": "template_name es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+		if not isinstance(body_parameter_names, list) or not all(isinstance(item, str) for item in body_parameter_names):
+			return Response({"detail": "body_parameter_names debe ser una lista de strings."}, status=status.HTTP_400_BAD_REQUEST)
+		if not isinstance(default_components, list):
+			return Response({"detail": "default_components debe ser una lista."}, status=status.HTTP_400_BAD_REQUEST)
+		valid_categories = {
+			WhatsAppTemplateMap.CATEGORY_UTILITY,
+			WhatsAppTemplateMap.CATEGORY_AUTHENTICATION,
+			WhatsAppTemplateMap.CATEGORY_MARKETING,
+		}
+		if category not in valid_categories:
+			return Response({"detail": "category inválida."}, status=status.HTTP_400_BAD_REQUEST)
+
+		template_map, _ = WhatsAppTemplateMap.objects.update_or_create(
+			notification_type=notification_type,
+			defaults={
+				"template_name": template_name,
+				"language_code": language_code,
+				"body_parameter_names": body_parameter_names,
+				"default_components": default_components,
+				"category": category,
+				"is_active": is_active,
+				"updated_by": request.user,
+			},
+		)
+		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
+
+
+class WhatsAppTemplateMapDetailView(APIView):
+	permission_classes = [IsAdmin]
+
+	def put(self, request, map_id: int, *args, **kwargs):
+		template_map = WhatsAppTemplateMap.objects.filter(id=map_id).first()
+		if template_map is None:
+			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+		payload = request.data if isinstance(request.data, dict) else {}
+		if "template_name" in payload:
+			template_map.template_name = str(payload.get("template_name") or "").strip()
+		if "language_code" in payload:
+			template_map.language_code = str(payload.get("language_code") or "es_CO").strip() or "es_CO"
+		if "body_parameter_names" in payload:
+			body_parameter_names = payload.get("body_parameter_names")
+			if not isinstance(body_parameter_names, list) or not all(isinstance(item, str) for item in body_parameter_names):
+				return Response({"detail": "body_parameter_names debe ser una lista de strings."}, status=status.HTTP_400_BAD_REQUEST)
+			template_map.body_parameter_names = body_parameter_names
+		if "default_components" in payload:
+			default_components = payload.get("default_components")
+			if not isinstance(default_components, list):
+				return Response({"detail": "default_components debe ser una lista."}, status=status.HTTP_400_BAD_REQUEST)
+			template_map.default_components = default_components
+		if "category" in payload:
+			category = str(payload.get("category") or "").strip().lower()
+			if category not in {
+				WhatsAppTemplateMap.CATEGORY_UTILITY,
+				WhatsAppTemplateMap.CATEGORY_AUTHENTICATION,
+				WhatsAppTemplateMap.CATEGORY_MARKETING,
+			}:
+				return Response({"detail": "category inválida."}, status=status.HTTP_400_BAD_REQUEST)
+			template_map.category = category
+		if "is_active" in payload:
+			template_map.is_active = bool(payload.get("is_active"))
+		if "notification_type" in payload:
+			notification_type = str(payload.get("notification_type") or "").strip().upper()
+			if not notification_type:
+				return Response({"detail": "notification_type inválido."}, status=status.HTTP_400_BAD_REQUEST)
+			template_map.notification_type = notification_type
+
+		if not template_map.template_name:
+			return Response({"detail": "template_name es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		template_map.updated_by = request.user
+		template_map.save()
+		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
+
+	def delete(self, request, map_id: int, *args, **kwargs):
+		template_map = WhatsAppTemplateMap.objects.filter(id=map_id).first()
+		if template_map is None:
+			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+		template_map.delete()
+		return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WhatsAppHealthView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		hours_raw = str(request.query_params.get("hours") or "24").strip()
+		try:
+			hours = max(1, int(hours_raw))
+		except ValueError:
+			hours = 24
+
+		since = timezone.now() - timedelta(hours=hours)
+		qs = WhatsAppDelivery.objects.filter(created_at__gte=since)
+		total = qs.count()
+		sent = qs.filter(status=WhatsAppDelivery.STATUS_SENT).count()
+		delivered = qs.filter(status=WhatsAppDelivery.STATUS_DELIVERED).count()
+		read = qs.filter(status=WhatsAppDelivery.STATUS_READ).count()
+		failed = qs.filter(status=WhatsAppDelivery.STATUS_FAILED).count()
+		suppressed = qs.filter(status=WhatsAppDelivery.STATUS_SUPPRESSED).count()
+
+		success = sent + delivered + read
+		attempts = success + failed
+		success_rate = (success / attempts) * 100 if attempts else 100.0
+		top_errors = list(
+			qs.filter(status=WhatsAppDelivery.STATUS_FAILED)
+			.values("error_code")
+			.annotate(total=Count("id"))
+			.order_by("-total")[:5]
+		)
+		institution_breakdown = list(
+			qs.values("institution_id", "institution__name")
+			.annotate(
+				total=Count("id"),
+				sent=Count("id", filter=models.Q(status=WhatsAppDelivery.STATUS_SENT)),
+				delivered=Count("id", filter=models.Q(status=WhatsAppDelivery.STATUS_DELIVERED)),
+				read=Count("id", filter=models.Q(status=WhatsAppDelivery.STATUS_READ)),
+				failed=Count("id", filter=models.Q(status=WhatsAppDelivery.STATUS_FAILED)),
+				suppressed=Count("id", filter=models.Q(status=WhatsAppDelivery.STATUS_SUPPRESSED)),
+			)
+			.order_by("institution__name")
+		)
+		recent_metrics = list(
+			WhatsAppInstitutionMetric.objects.select_related("institution")
+			.order_by("-window_end")[:20]
+			.values(
+				"institution_id",
+				"institution__name",
+				"window_start",
+				"window_end",
+				"total",
+				"sent",
+				"delivered",
+				"read",
+				"failed",
+				"suppressed",
+				"success_rate",
+			)
+		)
+
+		return Response(
+			{
+				"window_hours": hours,
+				"totals": {
+					"total": total,
+					"sent": sent,
+					"delivered": delivered,
+					"read": read,
+					"failed": failed,
+					"suppressed": suppressed,
+				},
+				"success_rate": round(success_rate, 2),
+				"thresholds": {
+					"max_failed": int(getattr(settings, "KAMPUS_WHATSAPP_ALERT_MAX_FAILED", 10)),
+					"min_success_rate": float(getattr(settings, "KAMPUS_WHATSAPP_ALERT_MIN_SUCCESS_RATE", 90.0)),
+				},
+				"breach": bool(
+					failed > int(getattr(settings, "KAMPUS_WHATSAPP_ALERT_MAX_FAILED", 10))
+					or success_rate < float(getattr(settings, "KAMPUS_WHATSAPP_ALERT_MIN_SUCCESS_RATE", 90.0))
+				),
+				"top_error_codes": top_errors,
+				"institution_breakdown": institution_breakdown,
+				"recent_institution_metrics": recent_metrics,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
 def _upsert_suppression(*, email: str, reason: str, source_event_id: str, provider: str = "mailgun") -> None:
 	normalized_email = str(email or "").strip().lower()
 	if not normalized_email:
@@ -686,6 +1062,98 @@ def _update_delivery_status(*, event_type: str, provider_message_id: str) -> Non
 		delivery.save(update_fields=["status", "error_message", "updated_at"])
 
 
+def _extract_whatsapp_status_events(payload: dict) -> list[dict]:
+	events: list[dict] = []
+	entries = payload.get("entry") if isinstance(payload.get("entry"), list) else []
+	for entry in entries:
+		changes = entry.get("changes") if isinstance(entry, dict) and isinstance(entry.get("changes"), list) else []
+		for change in changes:
+			value = change.get("value") if isinstance(change, dict) and isinstance(change.get("value"), dict) else {}
+			statuses = value.get("statuses") if isinstance(value.get("statuses"), list) else []
+			for status_item in statuses:
+				if not isinstance(status_item, dict):
+					continue
+				errors = status_item.get("errors") if isinstance(status_item.get("errors"), list) else []
+				first_error = errors[0] if errors and isinstance(errors[0], dict) else {}
+				events.append(
+					{
+						"provider_event_id": str(status_item.get("id") or "").strip() + ":" + str(status_item.get("status") or "").strip(),
+						"event_type": str(status_item.get("status") or "").strip().lower() or "unknown",
+						"provider_message_id": str(status_item.get("id") or "").strip(),
+						"recipient_phone": str(status_item.get("recipient_id") or "").strip(),
+						"error_code": str(first_error.get("code") or "").strip(),
+						"error_message": str(first_error.get("title") or first_error.get("message") or "").strip(),
+						"payload": status_item,
+					}
+				)
+	return events
+
+
+def _update_whatsapp_delivery_status(*, event_type: str, provider_message_id: str, error_code: str, error_message: str) -> None:
+	if not provider_message_id:
+		return
+
+	delivery = WhatsAppDelivery.objects.filter(provider_message_id=provider_message_id).first()
+	if delivery is None:
+		return
+
+	if event_type == "sent":
+		delivery.status = WhatsAppDelivery.STATUS_SENT
+		delivery.error_code = ""
+		delivery.error_message = ""
+		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		return
+
+	if event_type == "delivered":
+		delivery.status = WhatsAppDelivery.STATUS_DELIVERED
+		delivery.error_code = ""
+		delivery.error_message = ""
+		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		return
+
+	if event_type == "read":
+		delivery.status = WhatsAppDelivery.STATUS_READ
+		delivery.error_code = ""
+		delivery.error_message = ""
+		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+		return
+
+	if event_type == "failed":
+		delivery.status = WhatsAppDelivery.STATUS_FAILED
+		delivery.error_code = error_code
+		delivery.error_message = error_message or "WhatsApp provider failure"
+		delivery.save(update_fields=["status", "error_code", "error_message", "updated_at"])
+
+
+def _upsert_whatsapp_suppression(*, event_type: str, recipient_phone: str, provider_event_id: str, error_code: str) -> None:
+	phone = str(recipient_phone or "").strip()
+	if not phone:
+		return
+
+	if event_type != "failed":
+		return
+
+	reason = ""
+	if error_code in {"131030"}:
+		reason = WhatsAppSuppression.REASON_NOT_WHATSAPP
+	elif error_code in {"131026", "131047", "100"}:
+		reason = WhatsAppSuppression.REASON_POLICY_BLOCK
+	elif error_code in {"131009", "131051"}:
+		reason = WhatsAppSuppression.REASON_INVALID_NUMBER
+
+	if not reason:
+		return
+
+	WhatsAppSuppression.objects.update_or_create(
+		phone_number=phone,
+		defaults={
+			"reason": reason,
+			"provider": "meta_cloud_api",
+			"source_event_id": provider_event_id,
+		},
+	)
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class MailgunWebhookView(APIView):
 	permission_classes = [AllowAny]
@@ -726,6 +1194,59 @@ class MailgunWebhookView(APIView):
 		return Response({"detail": "Processed"}, status=status.HTTP_200_OK)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class WhatsAppMetaWebhookView(APIView):
+	permission_classes = [AllowAny]
+	authentication_classes = []
+
+	def get(self, request, *args, **kwargs):
+		effective = get_effective_whatsapp_settings()
+		mode = str(request.query_params.get("hub.mode") or "").strip()
+		verify_token = str(request.query_params.get("hub.verify_token") or "").strip()
+		challenge = str(request.query_params.get("hub.challenge") or "").strip()
+		expected_token = str(effective.webhook_verify_token or "").strip()
+
+		if mode == "subscribe" and challenge and expected_token and verify_token == expected_token:
+			return HttpResponse(challenge, content_type="text/plain", status=status.HTTP_200_OK)
+		return Response({"detail": "Webhook verification failed."}, status=status.HTTP_403_FORBIDDEN)
+
+	def post(self, request, *args, **kwargs):
+		raw_body = request._request.body
+		if not _is_valid_whatsapp_signature(request, raw_body):
+			return Response({"detail": "Invalid WhatsApp signature."}, status=status.HTTP_400_BAD_REQUEST)
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		status_events = _extract_whatsapp_status_events(payload)
+		for event in status_events:
+			provider_event_id = event["provider_event_id"]
+			if provider_event_id and WhatsAppEvent.objects.filter(provider="meta_cloud_api", provider_event_id=provider_event_id).exists():
+				continue
+
+			WhatsAppEvent.objects.create(
+				provider="meta_cloud_api",
+				provider_event_id=provider_event_id,
+				event_type=event["event_type"],
+				recipient_phone=event["recipient_phone"],
+				provider_message_id=event["provider_message_id"],
+				payload=event["payload"],
+			)
+
+			_update_whatsapp_delivery_status(
+				event_type=event["event_type"],
+				provider_message_id=event["provider_message_id"],
+				error_code=event["error_code"],
+				error_message=event["error_message"],
+			)
+			_upsert_whatsapp_suppression(
+				event_type=event["event_type"],
+				recipient_phone=event["recipient_phone"],
+				provider_event_id=provider_event_id,
+				error_code=event["error_code"],
+			)
+
+		return Response({"detail": "Processed"}, status=status.HTTP_200_OK)
+
+
 class CommunicationPreferenceMeView(APIView):
 	permission_classes = [IsAuthenticated]
 
@@ -736,11 +1257,13 @@ class CommunicationPreferenceMeView(APIView):
 			return Response({"detail": "El usuario no tiene correo configurado."}, status=status.HTTP_400_BAD_REQUEST)
 
 		preference = get_or_create_preference(email=email, user=user)
+		whatsapp_contact = WhatsAppContact.objects.filter(user=user, is_active=True).first()
 		return Response(
 			{
 				"email": preference.email,
 				"marketing_opt_in": preference.marketing_opt_in,
 				"updated_at": preference.updated_at,
+				"whatsapp": _serialize_whatsapp_contact(whatsapp_contact),
 			}
 		)
 
@@ -776,13 +1299,54 @@ class CommunicationPreferenceMeView(APIView):
 			EmailSuppression.objects.filter(email=email, reason=EmailSuppression.REASON_UNSUBSCRIBED).delete()
 
 		preference.refresh_from_db()
+		whatsapp_contact = WhatsAppContact.objects.filter(user=user, is_active=True).first()
 		return Response(
 			{
 				"email": preference.email,
 				"marketing_opt_in": preference.marketing_opt_in,
 				"updated_at": preference.updated_at,
+				"whatsapp": _serialize_whatsapp_contact(whatsapp_contact),
 			}
 		)
+
+
+class WhatsAppContactMeView(APIView):
+	permission_classes = [IsAuthenticated]
+
+	def get(self, request, *args, **kwargs):
+		contact = WhatsAppContact.objects.filter(user=request.user, is_active=True).first()
+		return Response(_serialize_whatsapp_contact(contact), status=status.HTTP_200_OK)
+
+	def put(self, request, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+		normalized_phone = _normalize_whatsapp_phone(payload.get("phone_number") or "")
+		if not normalized_phone:
+			return Response(
+				{"detail": "phone_number inválido. Usa formato E.164 (ej: +573001234567)."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		existing = WhatsAppContact.objects.filter(phone_number=normalized_phone).exclude(user=request.user).first()
+		if existing is not None:
+			return Response({"detail": "El número ya está asociado a otro usuario."}, status=status.HTTP_400_BAD_REQUEST)
+
+		contact, _ = WhatsAppContact.objects.update_or_create(
+			user=request.user,
+			defaults={
+				"phone_number": normalized_phone,
+				"is_active": True,
+			},
+		)
+		return Response(_serialize_whatsapp_contact(contact), status=status.HTTP_200_OK)
+
+	def delete(self, request, *args, **kwargs):
+		contact = WhatsAppContact.objects.filter(user=request.user, is_active=True).first()
+		if contact is None:
+			return Response({"detail": "No hay contacto WhatsApp activo."}, status=status.HTTP_404_NOT_FOUND)
+
+		contact.is_active = False
+		contact.save(update_fields=["is_active", "updated_at"])
+		return Response({"detail": "Contacto WhatsApp desactivado."}, status=status.HTTP_200_OK)
 
 
 @method_decorator(csrf_exempt, name="dispatch")

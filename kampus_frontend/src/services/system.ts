@@ -97,6 +97,112 @@ export type EmailTemplatePreviewResponse = {
   body_html: string
 }
 
+export type WhatsAppTemplateCategory = 'utility' | 'authentication' | 'marketing'
+
+export type WhatsAppTemplateMapItem = {
+  id: number
+  notification_type: string
+  template_name: string
+  language_code: string
+  body_parameter_names: string[]
+  default_components: Array<Record<string, unknown>>
+  category: WhatsAppTemplateCategory
+  is_active: boolean
+  updated_at: string
+}
+
+export type WhatsAppTemplateMapPayload = {
+  notification_type: string
+  template_name: string
+  language_code: string
+  body_parameter_names: string[]
+  default_components: Array<Record<string, unknown>>
+  category: WhatsAppTemplateCategory
+  is_active: boolean
+}
+
+export type WhatsAppTemplateMapListResponse = {
+  results: WhatsAppTemplateMapItem[]
+}
+
+export type WhatsAppHealthResponse = {
+  window_hours: number
+  totals: {
+    total: number
+    sent: number
+    delivered: number
+    read: number
+    failed: number
+    suppressed: number
+  }
+  success_rate: number
+  thresholds: {
+    max_failed: number
+    min_success_rate: number
+  }
+  breach: boolean
+  top_error_codes: Array<{ error_code: string; total: number }>
+  institution_breakdown: Array<{
+    institution_id: number | null
+    institution__name: string | null
+    total: number
+    sent: number
+    delivered: number
+    read: number
+    failed: number
+    suppressed: number
+  }>
+  recent_institution_metrics: Array<{
+    institution_id: number
+    institution__name: string
+    window_start: string
+    window_end: string
+    total: number
+    sent: number
+    delivered: number
+    read: number
+    failed: number
+    suppressed: number
+    success_rate: number
+  }>
+}
+
+export type WhatsAppSettingsResponse = {
+  environment: MailSettingsEnvironment
+  enabled: boolean
+  provider: string
+  graph_base_url: string
+  api_version: string
+  phone_number_id: string
+  access_token_masked: string
+  app_secret_masked: string
+  webhook_verify_token_masked: string
+  webhook_strict: boolean
+  http_timeout_seconds: number
+  send_mode: 'template' | 'text'
+  template_fallback_name: string
+  access_token_configured: boolean
+  app_secret_configured: boolean
+  webhook_verify_token_configured: boolean
+  updated_at: string | null
+}
+
+export type WhatsAppSettingsPayload = {
+  environment?: MailSettingsEnvironment
+  enabled: boolean
+  provider: string
+  graph_base_url: string
+  api_version: string
+  phone_number_id: string
+  access_token?: string
+  app_secret?: string
+  webhook_verify_token?: string
+  webhook_strict: boolean
+  http_timeout_seconds: number
+  send_mode: 'template' | 'text'
+  template_fallback_name: string
+}
+
 export const systemApi = {
   listBackups: () => api.get<{ results: BackupItem[] }>('/api/system/backups/'),
 
@@ -172,5 +278,27 @@ export const systemApi = {
     api.post<{ detail: string; status: string; error?: string }>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/test/`, {
       test_email: testEmail,
       context,
+    }),
+
+  listWhatsAppTemplateMaps: () => api.get<WhatsAppTemplateMapListResponse>('/api/communications/settings/whatsapp/templates/'),
+
+  upsertWhatsAppTemplateMap: (payload: WhatsAppTemplateMapPayload) =>
+    api.put<WhatsAppTemplateMapItem>('/api/communications/settings/whatsapp/templates/', payload),
+
+  updateWhatsAppTemplateMap: (mapId: number, payload: Partial<WhatsAppTemplateMapPayload>) =>
+    api.put<WhatsAppTemplateMapItem>(`/api/communications/settings/whatsapp/templates/${mapId}/`, payload),
+
+  deleteWhatsAppTemplateMap: (mapId: number) => api.delete<void>(`/api/communications/settings/whatsapp/templates/${mapId}/`),
+
+  getWhatsAppHealth: (hours = 24) =>
+    api.get<WhatsAppHealthResponse>(`/api/communications/settings/whatsapp/health/?hours=${Math.max(1, hours)}`),
+
+  getWhatsAppSettings: (environment: MailSettingsEnvironment = 'development') =>
+    api.get<WhatsAppSettingsResponse>(`/api/communications/settings/whatsapp/?environment=${environment}`),
+
+  updateWhatsAppSettings: (payload: WhatsAppSettingsPayload, environment: MailSettingsEnvironment = 'development') =>
+    api.put<WhatsAppSettingsResponse>(`/api/communications/settings/whatsapp/?environment=${environment}`, {
+      ...payload,
+      environment,
     }),
 }

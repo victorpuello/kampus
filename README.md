@@ -64,6 +64,7 @@ Luego abre:
 - [Runbook de release seguro](docs/runbook_release_seguridad.md)
 - [Runbook Mailgun (email transaccional + marketing)](docs/runbook_mailgun_operacion.md)
 - [Guía estandarizada de notificaciones por correo](docs/guia_notificaciones_correo_estandar.md)
+- [Guia de configuracion WhatsApp con Meta Cloud API](docs/guia_configuracion_whatsapp_meta_cloud_api.md)
 - [Guía deploy Vultr: corte a producción de correo (Mailgun)](docs/guia_deploy_vultr_docker.md#corte-a-producción-de-correo-mailgun)
 - [Checklist de cierre de auditoría de seguridad](docs/checklist_cierre_auditoria_seguridad_2026-02-23.md)
 

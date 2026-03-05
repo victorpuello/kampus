@@ -1,9 +1,14 @@
 from django.test import TestCase
 from django.test import override_settings
+from django.db.utils import OperationalError
 import hashlib
 import hmac
+import json
+from unittest.mock import patch
 from rest_framework.test import APIClient
 from django.contrib.auth import get_user_model
+from notifications.models import Notification
+from notifications.tasks import send_notification_whatsapp_task
 
 from .email_service import send_email
 from .models import (
@@ -13,7 +18,13 @@ from .models import (
 	EmailPreferenceAudit,
 	EmailSuppression,
 	MailgunSettingsAudit,
+	WhatsAppContact,
+	WhatsAppDelivery,
+	WhatsAppEvent,
+	WhatsAppSettings,
+	WhatsAppTemplateMap,
 )
+from .whatsapp_service import send_whatsapp_notification
 from .preferences import build_unsubscribe_token
 
 
@@ -473,3 +484,400 @@ class MailSettingsAdminTests(TestCase):
 
 		forbidden = self.teacher_client.get("/api/communications/settings/mailgun/audits/export/")
 		self.assertEqual(forbidden.status_code, 403)
+
+
+@override_settings(
+	KAMPUS_WHATSAPP_WEBHOOK_VERIFY_TOKEN="verify-me",
+	KAMPUS_WHATSAPP_APP_SECRET="test-app-secret",
+	KAMPUS_WHATSAPP_WEBHOOK_STRICT=True,
+)
+class WhatsAppChannelTests(TestCase):
+	def setUp(self):
+		self.user = User.objects.create_user(
+			username="wa_user",
+			email="wa@example.com",
+			password="pass1234",
+			role=User.ROLE_TEACHER,
+		)
+		self.api_client = APIClient()
+		self.api_client.force_authenticate(user=self.user)
+
+	def _sign_payload(self, payload: dict) -> tuple[str, str]:
+		raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+		signature = hmac.new(
+			b"test-app-secret",
+			msg=raw,
+			digestmod=hashlib.sha256,
+		).hexdigest()
+		return raw.decode("utf-8"), f"sha256={signature}"
+
+	def test_whatsapp_contact_me_crud(self):
+		initial = self.api_client.get("/api/communications/whatsapp/me/")
+		self.assertEqual(initial.status_code, 200)
+		self.assertFalse(initial.data["has_contact"])
+
+		create = self.api_client.put(
+			"/api/communications/whatsapp/me/",
+			{"phone_number": "3001234567"},
+			format="json",
+		)
+		self.assertEqual(create.status_code, 200)
+		self.assertTrue(create.data["has_contact"])
+		self.assertEqual(create.data["phone_number"], "+573001234567")
+
+		contact = WhatsAppContact.objects.get(user=self.user)
+		self.assertTrue(contact.is_active)
+		self.assertEqual(contact.phone_number, "+573001234567")
+
+		delete = self.api_client.delete("/api/communications/whatsapp/me/")
+		self.assertEqual(delete.status_code, 200)
+
+		contact.refresh_from_db()
+		self.assertFalse(contact.is_active)
+
+	def test_preferences_me_includes_whatsapp_summary(self):
+		WhatsAppContact.objects.create(user=self.user, phone_number="+573001234500", is_active=True)
+
+		response = self.api_client.get("/api/communications/preferences/me/")
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("whatsapp", response.data)
+		self.assertTrue(response.data["whatsapp"]["has_contact"])
+		self.assertEqual(response.data["whatsapp"]["phone_number"], "+573001234500")
+
+	def test_whatsapp_webhook_verification_and_status_update(self):
+		verify = self.client.get(
+			"/api/communications/webhooks/whatsapp/meta/?hub.mode=subscribe&hub.verify_token=verify-me&hub.challenge=abc123"
+		)
+		self.assertEqual(verify.status_code, 200)
+		self.assertEqual(verify.content.decode("utf-8"), "abc123")
+
+		delivery = WhatsAppDelivery.objects.create(
+			recipient_phone="+573001234567",
+			message_text="Hola",
+			status=WhatsAppDelivery.STATUS_SENT,
+			provider_message_id="wamid.HBgLTEST123",
+		)
+
+		payload = {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"changes": [
+						{
+							"field": "messages",
+							"value": {
+								"statuses": [
+									{
+										"id": "wamid.HBgLTEST123",
+										"status": "delivered",
+										"recipient_id": "573001234567",
+									}
+								]
+							},
+						}
+					]
+				}
+			],
+		}
+
+		raw_payload, signature = self._sign_payload(payload)
+		response = self.client.generic(
+			"POST",
+			"/api/communications/webhooks/whatsapp/meta/",
+			raw_payload,
+			content_type="application/json",
+			HTTP_X_HUB_SIGNATURE_256=signature,
+		)
+		self.assertEqual(response.status_code, 200)
+
+		delivery.refresh_from_db()
+		self.assertEqual(delivery.status, WhatsAppDelivery.STATUS_DELIVERED)
+		self.assertEqual(WhatsAppEvent.objects.count(), 1)
+
+
+@override_settings(KAMPUS_WHATSAPP_ENABLED=True)
+class WhatsAppTemplateAndHealthAdminTests(TestCase):
+	def setUp(self):
+		self.admin_user = User.objects.create_user(
+			username="admin_whatsapp_settings",
+			email="admin.whatsapp@example.com",
+			password="pass1234",
+			role=User.ROLE_ADMIN,
+		)
+		self.teacher_user = User.objects.create_user(
+			username="teacher_whatsapp_settings",
+			email="teacher.whatsapp@example.com",
+			password="pass1234",
+			role=User.ROLE_TEACHER,
+		)
+		self.admin_client = APIClient()
+		self.admin_client.force_authenticate(user=self.admin_user)
+		self.teacher_client = APIClient()
+		self.teacher_client.force_authenticate(user=self.teacher_user)
+
+	def test_admin_can_manage_whatsapp_template_maps(self):
+		forbidden = self.teacher_client.put(
+			"/api/communications/settings/whatsapp/templates/",
+			{
+				"notification_type": "NOVELTY_SLA_ADMIN",
+				"template_name": "novelty_sla_admin_v1",
+				"language_code": "es_CO",
+				"category": "utility",
+				"is_active": True,
+			},
+			format="json",
+		)
+		self.assertEqual(forbidden.status_code, 403)
+
+		upsert = self.admin_client.put(
+			"/api/communications/settings/whatsapp/templates/",
+			{
+				"notification_type": "NOVELTY_SLA_ADMIN",
+				"template_name": "novelty_sla_admin_v1",
+				"language_code": "es_CO",
+				"category": "utility",
+				"is_active": True,
+			},
+			format="json",
+		)
+		self.assertEqual(upsert.status_code, 200)
+		map_id = upsert.data["id"]
+
+		list_response = self.admin_client.get("/api/communications/settings/whatsapp/templates/")
+		self.assertEqual(list_response.status_code, 200)
+		self.assertEqual(len(list_response.data["results"]), 1)
+
+		update = self.admin_client.put(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/",
+			{"template_name": "novelty_sla_admin_v2", "is_active": False},
+			format="json",
+		)
+		self.assertEqual(update.status_code, 200)
+		self.assertEqual(update.data["template_name"], "novelty_sla_admin_v2")
+		self.assertFalse(update.data["is_active"])
+
+		delete = self.admin_client.delete(f"/api/communications/settings/whatsapp/templates/{map_id}/")
+		self.assertEqual(delete.status_code, 204)
+		self.assertEqual(WhatsAppTemplateMap.objects.count(), 0)
+
+	def test_admin_whatsapp_health_endpoint(self):
+		WhatsAppDelivery.objects.create(recipient_phone="+573001234501", status=WhatsAppDelivery.STATUS_SENT)
+		WhatsAppDelivery.objects.create(recipient_phone="+573001234502", status=WhatsAppDelivery.STATUS_DELIVERED)
+		WhatsAppDelivery.objects.create(recipient_phone="+573001234503", status=WhatsAppDelivery.STATUS_FAILED, error_code="130429")
+
+		response = self.admin_client.get("/api/communications/settings/whatsapp/health/?hours=24")
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["totals"]["total"], 3)
+		self.assertEqual(response.data["totals"]["failed"], 1)
+		self.assertIn("top_error_codes", response.data)
+
+		forbidden = self.teacher_client.get("/api/communications/settings/whatsapp/health/")
+		self.assertEqual(forbidden.status_code, 403)
+
+	def test_admin_can_manage_whatsapp_settings(self):
+		forbidden = self.teacher_client.put(
+			"/api/communications/settings/whatsapp/",
+			{
+				"enabled": True,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "987654321",
+				"access_token": "token-teacher",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "template",
+			},
+			format="json",
+		)
+		self.assertEqual(forbidden.status_code, 403)
+
+		response = self.admin_client.put(
+			"/api/communications/settings/whatsapp/?environment=development",
+			{
+				"enabled": True,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "123456789",
+				"access_token": "token-admin",
+				"app_secret": "app-secret-admin",
+				"webhook_verify_token": "verify-admin",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "template",
+				"template_fallback_name": "fallback_template",
+			},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["environment"], "development")
+		self.assertTrue(response.data["enabled"])
+		self.assertTrue(response.data["access_token_configured"])
+
+		stored = WhatsAppSettings.objects.get(environment="development")
+		self.assertEqual(stored.phone_number_id, "123456789")
+		self.assertEqual(stored.send_mode, "template")
+
+	def test_whatsapp_settings_get_handles_db_schema_errors(self):
+		with patch("communications.views.WhatsAppSettings.objects.filter", side_effect=OperationalError("missing table")):
+			response = self.admin_client.get("/api/communications/settings/whatsapp/?environment=development")
+
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("enabled", response.data)
+
+
+@override_settings(
+	KAMPUS_WHATSAPP_ENABLED=True,
+	KAMPUS_WHATSAPP_SEND_MODE="template",
+	KAMPUS_WHATSAPP_PHONE_NUMBER_ID="123",
+	KAMPUS_WHATSAPP_ACCESS_TOKEN="token",
+	KAMPUS_WHATSAPP_API_VERSION="v21.0",
+)
+class WhatsAppTemplateSendTests(TestCase):
+	def test_send_notification_uses_template_mapping(self):
+		WhatsAppTemplateMap.objects.create(
+			notification_type="NOVELTY_SLA_ADMIN",
+			template_name="novelty_sla_admin_v1",
+			language_code="es_CO",
+			category="utility",
+			is_active=True,
+		)
+
+		class _FakeResponse:
+			def __enter__(self):
+				return self
+
+			def __exit__(self, exc_type, exc, tb):
+				return False
+
+			def read(self):
+				return b'{"messages":[{"id":"wamid.TEST123"}]}'
+
+		captured = {}
+
+		def _fake_urlopen(req, timeout=0):
+			captured["body"] = req.data.decode("utf-8")
+			return _FakeResponse()
+
+		with patch("communications.whatsapp_service.request.urlopen", side_effect=_fake_urlopen):
+			result = send_whatsapp_notification(
+				recipient_phone="+573001234567",
+				notification_type="NOVELTY_SLA_ADMIN",
+				recipient_name="Admin User",
+				title="Titulo",
+				body="Cuerpo",
+				action_url="https://example.com/notifications/1",
+				idempotency_key="wa-test-1",
+				fallback_text="fallback",
+			)
+
+		self.assertTrue(result.sent)
+		payload = json.loads(captured["body"])
+		self.assertEqual(payload["type"], "template")
+		self.assertEqual(payload["template"]["name"], "novelty_sla_admin_v1")
+
+
+@override_settings(
+	KAMPUS_WHATSAPP_ENABLED=True,
+	KAMPUS_WHATSAPP_SEND_MODE="template",
+	KAMPUS_WHATSAPP_PHONE_NUMBER_ID="123",
+	KAMPUS_WHATSAPP_ACCESS_TOKEN="token",
+	KAMPUS_WHATSAPP_API_VERSION="v21.0",
+	KAMPUS_WHATSAPP_WEBHOOK_VERIFY_TOKEN="verify-me",
+	KAMPUS_WHATSAPP_APP_SECRET="test-app-secret",
+	KAMPUS_WHATSAPP_WEBHOOK_STRICT=True,
+)
+class WhatsAppNotificationE2ETests(TestCase):
+	def setUp(self):
+		self.user = User.objects.create_user(
+			username="wa_e2e_user",
+			email="wa.e2e@example.com",
+			password="pass1234",
+			role=User.ROLE_TEACHER,
+			first_name="Doc",
+			last_name="E2E",
+		)
+		self.api_client = APIClient()
+		self.api_client.force_authenticate(user=self.user)
+		WhatsAppContact.objects.create(user=self.user, phone_number="+573001111111", is_active=True)
+		WhatsAppTemplateMap.objects.create(
+			notification_type="NOVELTY_SLA_ADMIN",
+			template_name="novelty_sla_admin_v1",
+			language_code="es_CO",
+			category="utility",
+			is_active=True,
+		)
+
+	def _sign_payload(self, payload: dict) -> tuple[str, str]:
+		raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+		signature = hmac.new(
+			b"test-app-secret",
+			msg=raw,
+			digestmod=hashlib.sha256,
+		).hexdigest()
+		return raw.decode("utf-8"), f"sha256={signature}"
+
+	def test_notification_task_and_webhook_updates_delivery(self):
+		notification = Notification.objects.create(
+			recipient=self.user,
+			type="NOVELTY_SLA_ADMIN",
+			title="Escalamiento SLA",
+			body="Casos pendientes",
+			url="https://example.com/notifications/123",
+			dedupe_key="wa-e2e-1",
+		)
+
+		class _FakeResponse:
+			def __enter__(self):
+				return self
+
+			def __exit__(self, exc_type, exc, tb):
+				return False
+
+			def read(self):
+				return b'{"messages":[{"id":"wamid.E2E123"}]}'
+
+		with patch("communications.whatsapp_service.request.urlopen", return_value=_FakeResponse()):
+			send_notification_whatsapp_task(notification.id, idempotency_key="wa-e2e-key-1")
+
+		delivery = WhatsAppDelivery.objects.filter(recipient_phone="+573001111111").first()
+		self.assertIsNotNone(delivery)
+		self.assertEqual(delivery.status, WhatsAppDelivery.STATUS_SENT)
+		self.assertEqual(delivery.provider_message_id, "wamid.E2E123")
+
+		payload = {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"changes": [
+						{
+							"field": "messages",
+							"value": {
+								"statuses": [
+									{
+										"id": "wamid.E2E123",
+										"status": "delivered",
+										"recipient_id": "573001111111",
+									}
+								]
+							},
+						}
+					]
+				}
+			],
+		}
+
+		raw_payload, signature = self._sign_payload(payload)
+		response = self.client.generic(
+			"POST",
+			"/api/communications/webhooks/whatsapp/meta/",
+			raw_payload,
+			content_type="application/json",
+			HTTP_X_HUB_SIGNATURE_256=signature,
+		)
+		self.assertEqual(response.status_code, 200)
+
+		delivery.refresh_from_db()
+		self.assertEqual(delivery.status, WhatsAppDelivery.STATUS_DELIVERED)
+		self.assertEqual(WhatsAppEvent.objects.filter(provider_message_id="wamid.E2E123").count(), 1)

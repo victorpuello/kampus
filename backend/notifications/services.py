@@ -6,6 +6,7 @@ from datetime import timedelta
 from typing import Iterable, Optional
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from communications.email_service import send_email
@@ -45,6 +46,12 @@ def _notification_email_idempotency_key(*, recipient: User, dedupe_key: str, not
     source = dedupe_key or f"notification:{notification_id}"
     digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
     return f"notif-email:{recipient.id}:{digest}"
+
+
+def _notification_whatsapp_idempotency_key(*, recipient: User, dedupe_key: str, notification_id: int) -> str:
+    source = dedupe_key or f"notification:{notification_id}"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:24]
+    return f"notif-wa:{recipient.id}:{digest}"
 
 
 def _notification_template_slug(notification_type: str) -> str:
@@ -157,6 +164,21 @@ def create_notification(
         dedupe_key=dedupe_key,
     )
     _send_notification_email(recipient=recipient, notification=notification)
+
+    if getattr(settings, "KAMPUS_WHATSAPP_ENABLED", False):
+        from .tasks import send_notification_whatsapp_task
+
+        whatsapp_idempotency = _notification_whatsapp_idempotency_key(
+            recipient=recipient,
+            dedupe_key=notification.dedupe_key,
+            notification_id=notification.id,
+        )
+        transaction.on_commit(
+            lambda: send_notification_whatsapp_task.delay(
+                notification_id=notification.id,
+                idempotency_key=whatsapp_idempotency,
+            )
+        )
     return notification
 
 
