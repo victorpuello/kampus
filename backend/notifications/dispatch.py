@@ -18,6 +18,22 @@ from .models import NotificationDispatch
 logger = logging.getLogger(__name__)
 
 
+def _notification_absolute_url(url: str) -> str:
+    safe_url = str(url or "").strip()
+    if not safe_url:
+        return ""
+    if safe_url.startswith("http://") or safe_url.startswith("https://"):
+        return safe_url
+    if safe_url.startswith("/"):
+        base = (
+            str(getattr(settings, "KAMPUS_FRONTEND_BASE_URL", "") or "").strip().rstrip("/")
+            or str(getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+        )
+        if base:
+            return f"{base}{safe_url}"
+    return safe_url
+
+
 def _notification_template_slug(notification_type: str) -> str:
     normalized = str(notification_type or "").strip().upper()
     if normalized == "NOVELTY_SLA_TEACHER":
@@ -47,12 +63,14 @@ def _process_email_dispatch(dispatch: NotificationDispatch) -> dict:
     if not recipient_email:
         return {"result": "skipped_no_recipient_email", "channel_status": "SKIPPED"}
 
+    action_url = _notification_absolute_url(notification.url) or _notification_absolute_url("/notifications")
+
     template_slug = _notification_template_slug(notification.type)
     context = {
         "recipient_name": recipient.get_full_name() or recipient.username,
         "title": notification.title,
         "body": notification.body or "Tienes una nueva notificacion en Kampus.",
-        "action_url": notification.url or "/notifications",
+        "action_url": action_url,
     }
 
     try:
@@ -92,7 +110,7 @@ def _process_whatsapp_dispatch(dispatch: NotificationDispatch) -> dict:
         return {"result": "skipped_no_active_contact", "channel_status": "SKIPPED"}
 
     institution = resolve_institution_for_user(recipient)
-    absolute_url = (notification.url or "").strip()
+    absolute_url = _notification_absolute_url(notification.url)
     body_parts = [
         f"Hola {recipient.get_full_name() or recipient.username},",
         notification.title,

@@ -144,6 +144,31 @@ API disponible:
 
 Formato esperado: E.164 (ejemplo `+573001234567`).
 
+## 4.7 Carga masiva inicial de contactos (opcional)
+
+Si ya tienes telefonos registrados en perfiles de estudiantes, docentes y acudientes con usuario asociado, puedes sincronizarlos al modelo `WhatsAppContact` con:
+
+```bash
+/usr/local/bin/python3 backend/manage.py sync_whatsapp_contacts --dry-run
+```
+
+Si el resultado es correcto, ejecuta la persistencia real:
+
+```bash
+/usr/local/bin/python3 backend/manage.py sync_whatsapp_contacts
+```
+
+Opciones utiles:
+
+- `--overwrite`: actualiza el numero en contactos ya existentes del usuario.
+- `--activate`: reactiva contactos inactivos (`is_active=false`).
+
+Ejemplo completo:
+
+```bash
+/usr/local/bin/python3 backend/manage.py sync_whatsapp_contacts --overwrite --activate
+```
+
 ## 5. Pruebas de validacion (checklist tecnico)
 
 ## 5.1 Webhook verify (Meta -> Kampus)
@@ -180,6 +205,9 @@ Debe responder `200` y marcar secretos como configurados.
 Debe mostrar totales, errores y brechas de umbral.
 
 ## 6. Salida a produccion (runbook corto)
+
+Referencia operativa recomendada:
+- [Runbook unificado: deploy + desarrollo seguro](runbook_unificado_deploy_desarrollo.md)
 
 1. Confirmar dominio HTTPS publico del backend.
 2. Confirmar webhook de Meta verificado con URL productiva.

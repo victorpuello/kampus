@@ -160,3 +160,18 @@ class PublicVerifyUIView(View):
                 "payload": payload,
             },
         )
+
+
+class PublicPrivacyPolicyView(View):
+    def get(self, request):
+        return render(request, "verification/public/legal/privacy_policy.html", status=200)
+
+
+class PublicTermsOfServiceView(View):
+    def get(self, request):
+        return render(request, "verification/public/legal/terms_of_service.html", status=200)
+
+
+class PublicDataDeletionInstructionsView(View):
+    def get(self, request):
+        return render(request, "verification/public/legal/data_deletion.html", status=200)

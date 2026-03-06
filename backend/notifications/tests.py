@@ -391,6 +391,40 @@ class NotificationDispatchProcessingTests(TestCase):
         self.assertEqual((wa_dispatch.payload or {}).get("result"), "skipped_no_active_contact")
 
 
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=True,
+    KAMPUS_NOTIFICATIONS_OUTBOX_ONLY=True,
+    KAMPUS_FRONTEND_BASE_URL="https://app.kampus.test",
+)
+class NotificationDispatchAbsoluteUrlTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="dispatch_absolute_url_user",
+            email="dispatch_absolute_url@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+        )
+
+    def test_process_dispatches_resolves_relative_action_url_to_absolute(self):
+        create_notification(
+            recipient=self.user,
+            title="Recordatorio planeacion",
+            body="Completa la planeacion pendiente",
+            url="/planning",
+            type="PLANNING_REMINDER_INCOMPLETE",
+            dedupe_key="dispatch:absolute-url:1",
+        )
+
+        self.assertEqual(EmailDelivery.objects.count(), 0)
+        call_command("process_notification_dispatches", "--batch-size", "20")
+
+        delivery = EmailDelivery.objects.first()
+        self.assertIsNotNone(delivery)
+        self.assertIn("https://app.kampus.test/planning", delivery.body_html)
+        self.assertNotIn('href="/planning"', delivery.body_html)
+
+
 class DispatchOutboxHealthCommandTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
