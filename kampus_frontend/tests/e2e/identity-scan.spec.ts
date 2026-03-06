@@ -95,6 +95,9 @@ test('double-side scan flow shows preview and uploads composed PDF', async ({ pa
 
   await page.route('**/api/identity-scans/compose/', async (route) => {
     composeCalled += 1
+    const payload = route.request().postData() || ''
+    expect(payload).toContain('auto_perspective')
+    expect(payload).toContain('false')
     await route.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -253,4 +256,146 @@ test('double-side scan fallback preview works and compose error prevents upload'
 
   await expect.poll(() => composeCalled).toBe(1)
   await expect.poll(() => uploadCalled).toBe(0)
+})
+
+test('identity editor supports presets, resolution indicator and keyboard shortcuts', async ({ page }) => {
+  await page.route('**/api/users/me/', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 1,
+        username: 'admin.mock',
+        first_name: 'Admin',
+        last_name: 'Demo',
+        email: 'admin.mock@example.com',
+        role: 'ADMIN',
+      }),
+    })
+  })
+
+  await page.route('**/api/auth/csrf/', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'set-cookie': 'csrftoken=e2e-token; Path=/',
+      },
+      body: JSON.stringify({ detail: 'ok' }),
+    })
+  })
+
+  await page.route('**/api/students/1/', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(studentPayload) })
+  })
+
+  await page.route('**/api/identity-scans/compose/', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      body: '%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF',
+    })
+  })
+
+  await page.route('**/api/documents/', async (route) => {
+    if (route.request().method() === 'POST') {
+      await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 101 }) })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  })
+
+  await page.goto('/students/1')
+  await page.getByRole('button', { name: /documentos/i }).click()
+  await page.getByRole('button', { name: /doble cara/i }).click()
+
+  const uploadForm = page
+    .locator('form')
+    .filter({ has: page.getByText(/modo de captura/i) })
+    .first()
+
+  const anversoInput = uploadForm.locator('input[type="file"]').nth(0)
+  const reversoInput = uploadForm.locator('input[type="file"]').nth(1)
+
+  await anversoInput.setInputFiles({
+    name: 'anverso.jpg',
+    mimeType: 'image/jpeg',
+    buffer: tinyJpegBuffer,
+  })
+  await reversoInput.setInputFiles({
+    name: 'reverso.jpg',
+    mimeType: 'image/jpeg',
+    buffer: tinyJpegBuffer,
+  })
+
+  await expect(page.getByTestId('aspect-preset-id_h-anverso')).toBeVisible()
+  await expect(page.getByTestId('resolution-status-anverso')).toBeVisible()
+
+  await page.getByTestId('aspect-preset-square-anverso').click()
+
+  page.once('dialog', async (dialog) => {
+    await dialog.accept()
+  })
+  await page.keyboard.press('r')
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByAltText(/vista previa anverso/i)).toBeVisible({ timeout: 10000 })
+  await expect(page.getByTestId('after-toggle-anverso')).toBeVisible()
+  await page.getByTestId('after-toggle-anverso').click()
+})
+
+test('identity editor shows sticky mobile apply action in fullscreen mode', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  await page.route('**/api/users/me/', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 1,
+        username: 'admin.mock',
+        first_name: 'Admin',
+        last_name: 'Demo',
+        email: 'admin.mock@example.com',
+        role: 'ADMIN',
+      }),
+    })
+  })
+
+  await page.route('**/api/auth/csrf/', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'set-cookie': 'csrftoken=e2e-token; Path=/',
+      },
+      body: JSON.stringify({ detail: 'ok' }),
+    })
+  })
+
+  await page.route('**/api/students/1/', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(studentPayload) })
+  })
+
+  await page.route('**/api/documents/', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+  })
+
+  await page.goto('/students/1')
+  await page.getByRole('button', { name: /documentos/i }).click()
+  await page.getByRole('button', { name: /doble cara/i }).click()
+
+  const uploadForm = page
+    .locator('form')
+    .filter({ has: page.getByText(/modo de captura/i) })
+    .first()
+
+  const anversoInput = uploadForm.locator('input[type="file"]').nth(0)
+  await anversoInput.setInputFiles({
+    name: 'anverso.jpg',
+    mimeType: 'image/jpeg',
+    buffer: tinyJpegBuffer,
+  })
+
+  await expect(page.getByTestId('mobile-apply-crop-anverso')).toBeVisible({ timeout: 10000 })
 })

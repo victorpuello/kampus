@@ -7,6 +7,7 @@ import { Label } from '../ui/Label'
 import { FileText, Trash2, Upload, Eye, ChevronLeft, ChevronRight, ScanLine, Smartphone } from 'lucide-react'
 import IdentityImageEditor from './IdentityImageEditor'
 import DocumentViewerModal from '../documents/DocumentViewerModal'
+import { ConfirmationModal } from '../ui/ConfirmationModal'
 
 interface StudentDocumentsProps {
   studentId: number
@@ -31,6 +32,8 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
   const [viewerOpen, setViewerOpen] = useState(false)
   const [viewerTitle, setViewerTitle] = useState('Documento')
   const [viewerSourceUrl, setViewerSourceUrl] = useState('')
+  const [documentToDelete, setDocumentToDelete] = useState<StudentDocument | null>(null)
+  const [deletingDocument, setDeletingDocument] = useState(false)
   const canContinueCapture = uploadMode === 'single' ? !!file : !!frontFile && !!backFile
 
   const docTypeOptions = [
@@ -132,13 +135,26 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('¿Está seguro de eliminar este documento?')) return
+  const requestDeleteDocument = (doc: StudentDocument) => {
+    setDocumentToDelete(doc)
+  }
+
+  const closeDeleteModal = () => {
+    if (deletingDocument) return
+    setDocumentToDelete(null)
+  }
+
+  const confirmDeleteDocument = async () => {
+    if (!documentToDelete) return
+    setDeletingDocument(true)
     try {
-      await documentsApi.delete(id)
-      loadDocuments()
+      await documentsApi.delete(documentToDelete.id)
+      setDocumentToDelete(null)
+      await loadDocuments()
     } catch (error) {
       console.error('Error deleting document:', error)
+    } finally {
+      setDeletingDocument(false)
     }
   }
 
@@ -422,7 +438,7 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
                             variant="ghost"
                             size="sm"
                             className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/30 dark:hover:text-red-300"
-                            onClick={() => handleDelete(doc.id)}
+                            onClick={() => requestDeleteDocument(doc)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -458,6 +474,20 @@ export default function StudentDocuments({ studentId }: StudentDocumentsProps) {
         onClose={closeViewer}
         title={viewerTitle}
         sourceUrl={viewerSourceUrl}
+      />
+
+      <ConfirmationModal
+        isOpen={!!documentToDelete}
+        onClose={closeDeleteModal}
+        onConfirm={confirmDeleteDocument}
+        title="Eliminar documento"
+        description={documentToDelete
+          ? `Se eliminará "${getDocTypeName(documentToDelete.document_type)}". Esta acción no se puede deshacer.`
+          : 'Se eliminará este documento. Esta acción no se puede deshacer.'}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={deletingDocument}
       />
     </div>
   )

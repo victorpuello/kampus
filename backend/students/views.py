@@ -210,7 +210,7 @@ def _order_quad_points(points):
     return rect
 
 
-def _scan_document_image(upload):
+def _scan_document_image(upload, *, auto_perspective: bool = True):
     if Image is None or ImageOps is None:
         raise RuntimeError("Pillow no está disponible para procesar imágenes.")
 
@@ -219,6 +219,9 @@ def _scan_document_image(upload):
         pil_image = ImageOps.exif_transpose(img).convert("RGB")
 
     enhanced = ImageOps.autocontrast(pil_image)
+    if not auto_perspective:
+        return enhanced
+
     if cv2 is None or np is None:
         return enhanced
 
@@ -278,12 +281,12 @@ def _scan_document_image(upload):
         return enhanced
 
 
-def _compose_identity_pdf_bytes(front_upload, back_upload) -> bytes:
+def _compose_identity_pdf_bytes(front_upload, back_upload, *, auto_perspective: bool = False) -> bytes:
     if Image is None or ImageOps is None:
         raise RuntimeError("Pillow no está disponible para procesar imágenes.")
 
-    front_img = _scan_document_image(front_upload)
-    back_img = _scan_document_image(back_upload)
+    front_img = _scan_document_image(front_upload, auto_perspective=auto_perspective)
+    back_img = _scan_document_image(back_upload, auto_perspective=auto_perspective)
 
     page_width, page_height = 1240, 1754
     margin = 72
@@ -2504,6 +2507,19 @@ class IdentityScanComposeView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = (FormParser, MultiPartParser)
 
+    @staticmethod
+    def _parse_bool(value, default=False):
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on", "si", "sí"}:
+            return True
+        if text in {"0", "false", "no", "off"}:
+            return False
+        return default
+
     def post(self, request, format=None):
         if getattr(request.user, 'role', None) in {'PARENT', 'STUDENT'}:
             return Response({"detail": "No tienes permisos para gestionar documentos."}, status=status.HTTP_403_FORBIDDEN)
@@ -2523,8 +2539,14 @@ class IdentityScanComposeView(APIView):
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+        auto_perspective = self._parse_bool(request.data.get("auto_perspective"), default=False)
+
         try:
-            pdf_bytes = _compose_identity_pdf_bytes(front_image, back_image)
+            pdf_bytes = _compose_identity_pdf_bytes(
+                front_image,
+                back_image,
+                auto_perspective=auto_perspective,
+            )
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = 'attachment; filename="documento_identidad_doble_cara.pdf"'
             return response

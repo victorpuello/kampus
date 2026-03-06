@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import Cropper, { type ReactCropperElement } from 'react-cropper'
+import 'cropperjs/dist/cropper.css'
 import { Button } from '../ui/Button'
 import { Label } from '../ui/Label'
-
-interface Point {
-  x: number
-  y: number
-}
 
 interface IdentityImageEditorProps {
   label: string
@@ -15,27 +12,26 @@ interface IdentityImageEditorProps {
   initialFile?: File | null
 }
 
-const defaultCorners: Point[] = [
-  { x: 0.08, y: 0.1 },
-  { x: 0.92, y: 0.1 },
-  { x: 0.92, y: 0.9 },
-  { x: 0.08, y: 0.9 },
+interface AspectPreset {
+  id: 'free' | 'id_h' | 'id_v' | 'square'
+  label: string
+  ratio: number | null
+}
+
+interface CropResolution {
+  width: number
+  height: number
+}
+
+const ASPECT_PRESETS: AspectPreset[] = [
+  { id: 'free', label: 'Libre', ratio: null },
+  { id: 'id_h', label: 'ID H', ratio: 1.586 },
+  { id: 'id_v', label: 'ID V', ratio: 1 / 1.586 },
+  { id: 'square', label: '1:1', ratio: 1 },
 ]
 
-const clamp01 = (value: number) => Math.max(0, Math.min(1, value))
-
-const rotatePoint = (point: Point, rotation: 0 | 90 | 180 | 270): Point => {
-  switch (rotation) {
-    case 90:
-      return { x: 1 - point.y, y: point.x }
-    case 180:
-      return { x: 1 - point.x, y: 1 - point.y }
-    case 270:
-      return { x: point.y, y: 1 - point.x }
-    default:
-      return point
-  }
-}
+const MIN_LONG_SIDE_PX = 1200
+const MIN_SHORT_SIDE_PX = 700
 
 const getFileExtension = (type: string) => {
   if (type.includes('png')) return 'png'
@@ -43,23 +39,32 @@ const getFileExtension = (type: string) => {
   return 'jpg'
 }
 
-const triggerHaptic = (type: 'light' | 'medium' | 'success' | 'error') => {
+const triggerHaptic = (type: 'light' | 'success' | 'error') => {
   if (typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') return
-
   if (type === 'light') {
     navigator.vibrate(8)
     return
   }
-  if (type === 'medium') {
-    navigator.vibrate(16)
-    return
-  }
   if (type === 'success') {
-    navigator.vibrate([12, 24, 12])
+    navigator.vibrate([12, 20, 12])
     return
   }
-  navigator.vibrate(40)
+  navigator.vibrate(35)
 }
+
+const defaultAspectPresetForLabel = (label: string): AspectPreset['id'] => {
+  const normalized = (label || '').trim().toLowerCase()
+  if (/anverso|reverso|identidad|documento/.test(normalized)) return 'id_h'
+  return 'free'
+}
+
+const toSlug = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'editor'
 
 export default function IdentityImageEditor({
   label,
@@ -68,28 +73,55 @@ export default function IdentityImageEditor({
   required = false,
   initialFile = null,
 }: IdentityImageEditorProps) {
+  const cropperRef = useRef<ReactCropperElement | null>(null)
+  const labelSlug = useMemo(() => toSlug(label), [label])
+
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [previewUrl, setPreviewUrl] = useState('')
-  const [rotation, setRotation] = useState<0 | 90 | 180 | 270>(0)
-  const [corners, setCorners] = useState<Point[]>(defaultCorners)
-  const [draggingCorner, setDraggingCorner] = useState<number | null>(null)
   const [isApplying, setIsApplying] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [showSuccessFeedback, setShowSuccessFeedback] = useState(false)
-  const [showErrorFeedback, setShowErrorFeedback] = useState(false)
-  const [inlineStatus, setInlineStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [isDirty, setIsDirty] = useState(false)
-  const frameRef = useRef<HTMLDivElement | null>(null)
+  const [isInteracting, setIsInteracting] = useState(false)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [viewMode, setViewMode] = useState<'before' | 'after'>('before')
+  const [aspectPresetId, setAspectPresetId] = useState<AspectPreset['id']>(() => defaultAspectPresetForLabel(label))
+  const [cropResolution, setCropResolution] = useState<CropResolution>({ width: 0, height: 0 })
+  const [inlineStatus, setInlineStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  const frameHeightClass = isFullscreen ? 'h-[42vh] md:h-[52vh]' : 'h-48 md:h-56'
+  const isLowResolution =
+    cropResolution.width > 0 &&
+    cropResolution.height > 0 &&
+    (Math.max(cropResolution.width, cropResolution.height) < MIN_LONG_SIDE_PX ||
+      Math.min(cropResolution.width, cropResolution.height) < MIN_SHORT_SIDE_PX)
 
   useEffect(() => {
     return () => {
       if (sourceUrl) URL.revokeObjectURL(sourceUrl)
       if (previewUrl) URL.revokeObjectURL(previewUrl)
     }
-  }, [sourceUrl, previewUrl])
+  }, [previewUrl, sourceUrl])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mediaQuery = window.matchMedia('(max-width: 768px)')
+    const updateViewport = () => setIsMobileViewport(mediaQuery.matches)
+    updateViewport()
+    mediaQuery.addEventListener('change', updateViewport)
+    return () => mediaQuery.removeEventListener('change', updateViewport)
+  }, [])
+
+  useEffect(() => {
+    if (!isInteracting || !isMobileViewport) return
+    const previousOverscroll = document.body.style.overscrollBehavior
+    const preventTouchMove = (event: TouchEvent) => event.preventDefault()
+    document.body.style.overscrollBehavior = 'none'
+    document.addEventListener('touchmove', preventTouchMove, { passive: false })
+    return () => {
+      document.body.style.overscrollBehavior = previousOverscroll
+      document.removeEventListener('touchmove', preventTouchMove)
+    }
+  }, [isInteracting, isMobileViewport])
 
   useEffect(() => {
     if (!isFullscreen) return
@@ -103,61 +135,81 @@ export default function IdentityImageEditor({
       setIsFullscreen(false)
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isFullscreen, isDirty])
-
-  useEffect(() => {
-    if (!isFullscreen) return
-
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', onKeyDown)
 
     return () => {
       document.body.style.overflow = originalOverflow
+      window.removeEventListener('keydown', onKeyDown)
     }
-  }, [isFullscreen])
+  }, [isDirty, isFullscreen])
 
-  const polygonPoints = useMemo(() => {
-    return corners.map((corner) => `${corner.x * 100}% ${corner.y * 100}%`).join(', ')
-  }, [corners])
+  useEffect(() => {
+    if (!sourceUrl) return
 
-  const getFileMeta = (file: File) => {
-    const sizeMb = (file.size / (1024 * 1024)).toFixed(2)
-    return `${file.name} · ${sizeMb}MB · ${file.type || 'tipo desconocido'}`
-  }
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+        return
+      }
 
-  const sameFile = (first: File | null, second: File | null) => {
-    if (!first || !second) return false
-    return first.name === second.name && first.size === second.size && first.lastModified === second.lastModified
-  }
+      const cropper = cropperRef.current?.cropper
+      if (!cropper) return
 
-  const loadFileIntoEditor = (file: File | null, shouldResetEditingState: boolean) => {
-    if (!file) {
-      setSelectedFile(null)
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl)
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      setSourceUrl('')
-      setPreviewUrl('')
-      setRotation(0)
-      setCorners(defaultCorners)
-      setIsDirty(false)
-      return
+      const key = event.key.toLowerCase()
+      if (key === '+' || key === '=' || key === 'add') {
+        event.preventDefault()
+        cropper.zoom(0.1)
+        setIsDirty(true)
+        triggerHaptic('light')
+        return
+      }
+
+      if (key === '-' || key === '_' || key === 'subtract') {
+        event.preventDefault()
+        cropper.zoom(-0.1)
+        setIsDirty(true)
+        triggerHaptic('light')
+        return
+      }
+
+      if (key === 'r') {
+        event.preventDefault()
+        cropper.rotate(90)
+        setIsDirty(true)
+        triggerHaptic('light')
+        return
+      }
+
+      if (key === '0') {
+        event.preventDefault()
+        cropper.reset()
+        setIsDirty(true)
+        triggerHaptic('light')
+        return
+      }
+
+      if (key === 'enter') {
+        event.preventDefault()
+        const applyButton = document.querySelector(`[data-testid="apply-crop-${labelSlug}"]`) as HTMLButtonElement | null
+        if (applyButton && !applyButton.disabled) applyButton.click()
+        return
+      }
+
+      if (key === 'escape' && isFullscreen) {
+        event.preventDefault()
+        if (isDirty) {
+          const shouldClose = window.confirm('Tienes cambios sin aplicar. ¿Seguro que deseas cerrar?')
+          if (!shouldClose) return
+        }
+        setIsFullscreen(false)
+      }
     }
 
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl)
-    if (previewUrl) URL.revokeObjectURL(previewUrl)
-
-    const nextUrl = URL.createObjectURL(file)
-    setSelectedFile(file)
-    setSourceUrl(nextUrl)
-    if (shouldResetEditingState) {
-      setPreviewUrl('')
-      setRotation(0)
-      setCorners(defaultCorners)
-      setIsDirty(true)
-    }
-  }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isDirty, isFullscreen, labelSlug, sourceUrl])
 
   useEffect(() => {
     if (!initialFile && selectedFile) {
@@ -166,28 +218,85 @@ export default function IdentityImageEditor({
       setSelectedFile(null)
       setSourceUrl('')
       setPreviewUrl('')
-      setRotation(0)
-      setCorners(defaultCorners)
       setIsDirty(false)
       return
     }
 
-    if (initialFile && !sameFile(initialFile, selectedFile)) {
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl)
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      const nextUrl = URL.createObjectURL(initialFile)
-      setSelectedFile(initialFile)
-      setSourceUrl(nextUrl)
-      setIsDirty(false)
-    }
+    if (!initialFile) return
+
+    const isSameFile =
+      selectedFile &&
+      initialFile.name === selectedFile.name &&
+      initialFile.size === selectedFile.size &&
+      initialFile.lastModified === selectedFile.lastModified
+
+    if (isSameFile) return
+
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl)
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+
+    const nextUrl = URL.createObjectURL(initialFile)
+    setSelectedFile(initialFile)
+    setSourceUrl(nextUrl)
+    setPreviewUrl('')
+    setViewMode('before')
+    setIsDirty(false)
   }, [initialFile, previewUrl, selectedFile, sourceUrl])
 
-  const requestCloseFullscreen = () => {
-    if (isDirty) {
-      const shouldClose = window.confirm('Tienes cambios sin aplicar. ¿Seguro que deseas cerrar?')
-      if (!shouldClose) return
+  const updateResolutionFromCropper = (cropper?: ReactCropperElement['cropper']) => {
+    const targetCropper = cropper || cropperRef.current?.cropper
+    if (!targetCropper) return
+    const data = targetCropper.getData(true)
+    const width = Math.max(0, Math.round(Math.abs(data.width || 0)))
+    const height = Math.max(0, Math.round(Math.abs(data.height || 0)))
+    setCropResolution({ width, height })
+  }
+
+  const fitCropBoxToImage = (cropper?: ReactCropperElement['cropper']) => {
+    const targetCropper = cropper || cropperRef.current?.cropper
+    if (!targetCropper) return
+
+    const imageData = targetCropper.getImageData()
+    const marginFactor = 0.9
+    const preset = ASPECT_PRESETS.find((item) => item.id === aspectPresetId)
+    const ratio = preset?.ratio ?? null
+
+    let width = imageData.width * marginFactor
+    let height = imageData.height * marginFactor
+
+    if (ratio) {
+      width = imageData.width * marginFactor
+      height = width / ratio
+      if (height > imageData.height * marginFactor) {
+        height = imageData.height * marginFactor
+        width = height * ratio
+      }
     }
-    setIsFullscreen(false)
+
+    const left = imageData.left + (imageData.width - width) / 2
+    const top = imageData.top + (imageData.height - height) / 2
+
+    targetCropper.setCropBoxData({ left, top, width, height })
+    updateResolutionFromCropper(targetCropper)
+  }
+
+  const applyAspectPreset = (presetId: AspectPreset['id']) => {
+    setAspectPresetId(presetId)
+    const cropper = cropperRef.current?.cropper
+    if (!cropper) return
+
+    const preset = ASPECT_PRESETS.find((item) => item.id === presetId)
+    cropper.setAspectRatio(preset?.ratio ?? NaN)
+    window.requestAnimationFrame(() => {
+      fitCropBoxToImage(cropper)
+    })
+    setIsDirty(true)
+    triggerHaptic('light')
+  }
+
+  const getFileMeta = (file: File) => {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(2)
+    return `${file.name} · ${sizeMb}MB · ${file.type || 'tipo desconocido'}`
   }
 
   const handleFileSelect = (file: File | null, inputElement: HTMLInputElement) => {
@@ -211,226 +320,248 @@ export default function IdentityImageEditor({
       return
     }
 
-    loadFileIntoEditor(file, true)
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl)
+    if (previewUrl) URL.revokeObjectURL(previewUrl)
+
+    const nextUrl = URL.createObjectURL(file)
+    setSelectedFile(file)
+    setSourceUrl(nextUrl)
+    setPreviewUrl('')
+    setViewMode('before')
+    setIsDirty(true)
+    setCropResolution({ width: 0, height: 0 })
     onProcessedFileChange(file)
     setInlineStatus({ type: 'success', message: `Archivo cargado: ${getFileMeta(file)}` })
     window.setTimeout(() => setInlineStatus(null), 1800)
+
     if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
       setIsFullscreen(true)
     }
   }
 
-  const updateCornerFromPointer = (clientX: number, clientY: number, cornerIndex: number) => {
-    const frame = frameRef.current
-    if (!frame) return
+  const requestCloseFullscreen = () => {
+    if (isDirty) {
+      const shouldClose = window.confirm('Tienes cambios sin aplicar. ¿Seguro que deseas cerrar?')
+      if (!shouldClose) return
+    }
+    setIsFullscreen(false)
+  }
 
-    const rect = frame.getBoundingClientRect()
-    if (rect.width <= 0 || rect.height <= 0) return
+  const zoomIn = () => {
+    const cropper = cropperRef.current?.cropper
+    if (!cropper) return
+    cropper.zoom(0.1)
+    setIsDirty(true)
+    updateResolutionFromCropper(cropper)
+    triggerHaptic('light')
+  }
 
-    const x = clamp01((clientX - rect.left) / rect.width)
-    const y = clamp01((clientY - rect.top) / rect.height)
-
-    setCorners((prev) => prev.map((corner, idx) => (idx === cornerIndex ? { x, y } : corner)))
+  const zoomOut = () => {
+    const cropper = cropperRef.current?.cropper
+    if (!cropper) return
+    cropper.zoom(-0.1)
+    setIsDirty(true)
+    updateResolutionFromCropper(cropper)
+    triggerHaptic('light')
   }
 
   const rotateClockwise = () => {
-    triggerHaptic('medium')
+    const cropper = cropperRef.current?.cropper
+    if (!cropper) return
+    cropper.rotate(90)
     setIsDirty(true)
-    setRotation((prev) => {
-      const next = (((prev + 90) % 360) as 0 | 90 | 180 | 270)
-      setCorners((oldCorners) => oldCorners.map((corner) => rotatePoint(corner, 90)))
-      return next
-    })
+    updateResolutionFromCropper(cropper)
+    triggerHaptic('light')
   }
 
-  const resetCorners = () => {
-    triggerHaptic('medium')
+  const resetCrop = () => {
+    const cropper = cropperRef.current?.cropper
+    if (!cropper) return
+    cropper.reset()
     setIsDirty(true)
-    setCorners(defaultCorners)
+    fitCropBoxToImage(cropper)
+    triggerHaptic('light')
   }
 
   const applyAdjustments = async () => {
-    if (!selectedFile || !sourceUrl) return
+    const cropper = cropperRef.current?.cropper
+    if (!selectedFile || !cropper) return
 
-    triggerHaptic('medium')
+    if (isLowResolution) {
+      const shouldProceed = window.confirm(
+        `La resolución del recorte (${cropResolution.width}x${cropResolution.height}) es baja. Se recomienda al menos ${MIN_LONG_SIDE_PX}x${MIN_SHORT_SIDE_PX}. ¿Deseas continuar?`,
+      )
+      if (!shouldProceed) return
+    }
+
     setIsApplying(true)
     try {
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const img = new Image()
-        img.onload = () => resolve(img)
-        img.onerror = () => reject(new Error('No se pudo cargar la imagen'))
-        img.src = sourceUrl
+      const outputCanvas = cropper.getCroppedCanvas({
+        fillColor: '#ffffff',
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high',
+        maxWidth: 3000,
+        maxHeight: 3000,
       })
 
-      const baseCanvas = document.createElement('canvas')
-      const baseContext = baseCanvas.getContext('2d')
-      if (!baseContext) throw new Error('No se pudo preparar el lienzo')
-
-      const sourceWidth = image.naturalWidth
-      const sourceHeight = image.naturalHeight
-
-      if (rotation === 90 || rotation === 270) {
-        baseCanvas.width = sourceHeight
-        baseCanvas.height = sourceWidth
-      } else {
-        baseCanvas.width = sourceWidth
-        baseCanvas.height = sourceHeight
-      }
-
-      baseContext.save()
-      if (rotation === 90) {
-        baseContext.translate(baseCanvas.width, 0)
-        baseContext.rotate(Math.PI / 2)
-      } else if (rotation === 180) {
-        baseContext.translate(baseCanvas.width, baseCanvas.height)
-        baseContext.rotate(Math.PI)
-      } else if (rotation === 270) {
-        baseContext.translate(0, baseCanvas.height)
-        baseContext.rotate(-Math.PI / 2)
-      }
-      baseContext.drawImage(image, 0, 0)
-      baseContext.restore()
-
-      const points = corners.map((corner) => ({
-        x: Math.round(corner.x * baseCanvas.width),
-        y: Math.round(corner.y * baseCanvas.height),
-      }))
-
-      const minX = Math.max(0, Math.min(...points.map((point) => point.x)))
-      const maxX = Math.min(baseCanvas.width, Math.max(...points.map((point) => point.x)))
-      const minY = Math.max(0, Math.min(...points.map((point) => point.y)))
-      const maxY = Math.min(baseCanvas.height, Math.max(...points.map((point) => point.y)))
-
-      const outputWidth = Math.max(1, maxX - minX)
-      const outputHeight = Math.max(1, maxY - minY)
-
-      const outputCanvas = document.createElement('canvas')
-      outputCanvas.width = outputWidth
-      outputCanvas.height = outputHeight
-      const outputContext = outputCanvas.getContext('2d')
-      if (!outputContext) throw new Error('No se pudo crear la vista previa')
-
-      outputContext.save()
-      outputContext.beginPath()
-      outputContext.moveTo(points[0].x - minX, points[0].y - minY)
-      for (let index = 1; index < points.length; index += 1) {
-        outputContext.lineTo(points[index].x - minX, points[index].y - minY)
-      }
-      outputContext.closePath()
-      outputContext.clip()
-      outputContext.drawImage(baseCanvas, -minX, -minY)
-      outputContext.restore()
+      if (!outputCanvas) throw new Error('No se pudo generar la imagen recortada')
 
       const outputType = selectedFile.type.startsWith('image/') ? selectedFile.type : 'image/jpeg'
       const blob = await new Promise<Blob | null>((resolve) => {
         outputCanvas.toBlob((value) => resolve(value), outputType, 0.95)
       })
 
-      if (!blob) throw new Error('No se pudo generar la imagen ajustada')
+      if (!blob) throw new Error('No se pudo generar la imagen recortada')
 
       const extension = getFileExtension(blob.type)
       const editedFile = new File([blob], `${label.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}.${extension}`, {
         type: blob.type,
       })
 
-      if (previewUrl) URL.revokeObjectURL(previewUrl)
-      const newPreviewUrl = URL.createObjectURL(blob)
-      setPreviewUrl(newPreviewUrl)
+      const nextUrl = URL.createObjectURL(blob)
+      setSourceUrl((current) => {
+        if (current) URL.revokeObjectURL(current)
+        return nextUrl
+      })
+      setPreviewUrl((current) => {
+        if (current && current !== nextUrl) URL.revokeObjectURL(current)
+        return nextUrl
+      })
+      setSelectedFile(editedFile)
       onProcessedFileChange(editedFile)
+      setViewMode('after')
       setIsDirty(false)
+      updateResolutionFromCropper(cropper)
+      setInlineStatus({ type: 'success', message: 'Recorte aplicado correctamente.' })
       triggerHaptic('success')
-      setShowSuccessFeedback(true)
-      setInlineStatus({ type: 'success', message: 'Ajuste aplicado correctamente.' })
-      window.setTimeout(() => setShowSuccessFeedback(false), 850)
       window.setTimeout(() => setInlineStatus(null), 1800)
     } catch (error) {
       console.error(error)
-      triggerHaptic('error')
-      setShowErrorFeedback(true)
       setInlineStatus({ type: 'error', message: 'No se pudo procesar la imagen. Reintenta.' })
-      window.setTimeout(() => setShowErrorFeedback(false), 1000)
+      triggerHaptic('error')
       window.setTimeout(() => setInlineStatus(null), 2200)
     } finally {
       setIsApplying(false)
     }
   }
 
-  const adjustmentWorkspace = (
-    <>
-      <div className="relative">
-      <div
-        ref={frameRef}
-        className={`relative w-full overflow-hidden rounded-md border border-slate-200 bg-slate-950/5 dark:border-slate-800 ${frameHeightClass}`}
-        style={{
-          clipPath: `polygon(${polygonPoints})`,
-        }}
-      >
-        <img src={sourceUrl} alt={`Ajuste de ${label}`} className="h-full w-full object-contain" style={{ transform: `rotate(${rotation}deg)` }} />
-      </div>
+  const cropperAreaClass = isFullscreen ? 'h-[46vh] md:h-[58vh]' : 'h-56 md:h-72'
 
-      <div
-        className={`pointer-events-none absolute inset-0 rounded-md border-2 border-emerald-400/70 transition-opacity duration-300 ${showSuccessFeedback ? 'opacity-100' : 'opacity-0'}`}
-      />
-      <div
-        className={`pointer-events-none absolute inset-0 rounded-md border-2 border-red-400/70 transition-opacity duration-300 ${showErrorFeedback ? 'opacity-100' : 'opacity-0'}`}
-      />
-      <div
-        className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-all duration-300 ${showSuccessFeedback ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
-      >
-        <div className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-white shadow">
-          Ajuste aplicado
-        </div>
-      </div>
-      <div
-        className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-all duration-300 ${showErrorFeedback ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}
-      >
-        <div className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white shadow">
-          Error al procesar
-        </div>
-      </div>
-      </div>
-
-      <div className={`relative w-full overflow-hidden rounded-md border border-dashed border-blue-300 dark:border-sky-700 ${frameHeightClass}`}>
-        <img src={sourceUrl} alt={`Guía de ${label}`} className="h-full w-full object-contain opacity-90" style={{ transform: `rotate(${rotation}deg)` }} />
-
-        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <polygon points={corners.map((corner) => `${corner.x * 100},${corner.y * 100}`).join(' ')} fill="rgba(14, 165, 233, 0.12)" stroke="rgba(14, 165, 233, 0.8)" strokeWidth="0.8" strokeDasharray="2 2" />
-          {corners.map((corner, index) => (
-            <circle
-              key={`${label}-${index}`}
-              cx={corner.x * 100}
-              cy={corner.y * 100}
-              r={2.1}
-              fill="rgba(2, 132, 199, 1)"
-              style={{ cursor: 'grab' }}
-              onPointerDown={(event) => {
-                event.preventDefault()
-                triggerHaptic('light')
-                setDraggingCorner(index)
-                ;(event.currentTarget as SVGCircleElement).setPointerCapture(event.pointerId)
-              }}
-              onPointerMove={(event) => {
-                if (draggingCorner !== index) return
-                setIsDirty(true)
-                updateCornerFromPointer(event.clientX, event.clientY, index)
-              }}
-              onPointerUp={(event) => {
-                if (draggingCorner === index) setDraggingCorner(null)
-                triggerHaptic('light')
-                ;(event.currentTarget as SVGCircleElement).releasePointerCapture(event.pointerId)
-              }}
-            />
-          ))}
-        </svg>
+  const editorBlock = sourceUrl ? (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {ASPECT_PRESETS.map((preset) => (
+          <Button
+            key={`${labelSlug}-${preset.id}`}
+            type="button"
+            variant={aspectPresetId === preset.id ? 'default' : 'outline'}
+            className="h-9 px-3"
+            data-testid={`aspect-preset-${preset.id}-${labelSlug}`}
+            onClick={() => applyAspectPreset(preset.id)}
+          >
+            {preset.label}
+          </Button>
+        ))}
       </div>
 
       {previewUrl ? (
-        <img src={previewUrl} alt={`Vista final ${label}`} className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant={viewMode === 'before' ? 'default' : 'outline'}
+            className="h-8 px-3 text-xs"
+            data-testid={`before-toggle-${labelSlug}`}
+            onClick={() => setViewMode('before')}
+          >
+            Antes
+          </Button>
+          <Button
+            type="button"
+            variant={viewMode === 'after' ? 'default' : 'outline'}
+            className="h-8 px-3 text-xs"
+            data-testid={`after-toggle-${labelSlug}`}
+            onClick={() => setViewMode('after')}
+          >
+            Después
+          </Button>
+        </div>
       ) : null}
 
+      {viewMode === 'after' && previewUrl ? (
+        <img
+          src={previewUrl}
+          alt={`Vista previa ${label}`}
+          className={`h-56 w-full rounded border border-slate-200 object-contain dark:border-slate-800 ${isFullscreen ? 'md:h-[58vh]' : 'md:h-72'}`}
+        />
+      ) : (
+        <div
+          className={`w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-950 ${cropperAreaClass}`}
+          style={{ touchAction: 'none' }}
+        >
+          <Cropper
+            ref={cropperRef}
+            src={sourceUrl}
+            style={{ height: '100%', width: '100%' }}
+            viewMode={1}
+            dragMode="move"
+            guides
+            center
+            background={false}
+            responsive
+            checkOrientation
+            autoCrop
+            autoCropArea={0.88}
+            movable
+            zoomable
+            rotatable
+            scalable={false}
+            zoomOnWheel
+            zoomOnTouch
+            cropBoxMovable
+            cropBoxResizable
+            toggleDragModeOnDblclick={false}
+            ready={() => {
+              const cropper = cropperRef.current?.cropper
+              if (!cropper) return
+              const preset = ASPECT_PRESETS.find((item) => item.id === aspectPresetId)
+              cropper.setAspectRatio(preset?.ratio ?? NaN)
+              fitCropBoxToImage(cropper)
+              setIsDirty(false)
+            }}
+            cropstart={() => {
+              setIsInteracting(true)
+            }}
+            cropend={() => {
+              setIsInteracting(false)
+              setIsDirty(true)
+              updateResolutionFromCropper()
+            }}
+            cropmove={() => updateResolutionFromCropper()}
+            zoom={() => {
+              setIsDirty(true)
+              updateResolutionFromCropper()
+            }}
+          />
+        </div>
+      )}
+
+      <div
+        className={`rounded-md border px-3 py-2 text-xs font-medium ${isLowResolution
+          ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200'
+          : 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-200'
+          }`}
+        data-testid={`resolution-status-${labelSlug}`}
+      >
+        Resolución estimada: {cropResolution.width || 0}x{cropResolution.height || 0}px. Objetivo recomendado: {MIN_LONG_SIDE_PX}x{MIN_SHORT_SIDE_PX}px.
+      </div>
+
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Guía: centra el documento en el marco, evita sombras y ajusta las 4 esquinas para quitar zonas indeseadas antes de subir.
+        Atajos: `+/-` zoom, `R` rotar, `0` reiniciar, `Esc` cerrar y `Enter` aplicar.
       </p>
+
+      {previewUrl ? (
+        <img src={previewUrl} alt={`Vista previa ${label}`} className="h-24 w-full rounded border border-slate-200 object-contain dark:border-slate-800" />
+      ) : null}
 
       {inlineStatus ? (
         <div
@@ -450,14 +581,43 @@ export default function IdentityImageEditor({
           </button>
         </div>
       ) : null}
-    </>
-  )
 
-  const actionButtons = (
-    <div className="grid grid-cols-3 gap-2">
-      <Button type="button" variant="outline" onClick={rotateClockwise} className="h-11">Rotar</Button>
-      <Button type="button" variant="outline" onClick={resetCorners} className="h-11">Reiniciar</Button>
-      <Button type="button" onClick={applyAdjustments} disabled={isApplying} className="h-11">{isApplying ? 'Aplicando...' : 'Aplicar'}</Button>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        <Button type="button" variant="outline" onClick={zoomOut} className="h-11">- Zoom</Button>
+        <Button type="button" variant="outline" onClick={zoomIn} className="h-11">+ Zoom</Button>
+        <Button type="button" variant="outline" onClick={rotateClockwise} className="h-11">Rotar</Button>
+        <Button type="button" variant="outline" onClick={resetCrop} className="h-11">Reiniciar</Button>
+        <Button
+          type="button"
+          onClick={applyAdjustments}
+          disabled={isApplying || !isDirty}
+          className="h-11"
+          data-testid={`apply-crop-${labelSlug}`}
+        >
+          {isApplying ? 'Aplicando...' : 'Aplicar'}
+        </Button>
+      </div>
+
+      {isFullscreen && isMobileViewport ? (
+        <div className="sticky bottom-0 z-20 -mx-4 border-t border-slate-200 bg-white/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+          <Button
+            type="button"
+            onClick={applyAdjustments}
+            disabled={isApplying || !isDirty}
+            className="h-12 w-full"
+            data-testid={`mobile-apply-crop-${labelSlug}`}
+          >
+            {isApplying ? 'Aplicando...' : 'Aplicar Recorte'}
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <div className={`relative w-full overflow-hidden rounded-md border border-dashed border-blue-300 bg-slate-50 dark:border-sky-700 dark:bg-slate-900/40 ${cropperAreaClass}`}>
+      <div className="absolute inset-4 rounded-md border-2 border-dashed border-blue-400/80 dark:border-sky-500/80" />
+      <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-slate-600 dark:text-slate-300">
+        Selecciona una imagen para abrir el editor de recorte tradicional.
+      </div>
     </div>
   )
 
@@ -472,6 +632,7 @@ export default function IdentityImageEditor({
         required={required}
         className="flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:file:bg-slate-800 dark:file:text-slate-200"
       />
+
       {selectedFile ? (
         <div className="text-xs text-slate-500 dark:text-slate-400">Archivo actual: {getFileMeta(selectedFile)}</div>
       ) : null}
@@ -479,49 +640,29 @@ export default function IdentityImageEditor({
       {sourceUrl ? (
         <>
           <div className="flex justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsFullscreen(true)}
-              className="h-10 px-4"
-            >
+            <Button type="button" variant="outline" onClick={() => setIsFullscreen(true)} className="h-10 px-4">
               Pantalla completa
             </Button>
           </div>
 
           {isFullscreen ? (
             <div className="fixed inset-0 z-50 bg-black/70 p-3 backdrop-blur-sm md:p-6">
-              <div className="mx-auto h-full w-full max-w-4xl overflow-auto rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <div className="mx-auto h-full w-full max-w-5xl overflow-auto rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Edición de documento</div>
                   <Button type="button" variant="outline" className="h-9 px-3" onClick={requestCloseFullscreen}>
                     Cerrar
                   </Button>
                 </div>
-                <div className="space-y-3 pb-24">{adjustmentWorkspace}</div>
-                <div className="sticky bottom-0 left-0 right-0 -mx-4 border-t border-slate-200 bg-white/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-                  {actionButtons}
-                </div>
+                <div className="space-y-3 pb-24">{editorBlock}</div>
               </div>
             </div>
           ) : (
-            <div className="space-y-3">
-              {adjustmentWorkspace}
-              {actionButtons}
-            </div>
+            editorBlock
           )}
         </>
       ) : (
-        <div className={`relative w-full overflow-hidden rounded-md border border-dashed border-blue-300 bg-slate-50 dark:border-sky-700 dark:bg-slate-900/40 ${frameHeightClass}`}>
-          <div className="absolute inset-4 rounded-md border-2 border-dashed border-blue-400/80 dark:border-sky-500/80" />
-          <div className="absolute left-4 top-4 h-4 w-4 border-l-2 border-t-2 border-blue-500 dark:border-sky-400" />
-          <div className="absolute right-4 top-4 h-4 w-4 border-r-2 border-t-2 border-blue-500 dark:border-sky-400" />
-          <div className="absolute left-4 bottom-4 h-4 w-4 border-l-2 border-b-2 border-blue-500 dark:border-sky-400" />
-          <div className="absolute right-4 bottom-4 h-4 w-4 border-r-2 border-b-2 border-blue-500 dark:border-sky-400" />
-          <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-xs text-slate-600 dark:text-slate-300">
-            Alinea el documento dentro del marco guía y toma la foto en horizontal.
-          </div>
-        </div>
+        editorBlock
       )}
     </div>
   )

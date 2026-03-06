@@ -341,6 +341,7 @@ export const documentsApi = {
     const fd = new FormData()
     fd.append('front_image', frontImage)
     fd.append('back_image', backImage)
+    fd.append('auto_perspective', 'false')
     return api.post<Blob>('/api/identity-scans/compose/', fd, {
       responseType: 'blob',
     })
