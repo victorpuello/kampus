@@ -25,6 +25,13 @@ const MAIL_SETTINGS_ENV_OPTIONS: { value: MailSettingsEnvironment; label: string
 ]
 
 const SYSTEM_TABS: SystemTab[] = ['mailgun', 'whatsapp', 'templates', 'audits', 'backups', 'restore']
+const WHATSAPP_PANEL_STORAGE_KEY = 'system.whatsapp.panels'
+
+type WhatsAppPanelState = {
+  advanced: boolean
+  templateMap: boolean
+  health: boolean
+}
 
 const SYSTEM_TAB_META: Record<SystemTab, { title: string; description: string }> = {
   mailgun: {
@@ -163,6 +170,28 @@ export default function SystemSettings() {
   })
   const [whatsAppBodyParametersRaw, setWhatsAppBodyParametersRaw] = useState('recipient_name,title,body,action_url')
   const [whatsAppDefaultComponentsRaw, setWhatsAppDefaultComponentsRaw] = useState('')
+  const [whatsAppTesting, setWhatsAppTesting] = useState(false)
+  const [whatsAppTestPhone, setWhatsAppTestPhone] = useState('')
+  const [whatsAppTestMessage, setWhatsAppTestMessage] = useState('Prueba de WhatsApp desde Kampus.')
+  const [whatsAppTestStatus, setWhatsAppTestStatus] = useState<string | null>(null)
+  const [whatsAppTestError, setWhatsAppTestError] = useState<string | null>(null)
+  const [whatsAppPanels, setWhatsAppPanels] = useState<WhatsAppPanelState>(() => {
+    if (typeof window === 'undefined') {
+      return { advanced: false, templateMap: false, health: false }
+    }
+    try {
+      const raw = window.localStorage.getItem(WHATSAPP_PANEL_STORAGE_KEY)
+      if (!raw) return { advanced: false, templateMap: false, health: false }
+      const parsed = JSON.parse(raw) as Partial<WhatsAppPanelState>
+      return {
+        advanced: Boolean(parsed.advanced),
+        templateMap: Boolean(parsed.templateMap),
+        health: Boolean(parsed.health),
+      }
+    } catch {
+      return { advanced: false, templateMap: false, health: false }
+    }
+  })
 
   const canRunDestructive = mode !== 'restore' || confirm
 
@@ -342,6 +371,29 @@ export default function SystemSettings() {
     }
   }
 
+  const sendWhatsAppTestMessage = async () => {
+    if (!whatsAppTestPhone.trim()) {
+      setWhatsAppTestError('Ingresa un numero de WhatsApp en formato internacional (ej: +573001112233).')
+      return
+    }
+
+    setWhatsAppTesting(true)
+    setWhatsAppTestError(null)
+    setWhatsAppTestStatus(null)
+    try {
+      const res = await systemApi.sendWhatsAppTestMessage(
+        whatsAppTestPhone.trim(),
+        whatsAppTestMessage.trim() || 'Prueba de WhatsApp desde Kampus.',
+        mailSettingsEnvironment,
+      )
+      setWhatsAppTestStatus(res.data.detail || 'Mensaje de prueba enviado correctamente.')
+    } catch (error) {
+      setWhatsAppTestError(getRequestErrorMessage(error, 'No se pudo enviar el mensaje de prueba.'))
+    } finally {
+      setWhatsAppTesting(false)
+    }
+  }
+
   useEffect(() => {
     if (!isAdmin) return
     loadBackups()
@@ -372,6 +424,11 @@ export default function SystemSettings() {
       window.removeEventListener('hashchange', syncFromHash)
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(WHATSAPP_PANEL_STORAGE_KEY, JSON.stringify(whatsAppPanels))
+  }, [whatsAppPanels])
 
   const saveMailgunSettings = async () => {
     setMailgunSaving(true)
@@ -844,7 +901,7 @@ export default function SystemSettings() {
       <div className="space-y-4">
         <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <CardTitle className="text-slate-900 dark:text-slate-100">Configuración de canal WhatsApp</CardTitle>
+            <CardTitle className="text-slate-900 dark:text-slate-100">Configuración y pruebas de WhatsApp</CardTitle>
             <div className="text-xs text-slate-500 dark:text-slate-400">Solo ADMIN / SUPERADMIN</div>
           </CardHeader>
           <CardContent>
@@ -855,6 +912,13 @@ export default function SystemSettings() {
                 void saveWhatsAppSettings()
               }}
             >
+              {whatsAppError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{whatsAppError}</div>
+              ) : null}
+              {whatsAppMessage ? (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">{whatsAppMessage}</div>
+              ) : null}
+
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
                 <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Entorno de configuración</div>
                 <div className="flex flex-wrap gap-2">
@@ -883,7 +947,57 @@ export default function SystemSettings() {
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Prueba rápida de envío</div>
+                {whatsAppTestError ? (
+                  <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{whatsAppTestError}</div>
+                ) : null}
+                {whatsAppTestStatus ? (
+                  <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">{whatsAppTestStatus}</div>
+                ) : null}
+                <div className="flex flex-col gap-2 lg:flex-row">
+                  <input
+                    type="text"
+                    className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="+573001112233"
+                    value={whatsAppTestPhone}
+                    onChange={(e) => setWhatsAppTestPhone(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving}
+                  />
+                  <input
+                    type="text"
+                    className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="Mensaje corto de prueba"
+                    value={whatsAppTestMessage}
+                    onChange={(e) => setWhatsAppTestMessage(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={sendWhatsAppTestMessage}
+                    disabled={whatsAppTesting || whatsAppSaving}
+                    className="min-h-11 lg:min-w-40"
+                  >
+                    {whatsAppTesting ? 'Probando…' : 'Enviar prueba'}
+                  </Button>
+                </div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  Usa un número real con prefijo internacional para verificar conectividad del canal.
+                </div>
+              </div>
+
+              <details
+                open={whatsAppPanels.advanced}
+                onToggle={(e) => {
+                  const nextOpen = (e.currentTarget as HTMLDetailsElement).open
+                  setWhatsAppPanels((prev) => ({ ...prev, advanced: nextOpen }))
+                }}
+              >
+                <summary className="cursor-pointer list-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100">
+                  Configuración avanzada del canal
+                </summary>
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
                 <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
                   <input
                     type="checkbox"
@@ -1033,22 +1147,31 @@ export default function SystemSettings() {
                   />
                   Validación estricta de firma webhook
                 </label>
-              </div>
+                </div>
 
-              <div className="flex justify-end">
-                <Button type="submit" disabled={whatsAppLoading || whatsAppSaving} className="min-h-11">
-                  {whatsAppSaving ? 'Guardando…' : 'Guardar configuración'}
-                </Button>
-              </div>
+                <div className="mt-4 flex justify-end">
+                  <Button type="submit" disabled={whatsAppLoading || whatsAppSaving} className="min-h-11">
+                    {whatsAppSaving ? 'Guardando…' : 'Guardar configuración'}
+                  </Button>
+                </div>
+              </details>
             </form>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-slate-900 dark:text-slate-100">Mapeo de plantillas WhatsApp</CardTitle>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4">
+            <details
+              open={whatsAppPanels.templateMap}
+              onToggle={(e) => {
+                const nextOpen = (e.currentTarget as HTMLDetailsElement).open
+                setWhatsAppPanels((prev) => ({ ...prev, templateMap: nextOpen }))
+              }}
+            >
+              <summary className="cursor-pointer list-none text-base font-semibold text-slate-900 dark:text-slate-100">
+                Mapeo de plantillas WhatsApp ({whatsAppTemplateMaps.length})
+              </summary>
+              <div className="mt-4">
             {whatsAppError ? (
               <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{whatsAppError}</div>
             ) : null}
@@ -1186,13 +1309,28 @@ export default function SystemSettings() {
                 <div className="py-3 text-sm text-slate-500 dark:text-slate-400">No hay mapeos configurados.</div>
               ) : null}
             </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <CardTitle className="text-slate-900 dark:text-slate-100">Salud operativa WhatsApp</CardTitle>
-            <div className="flex items-center gap-2">
+          <CardContent className="pt-4">
+            <details
+              open={whatsAppPanels.health}
+              onToggle={(e) => {
+                const nextOpen = (e.currentTarget as HTMLDetailsElement).open
+                setWhatsAppPanels((prev) => ({ ...prev, health: nextOpen }))
+              }}
+            >
+              <summary className="cursor-pointer list-none text-base font-semibold text-slate-900 dark:text-slate-100">
+                Salud operativa WhatsApp ({whatsAppHours}h){' '}
+                <span className={`text-sm ${whatsAppHealth ? (whatsAppHealth.breach ? 'text-rose-600' : 'text-emerald-600') : 'text-slate-500 dark:text-slate-400'}`}>
+                  {whatsAppHealth ? (whatsAppHealth.breach ? 'Breach' : 'OK') : 'Sin datos'}
+                </span>
+              </summary>
+              <div className="mt-4 space-y-3">
+                <div className="flex items-center gap-2">
               <input
                 type="number"
                 min={1}
@@ -1204,8 +1342,7 @@ export default function SystemSettings() {
                 Actualizar
               </Button>
             </div>
-          </CardHeader>
-          <CardContent>
+
             {!whatsAppHealth ? (
               <div className="text-sm text-slate-500 dark:text-slate-400">Sin datos de salud disponibles.</div>
             ) : (
@@ -1254,6 +1391,8 @@ export default function SystemSettings() {
                 </div>
               </div>
             )}
+              </div>
+            </details>
           </CardContent>
         </Card>
       </div>

@@ -806,6 +806,45 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertIn("enabled", response.data)
 
+	def test_admin_can_send_whatsapp_test_message(self):
+		class _Delivery:
+			id = 123
+			status = WhatsAppDelivery.STATUS_SENT
+			provider_message_id = "wamid.TEST123"
+			error_message = ""
+			error_code = ""
+
+		class _Result:
+			sent = True
+			delivery = _Delivery()
+
+		with patch("communications.views.send_whatsapp", return_value=_Result()) as mocked_send:
+			response = self.admin_client.post(
+				"/api/communications/settings/whatsapp/test/?environment=development",
+				{
+					"test_phone": "+573001112233",
+					"message": "Mensaje de prueba",
+				},
+				format="json",
+			)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data["status"], WhatsAppDelivery.STATUS_SENT)
+		self.assertEqual(response.data["delivery_id"], 123)
+		mocked_send.assert_called_once()
+
+	def test_non_admin_cannot_send_whatsapp_test_message(self):
+		response = self.teacher_client.post(
+			"/api/communications/settings/whatsapp/test/?environment=development",
+			{
+				"test_phone": "+573001112233",
+				"message": "Mensaje de prueba",
+			},
+			format="json",
+		)
+
+		self.assertEqual(response.status_code, 403)
+
 
 @override_settings(
 	KAMPUS_WHATSAPP_ENABLED=True,

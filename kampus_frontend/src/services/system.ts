@@ -203,6 +203,15 @@ export type WhatsAppSettingsPayload = {
   template_fallback_name: string
 }
 
+export type WhatsAppTestSendResponse = {
+  detail: string
+  status: string
+  error?: string
+  error_code?: string
+  delivery_id?: number
+  provider_message_id?: string
+}
+
 export const systemApi = {
   listBackups: () => api.get<{ results: BackupItem[] }>('/api/system/backups/'),
 
@@ -299,6 +308,13 @@ export const systemApi = {
   updateWhatsAppSettings: (payload: WhatsAppSettingsPayload, environment: MailSettingsEnvironment = 'development') =>
     api.put<WhatsAppSettingsResponse>(`/api/communications/settings/whatsapp/?environment=${environment}`, {
       ...payload,
+      environment,
+    }),
+
+  sendWhatsAppTestMessage: (testPhone: string, message: string, environment: MailSettingsEnvironment = 'development') =>
+    api.post<WhatsAppTestSendResponse>(`/api/communications/settings/whatsapp/test/?environment=${environment}`, {
+      test_phone: testPhone,
+      message,
       environment,
     }),
 }

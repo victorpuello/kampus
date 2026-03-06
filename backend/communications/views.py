@@ -42,7 +42,7 @@ from .runtime_settings import (
 )
 from .management.commands.notifications_baseline_snapshot import build_notifications_baseline_snapshot
 from .template_service import list_template_defaults, render_email_template, send_templated_email
-from .whatsapp_service import classify_whatsapp_error
+from .whatsapp_service import classify_whatsapp_error, send_whatsapp
 
 
 logger = logging.getLogger(__name__)
@@ -505,6 +505,59 @@ class MailSettingsTestView(APIView):
 			{
 				"detail": "Correo de prueba enviado correctamente.",
 				"status": result.delivery.status,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class WhatsAppSettingsTestView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment") or (request.data or {}).get("environment"))
+		payload = request.data if isinstance(request.data, dict) else {}
+
+		test_phone = _normalize_whatsapp_phone(payload.get("test_phone") or "")
+		if not test_phone:
+			return Response({"detail": "test_phone es requerido y debe estar en formato E.164."}, status=status.HTTP_400_BAD_REQUEST)
+
+		test_message = str(payload.get("message") or "").strip() or "Prueba de WhatsApp desde Kampus."
+		if len(test_message) > 4096:
+			return Response({"detail": "message no puede exceder 4096 caracteres."}, status=status.HTTP_400_BAD_REQUEST)
+
+		apply_effective_whatsapp_settings(environment=environment)
+
+		try:
+			result = send_whatsapp(
+				recipient_phone=test_phone,
+				message_text=test_message,
+				category="system-test",
+				idempotency_key=f"whatsapp-settings-test:{environment}:{test_phone}:{timezone.now().strftime('%Y%m%d%H%M%S')}",
+			)
+		except RuntimeError as exc:
+			return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+		except Exception as exc:  # pragma: no cover - defensive guard
+			logger.exception("Unexpected WhatsApp test send error", extra={"user_id": getattr(request.user, "id", None)})
+			return Response({"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+		if not result.sent:
+			return Response(
+				{
+					"detail": "El mensaje de prueba no pudo enviarse.",
+					"status": result.delivery.status,
+					"error": result.delivery.error_message,
+					"error_code": result.delivery.error_code,
+					"delivery_id": result.delivery.id,
+				},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		return Response(
+			{
+				"detail": "Mensaje de prueba enviado correctamente.",
+				"status": result.delivery.status,
+				"delivery_id": result.delivery.id,
+				"provider_message_id": result.delivery.provider_message_id,
 			},
 			status=status.HTTP_200_OK,
 		)
