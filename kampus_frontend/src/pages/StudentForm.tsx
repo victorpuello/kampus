@@ -1206,7 +1206,7 @@ export default function StudentForm() {
       studentsApi.get(Number(id))
         .then(res => {
           const student = res.data
-                  setStudentPhotoUrl(student.photo || null)
+                  setStudentPhotoUrl(student.photo_thumb || student.photo || null)
                                     setCompletion(student.completion || null)
           
           // Parse place_of_issue if possible
@@ -1396,7 +1396,7 @@ export default function StudentForm() {
 
       if (isEditing) {
                 const res = await studentsApi.update(Number(id), payload)
-                setStudentPhotoUrl(res.data.photo || studentPhotoUrl)
+                setStudentPhotoUrl(res.data.photo_thumb || res.data.photo || studentPhotoUrl)
             setCompletion(res.data.completion || completion)
                 setStudentPhotoFile(null)
                 if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
@@ -1405,7 +1405,7 @@ export default function StudentForm() {
         else navigate('/students')
       } else {
                 const res = await studentsApi.create(payload)
-                setStudentPhotoUrl(res.data.photo || null)
+                setStudentPhotoUrl(res.data.photo_thumb || res.data.photo || null)
             setCompletion(res.data.completion || null)
                 setStudentPhotoFile(null)
                 if (studentPhotoPreviewUrl) URL.revokeObjectURL(studentPhotoPreviewUrl)
@@ -1600,7 +1600,7 @@ export default function StudentForm() {
 
             {shouldShowCompletion && completion ? (
                 <div className="sm:hidden sticky top-2 z-20 -mx-3 px-3">
-                    <div className="rounded-2xl bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/70 dark:bg-slate-950/60 dark:supports-[backdrop-filter]:bg-slate-950/50">
+                    <div className="rounded-2xl bg-white/85 backdrop-blur supports-backdrop-filter:bg-white/70 dark:bg-slate-950/60 dark:supports-backdrop-filter:bg-slate-950/50">
                         <StudentCompletionBar completion={completion} />
                     </div>
                 </div>
@@ -1650,21 +1650,30 @@ export default function StudentForm() {
                             <img
                                 src={studentPhotoPreviewUrl || studentPhotoUrl || ''}
                                 alt="Foto del estudiante"
+                                loading="lazy"
+                                decoding="async"
                                 className="h-16 w-16 rounded-full object-cover border border-slate-200 dark:border-slate-800"
                             />
                         ) : (
-                            <div className="h-16 w-16 rounded-full border border-dashed border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/40" />
+                            <div className="flex h-16 w-16 items-center justify-center rounded-full border border-dashed border-slate-300 bg-slate-50 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+                                Sin foto
+                            </div>
                         )}
 
-                        <input
-                            id="student_photo"
-                            name="photo"
-                            type="file"
-                            accept="image/*"
-                            onChange={handlePhotoChange}
-                            disabled={!canEdit}
-                            className="block w-full text-sm text-slate-700 dark:text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60 dark:file:bg-slate-800 dark:file:text-slate-200 dark:hover:file:bg-slate-700"
-                        />
+                        <div className="w-full space-y-1">
+                            <input
+                                id="student_photo"
+                                name="photo"
+                                type="file"
+                                accept="image/*"
+                                onChange={handlePhotoChange}
+                                disabled={!canEdit}
+                                className="block w-full text-sm text-slate-700 dark:text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-slate-100 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-slate-700 hover:file:bg-slate-200 disabled:opacity-60 dark:file:bg-slate-800 dark:file:text-slate-200 dark:hover:file:bg-slate-700"
+                            />
+                            {!studentPhotoPreviewUrl && !studentPhotoUrl ? (
+                                <p className="text-xs text-slate-500 dark:text-slate-400">Este estudiante no tiene foto cargada.</p>
+                            ) : null}
+                        </div>
                     </div>
                 </div>
                 
