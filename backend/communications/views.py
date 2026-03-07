@@ -42,7 +42,7 @@ from .runtime_settings import (
 )
 from .management.commands.notifications_baseline_snapshot import build_notifications_baseline_snapshot
 from .template_service import list_template_defaults, render_email_template, send_templated_email
-from .whatsapp_service import classify_whatsapp_error, send_whatsapp
+from .whatsapp_service import classify_whatsapp_error, send_whatsapp, send_whatsapp_template
 
 
 logger = logging.getLogger(__name__)
@@ -411,6 +411,8 @@ class WhatsAppSettingsView(APIView):
 			return Response({"detail": "graph_base_url debe iniciar con http:// o https://."}, status=status.HTTP_400_BAD_REQUEST)
 		if send_mode not in {"template", "text"}:
 			return Response({"detail": "send_mode debe ser 'template' o 'text'."}, status=status.HTTP_400_BAD_REQUEST)
+		if environment == MailgunSettings.ENV_PRODUCTION and send_mode == "text":
+			send_mode = "template"
 		if http_timeout_seconds < 3 or http_timeout_seconds > 120:
 			return Response({"detail": "http_timeout_seconds debe estar entre 3 y 120."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -521,19 +523,65 @@ class WhatsAppSettingsTestView(APIView):
 		if not test_phone:
 			return Response({"detail": "test_phone es requerido y debe estar en formato E.164."}, status=status.HTTP_400_BAD_REQUEST)
 
+		apply_effective_whatsapp_settings(environment=environment)
+		effective = get_effective_whatsapp_settings(environment=environment)
+
+		test_mode = str(payload.get("mode") or "template").strip().lower()
+		if test_mode not in {"template", "text"}:
+			return Response({"detail": "mode debe ser 'template' o 'text'."}, status=status.HTTP_400_BAD_REQUEST)
+
 		test_message = str(payload.get("message") or "").strip() or "Prueba de WhatsApp desde Kampus."
 		if len(test_message) > 4096:
 			return Response({"detail": "message no puede exceder 4096 caracteres."}, status=status.HTTP_400_BAD_REQUEST)
 
-		apply_effective_whatsapp_settings(environment=environment)
+		template_name = str(payload.get("template_name") or effective.template_fallback_name or "hello_world").strip()
+		language_code = str(payload.get("language_code") or "es_CO").strip() or "es_CO"
+		template_header_text = str(payload.get("template_header_text") or "").strip()
+		body_parameters_value = payload.get("body_parameters")
+		body_parameters: list[str] = []
+		if isinstance(body_parameters_value, list):
+			body_parameters = [str(item).strip() for item in body_parameters_value if str(item).strip()]
+		elif isinstance(body_parameters_value, str):
+			body_parameters = [item.strip() for item in body_parameters_value.split("|") if item.strip()]
+
+		components_value = payload.get("components")
+		template_components: list[dict] | None = None
+		if isinstance(components_value, list):
+			template_components = components_value
+		elif template_header_text or body_parameters:
+			template_components = []
+			if template_header_text:
+				template_components.append(
+					{
+						"type": "header",
+						"parameters": [{"type": "text", "text": template_header_text}],
+					}
+				)
+			if body_parameters:
+				template_components.append(
+					{
+						"type": "body",
+						"parameters": [{"type": "text", "text": value} for value in body_parameters],
+					}
+				)
 
 		try:
-			result = send_whatsapp(
-				recipient_phone=test_phone,
-				message_text=test_message,
-				category="system-test",
-				idempotency_key=f"whatsapp-settings-test:{environment}:{test_phone}:{timezone.now().strftime('%Y%m%d%H%M%S')}",
-			)
+			if test_mode == "text":
+				result = send_whatsapp(
+					recipient_phone=test_phone,
+					message_text=test_message,
+					category="system-test",
+					idempotency_key=f"whatsapp-settings-test:text:{environment}:{test_phone}:{timezone.now().strftime('%Y%m%d%H%M%S')}",
+				)
+			else:
+				result = send_whatsapp_template(
+					recipient_phone=test_phone,
+					template_name=template_name,
+					language_code=language_code,
+					components=template_components,
+					category="utility",
+					idempotency_key=f"whatsapp-settings-test:template:{environment}:{test_phone}:{timezone.now().strftime('%Y%m%d%H%M%S')}",
+				)
 		except RuntimeError as exc:
 			return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 		except Exception as exc:  # pragma: no cover - defensive guard
@@ -544,6 +592,7 @@ class WhatsAppSettingsTestView(APIView):
 			return Response(
 				{
 					"detail": "El mensaje de prueba no pudo enviarse.",
+					"mode": test_mode,
 					"status": result.delivery.status,
 					"error": result.delivery.error_message,
 					"error_code": result.delivery.error_code,
@@ -555,12 +604,44 @@ class WhatsAppSettingsTestView(APIView):
 		return Response(
 			{
 				"detail": "Mensaje de prueba enviado correctamente.",
+				"mode": test_mode,
 				"status": result.delivery.status,
 				"delivery_id": result.delivery.id,
 				"provider_message_id": result.delivery.provider_message_id,
 			},
 			status=status.HTTP_200_OK,
 		)
+
+
+class WhatsAppRecentDeliveriesView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		limit_raw = str(request.query_params.get("limit") or "20").strip()
+		try:
+			limit = int(limit_raw)
+		except ValueError:
+			limit = 20
+		limit = max(1, min(limit, 100))
+
+		deliveries = WhatsAppDelivery.objects.order_by("-created_at")[:limit]
+		results = []
+		for delivery in deliveries:
+			results.append(
+				{
+					"id": delivery.id,
+					"recipient_phone": delivery.recipient_phone,
+					"status": delivery.status,
+					"provider_message_id": delivery.provider_message_id,
+					"error_code": delivery.error_code,
+					"skip_reason": delivery.skip_reason,
+					"error_message": delivery.error_message,
+					"created_at": delivery.created_at,
+					"updated_at": delivery.updated_at,
+				}
+			)
+
+		return Response({"results": results}, status=status.HTTP_200_OK)
 
 
 class EmailTemplateListView(APIView):

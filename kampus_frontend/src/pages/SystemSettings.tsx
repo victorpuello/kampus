@@ -11,8 +11,10 @@ import {
   type MailgunSettingsPayload,
   type MailSettingsEnvironment,
   type WhatsAppHealthResponse,
+  type WhatsAppDeliveryItem,
   type WhatsAppSettingsPayload,
   type WhatsAppSettingsResponse,
+  type WhatsAppTestSendResponse,
   type WhatsAppTemplateMapItem,
   type WhatsAppTemplateMapPayload,
 } from '../services/system'
@@ -26,11 +28,15 @@ const MAIL_SETTINGS_ENV_OPTIONS: { value: MailSettingsEnvironment; label: string
 
 const SYSTEM_TABS: SystemTab[] = ['mailgun', 'whatsapp', 'templates', 'audits', 'backups', 'restore']
 const WHATSAPP_PANEL_STORAGE_KEY = 'system.whatsapp.panels'
+const WHATSAPP_API_VERSION_PATTERN = /^v\d+\.\d+$/
+const WHATSAPP_PHONE_ID_PATTERN = /^\d{8,20}$/
 
 type WhatsAppPanelState = {
+  test: boolean
   advanced: boolean
   templateMap: boolean
   health: boolean
+  deliveries: boolean
 }
 
 const SYSTEM_TAB_META: Record<SystemTab, { title: string; description: string }> = {
@@ -172,24 +178,33 @@ export default function SystemSettings() {
   const [whatsAppDefaultComponentsRaw, setWhatsAppDefaultComponentsRaw] = useState('')
   const [whatsAppTesting, setWhatsAppTesting] = useState(false)
   const [whatsAppTestPhone, setWhatsAppTestPhone] = useState('')
+  const [whatsAppTestMode, setWhatsAppTestMode] = useState<'template' | 'text'>('template')
   const [whatsAppTestMessage, setWhatsAppTestMessage] = useState('Prueba de WhatsApp desde Kampus.')
+  const [whatsAppTestTemplateName, setWhatsAppTestTemplateName] = useState('')
+  const [whatsAppTestLanguageCode, setWhatsAppTestLanguageCode] = useState('es_CO')
+  const [whatsAppTestHeaderText, setWhatsAppTestHeaderText] = useState('')
+  const [whatsAppTestBodyParametersRaw, setWhatsAppTestBodyParametersRaw] = useState('')
+  const [whatsAppTestResult, setWhatsAppTestResult] = useState<WhatsAppTestSendResponse | null>(null)
   const [whatsAppTestStatus, setWhatsAppTestStatus] = useState<string | null>(null)
   const [whatsAppTestError, setWhatsAppTestError] = useState<string | null>(null)
+  const [whatsAppRecentDeliveries, setWhatsAppRecentDeliveries] = useState<WhatsAppDeliveryItem[]>([])
   const [whatsAppPanels, setWhatsAppPanels] = useState<WhatsAppPanelState>(() => {
     if (typeof window === 'undefined') {
-      return { advanced: false, templateMap: false, health: false }
+      return { test: false, advanced: false, templateMap: false, health: false, deliveries: true }
     }
     try {
       const raw = window.localStorage.getItem(WHATSAPP_PANEL_STORAGE_KEY)
-      if (!raw) return { advanced: false, templateMap: false, health: false }
+      if (!raw) return { test: false, advanced: false, templateMap: false, health: false, deliveries: true }
       const parsed = JSON.parse(raw) as Partial<WhatsAppPanelState>
       return {
+        test: parsed.test === undefined ? false : Boolean(parsed.test),
         advanced: Boolean(parsed.advanced),
         templateMap: Boolean(parsed.templateMap),
         health: Boolean(parsed.health),
+        deliveries: parsed.deliveries === undefined ? true : Boolean(parsed.deliveries),
       }
     } catch {
-      return { advanced: false, templateMap: false, health: false }
+      return { test: false, advanced: false, templateMap: false, health: false, deliveries: true }
     }
   })
 
@@ -256,13 +271,15 @@ export default function SystemSettings() {
     setWhatsAppLoading(true)
     setWhatsAppError(null)
     try {
-      const [mapsResponse, healthResponse, settingsResponse] = await Promise.all([
+      const [mapsResponse, healthResponse, settingsResponse, deliveriesResponse] = await Promise.all([
         systemApi.listWhatsAppTemplateMaps(),
         systemApi.getWhatsAppHealth(hours),
         systemApi.getWhatsAppSettings(mailSettingsEnvironment),
+        systemApi.listRecentWhatsAppDeliveries(20),
       ])
       setWhatsAppTemplateMaps(mapsResponse.data.results || [])
       setWhatsAppHealth(healthResponse.data)
+      setWhatsAppRecentDeliveries(deliveriesResponse.data.results || [])
 
       const settingsData: WhatsAppSettingsResponse = settingsResponse.data
       setWhatsAppSettings({
@@ -285,10 +302,15 @@ export default function SystemSettings() {
       setWhatsAppAccessConfigured(settingsData.access_token_configured)
       setWhatsAppAppSecretConfigured(settingsData.app_secret_configured)
       setWhatsAppVerifyConfigured(settingsData.webhook_verify_token_configured)
+      setWhatsAppTestMode(settingsData.send_mode === 'text' && mailSettingsEnvironment !== 'production' ? 'text' : 'template')
+      if (settingsData.template_fallback_name) {
+        setWhatsAppTestTemplateName(settingsData.template_fallback_name)
+      }
     } catch (error) {
       setWhatsAppError(getRequestErrorMessage(error, 'No se pudo cargar la configuración de WhatsApp.'))
       setWhatsAppTemplateMaps([])
       setWhatsAppHealth(null)
+      setWhatsAppRecentDeliveries([])
     } finally {
       setWhatsAppLoading(false)
     }
@@ -380,15 +402,42 @@ export default function SystemSettings() {
     setWhatsAppTesting(true)
     setWhatsAppTestError(null)
     setWhatsAppTestStatus(null)
+    setWhatsAppTestResult(null)
     try {
-      const res = await systemApi.sendWhatsAppTestMessage(
-        whatsAppTestPhone.trim(),
-        whatsAppTestMessage.trim() || 'Prueba de WhatsApp desde Kampus.',
-        mailSettingsEnvironment,
-      )
+      const bodyParameters = whatsAppTestBodyParametersRaw
+        .split('|')
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+      const resolvedMode = mailSettingsEnvironment === 'production' ? 'template' : whatsAppTestMode
+      const res = await systemApi.sendWhatsAppTestMessage({
+        test_phone: whatsAppTestPhone.trim(),
+        mode: resolvedMode,
+        message: whatsAppTestMessage.trim() || 'Prueba de WhatsApp desde Kampus.',
+        template_name: whatsAppTestTemplateName.trim() || undefined,
+        language_code: whatsAppTestLanguageCode.trim() || undefined,
+        template_header_text: whatsAppTestHeaderText.trim() || undefined,
+        body_parameters: bodyParameters.length ? bodyParameters : undefined,
+      }, mailSettingsEnvironment)
+      setWhatsAppTestResult(res.data)
       setWhatsAppTestStatus(res.data.detail || 'Mensaje de prueba enviado correctamente.')
+      await loadWhatsAppData()
     } catch (error) {
+      const responseData = (error as { response?: { data?: unknown } } | undefined)?.response?.data
+      if (responseData && typeof responseData === 'object') {
+        const typed = responseData as Partial<WhatsAppTestSendResponse>
+        setWhatsAppTestResult({
+          detail: String(typed.detail || ''),
+          status: String(typed.status || ''),
+          mode: typed.mode === 'text' ? 'text' : 'template',
+          error: typed.error ? String(typed.error) : undefined,
+          error_code: typed.error_code ? String(typed.error_code) : undefined,
+          delivery_id: typeof typed.delivery_id === 'number' ? typed.delivery_id : undefined,
+          provider_message_id: typed.provider_message_id ? String(typed.provider_message_id) : undefined,
+        })
+      }
       setWhatsAppTestError(getRequestErrorMessage(error, 'No se pudo enviar el mensaje de prueba.'))
+      await loadWhatsAppData()
     } finally {
       setWhatsAppTesting(false)
     }
@@ -622,6 +671,87 @@ export default function SystemSettings() {
   }
 
   const backupOptions = useMemo(() => backups.map((b) => b.filename), [backups])
+  const whatsAppTemplateMapStats = useMemo(() => {
+    const total = whatsAppTemplateMaps.length
+    const active = whatsAppTemplateMaps.filter((item) => item.is_active).length
+    const categories = new Set(whatsAppTemplateMaps.map((item) => item.category)).size
+    return { total, active, categories }
+  }, [whatsAppTemplateMaps])
+
+  const whatsAppConfigValidation = useMemo(() => {
+    const graphBaseUrl = whatsAppSettings.graph_base_url.trim()
+    const apiVersion = whatsAppSettings.api_version.trim()
+    const phoneNumberId = whatsAppSettings.phone_number_id.trim()
+    const hasAccessToken = Boolean(whatsAppSettings.access_token.trim() || whatsAppAccessConfigured)
+    const templateFallbackRequired = mailSettingsEnvironment === 'production' || whatsAppSettings.send_mode === 'template'
+
+    const checks = [
+      {
+        key: 'graph-url',
+        label: 'Graph base URL valido (http/https)',
+        ok: /^https?:\/\//i.test(graphBaseUrl),
+        blocking: true,
+      },
+      {
+        key: 'api-version',
+        label: 'API version valida (ej: v21.0)',
+        ok: WHATSAPP_API_VERSION_PATTERN.test(apiVersion),
+        blocking: true,
+      },
+      {
+        key: 'phone-id-required',
+        label: 'Phone number ID presente',
+        ok: !whatsAppSettings.enabled || phoneNumberId.length > 0,
+        blocking: true,
+      },
+      {
+        key: 'access-token-required',
+        label: 'Access token configurado',
+        ok: !whatsAppSettings.enabled || hasAccessToken,
+        blocking: true,
+      },
+      {
+        key: 'timeout-range',
+        label: 'Timeout HTTP entre 3 y 120 segundos',
+        ok: whatsAppSettings.http_timeout_seconds >= 3 && whatsAppSettings.http_timeout_seconds <= 120,
+        blocking: true,
+      },
+      {
+        key: 'phone-id-format',
+        label: 'Phone number ID en formato numerico',
+        ok: !phoneNumberId || WHATSAPP_PHONE_ID_PATTERN.test(phoneNumberId),
+        blocking: false,
+      },
+      {
+        key: 'template-fallback',
+        label: 'Template fallback definido para mode template',
+        ok: !templateFallbackRequired || Boolean(whatsAppSettings.template_fallback_name.trim()),
+        blocking: false,
+      },
+    ]
+
+    const blockingIssues = checks.filter((item) => item.blocking && !item.ok)
+    const warnings = checks.filter((item) => !item.blocking && !item.ok)
+
+    return {
+      ready: blockingIssues.length === 0,
+      checks,
+      blockingIssues,
+      warnings,
+      completedChecks: checks.filter((item) => item.ok).length,
+    }
+  }, [
+    mailSettingsEnvironment,
+    whatsAppAccessConfigured,
+    whatsAppSettings.access_token,
+    whatsAppSettings.api_version,
+    whatsAppSettings.enabled,
+    whatsAppSettings.graph_base_url,
+    whatsAppSettings.http_timeout_seconds,
+    whatsAppSettings.phone_number_id,
+    whatsAppSettings.send_mode,
+    whatsAppSettings.template_fallback_name,
+  ])
 
   if (!isAdmin) {
     return (
@@ -920,41 +1050,124 @@ export default function SystemSettings() {
               ) : null}
 
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Entorno de configuración</div>
-                <div className="flex flex-wrap gap-2">
-                  {MAIL_SETTINGS_ENV_OPTIONS.map((option) => (
-                    <button
-                      key={`whatsapp-env-${option.value}`}
-                      type="button"
-                      onClick={() => {
-                        setMailSettingsEnvironment(option.value)
-                        setWhatsAppMessage(null)
-                        setWhatsAppError(null)
-                      }}
-                      className={`min-h-10 rounded-md border px-3 py-2 text-left text-sm transition-colors ${mailSettingsEnvironment === option.value
-                        ? 'border-blue-600 bg-blue-50 text-blue-700 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-200'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
-                        }`}
-                      disabled={whatsAppLoading || whatsAppSaving}
-                    >
-                      <div className="font-medium">{option.label}</div>
-                      <div className="text-xs opacity-80">{option.hint}</div>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Estás editando: <strong>{mailSettingsEnvironment === 'development' ? 'Desarrollo' : 'Producción'}</strong>.
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Entorno de configuración</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {MAIL_SETTINGS_ENV_OPTIONS.map((option) => (
+                        <button
+                          key={`whatsapp-env-${option.value}`}
+                          type="button"
+                          onClick={() => {
+                            setMailSettingsEnvironment(option.value)
+                            setWhatsAppMessage(null)
+                            setWhatsAppError(null)
+                          }}
+                          className={`min-h-9 rounded-full border px-3 py-1.5 text-xs transition-colors ${mailSettingsEnvironment === option.value
+                            ? 'border-blue-600 bg-blue-50 text-blue-700 dark:border-sky-500 dark:bg-sky-950/40 dark:text-sky-200'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'
+                            }`}
+                          disabled={whatsAppLoading || whatsAppSaving}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Button type="submit" disabled={whatsAppLoading || whatsAppSaving || !whatsAppConfigValidation.ready} className="min-h-10 md:min-w-48">
+                    {whatsAppSaving ? 'Guardando…' : 'Guardar configuración'}
+                  </Button>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Prueba rápida de envío</div>
+              <div
+                className={`rounded-lg border p-3 ${whatsAppConfigValidation.ready
+                  ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/25'
+                  : 'border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/25'
+                  }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Validacion inmediata</div>
+                  <span
+                    className={`rounded-full px-2 py-1 text-[11px] font-medium ${whatsAppConfigValidation.ready
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
+                      }`}
+                  >
+                    {whatsAppConfigValidation.ready ? 'Lista para guardar' : 'Faltan ajustes'}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                  {whatsAppConfigValidation.completedChecks}/{whatsAppConfigValidation.checks.length} checks completados
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-white/80 px-2 py-1 text-xs text-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+                    Bloqueantes: {whatsAppConfigValidation.blockingIssues.length}
+                  </span>
+                  <span className="rounded-full bg-white/80 px-2 py-1 text-xs text-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+                    Recomendaciones: {whatsAppConfigValidation.warnings.length}
+                  </span>
+                </div>
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-slate-600 dark:text-slate-300">Ver checklist</summary>
+                  <div className="mt-2 grid gap-1 sm:grid-cols-2">
+                    {whatsAppConfigValidation.checks.map((item) => (
+                      <div key={item.key} className="text-xs text-slate-700 dark:text-slate-200">
+                        <span className={item.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-200'}>{item.ok ? 'OK' : 'PEND'}</span>{' '}
+                        {item.label}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+
+              <details
+                open={whatsAppPanels.test}
+                onToggle={(e) => {
+                  const nextOpen = (e.currentTarget as HTMLDetailsElement).open
+                  setWhatsAppPanels((prev) => ({ ...prev, test: nextOpen }))
+                }}
+                className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-950/40"
+              >
+                <summary className="cursor-pointer list-none text-sm font-medium text-slate-800 dark:text-slate-100">
+                  Prueba rápida de envío
+                </summary>
+                <div className="mt-3">
                 {whatsAppTestError ? (
                   <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 p-2 text-xs text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{whatsAppTestError}</div>
                 ) : null}
                 {whatsAppTestStatus ? (
                   <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">{whatsAppTestStatus}</div>
                 ) : null}
+                <div className="mb-2 grid gap-2 md:grid-cols-3">
+                  <select
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    value={mailSettingsEnvironment === 'production' ? 'template' : whatsAppTestMode}
+                    onChange={(e) => setWhatsAppTestMode(e.target.value === 'text' ? 'text' : 'template')}
+                    disabled={whatsAppTesting || whatsAppSaving || mailSettingsEnvironment === 'production'}
+                  >
+                    <option value="template">template</option>
+                    <option value="text">text</option>
+                  </select>
+                  <input
+                    type="text"
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="novelty_sla_coordinator_v1"
+                    value={whatsAppTestTemplateName}
+                    onChange={(e) => setWhatsAppTestTemplateName(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving || (mailSettingsEnvironment !== 'production' && whatsAppTestMode === 'text')}
+                  />
+                  <input
+                    type="text"
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="es_CO"
+                    value={whatsAppTestLanguageCode}
+                    onChange={(e) => setWhatsAppTestLanguageCode(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving || (mailSettingsEnvironment !== 'production' && whatsAppTestMode === 'text')}
+                  />
+                </div>
+
                 <div className="flex flex-col gap-2 lg:flex-row">
                   <input
                     type="text"
@@ -967,10 +1180,10 @@ export default function SystemSettings() {
                   <input
                     type="text"
                     className="h-11 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                    placeholder="Mensaje corto de prueba"
+                    placeholder="Mensaje corto de prueba (solo text mode)"
                     value={whatsAppTestMessage}
                     onChange={(e) => setWhatsAppTestMessage(e.target.value)}
-                    disabled={whatsAppTesting || whatsAppSaving}
+                    disabled={whatsAppTesting || whatsAppSaving || (mailSettingsEnvironment === 'production' || whatsAppTestMode === 'template')}
                   />
                   <Button
                     type="button"
@@ -982,10 +1195,39 @@ export default function SystemSettings() {
                     {whatsAppTesting ? 'Probando…' : 'Enviar prueba'}
                   </Button>
                 </div>
-                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Usa un número real con prefijo internacional para verificar conectividad del canal.
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <input
+                    type="text"
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="Parametro header (opcional)"
+                    value={whatsAppTestHeaderText}
+                    onChange={(e) => setWhatsAppTestHeaderText(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving || (mailSettingsEnvironment !== 'production' && whatsAppTestMode === 'text')}
+                  />
+                  <input
+                    type="text"
+                    className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="Body params separados por | (ej: val1|val2|val3)"
+                    value={whatsAppTestBodyParametersRaw}
+                    onChange={(e) => setWhatsAppTestBodyParametersRaw(e.target.value)}
+                    disabled={whatsAppTesting || whatsAppSaving || (mailSettingsEnvironment !== 'production' && whatsAppTestMode === 'text')}
+                  />
                 </div>
-              </div>
+                <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                  En producción la prueba usa plantilla por defecto para evitar bloqueos por ventana de 24h.
+                </div>
+                {whatsAppTestResult ? (
+                  <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+                    <div>mode: {whatsAppTestResult.mode || '-'}</div>
+                    <div>status: {whatsAppTestResult.status || '-'}</div>
+                    <div>delivery_id: {whatsAppTestResult.delivery_id ?? '-'}</div>
+                    <div>provider_message_id: {whatsAppTestResult.provider_message_id || '-'}</div>
+                    <div>error_code: {whatsAppTestResult.error_code || '-'}</div>
+                    <div>error: {whatsAppTestResult.error || '-'}</div>
+                  </div>
+                ) : null}
+                </div>
+              </details>
 
               <details
                 open={whatsAppPanels.advanced}
@@ -1120,11 +1362,14 @@ export default function SystemSettings() {
                         send_mode: e.target.value === 'text' ? 'text' : 'template',
                       }))
                     }
-                    disabled={whatsAppLoading || whatsAppSaving}
+                    disabled={whatsAppLoading || whatsAppSaving || mailSettingsEnvironment === 'production'}
                   >
                     <option value="template">template</option>
                     <option value="text">text</option>
                   </select>
+                  {mailSettingsEnvironment === 'production' ? (
+                    <span className="text-xs text-slate-500 dark:text-slate-400">En producción se fuerza template para evitar bloqueos de entrega.</span>
+                  ) : null}
                 </label>
 
                 <label className="md:col-span-2 flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
@@ -1149,11 +1394,11 @@ export default function SystemSettings() {
                 </label>
                 </div>
 
-                <div className="mt-4 flex justify-end">
-                  <Button type="submit" disabled={whatsAppLoading || whatsAppSaving} className="min-h-11">
-                    {whatsAppSaving ? 'Guardando…' : 'Guardar configuración'}
-                  </Button>
-                </div>
+                {!whatsAppConfigValidation.ready ? (
+                  <div className="mt-4 text-xs text-amber-700 dark:text-amber-200">
+                    Completa la validacion inmediata para habilitar el guardado.
+                  </div>
+                ) : null}
               </details>
             </form>
           </CardContent>
@@ -1168,10 +1413,22 @@ export default function SystemSettings() {
                 setWhatsAppPanels((prev) => ({ ...prev, templateMap: nextOpen }))
               }}
             >
-              <summary className="cursor-pointer list-none text-base font-semibold text-slate-900 dark:text-slate-100">
+              <summary className="cursor-pointer list-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100">
                 Mapeo de plantillas WhatsApp ({whatsAppTemplateMaps.length})
               </summary>
               <div className="mt-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                Total: {whatsAppTemplateMapStats.total}
+              </span>
+              <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                Activos: {whatsAppTemplateMapStats.active}
+              </span>
+              <span className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+                Categorias: {whatsAppTemplateMapStats.categories}
+              </span>
+            </div>
+
             {whatsAppError ? (
               <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200">{whatsAppError}</div>
             ) : null}
@@ -1179,111 +1436,114 @@ export default function SystemSettings() {
               <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">{whatsAppMessage}</div>
             ) : null}
 
-            <form
-              className="grid gap-4 md:grid-cols-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void saveWhatsAppTemplateMap()
-              }}
-            >
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                Notification type
-                <input
-                  type="text"
-                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder="NOVELTY_SLA_ADMIN"
-                  value={whatsAppForm.notification_type}
-                  onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, notification_type: e.target.value }))}
-                  disabled={whatsAppSaving}
-                />
-              </label>
+            <details className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+              <summary className="cursor-pointer list-none text-sm font-medium text-slate-800 dark:text-slate-100">
+                Crear o actualizar mapeo
+              </summary>
+              <form
+                className="mt-3 grid gap-3 md:grid-cols-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  void saveWhatsAppTemplateMap()
+                }}
+              >
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  Notification type
+                  <input
+                    type="text"
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="NOVELTY_SLA_ADMIN"
+                    value={whatsAppForm.notification_type}
+                    onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, notification_type: e.target.value }))}
+                    disabled={whatsAppSaving}
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                Template name (Meta)
-                <input
-                  type="text"
-                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder="novelty_sla_admin_v1"
-                  value={whatsAppForm.template_name}
-                  onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, template_name: e.target.value }))}
-                  disabled={whatsAppSaving}
-                />
-              </label>
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  Template name (Meta)
+                  <input
+                    type="text"
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="novelty_sla_admin_v1"
+                    value={whatsAppForm.template_name}
+                    onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, template_name: e.target.value }))}
+                    disabled={whatsAppSaving}
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                Language code
-                <input
-                  type="text"
-                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder="es_CO"
-                  value={whatsAppForm.language_code}
-                  onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, language_code: e.target.value }))}
-                  disabled={whatsAppSaving}
-                />
-              </label>
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  Language code
+                  <input
+                    type="text"
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="es_CO"
+                    value={whatsAppForm.language_code}
+                    onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, language_code: e.target.value }))}
+                    disabled={whatsAppSaving}
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
-                Category
-                <select
-                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  value={whatsAppForm.category}
-                  onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, category: e.target.value as WhatsAppTemplateMapPayload['category'] }))}
-                  disabled={whatsAppSaving}
-                >
-                  <option value="utility">utility</option>
-                  <option value="authentication">authentication</option>
-                  <option value="marketing">marketing</option>
-                </select>
-              </label>
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  Category
+                  <select
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    value={whatsAppForm.category}
+                    onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, category: e.target.value as WhatsAppTemplateMapPayload['category'] }))}
+                    disabled={whatsAppSaving}
+                  >
+                    <option value="utility">utility</option>
+                    <option value="authentication">authentication</option>
+                    <option value="marketing">marketing</option>
+                  </select>
+                </label>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200 md:col-span-2">
-                Body parameter names (CSV)
-                <input
-                  type="text"
-                  className="h-11 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder="recipient_name,title,body,action_url"
-                  value={whatsAppBodyParametersRaw}
-                  onChange={(e) => setWhatsAppBodyParametersRaw(e.target.value)}
-                  disabled={whatsAppSaving}
-                />
-              </label>
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200 md:col-span-2">
+                  Body parameter names (CSV)
+                  <input
+                    type="text"
+                    className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder="recipient_name,title,body,action_url"
+                    value={whatsAppBodyParametersRaw}
+                    onChange={(e) => setWhatsAppBodyParametersRaw(e.target.value)}
+                    disabled={whatsAppSaving}
+                  />
+                </label>
 
-              <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200 md:col-span-2">
-                Default components (JSON array opcional)
-                <textarea
-                  className="min-h-28 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  placeholder='[{"type":"body","parameters":[{"type":"text","parameter_name":"recipient_name","text":"{{recipient_name}}"}]}]'
-                  value={whatsAppDefaultComponentsRaw}
-                  onChange={(e) => setWhatsAppDefaultComponentsRaw(e.target.value)}
-                  disabled={whatsAppSaving}
-                />
-              </label>
+                <label className="flex flex-col gap-2 text-sm text-slate-700 dark:text-slate-200 md:col-span-2">
+                  Default components (JSON array opcional)
+                  <textarea
+                    className="min-h-24 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    placeholder='[{"type":"body","parameters":[{"type":"text","parameter_name":"recipient_name","text":"{{recipient_name}}"}]}]'
+                    value={whatsAppDefaultComponentsRaw}
+                    onChange={(e) => setWhatsAppDefaultComponentsRaw(e.target.value)}
+                    disabled={whatsAppSaving}
+                  />
+                </label>
 
-              <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
-                <input
-                  type="checkbox"
-                  checked={whatsAppForm.is_active}
-                  onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, is_active: e.target.checked }))}
-                  disabled={whatsAppSaving}
-                />
-                Mapeo activo
-              </label>
+                <label className="md:col-span-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={whatsAppForm.is_active}
+                    onChange={(e) => setWhatsAppForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+                    disabled={whatsAppSaving}
+                  />
+                  Mapeo activo
+                </label>
 
-              <div className="md:col-span-2 flex justify-end">
-                <Button type="submit" disabled={whatsAppSaving} className="min-h-11">
-                  {whatsAppSaving ? 'Guardando…' : 'Guardar mapeo'}
-                </Button>
-              </div>
-            </form>
+                <div className="md:col-span-2 flex justify-end">
+                  <Button type="submit" disabled={whatsAppSaving} className="min-h-10">
+                    {whatsAppSaving ? 'Guardando…' : 'Guardar mapeo'}
+                  </Button>
+                </div>
+              </form>
+            </details>
 
-            <div className="mt-4 overflow-x-auto">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
                   <tr>
                     <th className="px-3 py-2">Tipo</th>
                     <th className="px-3 py-2">Template</th>
-                    <th className="px-3 py-2">Lang</th>
-                    <th className="px-3 py-2">Categoria</th>
                     <th className="px-3 py-2">Activo</th>
                     <th className="px-3 py-2 text-right">Acción</th>
                   </tr>
@@ -1291,11 +1551,22 @@ export default function SystemSettings() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {whatsAppTemplateMaps.map((item) => (
                     <tr key={item.id} className="bg-white dark:bg-slate-900">
-                      <td className="px-3 py-2 font-medium">{item.notification_type}</td>
-                      <td className="px-3 py-2">{item.template_name}</td>
-                      <td className="px-3 py-2">{item.language_code}</td>
-                      <td className="px-3 py-2">{item.category}</td>
-                      <td className="px-3 py-2">{item.is_active ? 'Sí' : 'No'}</td>
+                      <td className="px-3 py-2 font-medium">
+                        <div>{item.notification_type}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{item.category}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div>{item.template_name}</div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">{item.language_code}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-full px-2 py-1 text-xs ${item.is_active
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                          : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                          }`}>
+                          {item.is_active ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 text-right">
                         <Button variant="outline" size="sm" onClick={() => removeWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
                           Eliminar
@@ -1323,25 +1594,28 @@ export default function SystemSettings() {
                 setWhatsAppPanels((prev) => ({ ...prev, health: nextOpen }))
               }}
             >
-              <summary className="cursor-pointer list-none text-base font-semibold text-slate-900 dark:text-slate-100">
+              <summary className="cursor-pointer list-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100">
                 Salud operativa WhatsApp ({whatsAppHours}h){' '}
-                <span className={`text-sm ${whatsAppHealth ? (whatsAppHealth.breach ? 'text-rose-600' : 'text-emerald-600') : 'text-slate-500 dark:text-slate-400'}`}>
+                <span className={`text-xs ${whatsAppHealth ? (whatsAppHealth.breach ? 'text-rose-600' : 'text-emerald-600') : 'text-slate-500 dark:text-slate-400'}`}>
                   {whatsAppHealth ? (whatsAppHealth.breach ? 'Breach' : 'OK') : 'Sin datos'}
                 </span>
               </summary>
               <div className="mt-4 space-y-3">
-                <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                className="h-10 w-24 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                value={whatsAppHours}
-                onChange={(e) => setWhatsAppHours(Math.max(1, Number(e.target.value || 24)))}
-              />
-              <Button variant="outline" size="sm" onClick={() => loadWhatsAppData(whatsAppHours)} disabled={whatsAppLoading}>
-                Actualizar
-              </Button>
-            </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      className="h-9 w-20 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={whatsAppHours}
+                      onChange={(e) => setWhatsAppHours(Math.max(1, Number(e.target.value || 24)))}
+                    />
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Horas de ventana</span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => loadWhatsAppData(whatsAppHours)} disabled={whatsAppLoading}>
+                    Actualizar
+                  </Button>
+                </div>
 
             {!whatsAppHealth ? (
               <div className="text-sm text-slate-500 dark:text-slate-400">Sin datos de salud disponibles.</div>
@@ -1391,6 +1665,75 @@ export default function SystemSettings() {
                 </div>
               </div>
             )}
+              </div>
+            </details>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-4">
+            <details
+              open={whatsAppPanels.deliveries}
+              onToggle={(e) => {
+                const nextOpen = (e.currentTarget as HTMLDetailsElement).open
+                setWhatsAppPanels((prev) => ({ ...prev, deliveries: nextOpen }))
+              }}
+            >
+              <summary className="cursor-pointer list-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-100">
+                Últimos envíos WhatsApp ({whatsAppRecentDeliveries.length})
+              </summary>
+              <div className="mt-4">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                      Total: {whatsAppRecentDeliveries.length}
+                    </span>
+                    <span className="rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-700 dark:bg-rose-900/40 dark:text-rose-200">
+                      Fallidos: {whatsAppRecentDeliveries.filter((item) => item.status === 'failed').length}
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => loadWhatsAppData(whatsAppHours)} disabled={whatsAppLoading}>
+                    Actualizar lista
+                  </Button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                      <tr>
+                        <th className="px-3 py-2">Fecha</th>
+                        <th className="px-3 py-2">Estado</th>
+                        <th className="px-3 py-2">Destino</th>
+                        <th className="px-3 py-2">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {whatsAppRecentDeliveries.map((item) => (
+                        <tr key={item.id} className="bg-white dark:bg-slate-900">
+                          <td className="px-3 py-2">{formatDate(item.created_at)}</td>
+                          <td className="px-3 py-2">
+                            <span className={`rounded-full px-2 py-1 text-xs ${item.status === 'failed'
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
+                              : item.status === 'sent' || item.status === 'delivered' || item.status === 'read'
+                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                                : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                              }`}>
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">{item.recipient_phone}</td>
+                          <td className="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                            {item.error_code ? `code ${item.error_code}` : item.provider_message_id ? `msg ${item.provider_message_id}` : '-'}
+                            {item.error_message ? <div className="mt-1 text-rose-600 dark:text-rose-300">{item.error_message}</div> : null}
+                            {item.skip_reason ? <div className="mt-1 text-amber-700 dark:text-amber-300">skip: {item.skip_reason}</div> : null}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {whatsAppRecentDeliveries.length === 0 ? (
+                  <div className="py-3 text-sm text-slate-500 dark:text-slate-400">No hay envíos recientes registrados.</div>
+                ) : null}
               </div>
             </details>
           </CardContent>

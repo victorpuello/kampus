@@ -20,6 +20,7 @@ from .views import (
     WhatsAppTemplateMapListView,
     WhatsAppSettingsView,
     WhatsAppSettingsTestView,
+    WhatsAppRecentDeliveriesView,
 )
 
 
@@ -37,6 +38,7 @@ urlpatterns = [
     path("settings/whatsapp/", WhatsAppSettingsView.as_view(), name="communications_whatsapp_settings"),
     path("settings/mailgun/test/", MailSettingsTestView.as_view(), name="communications_mailgun_settings_test"),
     path("settings/whatsapp/test/", WhatsAppSettingsTestView.as_view(), name="communications_whatsapp_settings_test"),
+    path("settings/whatsapp/deliveries/", WhatsAppRecentDeliveriesView.as_view(), name="communications_whatsapp_recent_deliveries"),
     path("settings/mailgun/audits/", MailSettingsAuditListView.as_view(), name="communications_mailgun_settings_audits"),
     path("settings/mailgun/audits/export/", MailSettingsAuditCsvExportView.as_view(), name="communications_mailgun_settings_audits_export"),
     path("settings/email-templates/", EmailTemplateListView.as_view(), name="communications_email_templates_list"),

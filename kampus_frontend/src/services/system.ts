@@ -205,11 +205,38 @@ export type WhatsAppSettingsPayload = {
 
 export type WhatsAppTestSendResponse = {
   detail: string
+  mode?: 'template' | 'text'
   status: string
   error?: string
   error_code?: string
   delivery_id?: number
   provider_message_id?: string
+}
+
+export type WhatsAppTestSendPayload = {
+  test_phone: string
+  mode?: 'template' | 'text'
+  message?: string
+  template_name?: string
+  language_code?: string
+  template_header_text?: string
+  body_parameters?: string[]
+}
+
+export type WhatsAppDeliveryItem = {
+  id: number
+  recipient_phone: string
+  status: string
+  provider_message_id: string
+  error_code: string
+  skip_reason: string
+  error_message: string
+  created_at: string
+  updated_at: string
+}
+
+export type WhatsAppRecentDeliveriesResponse = {
+  results: WhatsAppDeliveryItem[]
 }
 
 export const systemApi = {
@@ -311,10 +338,12 @@ export const systemApi = {
       environment,
     }),
 
-  sendWhatsAppTestMessage: (testPhone: string, message: string, environment: MailSettingsEnvironment = 'development') =>
+  sendWhatsAppTestMessage: (payload: WhatsAppTestSendPayload, environment: MailSettingsEnvironment = 'development') =>
     api.post<WhatsAppTestSendResponse>(`/api/communications/settings/whatsapp/test/?environment=${environment}`, {
-      test_phone: testPhone,
-      message,
+      ...payload,
       environment,
     }),
+
+  listRecentWhatsAppDeliveries: (limit = 20) =>
+    api.get<WhatsAppRecentDeliveriesResponse>(`/api/communications/settings/whatsapp/deliveries/?limit=${Math.max(1, Math.min(limit, 100))}`),
 }

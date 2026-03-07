@@ -799,6 +799,24 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		self.assertEqual(stored.phone_number_id, "123456789")
 		self.assertEqual(stored.send_mode, "template")
 
+		prod_response = self.admin_client.put(
+			"/api/communications/settings/whatsapp/?environment=production",
+			{
+				"enabled": True,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "999999999",
+				"access_token": "token-prod",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "text",
+			},
+			format="json",
+		)
+		self.assertEqual(prod_response.status_code, 200)
+		self.assertEqual(prod_response.data["send_mode"], "template")
+
 	def test_whatsapp_settings_get_handles_db_schema_errors(self):
 		with patch("communications.views.WhatsAppSettings.objects.filter", side_effect=OperationalError("missing table")):
 			response = self.admin_client.get("/api/communications/settings/whatsapp/?environment=development")
@@ -818,20 +836,36 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 			sent = True
 			delivery = _Delivery()
 
-		with patch("communications.views.send_whatsapp", return_value=_Result()) as mocked_send:
+		with patch("communications.views.send_whatsapp_template", return_value=_Result()) as mocked_send:
 			response = self.admin_client.post(
 				"/api/communications/settings/whatsapp/test/?environment=development",
 				{
 					"test_phone": "+573001112233",
-					"message": "Mensaje de prueba",
+					"template_name": "hello_world",
+					"language_code": "en_US",
+					"body_parameters": ["one", "two"],
 				},
 				format="json",
 			)
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data["status"], WhatsAppDelivery.STATUS_SENT)
+		self.assertEqual(response.data["mode"], "template")
 		self.assertEqual(response.data["delivery_id"], 123)
 		mocked_send.assert_called_once()
+
+	def test_admin_can_list_recent_whatsapp_deliveries(self):
+		WhatsAppDelivery.objects.create(recipient_phone="+573001111111", status=WhatsAppDelivery.STATUS_FAILED, error_code="131047", error_message="Re-engagement message")
+		WhatsAppDelivery.objects.create(recipient_phone="+573002222222", status=WhatsAppDelivery.STATUS_SENT, provider_message_id="wamid.TEST999")
+
+		response = self.admin_client.get("/api/communications/settings/whatsapp/deliveries/?limit=5")
+		self.assertEqual(response.status_code, 200)
+		self.assertGreaterEqual(len(response.data["results"]), 2)
+		self.assertIn("status", response.data["results"][0])
+		self.assertIn("error_code", response.data["results"][0])
+
+		forbidden = self.teacher_client.get("/api/communications/settings/whatsapp/deliveries/?limit=5")
+		self.assertEqual(forbidden.status_code, 403)
 
 	def test_non_admin_cannot_send_whatsapp_test_message(self):
 		response = self.teacher_client.post(
