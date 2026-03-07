@@ -682,7 +682,7 @@ export default function SystemSettings() {
     const graphBaseUrl = whatsAppSettings.graph_base_url.trim()
     const apiVersion = whatsAppSettings.api_version.trim()
     const phoneNumberId = whatsAppSettings.phone_number_id.trim()
-    const hasAccessToken = Boolean(whatsAppSettings.access_token.trim() || whatsAppAccessConfigured)
+    const hasAccessToken = Boolean((whatsAppSettings.access_token ?? '').trim() || whatsAppAccessConfigured)
     const templateFallbackRequired = mailSettingsEnvironment === 'production' || whatsAppSettings.send_mode === 'template'
 
     const checks = [
