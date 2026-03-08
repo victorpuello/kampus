@@ -16,6 +16,8 @@ import {
   type WhatsAppSettingsResponse,
   type WhatsAppTestSendResponse,
   type WhatsAppTemplateMapItem,
+  type WhatsAppTemplateApprovalStatus,
+  type WhatsAppTemplateSlaAuditItem,
   type WhatsAppTemplateMapPayload,
 } from '../services/system'
 
@@ -30,6 +32,7 @@ const SYSTEM_TABS: SystemTab[] = ['mailgun', 'whatsapp', 'templates', 'audits', 
 const WHATSAPP_PANEL_STORAGE_KEY = 'system.whatsapp.panels'
 const WHATSAPP_API_VERSION_PATTERN = /^v\d+\.\d+$/
 const WHATSAPP_PHONE_ID_PATTERN = /^\d{8,20}$/
+const WHATSAPP_DELIVERIES_PAGE_SIZE = 5
 
 type WhatsAppPanelState = {
   test: boolean
@@ -88,6 +91,7 @@ const getRequestErrorMessage = (error: unknown, fallback: string): string => {
 export default function SystemSettings() {
   const user = useAuthStore((s) => s.user)
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
+  const isSuperAdmin = user?.role === 'SUPERADMIN'
   const [activeTab, setActiveTab] = useState<SystemTab>(() => {
     if (typeof window === 'undefined') return 'mailgun'
     return resolveTabFromHash(window.location.hash)
@@ -140,9 +144,17 @@ export default function SystemSettings() {
 
   const [whatsAppLoading, setWhatsAppLoading] = useState(false)
   const [whatsAppSaving, setWhatsAppSaving] = useState(false)
+  const [whatsAppExporting, setWhatsAppExporting] = useState(false)
   const [whatsAppMessage, setWhatsAppMessage] = useState<string | null>(null)
   const [whatsAppError, setWhatsAppError] = useState<string | null>(null)
   const [whatsAppTemplateMaps, setWhatsAppTemplateMaps] = useState<WhatsAppTemplateMapItem[]>([])
+  const [whatsAppTemplateSlaAudits, setWhatsAppTemplateSlaAudits] = useState<WhatsAppTemplateSlaAuditItem[]>([])
+  const [whatsAppTemplateSlaAuditsLoading, setWhatsAppTemplateSlaAuditsLoading] = useState(false)
+  const [whatsAppTemplateSlaAuditsExporting, setWhatsAppTemplateSlaAuditsExporting] = useState(false)
+  const [whatsAppTemplateSlaAuditsLimit] = useState(10)
+  const [whatsAppTemplateSlaAuditsOffset, setWhatsAppTemplateSlaAuditsOffset] = useState(0)
+  const [whatsAppTemplateSlaAuditsTotal, setWhatsAppTemplateSlaAuditsTotal] = useState(0)
+  const [whatsAppTemplateApprovalFilter, setWhatsAppTemplateApprovalFilter] = useState<'all' | WhatsAppTemplateApprovalStatus>('all')
   const [whatsAppHealth, setWhatsAppHealth] = useState<WhatsAppHealthResponse | null>(null)
   const [whatsAppHours, setWhatsAppHours] = useState(24)
   const [whatsAppSettings, setWhatsAppSettings] = useState<WhatsAppSettingsPayload>({
@@ -158,6 +170,10 @@ export default function SystemSettings() {
     http_timeout_seconds: 12,
     send_mode: 'template',
     template_fallback_name: '',
+    template_sla_warning_pending_hours: 24,
+    template_sla_critical_pending_hours: 72,
+    template_sla_warning_approval_hours: 24,
+    template_sla_critical_approval_hours: 72,
   })
   const [whatsAppAccessTokenMasked, setWhatsAppAccessTokenMasked] = useState('')
   const [whatsAppAppSecretMasked, setWhatsAppAppSecretMasked] = useState('')
@@ -165,6 +181,8 @@ export default function SystemSettings() {
   const [whatsAppAccessConfigured, setWhatsAppAccessConfigured] = useState(false)
   const [whatsAppAppSecretConfigured, setWhatsAppAppSecretConfigured] = useState(false)
   const [whatsAppVerifyConfigured, setWhatsAppVerifyConfigured] = useState(false)
+  const [whatsAppSettingsUpdatedBy, setWhatsAppSettingsUpdatedBy] = useState<WhatsAppSettingsResponse['updated_by']>(null)
+  const [whatsAppSettingsUpdatedAt, setWhatsAppSettingsUpdatedAt] = useState<string | null>(null)
   const [whatsAppForm, setWhatsAppForm] = useState<WhatsAppTemplateMapPayload>({
     notification_type: '',
     template_name: '',
@@ -188,6 +206,7 @@ export default function SystemSettings() {
   const [whatsAppTestStatus, setWhatsAppTestStatus] = useState<string | null>(null)
   const [whatsAppTestError, setWhatsAppTestError] = useState<string | null>(null)
   const [whatsAppRecentDeliveries, setWhatsAppRecentDeliveries] = useState<WhatsAppDeliveryItem[]>([])
+  const [whatsAppDeliveriesPage, setWhatsAppDeliveriesPage] = useState(1)
   const [whatsAppPanels, setWhatsAppPanels] = useState<WhatsAppPanelState>(() => {
     if (typeof window === 'undefined') {
       return { test: false, advanced: false, templateMap: false, health: false, deliveries: true }
@@ -209,6 +228,21 @@ export default function SystemSettings() {
   })
 
   const canRunDestructive = mode !== 'restore' || confirm
+
+  const whatsAppDeliveriesTotalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(whatsAppRecentDeliveries.length / WHATSAPP_DELIVERIES_PAGE_SIZE))
+  }, [whatsAppRecentDeliveries.length])
+
+  const whatsAppRecentDeliveriesPageItems = useMemo(() => {
+    const start = (whatsAppDeliveriesPage - 1) * WHATSAPP_DELIVERIES_PAGE_SIZE
+    return whatsAppRecentDeliveries.slice(start, start + WHATSAPP_DELIVERIES_PAGE_SIZE)
+  }, [whatsAppDeliveriesPage, whatsAppRecentDeliveries])
+
+  useEffect(() => {
+    if (whatsAppDeliveriesPage > whatsAppDeliveriesTotalPages) {
+      setWhatsAppDeliveriesPage(whatsAppDeliveriesTotalPages)
+    }
+  }, [whatsAppDeliveriesPage, whatsAppDeliveriesTotalPages])
 
   const loadBackups = useCallback(async () => {
     setLoading(true)
@@ -272,7 +306,7 @@ export default function SystemSettings() {
     setWhatsAppError(null)
     try {
       const [mapsResponse, healthResponse, settingsResponse, deliveriesResponse] = await Promise.all([
-        systemApi.listWhatsAppTemplateMaps(),
+        systemApi.listWhatsAppTemplateMaps(whatsAppTemplateApprovalFilter === 'all' ? undefined : whatsAppTemplateApprovalFilter),
         systemApi.getWhatsAppHealth(hours),
         systemApi.getWhatsAppSettings(mailSettingsEnvironment),
         systemApi.listRecentWhatsAppDeliveries(20),
@@ -280,6 +314,7 @@ export default function SystemSettings() {
       setWhatsAppTemplateMaps(mapsResponse.data.results || [])
       setWhatsAppHealth(healthResponse.data)
       setWhatsAppRecentDeliveries(deliveriesResponse.data.results || [])
+      setWhatsAppDeliveriesPage(1)
 
       const settingsData: WhatsAppSettingsResponse = settingsResponse.data
       setWhatsAppSettings({
@@ -295,6 +330,10 @@ export default function SystemSettings() {
         http_timeout_seconds: settingsData.http_timeout_seconds,
         send_mode: settingsData.send_mode,
         template_fallback_name: settingsData.template_fallback_name,
+        template_sla_warning_pending_hours: settingsData.template_sla_warning_pending_hours,
+        template_sla_critical_pending_hours: settingsData.template_sla_critical_pending_hours,
+        template_sla_warning_approval_hours: settingsData.template_sla_warning_approval_hours,
+        template_sla_critical_approval_hours: settingsData.template_sla_critical_approval_hours,
       })
       setWhatsAppAccessTokenMasked(settingsData.access_token_masked)
       setWhatsAppAppSecretMasked(settingsData.app_secret_masked)
@@ -302,19 +341,43 @@ export default function SystemSettings() {
       setWhatsAppAccessConfigured(settingsData.access_token_configured)
       setWhatsAppAppSecretConfigured(settingsData.app_secret_configured)
       setWhatsAppVerifyConfigured(settingsData.webhook_verify_token_configured)
+      setWhatsAppSettingsUpdatedBy(settingsData.updated_by)
+      setWhatsAppSettingsUpdatedAt(settingsData.updated_at)
       setWhatsAppTestMode(settingsData.send_mode === 'text' && mailSettingsEnvironment !== 'production' ? 'text' : 'template')
       if (settingsData.template_fallback_name) {
         setWhatsAppTestTemplateName(settingsData.template_fallback_name)
       }
+
+      const auditsResponse = await systemApi.getWhatsAppTemplateSlaAudits(mailSettingsEnvironment, whatsAppTemplateSlaAuditsLimit, whatsAppTemplateSlaAuditsOffset)
+      setWhatsAppTemplateSlaAudits(auditsResponse.data.results || [])
+      setWhatsAppTemplateSlaAuditsTotal(auditsResponse.data.total || 0)
     } catch (error) {
       setWhatsAppError(getRequestErrorMessage(error, 'No se pudo cargar la configuración de WhatsApp.'))
       setWhatsAppTemplateMaps([])
       setWhatsAppHealth(null)
       setWhatsAppRecentDeliveries([])
+      setWhatsAppDeliveriesPage(1)
+      setWhatsAppTemplateSlaAudits([])
+      setWhatsAppTemplateSlaAuditsTotal(0)
     } finally {
       setWhatsAppLoading(false)
     }
-  }, [mailSettingsEnvironment, whatsAppHours])
+  }, [mailSettingsEnvironment, whatsAppHours, whatsAppTemplateApprovalFilter, whatsAppTemplateSlaAuditsLimit, whatsAppTemplateSlaAuditsOffset])
+
+  const loadWhatsAppTemplateSlaAudits = useCallback(async (offset = 0) => {
+    setWhatsAppTemplateSlaAuditsLoading(true)
+    try {
+      const response = await systemApi.getWhatsAppTemplateSlaAudits(mailSettingsEnvironment, whatsAppTemplateSlaAuditsLimit, offset)
+      setWhatsAppTemplateSlaAudits(response.data.results || [])
+      setWhatsAppTemplateSlaAuditsOffset(response.data.offset || 0)
+      setWhatsAppTemplateSlaAuditsTotal(response.data.total || 0)
+    } catch {
+      setWhatsAppTemplateSlaAudits([])
+      setWhatsAppTemplateSlaAuditsTotal(0)
+    } finally {
+      setWhatsAppTemplateSlaAuditsLoading(false)
+    }
+  }, [mailSettingsEnvironment, whatsAppTemplateSlaAuditsLimit])
 
   const saveWhatsAppSettings = async () => {
     setWhatsAppSaving(true)
@@ -329,6 +392,8 @@ export default function SystemSettings() {
       setWhatsAppAccessConfigured(settingsData.access_token_configured)
       setWhatsAppAppSecretConfigured(settingsData.app_secret_configured)
       setWhatsAppVerifyConfigured(settingsData.webhook_verify_token_configured)
+      setWhatsAppSettingsUpdatedBy(settingsData.updated_by)
+      setWhatsAppSettingsUpdatedAt(settingsData.updated_at)
       setWhatsAppSettings((prev) => ({
         ...prev,
         access_token: '',
@@ -390,6 +455,114 @@ export default function SystemSettings() {
       setWhatsAppError(getRequestErrorMessage(error, 'No se pudo eliminar el mapeo WhatsApp.'))
     } finally {
       setWhatsAppSaving(false)
+    }
+  }
+
+  const loadWhatsAppTemplateMapIntoForm = (item: WhatsAppTemplateMapItem) => {
+    setWhatsAppForm({
+      notification_type: item.notification_type,
+      template_name: item.template_name,
+      language_code: item.language_code,
+      body_parameter_names: item.body_parameter_names,
+      default_components: item.default_components,
+      category: item.category,
+      is_active: item.is_active,
+    })
+    setWhatsAppBodyParametersRaw((item.body_parameter_names || []).join(','))
+    setWhatsAppDefaultComponentsRaw(
+      item.default_components && item.default_components.length
+        ? JSON.stringify(item.default_components, null, 2)
+        : '',
+    )
+    setWhatsAppMessage(`Mapeo ${item.notification_type} cargado en el formulario para edición.`)
+    setWhatsAppError(null)
+  }
+
+  const submitWhatsAppTemplateMap = async (mapId: number) => {
+    setWhatsAppSaving(true)
+    setWhatsAppError(null)
+    setWhatsAppMessage(null)
+    try {
+      await systemApi.submitWhatsAppTemplateMap(mapId)
+      setWhatsAppMessage('Template enviado a aprobación correctamente.')
+      await loadWhatsAppData()
+    } catch (error) {
+      setWhatsAppError(getRequestErrorMessage(error, 'No se pudo enviar el template a aprobación.'))
+    } finally {
+      setWhatsAppSaving(false)
+    }
+  }
+
+  const approveWhatsAppTemplateMap = async (mapId: number) => {
+    setWhatsAppSaving(true)
+    setWhatsAppError(null)
+    setWhatsAppMessage(null)
+    try {
+      await systemApi.approveWhatsAppTemplateMap(mapId)
+      setWhatsAppMessage('Template aprobado correctamente.')
+      await loadWhatsAppData()
+    } catch (error) {
+      setWhatsAppError(getRequestErrorMessage(error, 'No se pudo aprobar el template.'))
+    } finally {
+      setWhatsAppSaving(false)
+    }
+  }
+
+  const rejectWhatsAppTemplateMap = async (mapId: number) => {
+    const reason = window.prompt('Motivo de rechazo (obligatorio):', '')
+    if (!reason || !reason.trim()) return
+
+    setWhatsAppSaving(true)
+    setWhatsAppError(null)
+    setWhatsAppMessage(null)
+    try {
+      await systemApi.rejectWhatsAppTemplateMap(mapId, reason.trim())
+      setWhatsAppMessage('Template rechazado correctamente.')
+      await loadWhatsAppData()
+    } catch (error) {
+      setWhatsAppError(getRequestErrorMessage(error, 'No se pudo rechazar el template.'))
+    } finally {
+      setWhatsAppSaving(false)
+    }
+  }
+
+  const exportWhatsAppTemplateApprovalsCsv = async () => {
+    setWhatsAppExporting(true)
+    try {
+      const res = await systemApi.exportWhatsAppTemplateApprovalsCsv(whatsAppTemplateApprovalFilter)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `whatsapp_template_approvals_${whatsAppTemplateApprovalFilter}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setWhatsAppError('No se pudo exportar el historial CSV de aprobaciones WhatsApp.')
+    } finally {
+      setWhatsAppExporting(false)
+    }
+  }
+
+  const exportWhatsAppTemplateSlaAuditsCsv = async () => {
+    setWhatsAppTemplateSlaAuditsExporting(true)
+    try {
+      const res = await systemApi.exportWhatsAppTemplateSlaAuditsCsv(mailSettingsEnvironment)
+      const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `whatsapp_template_sla_audits_${mailSettingsEnvironment}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch {
+      setWhatsAppError('No se pudo exportar el historial SLA en CSV.')
+    } finally {
+      setWhatsAppTemplateSlaAuditsExporting(false)
     }
   }
 
@@ -675,8 +848,82 @@ export default function SystemSettings() {
     const total = whatsAppTemplateMaps.length
     const active = whatsAppTemplateMaps.filter((item) => item.is_active).length
     const categories = new Set(whatsAppTemplateMaps.map((item) => item.category)).size
-    return { total, active, categories }
-  }, [whatsAppTemplateMaps])
+    const submitted = whatsAppTemplateMaps.filter((item) => item.approval_status === 'submitted').length
+    const approved = whatsAppTemplateMaps.filter((item) => item.approval_status === 'approved').length
+    const rejected = whatsAppTemplateMaps.filter((item) => item.approval_status === 'rejected').length
+
+    const approvalLeadTimesHours = whatsAppTemplateMaps
+      .filter((item) => item.approval_status === 'approved' && item.submitted_at && item.approved_at)
+      .map((item) => {
+        const submittedAt = new Date(String(item.submitted_at)).getTime()
+        const approvedAt = new Date(String(item.approved_at)).getTime()
+        if (!Number.isFinite(submittedAt) || !Number.isFinite(approvedAt) || approvedAt < submittedAt) return null
+        return (approvedAt - submittedAt) / (1000 * 60 * 60)
+      })
+      .filter((value): value is number => typeof value === 'number')
+
+    const avgApprovalHours = approvalLeadTimesHours.length
+      ? approvalLeadTimesHours.reduce((acc, value) => acc + value, 0) / approvalLeadTimesHours.length
+      : null
+
+    const now = Date.now()
+    const pendingAgesHours = whatsAppTemplateMaps
+      .filter((item) => item.approval_status === 'submitted' && item.submitted_at)
+      .map((item) => {
+        const submittedAt = new Date(String(item.submitted_at)).getTime()
+        if (!Number.isFinite(submittedAt) || now < submittedAt) return null
+        return (now - submittedAt) / (1000 * 60 * 60)
+      })
+      .filter((value): value is number => typeof value === 'number')
+
+    const pendingOver24h = pendingAgesHours.filter((hours) => hours >= 24).length
+    const pendingOver72h = pendingAgesHours.filter((hours) => hours >= 72).length
+    const maxPendingHours = pendingAgesHours.length ? Math.max(...pendingAgesHours) : null
+
+    const warningPendingHours = Math.max(1, whatsAppSettings.template_sla_warning_pending_hours)
+    const criticalPendingHours = Math.max(warningPendingHours, whatsAppSettings.template_sla_critical_pending_hours)
+    const warningAvgApprovalHours = Math.max(1, whatsAppSettings.template_sla_warning_approval_hours)
+    const criticalAvgApprovalHours = Math.max(warningAvgApprovalHours, whatsAppSettings.template_sla_critical_approval_hours)
+
+    const pendingWarningCount = pendingAgesHours.filter((hours) => hours >= warningPendingHours).length
+    const pendingCriticalCount = pendingAgesHours.filter((hours) => hours >= criticalPendingHours).length
+
+    const avgApprovalIsWarning = avgApprovalHours !== null && avgApprovalHours >= warningAvgApprovalHours
+    const avgApprovalIsCritical = avgApprovalHours !== null && avgApprovalHours >= criticalAvgApprovalHours
+
+    const slaLevel: 'green' | 'yellow' | 'red' =
+      pendingCriticalCount > 0 || avgApprovalIsCritical
+        ? 'red'
+        : pendingWarningCount > 0 || avgApprovalIsWarning
+          ? 'yellow'
+          : 'green'
+
+    return {
+      total,
+      active,
+      categories,
+      submitted,
+      approved,
+      rejected,
+      avgApprovalHours,
+      pendingOver24h,
+      pendingOver72h,
+      maxPendingHours,
+      pendingWarningCount,
+      pendingCriticalCount,
+      warningPendingHours,
+      criticalPendingHours,
+      warningAvgApprovalHours,
+      criticalAvgApprovalHours,
+      slaLevel,
+    }
+  }, [
+    whatsAppTemplateMaps,
+    whatsAppSettings.template_sla_warning_pending_hours,
+    whatsAppSettings.template_sla_critical_pending_hours,
+    whatsAppSettings.template_sla_warning_approval_hours,
+    whatsAppSettings.template_sla_critical_approval_hours,
+  ])
 
   const whatsAppConfigValidation = useMemo(() => {
     const graphBaseUrl = whatsAppSettings.graph_base_url.trim()
@@ -1417,16 +1664,141 @@ export default function SystemSettings() {
                 Mapeo de plantillas WhatsApp ({whatsAppTemplateMaps.length})
               </summary>
               <div className="mt-4">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                Total: {whatsAppTemplateMapStats.total}
-              </span>
-              <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
-                Activos: {whatsAppTemplateMapStats.active}
-              </span>
-              <span className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
-                Categorias: {whatsAppTemplateMapStats.categories}
-              </span>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  Total: {whatsAppTemplateMapStats.total}
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                  Activos: {whatsAppTemplateMapStats.active}
+                </span>
+                <span className="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
+                  Categorias: {whatsAppTemplateMapStats.categories}
+                </span>
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                  Pendientes: {whatsAppTemplateMapStats.submitted}
+                </span>
+                <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">
+                  Aprobados: {whatsAppTemplateMapStats.approved}
+                </span>
+                <span className="rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-700 dark:bg-rose-900/40 dark:text-rose-200">
+                  Rechazados: {whatsAppTemplateMapStats.rejected}
+                </span>
+                <span className="rounded-full bg-violet-100 px-2 py-1 text-xs text-violet-700 dark:bg-violet-900/40 dark:text-violet-200">
+                  SLA prom. aprobación: {whatsAppTemplateMapStats.avgApprovalHours === null ? 'N/D' : `${whatsAppTemplateMapStats.avgApprovalHours.toFixed(1)}h`}
+                </span>
+                <span className={`rounded-full px-2 py-1 text-xs ${whatsAppTemplateMapStats.slaLevel === 'red'
+                  ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
+                  : whatsAppTemplateMapStats.slaLevel === 'yellow'
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                  }`}>
+                  SLA estado: {whatsAppTemplateMapStats.slaLevel === 'red' ? 'Crítico' : whatsAppTemplateMapStats.slaLevel === 'yellow' ? 'Alerta' : 'OK'}
+                </span>
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                  Pendientes {'>'}{whatsAppTemplateMapStats.warningPendingHours}h: {whatsAppTemplateMapStats.pendingWarningCount}
+                </span>
+                <span className="rounded-full bg-rose-100 px-2 py-1 text-xs text-rose-700 dark:bg-rose-900/40 dark:text-rose-200">
+                  Pendientes {'>'}{whatsAppTemplateMapStats.criticalPendingHours}h: {whatsAppTemplateMapStats.pendingCriticalCount}
+                </span>
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                  Máx. espera pendiente: {whatsAppTemplateMapStats.maxPendingHours === null ? 'N/D' : `${whatsAppTemplateMapStats.maxPendingHours.toFixed(1)}h`}
+                </span>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+                Ver
+                <select
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  value={whatsAppTemplateApprovalFilter}
+                  onChange={(e) => setWhatsAppTemplateApprovalFilter(e.target.value as 'all' | WhatsAppTemplateApprovalStatus)}
+                  disabled={whatsAppLoading || whatsAppSaving}
+                >
+                  <option value="all">Todos</option>
+                  <option value="draft">Draft</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void exportWhatsAppTemplateApprovalsCsv()
+                }}
+                disabled={whatsAppExporting || whatsAppLoading || whatsAppSaving}
+              >
+                {whatsAppExporting ? 'Exportando CSV…' : 'Exportar historial CSV'}
+              </Button>
+            </div>
+
+            <div className="mb-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-700 dark:bg-slate-900/40">
+              <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
+                Umbral alerta pendientes (h)
+                <input
+                  type="number"
+                  min={1}
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  value={whatsAppSettings.template_sla_warning_pending_hours}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value || 1))
+                    setWhatsAppSettings((prev) => ({
+                      ...prev,
+                      template_sla_warning_pending_hours: value,
+                      template_sla_critical_pending_hours: Math.max(prev.template_sla_critical_pending_hours, value),
+                    }))
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
+                Umbral crítico pendientes (h)
+                <input
+                  type="number"
+                  min={1}
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  value={whatsAppSettings.template_sla_critical_pending_hours}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value || 1))
+                    setWhatsAppSettings((prev) => ({
+                      ...prev,
+                      template_sla_critical_pending_hours: Math.max(value, prev.template_sla_warning_pending_hours),
+                    }))
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
+                Umbral alerta promedio (h)
+                <input
+                  type="number"
+                  min={1}
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  value={whatsAppSettings.template_sla_warning_approval_hours}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value || 1))
+                    setWhatsAppSettings((prev) => ({
+                      ...prev,
+                      template_sla_warning_approval_hours: value,
+                      template_sla_critical_approval_hours: Math.max(prev.template_sla_critical_approval_hours, value),
+                    }))
+                  }}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs text-slate-600 dark:text-slate-300">
+                Umbral crítico promedio (h)
+                <input
+                  type="number"
+                  min={1}
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  value={whatsAppSettings.template_sla_critical_approval_hours}
+                  onChange={(e) => {
+                    const value = Math.max(1, Number(e.target.value || 1))
+                    setWhatsAppSettings((prev) => ({
+                      ...prev,
+                      template_sla_critical_approval_hours: Math.max(value, prev.template_sla_warning_approval_hours),
+                    }))
+                  }}
+                />
+              </label>
             </div>
 
             {whatsAppError ? (
@@ -1435,6 +1807,116 @@ export default function SystemSettings() {
             {whatsAppMessage ? (
               <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/25 dark:text-emerald-200">{whatsAppMessage}</div>
             ) : null}
+
+            <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+              Umbrales SLA persistidos por ambiente ({mailSettingsEnvironment}). Última actualización:{' '}
+              {whatsAppSettingsUpdatedAt
+                ? `${formatDate(whatsAppSettingsUpdatedAt)} por ${whatsAppSettingsUpdatedBy?.username || 'usuario desconocido'}`
+                : 'sin registros aún.'}
+            </div>
+
+            <details className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+              <summary className="cursor-pointer list-none text-sm font-medium text-slate-800 dark:text-slate-100">
+                Historial de cambios SLA (WhatsApp templates)
+              </summary>
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    Registro de cambios de umbrales para el ambiente {mailSettingsEnvironment}.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-9"
+                      onClick={() => {
+                        void exportWhatsAppTemplateSlaAuditsCsv()
+                      }}
+                      disabled={whatsAppTemplateSlaAuditsExporting || whatsAppTemplateSlaAuditsLoading}
+                    >
+                      {whatsAppTemplateSlaAuditsExporting ? 'Exportando…' : 'Exportar CSV'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-9"
+                      onClick={() => {
+                        void loadWhatsAppTemplateSlaAudits(whatsAppTemplateSlaAuditsOffset)
+                      }}
+                      disabled={whatsAppTemplateSlaAuditsLoading}
+                    >
+                      Actualizar historial
+                    </Button>
+                  </div>
+                </div>
+
+                {whatsAppTemplateSlaAuditsLoading ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">Cargando historial SLA…</div>
+                ) : whatsAppTemplateSlaAudits.length === 0 ? (
+                  <div className="text-sm text-slate-500 dark:text-slate-400">No hay cambios SLA registrados aún.</div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                        <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+                          <tr>
+                            <th className="px-3 py-2">Fecha</th>
+                            <th className="px-3 py-2">Usuario</th>
+                            <th className="px-3 py-2">Pendientes (alerta/crítico)</th>
+                            <th className="px-3 py-2">Promedio aprobación (alerta/crítico)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                          {whatsAppTemplateSlaAudits.map((audit) => (
+                            <tr key={audit.id} className="bg-white transition-colors hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/70">
+                              <td className="px-3 py-2">{formatDate(audit.created_at)}</td>
+                              <td className="px-3 py-2">{audit.updated_by?.username || 'Sistema'}</td>
+                              <td className="px-3 py-2 text-xs">
+                                {audit.previous_warning_pending_hours}h/{audit.previous_critical_pending_hours}h → {audit.new_warning_pending_hours}h/{audit.new_critical_pending_hours}h
+                              </td>
+                              <td className="px-3 py-2 text-xs">
+                                {audit.previous_warning_approval_hours}h/{audit.previous_critical_approval_hours}h → {audit.new_warning_approval_hours}h/{audit.new_critical_approval_hours}h
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="flex flex-col gap-2 text-xs text-slate-500 dark:text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        Mostrando {whatsAppTemplateSlaAuditsTotal === 0 ? 0 : whatsAppTemplateSlaAuditsOffset + 1}–
+                        {Math.min(whatsAppTemplateSlaAuditsOffset + whatsAppTemplateSlaAudits.length, whatsAppTemplateSlaAuditsTotal)} de {whatsAppTemplateSlaAuditsTotal}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-9"
+                          disabled={whatsAppTemplateSlaAuditsOffset <= 0 || whatsAppTemplateSlaAuditsLoading}
+                          onClick={() => {
+                            void loadWhatsAppTemplateSlaAudits(Math.max(0, whatsAppTemplateSlaAuditsOffset - whatsAppTemplateSlaAuditsLimit))
+                          }}
+                        >
+                          Anterior
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="min-h-9"
+                          disabled={whatsAppTemplateSlaAuditsOffset + whatsAppTemplateSlaAudits.length >= whatsAppTemplateSlaAuditsTotal || whatsAppTemplateSlaAuditsLoading}
+                          onClick={() => {
+                            void loadWhatsAppTemplateSlaAudits(whatsAppTemplateSlaAuditsOffset + whatsAppTemplateSlaAuditsLimit)
+                          }}
+                        >
+                          Siguiente
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </details>
 
             <details className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/40">
               <summary className="cursor-pointer list-none text-sm font-medium text-slate-800 dark:text-slate-100">
@@ -1545,7 +2027,9 @@ export default function SystemSettings() {
                     <th className="px-3 py-2">Tipo</th>
                     <th className="px-3 py-2">Template</th>
                     <th className="px-3 py-2">Activo</th>
-                    <th className="px-3 py-2 text-right">Acción</th>
+                    <th className="px-3 py-2">Aprobación</th>
+                    <th className="px-3 py-2">Historial</th>
+                    <th className="px-3 py-2 text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1567,10 +2051,68 @@ export default function SystemSettings() {
                           {item.is_active ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
+                      <td className="px-3 py-2">
+                        <div>
+                          <span className={`rounded-full px-2 py-1 text-xs ${item.approval_status === 'approved'
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                            : item.approval_status === 'submitted'
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200'
+                              : item.approval_status === 'rejected'
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200'
+                                : 'bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                            }`}>
+                            {item.approval_status}
+                          </span>
+                        </div>
+                        {item.rejection_reason ? (
+                          <div className="mt-1 text-xs text-rose-600 dark:text-rose-300">Motivo: {item.rejection_reason}</div>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                        {item.approval_status === 'approved' && item.approved_at ? (
+                          <div>
+                            Aprobado por {item.approved_by_user?.username || `#${item.approved_by || '-'}`}
+                            <div className="text-slate-500 dark:text-slate-400">{formatDate(item.approved_at)}</div>
+                          </div>
+                        ) : null}
+                        {item.approval_status === 'submitted' && item.submitted_at ? (
+                          <div>
+                            Enviado por {item.submitted_by_user?.username || `#${item.submitted_by || '-'}`}
+                            <div className="text-slate-500 dark:text-slate-400">{formatDate(item.submitted_at)}</div>
+                          </div>
+                        ) : null}
+                        {item.approval_status === 'rejected' && item.rejected_at ? (
+                          <div>
+                            Rechazado por {item.rejected_by_user?.username || `#${item.rejected_by || '-'}`}
+                            <div className="text-slate-500 dark:text-slate-400">{formatDate(item.rejected_at)}</div>
+                          </div>
+                        ) : null}
+                        {item.approval_status === 'draft' ? <span className="text-slate-500 dark:text-slate-400">Sin envío a aprobación</span> : null}
+                      </td>
                       <td className="px-3 py-2 text-right">
-                        <Button variant="outline" size="sm" onClick={() => removeWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
-                          Eliminar
-                        </Button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button variant="outline" size="sm" onClick={() => loadWhatsAppTemplateMapIntoForm(item)} disabled={whatsAppSaving}>
+                            Editar
+                          </Button>
+                          {(item.approval_status === 'draft' || item.approval_status === 'rejected') ? (
+                            <Button variant="outline" size="sm" onClick={() => submitWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
+                              Enviar aprobación
+                            </Button>
+                          ) : null}
+                          {isSuperAdmin && item.approval_status === 'submitted' ? (
+                            <>
+                              <Button variant="outline" size="sm" onClick={() => approveWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
+                                Aprobar
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => rejectWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
+                                Rechazar
+                              </Button>
+                            </>
+                          ) : null}
+                          <Button variant="outline" size="sm" onClick={() => removeWhatsAppTemplateMap(item.id)} disabled={whatsAppSaving}>
+                            Eliminar
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1707,7 +2249,7 @@ export default function SystemSettings() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {whatsAppRecentDeliveries.map((item) => (
+                      {whatsAppRecentDeliveriesPageItems.map((item) => (
                         <tr key={item.id} className="bg-white dark:bg-slate-900">
                           <td className="px-3 py-2">{formatDate(item.created_at)}</td>
                           <td className="px-3 py-2">
@@ -1731,6 +2273,31 @@ export default function SystemSettings() {
                     </tbody>
                   </table>
                 </div>
+                {whatsAppRecentDeliveries.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-slate-600 dark:text-slate-300">
+                      Página {whatsAppDeliveriesPage} de {whatsAppDeliveriesTotalPages}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setWhatsAppDeliveriesPage((prev) => Math.max(1, prev - 1))}
+                        disabled={whatsAppDeliveriesPage <= 1}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setWhatsAppDeliveriesPage((prev) => Math.min(whatsAppDeliveriesTotalPages, prev + 1))}
+                        disabled={whatsAppDeliveriesPage >= whatsAppDeliveriesTotalPages}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
                 {whatsAppRecentDeliveries.length === 0 ? (
                   <div className="py-3 text-sm text-slate-500 dark:text-slate-400">No hay envíos recientes registrados.</div>
                 ) : null}

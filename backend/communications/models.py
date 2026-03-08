@@ -97,6 +97,10 @@ class WhatsAppSettings(models.Model):
 	http_timeout_seconds = models.PositiveSmallIntegerField(default=12)
 	send_mode = models.CharField(max_length=20, choices=SEND_MODE_CHOICES, default=SEND_MODE_TEMPLATE)
 	template_fallback_name = models.CharField(max_length=120, blank=True, default="")
+	template_sla_warning_pending_hours = models.PositiveSmallIntegerField(default=24)
+	template_sla_critical_pending_hours = models.PositiveSmallIntegerField(default=72)
+	template_sla_warning_approval_hours = models.PositiveSmallIntegerField(default=24)
+	template_sla_critical_approval_hours = models.PositiveSmallIntegerField(default=72)
 	updated_by = models.ForeignKey(
 		"users.User",
 		on_delete=models.SET_NULL,
@@ -142,6 +146,42 @@ class MailgunSettingsAudit(models.Model):
 
 	def __str__(self) -> str:
 		return f"MailgunSettingsAudit by={self.updated_by_id or 'system'} at={self.created_at}"
+
+
+class WhatsAppTemplateSlaAudit(models.Model):
+	settings_ref = models.ForeignKey(
+		WhatsAppSettings,
+		on_delete=models.SET_NULL,
+		related_name="sla_audits",
+		blank=True,
+		null=True,
+	)
+	environment = models.CharField(max_length=20, choices=WhatsAppSettings.ENVIRONMENT_CHOICES, default=WhatsAppSettings.ENV_DEVELOPMENT)
+	updated_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="whatsapp_template_sla_audits",
+		blank=True,
+		null=True,
+	)
+	previous_warning_pending_hours = models.PositiveSmallIntegerField(default=24)
+	new_warning_pending_hours = models.PositiveSmallIntegerField(default=24)
+	previous_critical_pending_hours = models.PositiveSmallIntegerField(default=72)
+	new_critical_pending_hours = models.PositiveSmallIntegerField(default=72)
+	previous_warning_approval_hours = models.PositiveSmallIntegerField(default=24)
+	new_warning_approval_hours = models.PositiveSmallIntegerField(default=24)
+	previous_critical_approval_hours = models.PositiveSmallIntegerField(default=72)
+	new_critical_approval_hours = models.PositiveSmallIntegerField(default=72)
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ["-created_at"]
+		indexes = [
+			models.Index(fields=["environment", "created_at"]),
+		]
+
+	def __str__(self) -> str:
+		return f"WhatsAppTemplateSlaAudit env={self.environment} by={self.updated_by_id or 'system'} at={self.created_at}"
 
 
 class EmailPreferenceAudit(models.Model):
@@ -439,10 +479,22 @@ class WhatsAppTemplateMap(models.Model):
 	CATEGORY_AUTHENTICATION = "authentication"
 	CATEGORY_MARKETING = "marketing"
 
+	APPROVAL_STATUS_DRAFT = "draft"
+	APPROVAL_STATUS_SUBMITTED = "submitted"
+	APPROVAL_STATUS_APPROVED = "approved"
+	APPROVAL_STATUS_REJECTED = "rejected"
+
 	CATEGORY_CHOICES = [
 		(CATEGORY_UTILITY, "Utility"),
 		(CATEGORY_AUTHENTICATION, "Authentication"),
 		(CATEGORY_MARKETING, "Marketing"),
+	]
+
+	APPROVAL_STATUS_CHOICES = [
+		(APPROVAL_STATUS_DRAFT, "Draft"),
+		(APPROVAL_STATUS_SUBMITTED, "Submitted"),
+		(APPROVAL_STATUS_APPROVED, "Approved"),
+		(APPROVAL_STATUS_REJECTED, "Rejected"),
 	]
 
 	notification_type = models.CharField(max_length=80, unique=True)
@@ -452,6 +504,32 @@ class WhatsAppTemplateMap(models.Model):
 	default_components = models.JSONField(default=list, blank=True)
 	category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default=CATEGORY_UTILITY)
 	is_active = models.BooleanField(default=True)
+	approval_status = models.CharField(max_length=20, choices=APPROVAL_STATUS_CHOICES, default=APPROVAL_STATUS_DRAFT)
+	submitted_at = models.DateTimeField(blank=True, null=True)
+	submitted_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="whatsapp_template_maps_submitted",
+		blank=True,
+		null=True,
+	)
+	approved_at = models.DateTimeField(blank=True, null=True)
+	approved_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="whatsapp_template_maps_approved",
+		blank=True,
+		null=True,
+	)
+	rejected_at = models.DateTimeField(blank=True, null=True)
+	rejected_by = models.ForeignKey(
+		"users.User",
+		on_delete=models.SET_NULL,
+		related_name="whatsapp_template_maps_rejected",
+		blank=True,
+		null=True,
+	)
+	rejection_reason = models.CharField(max_length=255, blank=True, default="")
 	updated_by = models.ForeignKey(
 		"users.User",
 		on_delete=models.SET_NULL,
@@ -464,6 +542,9 @@ class WhatsAppTemplateMap(models.Model):
 
 	class Meta:
 		ordering = ["notification_type"]
+		indexes = [
+			models.Index(fields=["approval_status", "is_active", "notification_type"]),
+		]
 
 	def __str__(self) -> str:
 		return f"{self.notification_type} -> {self.template_name} ({self.language_code})"

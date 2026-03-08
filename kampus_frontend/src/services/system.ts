@@ -98,6 +98,7 @@ export type EmailTemplatePreviewResponse = {
 }
 
 export type WhatsAppTemplateCategory = 'utility' | 'authentication' | 'marketing'
+export type WhatsAppTemplateApprovalStatus = 'draft' | 'submitted' | 'approved' | 'rejected'
 
 export type WhatsAppTemplateMapItem = {
   id: number
@@ -108,6 +109,32 @@ export type WhatsAppTemplateMapItem = {
   default_components: Array<Record<string, unknown>>
   category: WhatsAppTemplateCategory
   is_active: boolean
+  approval_status: WhatsAppTemplateApprovalStatus
+  submitted_at: string | null
+  submitted_by: number | null
+  submitted_by_user: {
+    id: number
+    username: string
+    email: string
+    role: string
+  } | null
+  approved_at: string | null
+  approved_by: number | null
+  approved_by_user: {
+    id: number
+    username: string
+    email: string
+    role: string
+  } | null
+  rejected_at: string | null
+  rejected_by: number | null
+  rejected_by_user: {
+    id: number
+    username: string
+    email: string
+    role: string
+  } | null
+  rejection_reason: string
   updated_at: string
 }
 
@@ -123,6 +150,33 @@ export type WhatsAppTemplateMapPayload = {
 
 export type WhatsAppTemplateMapListResponse = {
   results: WhatsAppTemplateMapItem[]
+}
+
+export type WhatsAppTemplateSlaAuditItem = {
+  id: number
+  environment: MailSettingsEnvironment
+  created_at: string
+  previous_warning_pending_hours: number
+  new_warning_pending_hours: number
+  previous_critical_pending_hours: number
+  new_critical_pending_hours: number
+  previous_warning_approval_hours: number
+  new_warning_approval_hours: number
+  previous_critical_approval_hours: number
+  new_critical_approval_hours: number
+  updated_by: {
+    id: number
+    username: string
+    email: string
+    role: string
+  } | null
+}
+
+export type WhatsAppTemplateSlaAuditListResponse = {
+  results: WhatsAppTemplateSlaAuditItem[]
+  total: number
+  limit: number
+  offset: number
 }
 
 export type WhatsAppHealthResponse = {
@@ -181,9 +235,19 @@ export type WhatsAppSettingsResponse = {
   http_timeout_seconds: number
   send_mode: 'template' | 'text'
   template_fallback_name: string
+  template_sla_warning_pending_hours: number
+  template_sla_critical_pending_hours: number
+  template_sla_warning_approval_hours: number
+  template_sla_critical_approval_hours: number
   access_token_configured: boolean
   app_secret_configured: boolean
   webhook_verify_token_configured: boolean
+  updated_by: {
+    id: number
+    username: string
+    email: string
+    role: string
+  } | null
   updated_at: string | null
 }
 
@@ -201,6 +265,10 @@ export type WhatsAppSettingsPayload = {
   http_timeout_seconds: number
   send_mode: 'template' | 'text'
   template_fallback_name: string
+  template_sla_warning_pending_hours: number
+  template_sla_critical_pending_hours: number
+  template_sla_warning_approval_hours: number
+  template_sla_critical_approval_hours: number
 }
 
 export type WhatsAppTestSendResponse = {
@@ -316,13 +384,40 @@ export const systemApi = {
       context,
     }),
 
-  listWhatsAppTemplateMaps: () => api.get<WhatsAppTemplateMapListResponse>('/api/communications/settings/whatsapp/templates/'),
+  listWhatsAppTemplateMaps: (approvalStatus?: WhatsAppTemplateApprovalStatus) => {
+    const query = approvalStatus ? `?approval_status=${approvalStatus}` : ''
+    return api.get<WhatsAppTemplateMapListResponse>(`/api/communications/settings/whatsapp/templates/${query}`)
+  },
 
   upsertWhatsAppTemplateMap: (payload: WhatsAppTemplateMapPayload) =>
     api.put<WhatsAppTemplateMapItem>('/api/communications/settings/whatsapp/templates/', payload),
 
   updateWhatsAppTemplateMap: (mapId: number, payload: Partial<WhatsAppTemplateMapPayload>) =>
     api.put<WhatsAppTemplateMapItem>(`/api/communications/settings/whatsapp/templates/${mapId}/`, payload),
+
+  submitWhatsAppTemplateMap: (mapId: number) =>
+    api.post<WhatsAppTemplateMapItem>(`/api/communications/settings/whatsapp/templates/${mapId}/submit/`, {}),
+
+  approveWhatsAppTemplateMap: (mapId: number) =>
+    api.post<WhatsAppTemplateMapItem>(`/api/communications/settings/whatsapp/templates/${mapId}/approve/`, {}),
+
+  rejectWhatsAppTemplateMap: (mapId: number, reason: string) =>
+    api.post<WhatsAppTemplateMapItem>(`/api/communications/settings/whatsapp/templates/${mapId}/reject/`, { reason }),
+
+  exportWhatsAppTemplateApprovalsCsv: (approvalStatus?: 'all' | WhatsAppTemplateApprovalStatus) => {
+    const query = approvalStatus && approvalStatus !== 'all' ? `?approval_status=${approvalStatus}` : ''
+    return api.get<Blob>(`/api/communications/settings/whatsapp/templates/export/${query}`, {
+      responseType: 'blob',
+    })
+  },
+
+  getWhatsAppTemplateSlaAudits: (environment: MailSettingsEnvironment = 'development', limit = 20, offset = 0) =>
+    api.get<WhatsAppTemplateSlaAuditListResponse>(`/api/communications/settings/whatsapp/template-sla-audits/?environment=${environment}&limit=${limit}&offset=${offset}`),
+
+  exportWhatsAppTemplateSlaAuditsCsv: (environment: MailSettingsEnvironment = 'development') =>
+    api.get<Blob>(`/api/communications/settings/whatsapp/template-sla-audits/export/?environment=${environment}`, {
+      responseType: 'blob',
+    }),
 
   deleteWhatsAppTemplateMap: (mapId: number) => api.delete<void>(`/api/communications/settings/whatsapp/templates/${mapId}/`),
 

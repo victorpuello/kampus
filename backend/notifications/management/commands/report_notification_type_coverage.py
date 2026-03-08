@@ -39,7 +39,10 @@ class Command(BaseCommand):
         }
         active_wa_map = {
             str(code).strip().upper()
-            for code in WhatsAppTemplateMap.objects.filter(is_active=True).values_list("notification_type", flat=True)
+            for code in WhatsAppTemplateMap.objects.filter(
+                is_active=True,
+                approval_status=WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+            ).values_list("notification_type", flat=True)
         }
 
         rows = []

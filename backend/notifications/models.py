@@ -108,3 +108,54 @@ class NotificationDispatch(models.Model):
 
     def __str__(self) -> str:
         return f"dispatch={self.id} notif={self.notification_id} {self.channel} {self.status}"
+
+
+class OperationalPlanActivity(models.Model):
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    activity_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    responsible_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name="operational_plan_activities",
+        blank=True,
+    )
+    is_completed = models.BooleanField(default=False)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    completion_notes = models.TextField(blank=True, default="")
+    completed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="completed_operational_plan_activities",
+    )
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_operational_plan_activities",
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_operational_plan_activities",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["activity_date", "title", "id"]
+        indexes = [
+            models.Index(fields=["is_active", "activity_date"]),
+            models.Index(fields=["activity_date", "created_at"]),
+            models.Index(fields=["is_active", "end_date"]),
+            models.Index(fields=["is_active", "is_completed", "activity_date"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.activity_date}: {self.title}"

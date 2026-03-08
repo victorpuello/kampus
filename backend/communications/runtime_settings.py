@@ -37,6 +37,10 @@ class EffectiveWhatsAppSettings:
     http_timeout_seconds: int
     send_mode: str
     template_fallback_name: str
+    template_sla_warning_pending_hours: int
+    template_sla_critical_pending_hours: int
+    template_sla_warning_approval_hours: int
+    template_sla_critical_approval_hours: int
 
 
 def _safe_env_bool(value: object, *, fallback: bool = False) -> bool:
@@ -161,6 +165,10 @@ def _build_whatsapp_from_env(*, environment: str | None = None) -> EffectiveWhat
         http_timeout_seconds=int(getattr(settings, "KAMPUS_WHATSAPP_HTTP_TIMEOUT_SECONDS", 12) or 12),
         send_mode=str(getattr(settings, "KAMPUS_WHATSAPP_SEND_MODE", "template") or "template").strip().lower(),
         template_fallback_name=str(getattr(settings, "KAMPUS_WHATSAPP_TEMPLATE_FALLBACK_NAME", "") or "").strip(),
+        template_sla_warning_pending_hours=int(getattr(settings, "KAMPUS_WHATSAPP_TEMPLATE_SLA_WARNING_PENDING_HOURS", 24) or 24),
+        template_sla_critical_pending_hours=int(getattr(settings, "KAMPUS_WHATSAPP_TEMPLATE_SLA_CRITICAL_PENDING_HOURS", 72) or 72),
+        template_sla_warning_approval_hours=int(getattr(settings, "KAMPUS_WHATSAPP_TEMPLATE_SLA_WARNING_APPROVAL_HOURS", 24) or 24),
+        template_sla_critical_approval_hours=int(getattr(settings, "KAMPUS_WHATSAPP_TEMPLATE_SLA_CRITICAL_APPROVAL_HOURS", 72) or 72),
     )
 
 
@@ -188,6 +196,10 @@ def get_effective_whatsapp_settings(environment: str | None = None) -> Effective
         http_timeout_seconds=int(config.http_timeout_seconds or 12),
         send_mode=str(config.send_mode or "template").strip().lower(),
         template_fallback_name=str(config.template_fallback_name or "").strip(),
+        template_sla_warning_pending_hours=int(config.template_sla_warning_pending_hours or 24),
+        template_sla_critical_pending_hours=int(config.template_sla_critical_pending_hours or 72),
+        template_sla_warning_approval_hours=int(config.template_sla_warning_approval_hours or 24),
+        template_sla_critical_approval_hours=int(config.template_sla_critical_approval_hours or 72),
     )
 
 
@@ -206,4 +218,8 @@ def apply_effective_whatsapp_settings(environment: str | None = None) -> Effecti
     settings.KAMPUS_WHATSAPP_HTTP_TIMEOUT_SECONDS = effective.http_timeout_seconds
     settings.KAMPUS_WHATSAPP_SEND_MODE = effective.send_mode
     settings.KAMPUS_WHATSAPP_TEMPLATE_FALLBACK_NAME = effective.template_fallback_name
+    settings.KAMPUS_WHATSAPP_TEMPLATE_SLA_WARNING_PENDING_HOURS = effective.template_sla_warning_pending_hours
+    settings.KAMPUS_WHATSAPP_TEMPLATE_SLA_CRITICAL_PENDING_HOURS = effective.template_sla_critical_pending_hours
+    settings.KAMPUS_WHATSAPP_TEMPLATE_SLA_WARNING_APPROVAL_HOURS = effective.template_sla_warning_approval_hours
+    settings.KAMPUS_WHATSAPP_TEMPLATE_SLA_CRITICAL_APPROVAL_HOURS = effective.template_sla_critical_approval_hours
     return effective

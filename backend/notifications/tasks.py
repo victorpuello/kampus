@@ -214,3 +214,32 @@ def check_dispatch_outbox_health_task(periodic_run_id: int | None = None) -> Non
         raise
     finally:
         cache.delete(lock_key)
+
+
+@shared_task(name="notifications.notify_operational_plan_activities")
+def notify_operational_plan_activities_task(periodic_run_id: int | None = None) -> None:
+    lock_key = "periodic-job-lock:notify-operational-plan-activities"
+    if not cache.add(lock_key, "1", timeout=3600):
+        logger.info("Skipping notify_operational_plan_activities task because lock is active")
+        return
+
+    run = PeriodicJobRun.objects.filter(id=periodic_run_id).first() if periodic_run_id else None
+    buffer = StringIO()
+
+    if run is not None:
+        run.mark_running()
+
+    try:
+        call_command("notify_operational_plan_activities", stdout=buffer, stderr=buffer)
+        if run is not None:
+            run.mark_succeeded(output_text=buffer.getvalue().strip()[:20000])
+    except Exception:
+        if run is not None:
+            run.mark_failed(
+                error_message="Error ejecutando notify_operational_plan_activities",
+                output_text=buffer.getvalue().strip()[:20000],
+            )
+        logger.exception("Failed executing scheduled task notify_operational_plan_activities")
+        raise
+    finally:
+        cache.delete(lock_key)

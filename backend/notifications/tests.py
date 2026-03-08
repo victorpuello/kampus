@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import date, timedelta
 from io import StringIO
 from unittest.mock import patch
 
@@ -9,10 +9,12 @@ from django.core.management.base import CommandError
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from communications.models import EmailDelivery
 
-from .models import Notification, NotificationDispatch, NotificationType
+from .models import Notification, NotificationDispatch, NotificationType, OperationalPlanActivity
 from .services import create_notification, notify_users
 
 
@@ -590,3 +592,294 @@ class NotificationDispatchDlqTests(TestCase):
         dispatch.refresh_from_db()
         self.assertEqual(dispatch.status, NotificationDispatch.STATUS_PENDING)
         self.assertEqual(dispatch.error_message, "")
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=False,
+    KAMPUS_WHATSAPP_ENABLED=False,
+    TIME_ZONE="America/Bogota",
+    USE_TZ=True,
+)
+class OperationalPlanActivityApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(
+            username="poa_admin",
+            email="poa_admin@example.com",
+            password="pass1234",
+            role=User.ROLE_ADMIN,
+            first_name="Admin",
+            last_name="POA",
+        )
+        self.teacher = User.objects.create_user(
+            username="poa_teacher",
+            email="poa_teacher@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+            first_name="Docente",
+            last_name="POA",
+        )
+        self.responsible = User.objects.create_user(
+            username="poa_responsible",
+            email="poa_responsible@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+            first_name="Responsable",
+            last_name="Uno",
+        )
+
+    def test_admin_can_create_activity_and_teacher_cannot(self):
+        payload = {
+            "title": "Socialización del cronograma",
+            "description": "Reunión institucional",
+            "activity_date": "2026-03-14",
+            "end_date": "2026-03-16",
+            "responsible_user_ids": [self.responsible.id],
+            "is_active": True,
+        }
+
+        self.client.force_authenticate(user=self.teacher)
+        teacher_response = self.client.post("/api/operational-plan-activities/", payload, format="json")
+        self.assertEqual(teacher_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(user=self.admin)
+        admin_response = self.client.post("/api/operational-plan-activities/", payload, format="json")
+        self.assertEqual(admin_response.status_code, status.HTTP_201_CREATED)
+        activity = OperationalPlanActivity.objects.get(id=admin_response.data["id"])
+        self.assertEqual(activity.created_by_id, self.admin.id)
+        self.assertEqual(activity.updated_by_id, self.admin.id)
+        self.assertEqual(str(activity.end_date), "2026-03-16")
+
+    def test_create_rejects_end_date_before_start_date(self):
+        payload = {
+            "title": "Actividad inválida",
+            "description": "Rango inválido",
+            "activity_date": "2026-03-14",
+            "end_date": "2026-03-10",
+            "is_active": True,
+        }
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post("/api/operational-plan-activities/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("end_date", response.data)
+
+    def test_create_rejects_non_teacher_responsible(self):
+        non_teacher = User.objects.create_user(
+            username="poa_admin_responsible",
+            email="poa_admin_responsible@example.com",
+            password="pass1234",
+            role=User.ROLE_ADMIN,
+        )
+        payload = {
+            "title": "Actividad con responsable inválido",
+            "description": "Solo docentes",
+            "activity_date": "2026-03-14",
+            "responsible_user_ids": [non_teacher.id],
+            "is_active": True,
+        }
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post("/api/operational-plan-activities/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("responsible_user_ids", response.data)
+
+    def test_upcoming_allows_teacher_and_validates_invalid_days(self):
+        activity = OperationalPlanActivity.objects.create(
+            title="Cierre de periodo",
+            description="Responsables (texto): Docente POA",
+            activity_date=timezone.localdate() + timedelta(days=3),
+            is_active=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+        activity.responsible_users.add(self.responsible)
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.get("/api/operational-plan-activities/upcoming/?days=10&limit=5")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], activity.id)
+
+        invalid_response = self.client.get("/api/operational-plan-activities/upcoming/?days=abc")
+        self.assertEqual(invalid_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upcoming_includes_ongoing_range_activity(self):
+        today = timezone.localdate()
+        ongoing = OperationalPlanActivity.objects.create(
+            title="Semana institucional",
+            description="Actividad de varios días",
+            activity_date=today - timedelta(days=1),
+            end_date=today + timedelta(days=2),
+            is_active=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.get("/api/operational-plan-activities/upcoming/?days=7&limit=10")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(ongoing.id, [item["id"] for item in response.data["results"]])
+
+    def test_list_exposes_mapping_status_fields(self):
+        activity = OperationalPlanActivity.objects.create(
+            title="Actividad sin mapeo",
+            description="Responsables (texto): Sociales",
+            activity_date=timezone.localdate() + timedelta(days=9),
+            is_active=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get("/api/operational-plan-activities/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        row = next(item for item in response.data if item["id"] == activity.id)
+        self.assertEqual(row["responsables_texto"], "Sociales")
+        self.assertTrue(row["responsables_sin_mapear"])
+
+    def test_summary_returns_totals_and_completion_rate(self):
+        today = timezone.localdate()
+        OperationalPlanActivity.objects.create(
+            title="Actividad 1",
+            description="",
+            activity_date=today,
+            is_active=True,
+            is_completed=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+            completed_by=self.admin,
+            completed_at=timezone.now(),
+        )
+        OperationalPlanActivity.objects.create(
+            title="Actividad 2",
+            description="",
+            activity_date=today + timedelta(days=1),
+            is_active=True,
+            is_completed=False,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get("/api/operational-plan-activities/summary/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["completed"], 1)
+        self.assertEqual(response.data["pending"], 1)
+        self.assertEqual(response.data["completion_rate"], 50.0)
+
+    def test_mark_completed_and_mark_pending(self):
+        activity = OperationalPlanActivity.objects.create(
+            title="Seguimiento",
+            description="",
+            activity_date=timezone.localdate(),
+            is_active=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        completed_response = self.client.post(
+            f"/api/operational-plan-activities/{activity.id}/mark-completed/",
+            {"completion_notes": "Evidencia cargada"},
+            format="json",
+        )
+        self.assertEqual(completed_response.status_code, status.HTTP_200_OK)
+
+        activity.refresh_from_db()
+        self.assertTrue(activity.is_completed)
+        self.assertIsNotNone(activity.completed_at)
+        self.assertEqual(activity.completed_by_id, self.admin.id)
+        self.assertEqual(activity.completion_notes, "Evidencia cargada")
+
+        pending_response = self.client.post(
+            f"/api/operational-plan-activities/{activity.id}/mark-pending/",
+            {},
+            format="json",
+        )
+        self.assertEqual(pending_response.status_code, status.HTTP_200_OK)
+
+        activity.refresh_from_db()
+        self.assertFalse(activity.is_completed)
+        self.assertIsNone(activity.completed_at)
+        self.assertIsNone(activity.completed_by_id)
+        self.assertEqual(activity.completion_notes, "")
+
+    @patch("notifications.views.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 mock")
+    def test_compliance_report_pdf_returns_pdf_response(self, mocked_pdf_renderer):
+        OperationalPlanActivity.objects.create(
+            title="Actividad PDF",
+            description="",
+            activity_date=timezone.localdate(),
+            is_active=True,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get("/api/operational-plan-activities/compliance-report-pdf/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("plan_operativo_cumplimiento.pdf", response["Content-Disposition"])
+        mocked_pdf_renderer.assert_called_once()
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    NOTIFICATIONS_EMAIL_ENABLED=False,
+    KAMPUS_WHATSAPP_ENABLED=False,
+    TIME_ZONE="America/Bogota",
+    USE_TZ=True,
+)
+class OperationalPlanReminderCommandTests(TestCase):
+    def setUp(self):
+        self.teacher = User.objects.create_user(
+            username="poa_teacher_notify",
+            email="poa_teacher_notify@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+            first_name="Docente",
+            last_name="Notificar",
+        )
+        self.responsible = User.objects.create_user(
+            username="poa_responsible_notify",
+            email="poa_responsible_notify@example.com",
+            password="pass1234",
+            role=User.ROLE_TEACHER,
+            first_name="Coordinador",
+            last_name="Académico",
+        )
+        self.activity = OperationalPlanActivity.objects.create(
+            title="Entrega de informes",
+            description="Actividad clave",
+            activity_date=date(2026, 3, 14),
+            is_active=True,
+        )
+        self.activity.responsible_users.add(self.responsible)
+
+    def test_scheduler_creates_notification_type_and_dedupes_by_activity_user_hito(self):
+        with patch("notifications.management.commands.notify_operational_plan_activities.timezone.localdate", return_value=date(2026, 3, 7)):
+            call_command("notify_operational_plan_activities")
+            call_command("notify_operational_plan_activities")
+
+        notification_type = NotificationType.objects.filter(code="OPERATIONAL_PLAN_REMINDER").first()
+        self.assertIsNotNone(notification_type)
+        self.assertTrue(notification_type.is_active)
+
+        notifications = Notification.objects.filter(type="OPERATIONAL_PLAN_REMINDER", recipient=self.teacher)
+        self.assertEqual(notifications.count(), 1)
+        self.assertEqual(notifications.first().dedupe_key, f"operational-plan:{self.activity.id}:d7")
+
+    def test_scheduler_does_not_duplicate_when_activity_is_edited_after_notification_same_window(self):
+        with patch("notifications.management.commands.notify_operational_plan_activities.timezone.localdate", return_value=date(2026, 3, 7)):
+            call_command("notify_operational_plan_activities")
+
+        self.activity.title = "Entrega de informes - versión ajustada"
+        self.activity.save(update_fields=["title", "updated_at"])
+
+        with patch("notifications.management.commands.notify_operational_plan_activities.timezone.localdate", return_value=date(2026, 3, 7)):
+            call_command("notify_operational_plan_activities")
+
+        notifications = Notification.objects.filter(type="OPERATIONAL_PLAN_REMINDER", recipient=self.teacher)
+        self.assertEqual(notifications.count(), 1)

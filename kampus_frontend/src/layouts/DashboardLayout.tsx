@@ -106,7 +106,6 @@ export default function DashboardLayout() {
   }
 
   const canManageRbac = user?.role === 'ADMIN' || user?.role === 'SUPERADMIN'
-  const isSuperAdmin = user?.role === 'SUPERADMIN'
   const canResetElectionTokens =
     user?.role === 'ADMIN' ||
     user?.role === 'SUPERADMIN' ||
@@ -125,7 +124,7 @@ export default function DashboardLayout() {
   const FAVORITE_SIDEBAR_PATHS_STORAGE_KEY = 'kampus.sidebar.favoritePaths'
 
   useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1280px)')
+    const mq = window.matchMedia('(min-width: 1024px)')
 
     const update = (matches: boolean) => {
       setIsDesktop(matches)
@@ -554,6 +553,7 @@ export default function DashboardLayout() {
       { name: 'Asistencias', href: '/attendance' },
       { name: 'Convivencia', href: '/discipline/cases' },
       { name: 'Docentes', href: '/teachers' },
+      ...(canManageRbac ? [{ name: 'Plan operativo', href: '/operations/plan-activities' }] : []),
       ...(isAdministrativeStaff ? [{ name: 'Monitoreo directores', href: '/teachers/director-compliance' }] : []),
     ]
 
@@ -589,12 +589,14 @@ export default function DashboardLayout() {
             } as NavigationItem,
           ]
         : []),
-      ...(isSuperAdmin
+      ...(canManageRbac
         ? [
             {
               name: 'Operaciones',
               icon: Activity,
-              children: [{ name: 'Jobs', href: '/operations/jobs' }],
+              children: [
+                { name: 'Jobs', href: '/operations/jobs' },
+              ],
             } as NavigationItem,
           ]
         : []),
@@ -645,7 +647,6 @@ export default function DashboardLayout() {
   }, [
     canManageRbac,
     canResetElectionTokens,
-    isSuperAdmin,
     isAdministrativeStaff,
     isParent,
     isTeacher,
@@ -817,8 +818,8 @@ export default function DashboardLayout() {
       {/* Sidebar */}
       <div className={cn(
         "fixed inset-y-0 left-0 z-50 bg-white shadow-lg transform transition-all duration-200 ease-in-out lg:translate-x-0 dark:bg-slate-900 dark:shadow-black/30",
-        'w-[86vw] max-w-sm md:w-80 lg:w-64',
-        isCollapsed ? 'lg:w-20' : 'lg:w-64',
+        'w-[88vw] max-w-sm sm:w-80 lg:w-72',
+        isCollapsed ? 'lg:w-20' : 'lg:w-72',
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex flex-col h-full">
@@ -1277,11 +1278,11 @@ export default function DashboardLayout() {
           'flex-1 flex flex-col min-h-screen w-full min-w-0',
           // Sidebar is `position: fixed`, so we reserve space using padding (not margin)
           // to avoid widening the layout and causing horizontal overflow / scale glitches.
-          isCollapsed ? 'lg:pl-20' : 'lg:pl-64'
+          isCollapsed ? 'lg:pl-20' : 'lg:pl-72'
         )}
       >
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
+        <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 bg-white border-b border-slate-200 dark:bg-slate-950 dark:border-slate-800">
           <button 
             onClick={() => setIsSidebarOpen(true)}
             className="-m-2 rounded-md p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
@@ -1320,8 +1321,8 @@ export default function DashboardLayout() {
         </header>
 
         {/* Page Content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 lg:p-8 overflow-auto">
-          <div className="w-full mx-auto">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-3 sm:p-4 md:p-5 lg:p-6 xl:p-8">
+          <div className="w-full mx-auto max-w-[1600px]">
             <Outlet />
           </div>
         </main>

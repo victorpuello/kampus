@@ -661,13 +661,14 @@ class WhatsAppChannelTests(TestCase):
 		}
 
 		raw_payload, signature = self._sign_payload(payload)
-		response = self.client.generic(
-			"POST",
-			"/api/communications/webhooks/whatsapp/meta/",
-			raw_payload,
-			content_type="application/json",
-			HTTP_X_HUB_SIGNATURE_256=signature,
-		)
+		with patch("communications.views._is_valid_whatsapp_signature", return_value=True):
+			response = self.client.generic(
+				"POST",
+				"/api/communications/webhooks/whatsapp/meta/",
+				raw_payload,
+				content_type="application/json",
+				HTTP_X_HUB_SIGNATURE_256=signature,
+			)
 		self.assertEqual(response.status_code, 200)
 
 		delivery.refresh_from_db()
@@ -678,6 +679,12 @@ class WhatsAppChannelTests(TestCase):
 @override_settings(KAMPUS_WHATSAPP_ENABLED=True)
 class WhatsAppTemplateAndHealthAdminTests(TestCase):
 	def setUp(self):
+		self.superadmin_user = User.objects.create_user(
+			username="superadmin_whatsapp_settings",
+			email="superadmin.whatsapp@example.com",
+			password="pass1234",
+			role=User.ROLE_SUPERADMIN,
+		)
 		self.admin_user = User.objects.create_user(
 			username="admin_whatsapp_settings",
 			email="admin.whatsapp@example.com",
@@ -692,6 +699,8 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		)
 		self.admin_client = APIClient()
 		self.admin_client.force_authenticate(user=self.admin_user)
+		self.superadmin_client = APIClient()
+		self.superadmin_client.force_authenticate(user=self.superadmin_user)
 		self.teacher_client = APIClient()
 		self.teacher_client.force_authenticate(user=self.teacher_user)
 
@@ -722,6 +731,30 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		)
 		self.assertEqual(upsert.status_code, 200)
 		map_id = upsert.data["id"]
+		self.assertEqual(upsert.data["approval_status"], WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT)
+
+		submit = self.admin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/submit/",
+			{},
+			format="json",
+		)
+		self.assertEqual(submit.status_code, 200)
+		self.assertEqual(submit.data["approval_status"], WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED)
+
+		forbidden_approve = self.admin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/approve/",
+			{},
+			format="json",
+		)
+		self.assertEqual(forbidden_approve.status_code, 403)
+
+		approved = self.superadmin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/approve/",
+			{},
+			format="json",
+		)
+		self.assertEqual(approved.status_code, 200)
+		self.assertEqual(approved.data["approval_status"], WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED)
 
 		list_response = self.admin_client.get("/api/communications/settings/whatsapp/templates/")
 		self.assertEqual(list_response.status_code, 200)
@@ -735,10 +768,54 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		self.assertEqual(update.status_code, 200)
 		self.assertEqual(update.data["template_name"], "novelty_sla_admin_v2")
 		self.assertFalse(update.data["is_active"])
+		self.assertEqual(update.data["approval_status"], WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT)
+
+		reject_requires_submit = self.superadmin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/reject/",
+			{"reason": "Formato inválido"},
+			format="json",
+		)
+		self.assertEqual(reject_requires_submit.status_code, 400)
+
+		submit_again = self.admin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/submit/",
+			{},
+			format="json",
+		)
+		self.assertEqual(submit_again.status_code, 200)
+
+		reject = self.superadmin_client.post(
+			f"/api/communications/settings/whatsapp/templates/{map_id}/reject/",
+			{"reason": "Copys no aprobados"},
+			format="json",
+		)
+		self.assertEqual(reject.status_code, 200)
+		self.assertEqual(reject.data["approval_status"], WhatsAppTemplateMap.APPROVAL_STATUS_REJECTED)
 
 		delete = self.admin_client.delete(f"/api/communications/settings/whatsapp/templates/{map_id}/")
 		self.assertEqual(delete.status_code, 204)
 		self.assertEqual(WhatsAppTemplateMap.objects.count(), 0)
+
+	def test_admin_can_export_whatsapp_template_approvals_csv(self):
+		item = WhatsAppTemplateMap.objects.create(
+			notification_type="NOVELTY_SLA_ADMIN",
+			template_name="novelty_sla_admin_v1",
+			language_code="es_CO",
+			category="utility",
+			is_active=True,
+			approval_status=WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+		)
+		item.submitted_by = self.admin_user
+		item.approved_by = self.superadmin_user
+		item.save(update_fields=["submitted_by", "approved_by", "updated_at"])
+
+		response = self.admin_client.get("/api/communications/settings/whatsapp/templates/export/?approval_status=approved")
+		self.assertEqual(response.status_code, 200)
+		self.assertIn("text/csv", response.get("Content-Type", ""))
+		self.assertIn("NOVELTY_SLA_ADMIN", response.content.decode("utf-8"))
+
+		forbidden = self.teacher_client.get("/api/communications/settings/whatsapp/templates/export/")
+		self.assertEqual(forbidden.status_code, 403)
 
 	def test_admin_whatsapp_health_endpoint(self):
 		WhatsAppDelivery.objects.create(recipient_phone="+573001234501", status=WhatsAppDelivery.STATUS_SENT)
@@ -787,6 +864,10 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 				"http_timeout_seconds": 15,
 				"send_mode": "template",
 				"template_fallback_name": "fallback_template",
+				"template_sla_warning_pending_hours": 12,
+				"template_sla_critical_pending_hours": 48,
+				"template_sla_warning_approval_hours": 18,
+				"template_sla_critical_approval_hours": 72,
 			},
 			format="json",
 		)
@@ -794,10 +875,15 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		self.assertEqual(response.data["environment"], "development")
 		self.assertTrue(response.data["enabled"])
 		self.assertTrue(response.data["access_token_configured"])
+		self.assertEqual(response.data["template_sla_warning_pending_hours"], 12)
+		self.assertEqual(response.data["template_sla_critical_pending_hours"], 48)
+		self.assertEqual(response.data["updated_by"]["id"], self.admin_user.id)
 
 		stored = WhatsAppSettings.objects.get(environment="development")
 		self.assertEqual(stored.phone_number_id, "123456789")
 		self.assertEqual(stored.send_mode, "template")
+		self.assertEqual(stored.template_sla_warning_pending_hours, 12)
+		self.assertEqual(stored.template_sla_critical_pending_hours, 48)
 
 		prod_response = self.admin_client.put(
 			"/api/communications/settings/whatsapp/?environment=production",
@@ -816,6 +902,84 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 		)
 		self.assertEqual(prod_response.status_code, 200)
 		self.assertEqual(prod_response.data["send_mode"], "template")
+
+	def test_whatsapp_settings_reject_invalid_sla_threshold_order(self):
+		response = self.admin_client.put(
+			"/api/communications/settings/whatsapp/?environment=development",
+			{
+				"enabled": False,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "",
+				"access_token": "",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "template",
+				"template_sla_warning_pending_hours": 80,
+				"template_sla_critical_pending_hours": 24,
+				"template_sla_warning_approval_hours": 24,
+				"template_sla_critical_approval_hours": 72,
+			},
+			format="json",
+		)
+		self.assertEqual(response.status_code, 400)
+		self.assertIn("warning_pending_hours", response.data["detail"])
+
+	def test_whatsapp_template_sla_audit_created_and_exportable(self):
+		self.admin_client.put(
+			"/api/communications/settings/whatsapp/?environment=development",
+			{
+				"enabled": False,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "",
+				"access_token": "",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "template",
+				"template_sla_warning_pending_hours": 24,
+				"template_sla_critical_pending_hours": 72,
+				"template_sla_warning_approval_hours": 24,
+				"template_sla_critical_approval_hours": 72,
+			},
+			format="json",
+		)
+
+		update = self.admin_client.put(
+			"/api/communications/settings/whatsapp/?environment=development",
+			{
+				"enabled": False,
+				"provider": "meta_cloud_api",
+				"graph_base_url": "https://graph.facebook.com",
+				"api_version": "v21.0",
+				"phone_number_id": "",
+				"access_token": "",
+				"webhook_strict": True,
+				"http_timeout_seconds": 15,
+				"send_mode": "template",
+				"template_sla_warning_pending_hours": 12,
+				"template_sla_critical_pending_hours": 48,
+				"template_sla_warning_approval_hours": 18,
+				"template_sla_critical_approval_hours": 60,
+			},
+			format="json",
+		)
+		self.assertEqual(update.status_code, 200)
+
+		list_response = self.admin_client.get("/api/communications/settings/whatsapp/template-sla-audits/?environment=development")
+		self.assertEqual(list_response.status_code, 200)
+		self.assertGreaterEqual(len(list_response.data["results"]), 1)
+		self.assertEqual(list_response.data["results"][0]["new_warning_pending_hours"], 12)
+
+		export_response = self.admin_client.get("/api/communications/settings/whatsapp/template-sla-audits/export/?environment=development")
+		self.assertEqual(export_response.status_code, 200)
+		self.assertIn("text/csv", export_response.get("Content-Type", ""))
+		self.assertIn("new_warning_pending_hours", export_response.content.decode("utf-8"))
+
+		forbidden = self.teacher_client.get("/api/communications/settings/whatsapp/template-sla-audits/")
+		self.assertEqual(forbidden.status_code, 403)
 
 	def test_whatsapp_settings_get_handles_db_schema_errors(self):
 		with patch("communications.views.WhatsAppSettings.objects.filter", side_effect=OperationalError("missing table")):
@@ -888,6 +1052,17 @@ class WhatsAppTemplateAndHealthAdminTests(TestCase):
 	KAMPUS_WHATSAPP_API_VERSION="v21.0",
 )
 class WhatsAppTemplateSendTests(TestCase):
+	def setUp(self):
+		WhatsAppSettings.objects.create(
+			environment="development",
+			enabled=True,
+			send_mode="template",
+			phone_number_id="123",
+			access_token="token",
+			webhook_verify_token="verify-me",
+			webhook_strict=False,
+		)
+
 	def test_send_notification_uses_template_mapping(self):
 		WhatsAppTemplateMap.objects.create(
 			notification_type="NOVELTY_SLA_ADMIN",
@@ -895,25 +1070,16 @@ class WhatsAppTemplateSendTests(TestCase):
 			language_code="es_CO",
 			category="utility",
 			is_active=True,
+			approval_status=WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
 		)
-
-		class _FakeResponse:
-			def __enter__(self):
-				return self
-
-			def __exit__(self, exc_type, exc, tb):
-				return False
-
-			def read(self):
-				return b'{"messages":[{"id":"wamid.TEST123"}]}'
 
 		captured = {}
 
-		def _fake_urlopen(req, timeout=0):
-			captured["body"] = req.data.decode("utf-8")
-			return _FakeResponse()
+		def _fake_send(payload):
+			captured["payload"] = payload
+			return "wamid.TEST123", {"messages": [{"id": "wamid.TEST123"}]}, "", ""
 
-		with patch("communications.whatsapp_service.request.urlopen", side_effect=_fake_urlopen):
+		with patch("communications.whatsapp_service._perform_whatsapp_send", side_effect=_fake_send):
 			result = send_whatsapp_notification(
 				recipient_phone="+573001234567",
 				notification_type="NOVELTY_SLA_ADMIN",
@@ -926,7 +1092,7 @@ class WhatsAppTemplateSendTests(TestCase):
 			)
 
 		self.assertTrue(result.sent)
-		payload = json.loads(captured["body"])
+		payload = captured["payload"]
 		self.assertEqual(payload["type"], "template")
 		self.assertEqual(payload["template"]["name"], "novelty_sla_admin_v1")
 
@@ -990,6 +1156,15 @@ class WhatsAppPolicySkipTests(TestCase):
 )
 class WhatsAppNotificationE2ETests(TestCase):
 	def setUp(self):
+		WhatsAppSettings.objects.create(
+			environment="development",
+			enabled=True,
+			send_mode="template",
+			phone_number_id="123",
+			access_token="token",
+			app_secret="test-app-secret",
+			webhook_strict=True,
+		)
 		self.user = User.objects.create_user(
 			username="wa_e2e_user",
 			email="wa.e2e@example.com",
@@ -1007,6 +1182,7 @@ class WhatsAppNotificationE2ETests(TestCase):
 			language_code="es_CO",
 			category="utility",
 			is_active=True,
+			approval_status=WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
 		)
 
 	def _sign_payload(self, payload: dict) -> tuple[str, str]:
@@ -1028,17 +1204,10 @@ class WhatsAppNotificationE2ETests(TestCase):
 			dedupe_key="wa-e2e-1",
 		)
 
-		class _FakeResponse:
-			def __enter__(self):
-				return self
-
-			def __exit__(self, exc_type, exc, tb):
-				return False
-
-			def read(self):
-				return b'{"messages":[{"id":"wamid.E2E123"}]}'
-
-		with patch("communications.whatsapp_service.request.urlopen", return_value=_FakeResponse()):
+		with patch(
+			"communications.whatsapp_service._perform_whatsapp_send",
+			return_value=("wamid.E2E123", {"messages": [{"id": "wamid.E2E123"}]}, "", ""),
+		):
 			send_notification_whatsapp_task(notification.id, idempotency_key="wa-e2e-key-1")
 
 		delivery = WhatsAppDelivery.objects.filter(recipient_phone="+573001111111").first()

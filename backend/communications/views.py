@@ -24,10 +24,11 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from users.permissions import IsAdmin
+from users.permissions import IsAdmin, IsSuperAdmin
 
 from .models import EmailDelivery, EmailEvent, EmailSuppression, EmailTemplate, MailgunSettings, MailgunSettingsAudit, WhatsAppSettings
 from .models import WhatsAppContact, WhatsAppDelivery, WhatsAppEvent, WhatsAppInstitutionMetric, WhatsAppSuppression, WhatsAppTemplateMap
+from .models import WhatsAppTemplateSlaAudit
 from django.db.models import Count
 from .preferences import (
 	get_or_create_preference,
@@ -159,6 +160,16 @@ def _serialize_whatsapp_contact(contact: WhatsAppContact | None) -> dict:
 
 
 def _serialize_whatsapp_template_map(template_map: WhatsAppTemplateMap) -> dict:
+	def _actor_snapshot(user):
+		if user is None:
+			return None
+		return {
+			"id": user.id,
+			"username": user.username,
+			"email": user.email,
+			"role": user.role,
+		}
+
 	return {
 		"id": template_map.id,
 		"notification_type": template_map.notification_type,
@@ -168,8 +179,30 @@ def _serialize_whatsapp_template_map(template_map: WhatsAppTemplateMap) -> dict:
 		"default_components": list(template_map.default_components or []),
 		"category": template_map.category,
 		"is_active": bool(template_map.is_active),
+		"approval_status": template_map.approval_status,
+		"submitted_at": template_map.submitted_at,
+		"submitted_by": template_map.submitted_by_id,
+		"submitted_by_user": _actor_snapshot(template_map.submitted_by),
+		"approved_at": template_map.approved_at,
+		"approved_by": template_map.approved_by_id,
+		"approved_by_user": _actor_snapshot(template_map.approved_by),
+		"rejected_at": template_map.rejected_at,
+		"rejected_by": template_map.rejected_by_id,
+		"rejected_by_user": _actor_snapshot(template_map.rejected_by),
+		"rejection_reason": template_map.rejection_reason,
 		"updated_at": template_map.updated_at,
 	}
+
+
+def _clear_whatsapp_template_approval(template_map: WhatsAppTemplateMap) -> None:
+	template_map.approval_status = WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT
+	template_map.submitted_at = None
+	template_map.submitted_by = None
+	template_map.approved_at = None
+	template_map.approved_by = None
+	template_map.rejected_at = None
+	template_map.rejected_by = None
+	template_map.rejection_reason = ""
 
 
 def _normalize_mailgun_api_url(value: str) -> str:
@@ -218,6 +251,7 @@ def _serialize_email_template(template: EmailTemplate) -> dict:
 
 def _serialize_whatsapp_settings(config: WhatsAppSettings | None, *, environment: str | None = None) -> dict:
 	effective = get_effective_whatsapp_settings(environment=(config.environment if config else environment))
+	updated_by = config.updated_by if config else None
 	return {
 		"environment": effective.environment,
 		"enabled": bool(effective.enabled),
@@ -232,9 +266,19 @@ def _serialize_whatsapp_settings(config: WhatsAppSettings | None, *, environment
 		"http_timeout_seconds": int(effective.http_timeout_seconds),
 		"send_mode": effective.send_mode,
 		"template_fallback_name": effective.template_fallback_name,
+		"template_sla_warning_pending_hours": int(effective.template_sla_warning_pending_hours),
+		"template_sla_critical_pending_hours": int(effective.template_sla_critical_pending_hours),
+		"template_sla_warning_approval_hours": int(effective.template_sla_warning_approval_hours),
+		"template_sla_critical_approval_hours": int(effective.template_sla_critical_approval_hours),
 		"access_token_configured": bool(effective.access_token),
 		"app_secret_configured": bool(effective.app_secret),
 		"webhook_verify_token_configured": bool(effective.webhook_verify_token),
+		"updated_by": {
+			"id": updated_by.id,
+			"username": updated_by.username,
+			"email": updated_by.email,
+			"role": updated_by.role,
+		} if updated_by else None,
 		"updated_at": config.updated_at if config else None,
 	}
 
@@ -404,8 +448,19 @@ class WhatsAppSettingsView(APIView):
 		http_timeout_seconds = int(payload.get("http_timeout_seconds") or 12)
 		send_mode = str(payload.get("send_mode") or "template").strip().lower()
 		template_fallback_name = str(payload.get("template_fallback_name") or "").strip()
+		template_sla_warning_pending_hours = int(payload.get("template_sla_warning_pending_hours") or 24)
+		template_sla_critical_pending_hours = int(payload.get("template_sla_critical_pending_hours") or 72)
+		template_sla_warning_approval_hours = int(payload.get("template_sla_warning_approval_hours") or 24)
+		template_sla_critical_approval_hours = int(payload.get("template_sla_critical_approval_hours") or 72)
 		enabled = bool(payload.get("enabled", False))
 		webhook_strict = bool(payload.get("webhook_strict", True))
+
+		previous_sla = {
+			"warning_pending": int((config.template_sla_warning_pending_hours if config else 24) or 24),
+			"critical_pending": int((config.template_sla_critical_pending_hours if config else 72) or 72),
+			"warning_approval": int((config.template_sla_warning_approval_hours if config else 24) or 24),
+			"critical_approval": int((config.template_sla_critical_approval_hours if config else 72) or 72),
+		}
 
 		if not graph_base_url.startswith("http://") and not graph_base_url.startswith("https://"):
 			return Response({"detail": "graph_base_url debe iniciar con http:// o https://."}, status=status.HTTP_400_BAD_REQUEST)
@@ -415,6 +470,17 @@ class WhatsAppSettingsView(APIView):
 			send_mode = "template"
 		if http_timeout_seconds < 3 or http_timeout_seconds > 120:
 			return Response({"detail": "http_timeout_seconds debe estar entre 3 y 120."}, status=status.HTTP_400_BAD_REQUEST)
+		if min(
+			template_sla_warning_pending_hours,
+			template_sla_critical_pending_hours,
+			template_sla_warning_approval_hours,
+			template_sla_critical_approval_hours,
+		) < 1:
+			return Response({"detail": "Los umbrales SLA deben ser mayores o iguales a 1 hora."}, status=status.HTTP_400_BAD_REQUEST)
+		if template_sla_warning_pending_hours > template_sla_critical_pending_hours:
+			return Response({"detail": "template_sla_warning_pending_hours no puede ser mayor a template_sla_critical_pending_hours."}, status=status.HTTP_400_BAD_REQUEST)
+		if template_sla_warning_approval_hours > template_sla_critical_approval_hours:
+			return Response({"detail": "template_sla_warning_approval_hours no puede ser mayor a template_sla_critical_approval_hours."}, status=status.HTTP_400_BAD_REQUEST)
 
 		effective_access_token = access_token or (config.access_token if config else "")
 		effective_phone_number_id = phone_number_id or (config.phone_number_id if config else "")
@@ -436,6 +502,10 @@ class WhatsAppSettingsView(APIView):
 				http_timeout_seconds=http_timeout_seconds,
 				send_mode=send_mode,
 				template_fallback_name=template_fallback_name,
+				template_sla_warning_pending_hours=template_sla_warning_pending_hours,
+				template_sla_critical_pending_hours=template_sla_critical_pending_hours,
+				template_sla_warning_approval_hours=template_sla_warning_approval_hours,
+				template_sla_critical_approval_hours=template_sla_critical_approval_hours,
 				updated_by=request.user,
 			)
 		else:
@@ -447,6 +517,10 @@ class WhatsAppSettingsView(APIView):
 			config.http_timeout_seconds = http_timeout_seconds
 			config.send_mode = send_mode
 			config.template_fallback_name = template_fallback_name
+			config.template_sla_warning_pending_hours = template_sla_warning_pending_hours
+			config.template_sla_critical_pending_hours = template_sla_critical_pending_hours
+			config.template_sla_warning_approval_hours = template_sla_warning_approval_hours
+			config.template_sla_critical_approval_hours = template_sla_critical_approval_hours
 			if phone_number_id:
 				config.phone_number_id = phone_number_id
 			if access_token:
@@ -457,6 +531,26 @@ class WhatsAppSettingsView(APIView):
 				config.webhook_verify_token = webhook_verify_token
 			config.updated_by = request.user
 			config.save()
+
+		if (
+			previous_sla["warning_pending"] != template_sla_warning_pending_hours
+			or previous_sla["critical_pending"] != template_sla_critical_pending_hours
+			or previous_sla["warning_approval"] != template_sla_warning_approval_hours
+			or previous_sla["critical_approval"] != template_sla_critical_approval_hours
+		):
+			WhatsAppTemplateSlaAudit.objects.create(
+				settings_ref=config,
+				environment=environment,
+				updated_by=request.user,
+				previous_warning_pending_hours=previous_sla["warning_pending"],
+				new_warning_pending_hours=template_sla_warning_pending_hours,
+				previous_critical_pending_hours=previous_sla["critical_pending"],
+				new_critical_pending_hours=template_sla_critical_pending_hours,
+				previous_warning_approval_hours=previous_sla["warning_approval"],
+				new_warning_approval_hours=template_sla_warning_approval_hours,
+				previous_critical_approval_hours=previous_sla["critical_approval"],
+				new_critical_approval_hours=template_sla_critical_approval_hours,
+			)
 
 		apply_effective_whatsapp_settings(environment=environment)
 		return Response(_serialize_whatsapp_settings(config, environment=environment), status=status.HTTP_200_OK)
@@ -907,11 +1001,127 @@ class MailSettingsAuditCsvExportView(APIView):
 		return response
 
 
+class WhatsAppTemplateSlaAuditListView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
+		limit_raw = str(request.query_params.get("limit") or "20").strip()
+		offset_raw = str(request.query_params.get("offset") or "0").strip()
+		try:
+			limit = int(limit_raw)
+		except ValueError:
+			limit = 20
+		try:
+			offset = int(offset_raw)
+		except ValueError:
+			offset = 0
+		limit = max(1, min(limit, 100))
+		offset = max(0, offset)
+
+		base_qs = WhatsAppTemplateSlaAudit.objects.select_related("updated_by", "settings_ref").filter(environment=environment).order_by("-created_at")
+		total = base_qs.count()
+		audits = base_qs[offset: offset + limit]
+
+		results = []
+		for audit in audits:
+			user = audit.updated_by
+			results.append(
+				{
+					"id": audit.id,
+					"environment": audit.environment,
+					"created_at": audit.created_at,
+					"previous_warning_pending_hours": audit.previous_warning_pending_hours,
+					"new_warning_pending_hours": audit.new_warning_pending_hours,
+					"previous_critical_pending_hours": audit.previous_critical_pending_hours,
+					"new_critical_pending_hours": audit.new_critical_pending_hours,
+					"previous_warning_approval_hours": audit.previous_warning_approval_hours,
+					"new_warning_approval_hours": audit.new_warning_approval_hours,
+					"previous_critical_approval_hours": audit.previous_critical_approval_hours,
+					"new_critical_approval_hours": audit.new_critical_approval_hours,
+					"updated_by": {
+						"id": user.id,
+						"username": user.username,
+						"email": user.email,
+						"role": user.role,
+					} if user else None,
+				}
+			)
+
+		return Response({"results": results, "total": total, "limit": limit, "offset": offset}, status=status.HTTP_200_OK)
+
+
+class WhatsAppTemplateSlaAuditCsvExportView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		environment = _resolve_mail_settings_environment(request.query_params.get("environment"))
+		audits = WhatsAppTemplateSlaAudit.objects.select_related("updated_by").filter(environment=environment).order_by("-created_at")
+
+		buffer = io.StringIO()
+		writer = csv.writer(buffer)
+		writer.writerow(
+			[
+				"id",
+				"environment",
+				"created_at",
+				"updated_by_username",
+				"updated_by_email",
+				"updated_by_role",
+				"previous_warning_pending_hours",
+				"new_warning_pending_hours",
+				"previous_critical_pending_hours",
+				"new_critical_pending_hours",
+				"previous_warning_approval_hours",
+				"new_warning_approval_hours",
+				"previous_critical_approval_hours",
+				"new_critical_approval_hours",
+			]
+		)
+
+		for audit in audits:
+			user = audit.updated_by
+			writer.writerow(
+				[
+					audit.id,
+					audit.environment,
+					audit.created_at.isoformat(),
+					user.username if user else "",
+					user.email if user else "",
+					user.role if user else "",
+					audit.previous_warning_pending_hours,
+					audit.new_warning_pending_hours,
+					audit.previous_critical_pending_hours,
+					audit.new_critical_pending_hours,
+					audit.previous_warning_approval_hours,
+					audit.new_warning_approval_hours,
+					audit.previous_critical_approval_hours,
+					audit.new_critical_approval_hours,
+				]
+			)
+
+		response = HttpResponse(buffer.getvalue(), content_type="text/csv; charset=utf-8")
+		response["Content-Disposition"] = f'attachment; filename="whatsapp_template_sla_audits_{environment}.csv"'
+		return response
+
+
 class WhatsAppTemplateMapListView(APIView):
 	permission_classes = [IsAdmin]
 
 	def get(self, request, *args, **kwargs):
-		template_maps = WhatsAppTemplateMap.objects.order_by("notification_type")
+		status_filter = str(request.query_params.get("approval_status") or "").strip().lower()
+		template_maps = WhatsAppTemplateMap.objects.select_related(
+			"submitted_by",
+			"approved_by",
+			"rejected_by",
+		).order_by("notification_type")
+		if status_filter in {
+			WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT,
+			WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_REJECTED,
+		}:
+			template_maps = template_maps.filter(approval_status=status_filter)
 		results = [_serialize_whatsapp_template_map(item) for item in template_maps]
 		return Response({"results": results}, status=status.HTTP_200_OK)
 
@@ -942,7 +1152,7 @@ class WhatsAppTemplateMapListView(APIView):
 		if category not in valid_categories:
 			return Response({"detail": "category inválida."}, status=status.HTTP_400_BAD_REQUEST)
 
-		template_map, _ = WhatsAppTemplateMap.objects.update_or_create(
+		template_map, created = WhatsAppTemplateMap.objects.update_or_create(
 			notification_type=notification_type,
 			defaults={
 				"template_name": template_name,
@@ -954,6 +1164,23 @@ class WhatsAppTemplateMapListView(APIView):
 				"updated_by": request.user,
 			},
 		)
+		if not created:
+			_clear_whatsapp_template_approval(template_map)
+			template_map.updated_by = request.user
+			template_map.save(
+				update_fields=[
+					"approval_status",
+					"submitted_at",
+					"submitted_by",
+					"approved_at",
+					"approved_by",
+					"rejected_at",
+					"rejected_by",
+					"rejection_reason",
+					"updated_by",
+					"updated_at",
+				]
+			)
 		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
 
 
@@ -1000,6 +1227,7 @@ class WhatsAppTemplateMapDetailView(APIView):
 		if not template_map.template_name:
 			return Response({"detail": "template_name es requerido."}, status=status.HTTP_400_BAD_REQUEST)
 
+		_clear_whatsapp_template_approval(template_map)
 		template_map.updated_by = request.user
 		template_map.save()
 		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
@@ -1010,6 +1238,196 @@ class WhatsAppTemplateMapDetailView(APIView):
 			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
 		template_map.delete()
 		return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class WhatsAppTemplateMapSubmitView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, map_id: int, *args, **kwargs):
+		template_map = WhatsAppTemplateMap.objects.filter(id=map_id).first()
+		if template_map is None:
+			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+		if template_map.approval_status == WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED:
+			return Response(
+				{"detail": "El template ya está aprobado. Debes editarlo para reenviarlo."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		template_map.approval_status = WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED
+		template_map.submitted_at = timezone.now()
+		template_map.submitted_by = request.user
+		template_map.approved_at = None
+		template_map.approved_by = None
+		template_map.rejected_at = None
+		template_map.rejected_by = None
+		template_map.rejection_reason = ""
+		template_map.updated_by = request.user
+		template_map.save(
+			update_fields=[
+				"approval_status",
+				"submitted_at",
+				"submitted_by",
+				"approved_at",
+				"approved_by",
+				"rejected_at",
+				"rejected_by",
+				"rejection_reason",
+				"updated_by",
+				"updated_at",
+			]
+		)
+		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
+
+
+class WhatsAppTemplateMapApproveView(APIView):
+	permission_classes = [IsSuperAdmin]
+
+	def post(self, request, map_id: int, *args, **kwargs):
+		template_map = WhatsAppTemplateMap.objects.filter(id=map_id).first()
+		if template_map is None:
+			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+		if template_map.approval_status != WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED:
+			return Response(
+				{"detail": "Solo se pueden aprobar templates en estado submitted."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		template_map.approval_status = WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED
+		template_map.approved_at = timezone.now()
+		template_map.approved_by = request.user
+		template_map.rejected_at = None
+		template_map.rejected_by = None
+		template_map.rejection_reason = ""
+		template_map.updated_by = request.user
+		template_map.save(
+			update_fields=[
+				"approval_status",
+				"approved_at",
+				"approved_by",
+				"rejected_at",
+				"rejected_by",
+				"rejection_reason",
+				"updated_by",
+				"updated_at",
+			]
+		)
+		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
+
+
+class WhatsAppTemplateMapRejectView(APIView):
+	permission_classes = [IsSuperAdmin]
+
+	def post(self, request, map_id: int, *args, **kwargs):
+		template_map = WhatsAppTemplateMap.objects.filter(id=map_id).first()
+		if template_map is None:
+			return Response({"detail": "Mapeo no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+		if template_map.approval_status != WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED:
+			return Response(
+				{"detail": "Solo se pueden rechazar templates en estado submitted."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		reason = str((request.data or {}).get("reason") or "").strip()
+		if not reason:
+			return Response({"detail": "reason es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+		template_map.approval_status = WhatsAppTemplateMap.APPROVAL_STATUS_REJECTED
+		template_map.rejected_at = timezone.now()
+		template_map.rejected_by = request.user
+		template_map.rejection_reason = reason[:255]
+		template_map.approved_at = None
+		template_map.approved_by = None
+		template_map.updated_by = request.user
+		template_map.save(
+			update_fields=[
+				"approval_status",
+				"rejected_at",
+				"rejected_by",
+				"rejection_reason",
+				"approved_at",
+				"approved_by",
+				"updated_by",
+				"updated_at",
+			]
+		)
+		return Response(_serialize_whatsapp_template_map(template_map), status=status.HTTP_200_OK)
+
+
+class WhatsAppTemplateMapAuditCsvExportView(APIView):
+	permission_classes = [IsAdmin]
+
+	def get(self, request, *args, **kwargs):
+		status_filter = str(request.query_params.get("approval_status") or "").strip().lower()
+		queryset = WhatsAppTemplateMap.objects.select_related(
+			"submitted_by",
+			"approved_by",
+			"rejected_by",
+		).order_by("notification_type")
+
+		if status_filter in {
+			WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT,
+			WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_REJECTED,
+		}:
+			queryset = queryset.filter(approval_status=status_filter)
+
+		buffer = io.StringIO()
+		writer = csv.writer(buffer)
+		writer.writerow(
+			[
+				"id",
+				"notification_type",
+				"template_name",
+				"language_code",
+				"category",
+				"is_active",
+				"approval_status",
+				"submitted_at",
+				"submitted_by_username",
+				"approved_at",
+				"approved_by_username",
+				"rejected_at",
+				"rejected_by_username",
+				"rejection_reason",
+				"updated_at",
+			]
+		)
+
+		for item in queryset:
+			writer.writerow(
+				[
+					item.id,
+					item.notification_type,
+					item.template_name,
+					item.language_code,
+					item.category,
+					"true" if item.is_active else "false",
+					item.approval_status,
+					item.submitted_at.isoformat() if item.submitted_at else "",
+					item.submitted_by.username if item.submitted_by else "",
+					item.approved_at.isoformat() if item.approved_at else "",
+					item.approved_by.username if item.approved_by else "",
+					item.rejected_at.isoformat() if item.rejected_at else "",
+					item.rejected_by.username if item.rejected_by else "",
+					item.rejection_reason,
+					item.updated_at.isoformat() if item.updated_at else "",
+				]
+			)
+
+		filename_suffix = status_filter if status_filter in {
+			WhatsAppTemplateMap.APPROVAL_STATUS_DRAFT,
+			WhatsAppTemplateMap.APPROVAL_STATUS_SUBMITTED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+			WhatsAppTemplateMap.APPROVAL_STATUS_REJECTED,
+		} else "all"
+
+		response = HttpResponse(buffer.getvalue(), content_type="text/csv; charset=utf-8")
+		response["Content-Disposition"] = f'attachment; filename="whatsapp_template_approvals_{filename_suffix}.csv"'
+		return response
 
 
 class WhatsAppHealthView(APIView):

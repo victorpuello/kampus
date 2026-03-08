@@ -135,6 +135,37 @@ class AIService:
             logger.exception("Error calling Gemini API")
             raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
 
+    def generate_teacher_motivational_phrase(self, teacher_name: str | None = None) -> str:
+        """Genera una frase motivadora breve para mostrar en el dashboard docente."""
+        self._ensure_available()
+
+        display_name = (teacher_name or "docente").strip() or "docente"
+        prompt = f"""
+Actúa como un coach pedagógico positivo.
+Escribe UNA sola frase motivadora en español para un docente llamado {display_name}.
+Requisitos:
+- Máximo 18 palabras.
+- Tono cercano, profesional e inspirador.
+- Sin comillas, sin emojis, sin viñetas, sin prefijos.
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            text = (getattr(response, "text", "") or "").strip()
+            if not text:
+                raise AIParseError("Empty response from AI provider.")
+
+            line = text.splitlines()[0].strip().strip('"').strip("'")
+            if not line:
+                raise AIParseError("AI response did not include a valid phrase.")
+
+            return line[:180]
+        except Exception as e:
+            logger.exception("Error generating teacher motivational phrase")
+            if isinstance(e, AIServiceError):
+                raise
+            raise AIProviderError(str(e)) from e
+
     def analyze_group_state(self, context: dict) -> str:
         """Genera un análisis interpretativo del estado de un grupo para el docente.
 

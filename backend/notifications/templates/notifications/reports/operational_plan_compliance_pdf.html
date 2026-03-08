@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    @page {
+      size: A4;
+      margin: 14mm 12mm 16mm 12mm;
+      @bottom-center {
+        content: "Página " counter(page) " de " counter(pages);
+        font-size: 9px;
+        color: #64748b;
+      }
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: #0f172a;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .section { margin-top: 12px; }
+    .title { font-size: 18px; font-weight: 800; margin: 8px 0 2px; }
+    .subtitle { font-size: 11px; color: #475569; margin: 0; }
+
+    .summary {
+      margin-top: 12px;
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .summary td {
+      border: 1px solid #e2e8f0;
+      padding: 8px;
+      width: 25%;
+      vertical-align: top;
+    }
+    .k { font-size: 9px; text-transform: uppercase; color: #64748b; font-weight: 700; }
+    .v { font-size: 18px; font-weight: 800; margin-top: 3px; }
+
+    table.items {
+      margin-top: 10px;
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table.items thead th {
+      border-bottom: 2px solid #0f172a;
+      padding: 8px 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-size: 9px;
+      color: #334155;
+      text-align: left;
+    }
+    table.items tbody td {
+      border-bottom: 1px solid #e2e8f0;
+      padding: 8px 6px;
+      font-size: 10px;
+      vertical-align: top;
+    }
+
+    .status-ok { color: #166534; font-weight: 700; }
+    .status-pending { color: #b45309; font-weight: 700; }
+    .muted { color: #64748b; }
+    .small { font-size: 9px; }
+    .responsibles { margin: 0; padding-left: 14px; }
+  </style>
+</head>
+<body>
+  {% include "reports/partials/pdf_masthead.html" with institution=institution hide_pdf_footer=True %}
+
+  <div class="section">
+    <p class="title">Reporte de cumplimiento · Plan Operativo Anual</p>
+    <p class="subtitle">Generado: {{ generated_at|date:"Y-m-d H:i" }}</p>
+  </div>
+
+  <table class="summary" aria-label="Resumen de cumplimiento">
+    <tr>
+      <td>
+        <div class="k">Total actividades</div>
+        <div class="v">{{ summary.total }}</div>
+      </td>
+      <td>
+        <div class="k">Completadas</div>
+        <div class="v">{{ summary.completed }}</div>
+      </td>
+      <td>
+        <div class="k">No completadas</div>
+        <div class="v">{{ summary.pending }}</div>
+      </td>
+      <td>
+        <div class="k">Cumplimiento</div>
+        <div class="v">{{ summary.completion_rate }}%</div>
+      </td>
+    </tr>
+  </table>
+
+  <table class="items" aria-label="Detalle de actividades">
+    <thead>
+      <tr>
+        <th style="width: 16%">Fecha</th>
+        <th style="width: 24%">Actividad</th>
+        <th style="width: 21%">Responsables</th>
+        <th style="width: 12%">Estado</th>
+        <th style="width: 27%">Trazabilidad</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.date_range }}</td>
+          <td>
+            <div>{{ row.title }}</div>
+            {% if row.description %}
+              <div class="muted small">{{ row.description }}</div>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.responsibles %}
+              <ul class="responsibles">
+                {% for name in row.responsibles %}
+                  <li>{{ name }}</li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <span class="muted">Sin responsables</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.is_completed %}
+              <span class="status-ok">Completada</span>
+            {% else %}
+              <span class="status-pending">No completada</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if row.is_completed %}
+              <div>Marcada por: {{ row.completed_by_name|default:"-" }}</div>
+              <div class="muted small">Fecha: {% if row.completed_at %}{{ row.completed_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</div>
+              {% if row.completion_notes %}
+                <div class="small">Nota: {{ row.completion_notes }}</div>
+              {% endif %}
+            {% else %}
+              <span class="muted">Pendiente de marcación manual</span>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5" class="muted">No hay actividades activas para reportar.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if institution and institution.pdf_footer_text %}
+    <div style="margin-top: 10px; text-align: center; color: #64748b; font-size: 9px;">
+      {{ institution.pdf_footer_text }}
+    </div>
+  {% endif %}
+</body>
+</html>

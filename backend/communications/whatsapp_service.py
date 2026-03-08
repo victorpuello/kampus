@@ -495,7 +495,11 @@ def send_whatsapp_notification(
     effective = get_effective_whatsapp_settings()
     send_mode = str(effective.send_mode or "template").strip().lower()
     normalized_type = str(notification_type or "").strip().upper()
-    template_map = WhatsAppTemplateMap.objects.filter(notification_type=normalized_type, is_active=True).first()
+    template_map = WhatsAppTemplateMap.objects.filter(
+        notification_type=normalized_type,
+        is_active=True,
+        approval_status=WhatsAppTemplateMap.APPROVAL_STATUS_APPROVED,
+    ).first()
     allow_text_without_template = bool(
         getattr(settings, "KAMPUS_WHATSAPP_ALLOW_TEXT_WITHOUT_TEMPLATE", False)
     )

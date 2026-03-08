@@ -21,6 +21,12 @@ from .views import (
     WhatsAppSettingsView,
     WhatsAppSettingsTestView,
     WhatsAppRecentDeliveriesView,
+    WhatsAppTemplateMapSubmitView,
+    WhatsAppTemplateMapApproveView,
+    WhatsAppTemplateMapRejectView,
+    WhatsAppTemplateMapAuditCsvExportView,
+    WhatsAppTemplateSlaAuditListView,
+    WhatsAppTemplateSlaAuditCsvExportView,
 )
 
 
@@ -31,6 +37,12 @@ urlpatterns = [
     path("whatsapp/me/", WhatsAppContactMeView.as_view(), name="communications_whatsapp_me"),
     path("settings/whatsapp/templates/", WhatsAppTemplateMapListView.as_view(), name="communications_whatsapp_templates_list"),
     path("settings/whatsapp/templates/<int:map_id>/", WhatsAppTemplateMapDetailView.as_view(), name="communications_whatsapp_templates_detail"),
+    path("settings/whatsapp/templates/<int:map_id>/submit/", WhatsAppTemplateMapSubmitView.as_view(), name="communications_whatsapp_templates_submit"),
+    path("settings/whatsapp/templates/<int:map_id>/approve/", WhatsAppTemplateMapApproveView.as_view(), name="communications_whatsapp_templates_approve"),
+    path("settings/whatsapp/templates/<int:map_id>/reject/", WhatsAppTemplateMapRejectView.as_view(), name="communications_whatsapp_templates_reject"),
+    path("settings/whatsapp/templates/export/", WhatsAppTemplateMapAuditCsvExportView.as_view(), name="communications_whatsapp_templates_export"),
+    path("settings/whatsapp/template-sla-audits/", WhatsAppTemplateSlaAuditListView.as_view(), name="communications_whatsapp_template_sla_audits"),
+    path("settings/whatsapp/template-sla-audits/export/", WhatsAppTemplateSlaAuditCsvExportView.as_view(), name="communications_whatsapp_template_sla_audits_export"),
     path("settings/whatsapp/health/", WhatsAppHealthView.as_view(), name="communications_whatsapp_health"),
     path("settings/notifications/baseline/", NotificationsBaselineView.as_view(), name="communications_notifications_baseline"),
     path("unsubscribe/one-click/", MarketingOneClickUnsubscribeView.as_view(), name="communications_unsubscribe_one_click"),
