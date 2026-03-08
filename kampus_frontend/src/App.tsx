@@ -166,7 +166,8 @@ export default function App() {
             <Route path="/commissions" element={<CommissionsWorkflow />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
             <Route path="/teachers/director-compliance" element={<DirectorCompliance />} />
-            <Route path="/attendance" element={<AttendanceHome />} />
+            <Route path="/attendance" element={<AttendanceStats />} />
+            <Route path="/attendance/home" element={<AttendanceHome />} />
             <Route path="/attendance/deletion-requests" element={<AttendanceDeletionRequests />} />
             <Route path="/attendance/sessions/:id" element={<AttendanceSession />} />
             <Route path="/attendance/stats" element={<AttendanceStats />} />

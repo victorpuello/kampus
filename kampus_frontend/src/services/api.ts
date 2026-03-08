@@ -1,6 +1,11 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const DEFAULT_API_BASE_URL =
+  typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : 'http://localhost:8000'
+
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -29,16 +34,19 @@ function isUnsafeMethod(method?: string): boolean {
 }
 
 let csrfBootstrapPromise: Promise<void> | null = null
+let csrfTokenFromBootstrap: string | null = null
 
 async function ensureCsrfCookie(): Promise<void> {
-  if (getCookieValue('csrftoken')) return
+  if (getCookieValue('csrftoken') || csrfTokenFromBootstrap) return
 
   if (!csrfBootstrapPromise) {
     csrfBootstrapPromise = axios
-      .get(`${API_BASE_URL}/api/auth/csrf/`, {
+      .get<{ csrfToken?: string }>(`${API_BASE_URL}/api/auth/csrf/`, {
         withCredentials: true,
       })
-      .then(() => undefined)
+      .then((response) => {
+        csrfTokenFromBootstrap = response.data?.csrfToken || null
+      })
       .finally(() => {
         csrfBootstrapPromise = null
       })
@@ -133,7 +141,7 @@ api.interceptors.request.use(async (config) => {
 
   await ensureCsrfCookie()
 
-  const csrfToken = getCookieValue('csrftoken')
+  const csrfToken = getCookieValue('csrftoken') || csrfTokenFromBootstrap
   if (csrfToken) {
     config.headers = config.headers || {}
     config.headers['X-CSRFToken'] = csrfToken
@@ -143,7 +151,7 @@ api.interceptors.request.use(async (config) => {
 })
 
 export const authApi = {
-  ensureCsrf: () => api.get('/api/auth/csrf/'),
+  ensureCsrf: () => ensureCsrfCookie(),
   login: (username: string, password: string) =>
     api.post('/api/auth/login/', { username, password }),
   logout: () => api.post('/api/auth/logout/'),

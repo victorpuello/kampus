@@ -1,5 +1,6 @@
 from django.test import TestCase
 from academic.models import AchievementDefinition
+from academic.serializers import GroupSerializer
 
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -110,3 +111,40 @@ class AchievementDefinitionVisibilityAPITest(APITestCase):
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         obj = AchievementDefinition.objects.get(id=res.json()["id"])
         self.assertEqual(obj.created_by_id, self.teacher1.id)
+
+
+class GroupSerializerValidationTest(TestCase):
+    def setUp(self):
+        from academic.models import AcademicYear, Grade
+
+        self.year = AcademicYear.objects.create(year=2027, status=AcademicYear.STATUS_PLANNING)
+        self.grade = Grade.objects.create(name="3", ordinal=3)
+
+    def test_rejects_blank_name(self):
+        serializer = GroupSerializer(
+            data={
+                "name": "   ",
+                "grade": self.grade.id,
+                "academic_year": self.year.id,
+                "capacity": 40,
+                "shift": "MORNING",
+            }
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("name", serializer.errors)
+
+    def test_trims_valid_name(self):
+        serializer = GroupSerializer(
+            data={
+                "name": "  A  ",
+                "grade": self.grade.id,
+                "academic_year": self.year.id,
+                "capacity": 40,
+                "shift": "MORNING",
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        group = serializer.save()
+        self.assertEqual(group.name, "A")

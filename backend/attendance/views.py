@@ -1,10 +1,11 @@
 from __future__ import annotations
 import traceback
+from datetime import date
 from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
 from django.http import HttpResponse
 from django.utils import timezone
 from django.template.loader import render_to_string
@@ -672,5 +673,569 @@ class AttendanceStudentStatsView(APIView):
                 "period": {"id": period.id, "name": period.name},
                 "sessions_count": sessions_count,
                 "students": students,
+            }
+        )
+
+
+class AttendanceKpiDashboardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _parse_date(value: str | None, *, fallback: date) -> date:
+        if not value:
+            return fallback
+        return date.fromisoformat(value)
+
+    @staticmethod
+    def _safe_int(value: str | None) -> int | None:
+        if value in (None, ""):
+            return None
+        return int(value)
+
+    def get(self, request):
+        today = timezone.localdate()
+        default_start = today - timedelta(days=30)
+
+        try:
+            start_date = self._parse_date(request.query_params.get("start_date"), fallback=default_start)
+            end_date = self._parse_date(request.query_params.get("end_date"), fallback=today)
+            grade_id = self._safe_int(request.query_params.get("grade_id"))
+            group_id = self._safe_int(request.query_params.get("group_id"))
+            teacher_id = self._safe_int(request.query_params.get("teacher_id"))
+            area_id = self._safe_int(request.query_params.get("area_id"))
+        except ValueError:
+            return Response({"detail": "Parámetros inválidos."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if start_date > end_date:
+            return Response({"detail": "start_date debe ser menor o igual a end_date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+        if getattr(user, "role", None) == User.ROLE_TEACHER:
+            teacher_id = user.id
+
+        def build_sessions_queryset(range_start: date, range_end: date):
+            sessions_qs = AttendanceSession.objects.select_related(
+                "teacher_assignment",
+                "teacher_assignment__group",
+                "teacher_assignment__group__grade",
+                "teacher_assignment__academic_load",
+                "teacher_assignment__academic_load__subject",
+                "teacher_assignment__academic_load__subject__area",
+                "teacher_assignment__teacher",
+            ).filter(
+                class_date__gte=range_start,
+                class_date__lte=range_end,
+            )
+
+            if grade_id:
+                sessions_qs = sessions_qs.filter(teacher_assignment__group__grade_id=grade_id)
+            if group_id:
+                sessions_qs = sessions_qs.filter(teacher_assignment__group_id=group_id)
+            if teacher_id:
+                sessions_qs = sessions_qs.filter(teacher_assignment__teacher_id=teacher_id)
+            if area_id:
+                sessions_qs = sessions_qs.filter(teacher_assignment__academic_load__subject__area_id=area_id)
+            return sessions_qs
+
+        sessions = build_sessions_queryset(start_date, end_date)
+
+        records = AttendanceRecord.objects.filter(session__in=sessions)
+
+        totals = records.aggregate(
+            total=Count("id"),
+            present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+            absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+            tardy=Count("id", filter=Q(status=AttendanceRecord.STATUS_TARDY)),
+            excused=Count("id", filter=Q(status=AttendanceRecord.STATUS_EXCUSED)),
+        )
+
+        total_records = int(totals.get("total") or 0)
+
+        def pct(value: int, total: int) -> float:
+            if total <= 0:
+                return 0.0
+            return round((float(value) * 100.0) / float(total), 2)
+
+        present = int(totals.get("present") or 0)
+        absent = int(totals.get("absent") or 0)
+        tardy = int(totals.get("tardy") or 0)
+        excused = int(totals.get("excused") or 0)
+
+        sessions_total = sessions.count()
+
+        expected_count_subquery = (
+            Enrollment.objects.filter(
+                academic_year_id=OuterRef("teacher_assignment__academic_year_id"),
+                group_id=OuterRef("teacher_assignment__group_id"),
+                status="ACTIVE",
+            )
+            .values("group_id")
+            .annotate(c=Count("id"))
+            .values("c")[:1]
+        )
+
+        session_rows = sessions.annotate(
+            recorded_count=Count("records", distinct=True),
+            expected_count=Subquery(expected_count_subquery),
+        ).values("id", "recorded_count", "expected_count")
+
+        complete_sessions = 0
+        for row in session_rows:
+            expected = int(row.get("expected_count") or 0)
+            recorded = int(row.get("recorded_count") or 0)
+            if expected > 0 and recorded >= expected:
+                complete_sessions += 1
+
+        range_days = (end_date - start_date).days + 1
+        previous_end_date = start_date - timedelta(days=1)
+        previous_start_date = previous_end_date - timedelta(days=max(range_days - 1, 0))
+
+        previous_sessions = build_sessions_queryset(previous_start_date, previous_end_date)
+        previous_records = AttendanceRecord.objects.filter(session__in=previous_sessions)
+
+        previous_totals = previous_records.aggregate(
+            total=Count("id"),
+            present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+            absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+            tardy=Count("id", filter=Q(status=AttendanceRecord.STATUS_TARDY)),
+            excused=Count("id", filter=Q(status=AttendanceRecord.STATUS_EXCUSED)),
+        )
+
+        previous_total_records = int(previous_totals.get("total") or 0)
+        previous_present = int(previous_totals.get("present") or 0)
+        previous_absent = int(previous_totals.get("absent") or 0)
+        previous_tardy = int(previous_totals.get("tardy") or 0)
+        previous_excused = int(previous_totals.get("excused") or 0)
+        previous_sessions_total = previous_sessions.count()
+
+        previous_session_rows = previous_sessions.annotate(
+            recorded_count=Count("records", distinct=True),
+            expected_count=Subquery(expected_count_subquery),
+        ).values("id", "recorded_count", "expected_count")
+
+        previous_complete_sessions = 0
+        for row in previous_session_rows:
+            expected = int(row.get("expected_count") or 0)
+            recorded = int(row.get("recorded_count") or 0)
+            if expected > 0 and recorded >= expected:
+                previous_complete_sessions += 1
+
+        records_by_group = (
+            records.values(
+                "session__teacher_assignment__group_id",
+                "session__teacher_assignment__group__name",
+                "session__teacher_assignment__group__grade__name",
+            )
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+                absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+                tardy=Count("id", filter=Q(status=AttendanceRecord.STATUS_TARDY)),
+                excused=Count("id", filter=Q(status=AttendanceRecord.STATUS_EXCUSED)),
+            )
+            .order_by()
+        )
+
+        previous_records_by_group = (
+            previous_records.values("session__teacher_assignment__group_id")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+            )
+            .order_by()
+        )
+
+        previous_group_rate_map: dict[int, float] = {}
+        for row in previous_records_by_group:
+            prev_group_id = int(row.get("session__teacher_assignment__group_id") or 0)
+            prev_total = int(row.get("total") or 0)
+            prev_present = int(row.get("present") or 0)
+            previous_group_rate_map[prev_group_id] = pct(prev_present, prev_total)
+
+        institutional_attendance_rate = pct(present, total_records)
+        previous_institutional_attendance_rate = pct(previous_present, previous_total_records)
+        group_comparison = []
+        for row in records_by_group:
+            group_name = (row.get("session__teacher_assignment__group__name") or "").strip()
+            if not group_name:
+                continue
+
+            group_total = int(row.get("total") or 0)
+            group_present = int(row.get("present") or 0)
+            group_absent = int(row.get("absent") or 0)
+            group_id_value = int(row.get("session__teacher_assignment__group_id") or 0)
+            group_rate = pct(group_present, group_total)
+            gap = round(group_rate - institutional_attendance_rate, 2)
+            previous_group_rate = previous_group_rate_map.get(group_id_value, 0.0)
+            group_comparison.append(
+                {
+                    "group_id": group_id_value,
+                    "group_name": group_name,
+                    "grade_name": row.get("session__teacher_assignment__group__grade__name") or "",
+                    "attendance_rate": group_rate,
+                    "attendance_rate_delta": round(group_rate - previous_group_rate, 2),
+                    "absences": group_absent,
+                    "tardies": int(row.get("tardy") or 0),
+                    "excused": int(row.get("excused") or 0),
+                    "total_records": group_total,
+                    "gap_vs_institution": gap,
+                }
+            )
+
+        group_comparison.sort(key=lambda item: (-item["absences"], item["attendance_rate"]))
+
+        risk_rows = (
+            records.values(
+                "enrollment_id",
+                "enrollment__student__user__first_name",
+                "enrollment__student__user__last_name",
+                "enrollment__group__name",
+                "enrollment__grade__name",
+            )
+            .annotate(
+                total=Count("id"),
+                absences=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+                tardies=Count("id", filter=Q(status=AttendanceRecord.STATUS_TARDY)),
+                excused=Count("id", filter=Q(status=AttendanceRecord.STATUS_EXCUSED)),
+                present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+            )
+            .order_by()
+        )
+
+        student_risk = []
+        for row in risk_rows:
+            absences_i = int(row.get("absences") or 0)
+            tardies_i = int(row.get("tardies") or 0)
+            total_i = int(row.get("total") or 0)
+            risk_score = absences_i * 2 + tardies_i
+            absence_rate = pct(absences_i, total_i)
+
+            if risk_score >= 6 or absence_rate >= 30:
+                risk_level = "HIGH"
+            elif risk_score >= 3 or absence_rate >= 15:
+                risk_level = "MEDIUM"
+            else:
+                risk_level = "LOW"
+
+            first_name = (row.get("enrollment__student__user__first_name") or "").strip()
+            last_name = (row.get("enrollment__student__user__last_name") or "").strip()
+            full_name = f"{first_name} {last_name}".strip()
+
+            student_risk.append(
+                {
+                    "enrollment_id": row.get("enrollment_id"),
+                    "student_full_name": full_name,
+                    "grade_name": row.get("enrollment__grade__name") or "",
+                    "group_name": row.get("enrollment__group__name") or "",
+                    "absences": absences_i,
+                    "tardies": tardies_i,
+                    "excused": int(row.get("excused") or 0),
+                    "present": int(row.get("present") or 0),
+                    "total_records": total_i,
+                    "absence_rate": absence_rate,
+                    "risk_score": risk_score,
+                    "risk_level": risk_level,
+                }
+            )
+
+        student_risk.sort(key=lambda item: (-item["risk_score"], -item["absence_rate"]))
+
+        trend_rows = (
+            records.values("session__class_date")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+                absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+            )
+            .order_by("session__class_date")
+        )
+
+        previous_trend_rows = (
+            previous_records.values("session__class_date")
+            .annotate(
+                total=Count("id"),
+                present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+                absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+            )
+            .order_by("session__class_date")
+        )
+
+        previous_trend_rates = []
+        previous_trend = []
+        for row in previous_trend_rows:
+            total_i = int(row.get("total") or 0)
+            rate_i = pct(int(row.get("present") or 0), total_i)
+            previous_trend_rates.append(rate_i)
+            previous_trend.append(
+                {
+                    "date": row.get("session__class_date"),
+                    "attendance_rate": rate_i,
+                    "absences": int(row.get("absent") or 0),
+                    "total_records": total_i,
+                }
+            )
+
+        trend = []
+        for idx, row in enumerate(trend_rows):
+            total_i = int(row.get("total") or 0)
+            current_rate = pct(int(row.get("present") or 0), total_i)
+            previous_rate = previous_trend_rates[idx] if idx < len(previous_trend_rates) else None
+            trend.append(
+                {
+                    "date": row.get("session__class_date"),
+                    "attendance_rate": current_rate,
+                    "previous_attendance_rate": previous_rate,
+                    "attendance_rate_delta": round(current_rate - previous_rate, 2) if previous_rate is not None else None,
+                    "absences": int(row.get("absent") or 0),
+                    "total_records": total_i,
+                }
+            )
+
+        return Response(
+            {
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "grade_id": grade_id,
+                    "group_id": group_id,
+                    "teacher_id": teacher_id,
+                    "area_id": area_id,
+                },
+                "summary": {
+                    "sessions_count": sessions_total,
+                    "total_records": total_records,
+                    "present": present,
+                    "absent": absent,
+                    "tardy": tardy,
+                    "excused": excused,
+                    "attendance_rate": pct(present, total_records),
+                    "absence_rate": pct(absent, total_records),
+                    "tardy_rate": pct(tardy, total_records),
+                    "excused_rate": pct(excused, total_records),
+                    "coverage_rate": pct(complete_sessions, sessions_total),
+                },
+                "previous_period": {
+                    "start_date": previous_start_date,
+                    "end_date": previous_end_date,
+                },
+                "previous_summary": {
+                    "sessions_count": previous_sessions_total,
+                    "total_records": previous_total_records,
+                    "present": previous_present,
+                    "absent": previous_absent,
+                    "tardy": previous_tardy,
+                    "excused": previous_excused,
+                    "attendance_rate": previous_institutional_attendance_rate,
+                    "absence_rate": pct(previous_absent, previous_total_records),
+                    "tardy_rate": pct(previous_tardy, previous_total_records),
+                    "excused_rate": pct(previous_excused, previous_total_records),
+                    "coverage_rate": pct(previous_complete_sessions, previous_sessions_total),
+                },
+                "summary_delta": {
+                    "attendance_rate_delta": round(pct(present, total_records) - previous_institutional_attendance_rate, 2),
+                    "absence_rate_delta": round(pct(absent, total_records) - pct(previous_absent, previous_total_records), 2),
+                    "tardy_rate_delta": round(pct(tardy, total_records) - pct(previous_tardy, previous_total_records), 2),
+                    "excused_rate_delta": round(pct(excused, total_records) - pct(previous_excused, previous_total_records), 2),
+                    "coverage_rate_delta": round(pct(complete_sessions, sessions_total) - pct(previous_complete_sessions, previous_sessions_total), 2),
+                },
+                "group_comparison": group_comparison[:10],
+                "student_risk": student_risk[:20],
+                "trend": trend,
+                "previous_trend": previous_trend,
+            }
+        )
+
+
+class AttendanceKpiStudentDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _parse_date(value: str | None, *, fallback: date) -> date:
+        if not value:
+            return fallback
+        return date.fromisoformat(value)
+
+    @staticmethod
+    def _safe_int(value: str | None) -> int | None:
+        if value in (None, ""):
+            return None
+        return int(value)
+
+    def get(self, request):
+        today = timezone.localdate()
+        default_start = today - timedelta(days=30)
+
+        try:
+            enrollment_id = int(request.query_params.get("enrollment_id") or "")
+            start_date = self._parse_date(request.query_params.get("start_date"), fallback=default_start)
+            end_date = self._parse_date(request.query_params.get("end_date"), fallback=today)
+            grade_id = self._safe_int(request.query_params.get("grade_id"))
+            group_id = self._safe_int(request.query_params.get("group_id"))
+            teacher_id = self._safe_int(request.query_params.get("teacher_id"))
+            area_id = self._safe_int(request.query_params.get("area_id"))
+        except ValueError:
+            return Response({"detail": "Parámetros inválidos."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if start_date > end_date:
+            return Response({"detail": "start_date debe ser menor o igual a end_date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        enrollment = Enrollment.objects.select_related("student__user", "grade", "group").filter(id=enrollment_id).first()
+        if not enrollment:
+            return Response({"detail": "Matrícula no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user
+        if getattr(user, "role", None) == User.ROLE_TEACHER:
+            teacher_id = user.id
+            if not TeacherAssignment.objects.filter(teacher_id=user.id, group_id=enrollment.group_id).exists():
+                return Response({"detail": "No autorizado"}, status=status.HTTP_403_FORBIDDEN)
+
+        sessions = AttendanceSession.objects.select_related(
+            "teacher_assignment",
+            "teacher_assignment__group",
+            "teacher_assignment__group__grade",
+            "teacher_assignment__academic_load",
+            "teacher_assignment__academic_load__subject",
+            "teacher_assignment__academic_load__subject__area",
+            "teacher_assignment__teacher",
+        ).filter(
+            class_date__gte=start_date,
+            class_date__lte=end_date,
+        )
+
+        if grade_id:
+            sessions = sessions.filter(teacher_assignment__group__grade_id=grade_id)
+        if group_id:
+            sessions = sessions.filter(teacher_assignment__group_id=group_id)
+        if teacher_id:
+            sessions = sessions.filter(teacher_assignment__teacher_id=teacher_id)
+        if area_id:
+            sessions = sessions.filter(teacher_assignment__academic_load__subject__area_id=area_id)
+
+        records = AttendanceRecord.objects.filter(session__in=sessions, enrollment_id=enrollment_id)
+
+        totals = records.aggregate(
+            total=Count("id"),
+            present=Count("id", filter=Q(status=AttendanceRecord.STATUS_PRESENT)),
+            absent=Count("id", filter=Q(status=AttendanceRecord.STATUS_ABSENT)),
+            tardy=Count("id", filter=Q(status=AttendanceRecord.STATUS_TARDY)),
+            excused=Count("id", filter=Q(status=AttendanceRecord.STATUS_EXCUSED)),
+        )
+
+        total_records = int(totals.get("total") or 0)
+
+        def pct(value: int, total: int) -> float:
+            if total <= 0:
+                return 0.0
+            return round((float(value) * 100.0) / float(total), 2)
+
+        present = int(totals.get("present") or 0)
+        absent = int(totals.get("absent") or 0)
+        tardy = int(totals.get("tardy") or 0)
+        excused = int(totals.get("excused") or 0)
+
+        timeline_rows = (
+            records.values("session__class_date", "status")
+            .annotate(count=Count("id"))
+            .order_by("session__class_date", "status")
+        )
+
+        subject_rows = (
+            records.values(
+                "session__teacher_assignment__academic_load__subject__name",
+                "status",
+            )
+            .annotate(count=Count("id"))
+            .order_by("session__teacher_assignment__academic_load__subject__name", "status")
+        )
+
+        timeline_map: dict[date, dict[str, int]] = {}
+        for row in timeline_rows:
+            row_date = row.get("session__class_date")
+            if not row_date:
+                continue
+            if row_date not in timeline_map:
+                timeline_map[row_date] = {
+                    "PRESENT": 0,
+                    "ABSENT": 0,
+                    "TARDY": 0,
+                    "EXCUSED": 0,
+                }
+            timeline_map[row_date][row.get("status") or "PRESENT"] = int(row.get("count") or 0)
+
+        timeline = []
+        for row_date in sorted(timeline_map.keys()):
+            day = timeline_map[row_date]
+            day_total = int(day["PRESENT"] + day["ABSENT"] + day["TARDY"] + day["EXCUSED"])
+            timeline.append(
+                {
+                    "date": row_date,
+                    "present": day["PRESENT"],
+                    "absent": day["ABSENT"],
+                    "tardy": day["TARDY"],
+                    "excused": day["EXCUSED"],
+                    "attendance_rate": pct(day["PRESENT"], day_total),
+                }
+            )
+
+        by_subject_map: dict[str, dict[str, int]] = {}
+        for row in subject_rows:
+            subject_name = (row.get("session__teacher_assignment__academic_load__subject__name") or "Sin asignatura").strip() or "Sin asignatura"
+            if subject_name not in by_subject_map:
+                by_subject_map[subject_name] = {
+                    "PRESENT": 0,
+                    "ABSENT": 0,
+                    "TARDY": 0,
+                    "EXCUSED": 0,
+                }
+            by_subject_map[subject_name][row.get("status") or "PRESENT"] = int(row.get("count") or 0)
+
+        by_subject = []
+        for subject_name in sorted(by_subject_map.keys()):
+            row = by_subject_map[subject_name]
+            subject_total = int(row["PRESENT"] + row["ABSENT"] + row["TARDY"] + row["EXCUSED"])
+            by_subject.append(
+                {
+                    "subject_name": subject_name,
+                    "present": row["PRESENT"],
+                    "absent": row["ABSENT"],
+                    "tardy": row["TARDY"],
+                    "excused": row["EXCUSED"],
+                    "total_records": subject_total,
+                    "absence_rate": pct(row["ABSENT"], subject_total),
+                }
+            )
+
+        by_subject.sort(key=lambda item: (-item["absence_rate"], item["subject_name"]))
+
+        student_user = enrollment.student.user
+        student_name = (student_user.get_full_name() or "").strip() or student_user.username
+
+        return Response(
+            {
+                "student": {
+                    "enrollment_id": enrollment.id,
+                    "student_full_name": student_name,
+                    "grade_name": getattr(enrollment.grade, "name", "") or "",
+                    "group_name": getattr(enrollment.group, "name", "") or "",
+                },
+                "filters": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "grade_id": grade_id,
+                    "group_id": group_id,
+                    "teacher_id": teacher_id,
+                    "area_id": area_id,
+                },
+                "summary": {
+                    "total_records": total_records,
+                    "present": present,
+                    "absent": absent,
+                    "tardy": tardy,
+                    "excused": excused,
+                    "attendance_rate": pct(present, total_records),
+                    "absence_rate": pct(absent, total_records),
+                },
+                "by_subject": by_subject,
+                "timeline": timeline,
             }
         )

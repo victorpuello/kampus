@@ -881,7 +881,7 @@ export default function AttendanceSession() {
             ) : null}
 
             {data ? (
-              <div className="rounded-md border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+              <div className="rounded-md border border-slate-200 bg-white p-3 sm:p-4 dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">{data.session.subject_name} — {data.session.group_name}</div>
@@ -900,7 +900,7 @@ export default function AttendanceSession() {
                     ) : null}
                   </div>
 
-                  <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:flex-wrap">
+                  <div className="flex w-full flex-col gap-2 md:w-auto md:flex-row md:flex-wrap">
                     <Button className="w-full sm:w-auto" variant="outline" onClick={load}>Actualizar</Button>
                     <Button className="w-full sm:w-auto" variant="outline" onClick={handleFlushQueue}>
                       Reintentar cola offline
@@ -942,7 +942,7 @@ export default function AttendanceSession() {
               </div>
             ) : null}
 
-            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button className="w-full sm:w-auto" variant="outline" onClick={() => markAll('PRESENT')} disabled={locked}>
                 Marcar todos presentes
               </Button>
@@ -953,7 +953,7 @@ export default function AttendanceSession() {
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
-                <div className="relative mx-auto max-w-xl">
+                <div className="relative mx-auto max-w-2xl">
                   {/* Background next card (preview) */}
                   {nextStudent ? (
                     <div className="absolute inset-0 translate-y-3 scale-[0.98] rounded-2xl border border-slate-200 bg-white/80 shadow-sm dark:border-slate-800 dark:bg-slate-900/80" />
@@ -1064,7 +1064,7 @@ export default function AttendanceSession() {
                         </div>
 
                         {/* Desktop actions (bigger, inline) */}
-                        <div className="mt-5 hidden grid-cols-2 gap-2 sm:grid-cols-4 lg:grid">
+                        <div className="mt-5 hidden grid-cols-2 gap-2 sm:grid-cols-4 md:grid">
                           <Button
                             onClick={() => handleMark('PRESENT')}
                             disabled={saving || locked}
@@ -1212,7 +1212,7 @@ export default function AttendanceSession() {
             {/* Mobile fixed action bar (ported to body so it stays fixed inside overflow containers) */}
             {currentStudent && canUseDom
               ? createPortal(
-                  <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 lg:hidden">
+                  <div className="fixed bottom-0 left-0 right-0 z-20 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 md:hidden">
                     <div
                       className="mx-auto max-w-xl px-4 pt-3"
                       style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}
@@ -1362,7 +1362,7 @@ export default function AttendanceSession() {
             ) : null}
 
             {/* Spacer so sticky bar doesn't cover content */}
-            <div className="h-28 lg:hidden" />
+            <div className="h-28 md:hidden" />
           </div>
         )}
       </CardContent>

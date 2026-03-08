@@ -141,7 +141,7 @@ export default function AttendanceManualSheets() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Año académico</label>
                 <select
@@ -188,7 +188,7 @@ export default function AttendanceManualSheets() {
               </div>
             </div>
 
-            <div className="flex flex-col items-stretch gap-2 lg:flex-row lg:flex-wrap lg:items-center">
+            <div className="flex flex-col items-stretch gap-2 md:flex-row md:flex-wrap md:items-center">
               <Button className="w-full sm:w-auto" onClick={handleDownload} disabled={downloading || !selectedGroupId}>
                 {downloading ? 'Generando…' : 'Descargar PDF'}
               </Button>
@@ -197,7 +197,7 @@ export default function AttendanceManualSheets() {
                   Solicitudes de eliminación
                 </Button>
               ) : null}
-              <div className="text-sm text-slate-500 dark:text-slate-400">
+              <div className="text-sm text-slate-500 dark:text-slate-400 md:basis-full">
                 Se abre en una nueva pestaña para imprimir.
               </div>
             </div>

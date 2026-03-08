@@ -338,7 +338,7 @@ export default function TeacherAttendance() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Periodo</label>
                 <select
@@ -381,7 +381,7 @@ export default function TeacherAttendance() {
               <Button className="w-full sm:w-auto" onClick={handleCreate} disabled={submitting}>
                 {submitting ? 'Creando…' : 'Crear clase y tomar asistencia'}
               </Button>
-              <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance/stats')}>
+              <Button className="w-full sm:w-auto" variant="outline" onClick={() => navigate('/attendance')}>
                 Ver reporte
               </Button>
               <Button
@@ -431,7 +431,7 @@ export default function TeacherAttendance() {
 
               <div className="space-y-3">
                 {/* Mobile cards */}
-                <div className="xl:hidden space-y-3 sm:space-y-4">
+                <div className="lg:hidden space-y-3 sm:space-y-4">
                   {sessionsLoading ? (
                     <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                       Cargando clases…
@@ -522,7 +522,7 @@ export default function TeacherAttendance() {
                 </div>
 
                 {/* Desktop table */}
-                <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+                <div className="hidden lg:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                     <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">

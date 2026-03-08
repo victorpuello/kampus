@@ -157,7 +157,7 @@ export default function AttendanceDeletionRequests() {
             </div>
 
             {/* Mobile cards */}
-            <div className="xl:hidden space-y-3 sm:space-y-4">
+            <div className="lg:hidden space-y-3 sm:space-y-4">
               {rows.length === 0 ? (
                 <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
                   No hay solicitudes pendientes.
@@ -215,7 +215,7 @@ export default function AttendanceDeletionRequests() {
             </div>
 
             {/* Desktop table */}
-            <div className="hidden xl:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60">
+            <div className="hidden lg:block overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-slate-500 uppercase bg-linear-to-r from-slate-50 to-slate-100 border-b border-slate-200 dark:text-slate-300 dark:from-slate-900 dark:to-slate-800 dark:border-slate-800">

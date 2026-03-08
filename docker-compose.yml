@@ -293,7 +293,7 @@ services:
       - backend
     command: >
       sh -c "
-        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ] || [ ! -d node_modules/jsqr ] || [ ! -d node_modules/jspdf ]; then
+        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ] || [ ! -d node_modules/jsqr ] || [ ! -d node_modules/jspdf ] || [ ! -d node_modules/recharts ] || [ ! -d node_modules/react-is ]; then
           echo 'Installing frontend deps (incl. Tremor, jsQR y jsPDF)…';
           npm install --legacy-peer-deps;
         fi;

@@ -137,6 +137,12 @@ class GroupSerializer(serializers.ModelSerializer):
         model = Group
         fields = "__all__"
 
+    def validate_name(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("El nombre del grupo no puede estar vacío.")
+        return cleaned
+
     def get_enrolled_count(self, obj):
         # Count active enrollments
         return obj.enrollment_set.filter(status='ACTIVE').count()

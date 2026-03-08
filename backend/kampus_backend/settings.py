@@ -293,6 +293,17 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+if DEBUG:
+    _default_local_frontend_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+    for _origin in _default_local_frontend_origins:
+        if _origin not in CORS_ALLOWED_ORIGINS:
+            CORS_ALLOWED_ORIGINS.append(_origin)
+        if _origin not in CSRF_TRUSTED_ORIGINS:
+            CSRF_TRUSTED_ORIGINS.append(_origin)
+
 if DEBUG and not CORS_ALLOWED_ORIGINS:
     CORS_ALLOW_ALL_ORIGINS = True
 

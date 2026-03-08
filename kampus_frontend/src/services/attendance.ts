@@ -66,6 +66,137 @@ export interface AttendanceStudentStatsResponse {
   }>;
 }
 
+export interface AttendanceKpiDashboardResponse {
+  filters: {
+    start_date: string;
+    end_date: string;
+    grade_id: number | null;
+    group_id: number | null;
+    teacher_id: number | null;
+    area_id: number | null;
+  };
+  summary: {
+    sessions_count: number;
+    total_records: number;
+    present: number;
+    absent: number;
+    tardy: number;
+    excused: number;
+    attendance_rate: number;
+    absence_rate: number;
+    tardy_rate: number;
+    excused_rate: number;
+    coverage_rate: number;
+  };
+  previous_period: {
+    start_date: string;
+    end_date: string;
+  };
+  previous_summary: {
+    sessions_count: number;
+    total_records: number;
+    present: number;
+    absent: number;
+    tardy: number;
+    excused: number;
+    attendance_rate: number;
+    absence_rate: number;
+    tardy_rate: number;
+    excused_rate: number;
+    coverage_rate: number;
+  };
+  summary_delta: {
+    attendance_rate_delta: number;
+    absence_rate_delta: number;
+    tardy_rate_delta: number;
+    excused_rate_delta: number;
+    coverage_rate_delta: number;
+  };
+  group_comparison: Array<{
+    group_id: number;
+    group_name: string;
+    grade_name: string;
+    attendance_rate: number;
+    attendance_rate_delta: number;
+    absences: number;
+    tardies: number;
+    excused: number;
+    total_records: number;
+    gap_vs_institution: number;
+  }>;
+  student_risk: Array<{
+    enrollment_id: number;
+    student_full_name: string;
+    grade_name: string;
+    group_name: string;
+    absences: number;
+    tardies: number;
+    excused: number;
+    present: number;
+    total_records: number;
+    absence_rate: number;
+    risk_score: number;
+    risk_level: 'HIGH' | 'MEDIUM' | 'LOW';
+  }>;
+  trend: Array<{
+    date: string;
+    attendance_rate: number;
+    previous_attendance_rate: number | null;
+    attendance_rate_delta: number | null;
+    absences: number;
+    total_records: number;
+  }>;
+  previous_trend: Array<{
+    date: string;
+    attendance_rate: number;
+    absences: number;
+    total_records: number;
+  }>;
+}
+
+export interface AttendanceKpiStudentDetailResponse {
+  student: {
+    enrollment_id: number;
+    student_full_name: string;
+    grade_name: string;
+    group_name: string;
+  };
+  filters: {
+    start_date: string;
+    end_date: string;
+    grade_id: number | null;
+    group_id: number | null;
+    teacher_id: number | null;
+    area_id: number | null;
+  };
+  summary: {
+    total_records: number;
+    present: number;
+    absent: number;
+    tardy: number;
+    excused: number;
+    attendance_rate: number;
+    absence_rate: number;
+  };
+  by_subject: Array<{
+    subject_name: string;
+    present: number;
+    absent: number;
+    tardy: number;
+    excused: number;
+    total_records: number;
+    absence_rate: number;
+  }>;
+  timeline: Array<{
+    date: string;
+    present: number;
+    absent: number;
+    tardy: number;
+    excused: number;
+    attendance_rate: number;
+  }>;
+}
+
 export type PaginatedResponse<T> = {
   count: number;
   next: string | null;
@@ -214,6 +345,50 @@ export async function getAttendanceStudentStats(input: { teacher_assignment_id: 
     params: {
       teacher_assignment: input.teacher_assignment_id,
       period: input.period_id,
+    },
+  });
+  return res.data;
+}
+
+export async function getAttendanceKpiDashboard(input: {
+  start_date: string;
+  end_date: string;
+  grade_id?: number;
+  group_id?: number;
+  teacher_id?: number;
+  area_id?: number;
+}) {
+  const res = await api.get<AttendanceKpiDashboardResponse>(`${API_PREFIX}/stats/kpi/`, {
+    params: {
+      start_date: input.start_date,
+      end_date: input.end_date,
+      grade_id: input.grade_id,
+      group_id: input.group_id,
+      teacher_id: input.teacher_id,
+      area_id: input.area_id,
+    },
+  });
+  return res.data;
+}
+
+export async function getAttendanceKpiStudentDetail(input: {
+  enrollment_id: number;
+  start_date: string;
+  end_date: string;
+  grade_id?: number;
+  group_id?: number;
+  teacher_id?: number;
+  area_id?: number;
+}) {
+  const res = await api.get<AttendanceKpiStudentDetailResponse>(`${API_PREFIX}/stats/kpi/student-detail/`, {
+    params: {
+      enrollment_id: input.enrollment_id,
+      start_date: input.start_date,
+      end_date: input.end_date,
+      grade_id: input.grade_id,
+      group_id: input.group_id,
+      teacher_id: input.teacher_id,
+      area_id: input.area_id,
     },
   });
   return res.data;
