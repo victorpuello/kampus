@@ -1,124 +1,118 @@
 # Kampus
 
-> Plataforma integral de gestión escolar para instituciones educativas en Colombia.
+Plataforma integral de gestión escolar para instituciones educativas en Colombia.
 
-![Estado](https://img.shields.io/badge/Estado-En%20producci%C3%B3n-16a34a)
 ![Monorepo](https://img.shields.io/badge/Arquitectura-Monorepo-334155)
 ![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-0ea5e9)
 ![Backend](https://img.shields.io/badge/Backend-Django%20REST-7c3aed)
+![DB](https://img.shields.io/badge/DB-PostgreSQL-336791)
 
-## ✨ ¿Qué es Kampus?
+## Qué incluye
 
-Kampus centraliza la operación académica y administrativa del colegio en una sola plataforma: estudiantes, docentes, calificaciones, asistencia, convivencia, reportes y gobierno escolar.
+- Backend API en Django + Django REST Framework.
+- Frontend SPA en React + TypeScript + Vite.
+- PostgreSQL + Redis para persistencia y colas.
+- Workers/schedulers para tareas asíncronas (Celery y comandos periódicos).
 
-Está diseñado para que el equipo directivo y operativo tenga trazabilidad, control y procesos estandarizados durante todo el año lectivo.
-
-## 🚀 Inicio rápido
-
-### Opción recomendada (todo en Docker)
-
-```bash
-docker-compose up --build
-```
-
-### Perfil de producción (override)
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml config
-```
-
-> Usa el override `docker-compose.prod.yml` para forzar `DJANGO_ENV=production`, hardening HTTPS/cookies y defaults seguros.
-
-Luego abre:
-
-- Frontend: http://localhost:5173
-- Backend API: http://localhost:8000
-
-## 🧩 Módulos principales
-
-- **Académico:** periodos, notas, promoción y seguimiento.
-- **Estudiantes:** ficha, matrícula, certificados y trazabilidad.
-- **Docentes y usuarios:** gestión de perfiles, roles y permisos.
-- **Convivencia:** observador estudiantil y casos disciplinarios.
-- **Asistencia:** sesiones, control y cierres automáticos.
-- **Novedades:** flujo de registro, revisión y cierre.
-- **Reportes:** generación de informes operativos y académicos.
-- **Gobierno escolar:** elecciones, censo, candidatos y resultados.
-
-## 📰 Novedades y changelog
-
-- **Último changelog publicado:** [Sincronización de planeación (2026-02-16)](docs/changelog_release_2026-02-16_planning-sync.md)
-- **Auditoría reciente de votaciones:** [Informe de auditoría (2026-02-18)](docs/informe_auditoria_votaciones_2026-02-18.md)
-
-> Sugerencia: mantén esta sección actualizada en cada release para que el historial sea visible desde la portada.
-
-## 📚 Guías por tema (detalle técnico)
-
-### Deploy y operación
-
-- [Guía de deploy en Vultr con Docker](docs/guia_deploy_vultr_docker.md)
-- [Guía de reportes PDF asíncronos (incluye troubleshooting de /media)](docs/guia_reportes_pdf_async_jobs.md)
-- [Runbook jornada de votaciones](docs/runbook_jornada_votaciones_gobierno_escolar.md)
-- [Runbook verificación QR](docs/runbook_verificacion_qr.md)
-- [Runbook remediación de logros](docs/runbook_remediacion_logros_banco_deploy.md)
-- [Runbook de release seguro](docs/runbook_release_seguridad.md)
-- [Runbook Mailgun (email transaccional + marketing)](docs/runbook_mailgun_operacion.md)
-- [Runbook unificado: deploy + desarrollo seguro](docs/runbook_unificado_deploy_desarrollo.md)
-- [Guía estandarizada de notificaciones por correo](docs/guia_notificaciones_correo_estandar.md)
-- [Guia de configuracion WhatsApp con Meta Cloud API](docs/guia_configuracion_whatsapp_meta_cloud_api.md)
-- [Guía deploy Vultr: corte a producción de correo (Mailgun)](docs/guia_deploy_vultr_docker.md#corte-a-producción-de-correo-mailgun)
-- [Checklist de cierre de auditoría de seguridad](docs/checklist_cierre_auditoria_seguridad_2026-02-23.md)
-
-### Funcional y producto
-
-- [Descripción general del producto](docs/descripcion.md)
-- [Plan de votaciones](docs/Plan%20de%20votaciones.md)
-- [Modo actividades y notas](docs/modo_actividades_notas.md)
-- [Guía comisiones de evaluación y promoción](docs/guia_comisiones_evaluacion_promocion_operacion.md)
-
-### Implementación y planes
-
-- [Plan módulo novedades estudiantes](docs/plan_modulo_novedades_estudiantes.md)
-- [Plan modo actividades/notas](docs/plan_modo_actividades_notas.md)
-- [Plan verificación de documentos QR](docs/plan_verificacion_documentos_qr.md)
-- [Plan mejora PDFs asíncronos](docs/plan_mejora_pdfs_weasyprint_async.md)
-
-## 👥 ¿Para quién está pensado?
-
-- Equipos directivos y coordinaciones académicas.
-- Personal administrativo escolar.
-- Docentes con carga de evaluación y seguimiento.
-- Equipos técnicos que despliegan y mantienen la plataforma.
-
-## 🗂️ Estructura general del repositorio
+## Estructura del monorepo
 
 ```text
 kampus/
-├─ backend/
-├─ kampus_frontend/
-├─ docs/
+├─ backend/             # API Django, apps de dominio y comandos
+├─ kampus_frontend/     # SPA React + Vite
+├─ docs/                # Guías operativas y funcionales
 ├─ docker-compose.yml
+├─ docker-compose.prod.yml
 ├─ env.backend.example
 └─ env.frontend.example
 ```
 
-## 🔐 Configuración y seguridad
+## Requisitos
 
-Para variables de entorno, autenticación, puertos, servicios y comandos técnicos, usa estas referencias:
+- Docker + Docker Compose (recomendado)
+- Node.js 20+ (si trabajas frontend fuera de Docker)
+- Python 3.10+ (si trabajas backend fuera de Docker)
 
-- [Compartir datos para desarrollo](docs/compartir_data_dev.md)
-- [Guía de deploy](docs/guia_deploy_vultr_docker.md)
-- [Formato oficial de informes IA](docs/formato_oficial_informe_ia.md)
+## Inicio rápido (recomendado)
 
-## 🤝 Contribución
+1. Clona el repositorio.
+2. Levanta la plataforma:
 
-Si vas a implementar cambios:
+```bash
+docker compose up --build
+```
 
-1. Documenta el alcance funcional en `docs/`.
-2. Mantén actualizado el changelog de la release.
-3. Verifica que frontend y backend compilen correctamente antes de publicar.
+3. Abre:
 
-## Licencia
+- Frontend: http://localhost:5173
+- Backend API: http://localhost:8000
 
-Proyecto bajo licencia MIT.
+> [!NOTE]
+> El contenedor de backend ejecuta migraciones automáticamente cuando `KAMPUS_RUN_MIGRATIONS=true`.
+
+## Variables de entorno
+
+- Backend: copia `env.backend.example` a tu archivo local de entorno.
+- Frontend: copia `env.frontend.example` y ajusta `VITE_API_BASE_URL` si aplica.
+
+> [!IMPORTANT]
+> No hardcodees secretos en código. Usa variables de entorno (`DJANGO_SECRET_KEY`, `GOOGLE_API_KEY`, credenciales de proveedores, etc.).
+
+## Desarrollo local sin Docker
+
+### Backend
+
+```bash
+python -m venv .venv
+. .venv/Scripts/activate  # Windows PowerShell
+pip install -r backend/requirements.txt
+python backend/manage.py migrate
+python backend/manage.py runserver
+```
+
+### Frontend
+
+```bash
+cd kampus_frontend
+npm install
+npm run dev
+```
+
+## Comandos útiles
+
+### Backend tests
+
+```bash
+python backend/manage.py test
+```
+
+### Frontend lint
+
+```bash
+cd kampus_frontend
+npm run lint
+```
+
+### Task de monitoreo de notificaciones (VS Code)
+
+```bash
+docker compose exec -T backend python manage.py report_notifications_kpis --hours 24 --format json
+docker compose exec -T backend python manage.py check_notifications_health --hours 24 --no-fail-on-breach
+```
+
+## Módulos funcionales
+
+- Académico (periodos, calificaciones, promoción)
+- Asistencia (sesiones, KPIs, seguimiento)
+- Estudiantes (matrícula, ficha, certificados)
+- Convivencia (observador y disciplina)
+- Novedades, Reportes y Gobierno escolar
+
+## Documentación clave
+
+- [Descripción funcional](docs/descripcion.md)
+- [Guía de despliegue con Docker](docs/guia_deploy_vultr_docker.md)
+- [Guía de notificaciones por correo](docs/guia_notificaciones_correo_estandar.md)
+- [Guía de operación SLA de notificaciones](docs/guia_operacion_notificaciones_sla.md)
+- [Plan de sprints KPI de asistencias](docs/plan_sprints_proceso_asistencia_kpis_2026-03-07.md)
 
