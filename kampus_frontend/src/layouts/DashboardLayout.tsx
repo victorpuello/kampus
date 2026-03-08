@@ -1,4 +1,5 @@
 import { type ComponentType, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import { 
@@ -66,6 +67,7 @@ export default function DashboardLayout() {
   const [favoritePaths, setFavoritePaths] = useState<string[]>([])
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [unreadNotificationItems, setUnreadNotificationItems] = useState<Notification[]>([])
+  const [collapsedFlyout, setCollapsedFlyout] = useState<{ label: string; meta?: string | number; top: number } | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const sidebarSearchInputRef = useRef<HTMLInputElement | null>(null)
   const user = useAuthStore((s) => s.user)
@@ -203,8 +205,7 @@ export default function DashboardLayout() {
     prefetchRouteByPath(href)
   }
 
-  const focusSidebarSearch = () => {
-    window.setTimeout(() => {
+  const focusSidebarSearch = () => {    window.setTimeout(() => {
       sidebarSearchInputRef.current?.focus()
       sidebarSearchInputRef.current?.select()
     }, 0)
@@ -822,42 +823,60 @@ export default function DashboardLayout() {
         isCollapsed ? 'lg:w-20' : 'lg:w-72',
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="flex flex-col h-full">
+        <div className="relative flex flex-col h-full">
           {/* Sidebar Header */}
           <div className={cn(
-            'flex items-center justify-between h-16 border-b border-slate-100 dark:border-slate-800',
-            isCollapsed ? 'px-4' : 'px-6'
+            'flex h-16 shrink-0 items-center border-b border-slate-200/70 dark:border-slate-800',
+            isCollapsed ? 'justify-center px-2' : 'justify-between px-4'
           )}>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-xl">K</span>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="h-9 w-9 shrink-0 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
+                <span className="text-white font-bold text-base leading-none">K</span>
               </div>
-              {!isCollapsed && <span className="text-xl font-bold text-slate-900 dark:text-slate-100">Kampus</span>}
+              {!isCollapsed && (
+                <span className="text-base font-semibold text-slate-900 dark:text-slate-100 tracking-tight truncate">Kampus</span>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={toggleSidebarCollapsed}
-                className="hidden lg:inline-flex text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
-                aria-label={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
-                title={isCollapsed ? 'Expandir menú' : 'Colapsar menú'}
-              >
-                {isCollapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
-              </button>
+            {!isCollapsed && (
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleSidebarCollapsed}
+                  className="hidden lg:inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                  aria-label="Colapsar menú"
+                  title="Colapsar menú"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
 
-              <button 
-                onClick={() => setIsSidebarOpen(false)}
-                className="lg:hidden text-slate-500 hover:text-slate-700 dark:text-slate-300 dark:hover:text-slate-100"
-                aria-label="Cerrar menú"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="lg:hidden h-8 w-8 inline-flex items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:text-slate-500 dark:hover:bg-slate-800"
+                  aria-label="Cerrar menú"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            )}
           </div>
 
+          {/* Botón flotante de expandir — solo visible en rail colapsado */}
+          {isCollapsed && (
+            <button
+              type="button"
+              onClick={toggleSidebarCollapsed}
+              className="absolute -right-3 top-[3.5rem] z-10 hidden h-6 w-6 lg:flex items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm transition-colors hover:bg-slate-50 hover:text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+              aria-label="Expandir menú"
+              title="Expandir menú"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+
           {/* Navigation */}
-          <nav className={cn('flex-1 py-6 space-y-3 overflow-y-auto', isCollapsed ? 'px-2 lg:px-2' : 'px-4 lg:px-4')}>
+          <nav className={cn('flex-1 py-4 space-y-2 overflow-y-auto overflow-x-hidden', isCollapsed ? 'px-2' : 'px-3')}>
             {!isCollapsed && (
               <div className="px-1">
                 <div className="relative">
@@ -878,7 +897,7 @@ export default function DashboardLayout() {
 
             {!isCollapsed && favoriteLinks.length > 0 && (
               <div className="space-y-1">
-                <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                <div className="px-3 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
                   Favoritos
                 </div>
                 {favoriteLinks.map((link) => {
@@ -891,10 +910,10 @@ export default function DashboardLayout() {
                         onFocus={() => handleRouteIntent(link.href)}
                         onClick={() => setIsSidebarOpen(false)}
                         className={cn(
-                          'flex-1 rounded-lg px-3 py-2 text-sm transition-colors',
+                          'flex-1 rounded-xl px-3 py-2 text-sm transition-colors',
                           active
                             ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200'
-                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100'
+                            : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100'
                         )}
                         title={`${link.context} · ${link.name}`}
                         aria-current={active ? 'page' : undefined}
@@ -946,11 +965,20 @@ export default function DashboardLayout() {
 
                         toggleMenu(item.name)
                       }}
+                      onMouseEnter={(e) => {
+                        if (!isCollapsed) return
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        setCollapsedFlyout({ label: item.name, top: rect.top + rect.height / 2 })
+                      }}
+                      onMouseLeave={() => { if (isCollapsed) setCollapsedFlyout(null) }}
                       className={cn(
-                        "w-full flex items-center justify-between px-4 py-3 text-sm font-medium rounded-lg transition-colors",
+                        'group/navitem w-full text-sm font-medium transition-all duration-150',
+                        isCollapsed
+                          ? 'mx-auto flex h-11 w-11 items-center justify-center rounded-xl px-0 py-0 hover:scale-[1.08] active:scale-100'
+                          : 'flex items-center justify-between rounded-xl px-3 py-2.5 hover:translate-x-0.5 active:translate-x-0',
                         isActive 
                           ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                          : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                       )}
                       aria-expanded={isExpanded}
                       aria-controls={menuDomId}
@@ -958,14 +986,14 @@ export default function DashboardLayout() {
                       title={item.name}
                     >
                       <div className={cn('flex items-center', isCollapsed ? 'justify-center w-full' : '')}>
-                        <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
+                        <item.icon className={cn("w-5 h-5 transition-transform duration-150 group-hover/navitem:scale-110", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
                         {!isCollapsed && item.name}
                       </div>
                       {!isCollapsed && (isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />)}
                     </button>
                     
                     {isExpanded && !isCollapsed && (
-                      <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-100 pl-4 dark:border-slate-800">
+                      <div id={menuDomId} className="mt-1 ml-4 space-y-1 border-l-2 border-slate-200/70 pl-3 dark:border-slate-700/60">
                         {item.children.map((child) => {
                           if (!isNavigationChildGroup(child)) {
                             const active = isPathActive(child.href)
@@ -978,10 +1006,10 @@ export default function DashboardLayout() {
                                   onFocus={() => handleRouteIntent(child.href)}
                                   onClick={() => setIsSidebarOpen(false)}
                                   className={cn(
-                                    "block flex-1 px-4 py-2.5 lg:py-2 text-sm font-medium rounded-lg transition-colors",
+                                    "block flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-150 hover:translate-x-0.5 active:translate-x-0",
                                     active
                                       ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
-                                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+                                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
                                   )}
                                   aria-current={active ? 'page' : undefined}
                                 >
@@ -1020,10 +1048,10 @@ export default function DashboardLayout() {
                                 type="button"
                                 onClick={() => toggleChildGroup(item.name, child.name)}
                                 className={cn(
-                                  'w-full flex items-center justify-between px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                                  'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 hover:translate-x-0.5 active:translate-x-0',
                                   groupHasActive
                                     ? 'text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40'
-                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
+                                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800'
                                 )}
                                 aria-expanded={isGroupExpanded}
                                 aria-controls={groupDomId}
@@ -1045,10 +1073,10 @@ export default function DashboardLayout() {
                                           onFocus={() => handleRouteIntent(grandChild.href)}
                                           onClick={() => setIsSidebarOpen(false)}
                                           className={cn(
-                                            "block flex-1 px-4 py-2.5 lg:py-2 text-sm font-medium rounded-lg transition-colors",
+                                            "block flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all duration-150 hover:translate-x-0.5 active:translate-x-0",
                                             active
                                               ? "text-blue-700 bg-blue-50 dark:text-blue-200 dark:bg-blue-950/40"
-                                              : "text-slate-500 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
+                                              : "text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-slate-800"
                                           )}
                                           aria-current={active ? 'page' : undefined}
                                         >
@@ -1092,21 +1120,30 @@ export default function DashboardLayout() {
                 <div key={item.name} className={cn('group flex items-center gap-1', isCollapsed && 'justify-center')}>
                   <Link
                     to={item.href}
-                    onMouseEnter={() => handleRouteIntent(item.href)}
+                    onMouseEnter={(e) => {
+                      handleRouteIntent(item.href)
+                      if (isCollapsed) {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        setCollapsedFlyout({ label: item.name, meta: item.badgeCount && item.badgeCount > 0 ? item.badgeCount : undefined, top: rect.top + rect.height / 2 })
+                      }
+                    }}
+                    onMouseLeave={() => { if (isCollapsed) setCollapsedFlyout(null) }}
                     onFocus={() => handleRouteIntent(item.href)}
                     onClick={() => setIsSidebarOpen(false)}
                     className={cn(
-                      "flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors",
-                      isCollapsed ? 'justify-center w-full' : 'flex-1',
+                      'group/navitem text-sm font-medium transition-all duration-150',
+                      isCollapsed
+                        ? 'mx-auto flex h-11 w-11 items-center justify-center rounded-xl px-0 py-0 hover:scale-[1.08] active:scale-100'
+                        : 'flex flex-1 items-center rounded-xl px-3 py-2.5 hover:translate-x-0.5 active:translate-x-0',
                       isActive 
                         ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200" 
-                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                        : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                     )}
                     aria-current={isActive ? 'page' : undefined}
                     aria-label={item.name}
                     title={item.name}
                   >
-                    <item.icon className={cn("w-5 h-5", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
+                    <item.icon className={cn("w-5 h-5 transition-transform duration-150 group-hover/navitem:scale-110", isActive ? "text-blue-600 dark:text-blue-300" : "text-slate-400 dark:text-slate-400", !isCollapsed && 'mr-3')} />
                     {!isCollapsed && <span className="flex-1">{item.name}</span>}
                     {!isCollapsed && !!item.badgeCount && item.badgeCount > 0 && (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
@@ -1141,85 +1178,95 @@ export default function DashboardLayout() {
           </nav>
 
           {/* User Profile & Logout */}
-          <div className="p-4 border-t border-slate-100 dark:border-slate-800">
+          <div className={cn('border-t border-slate-200/70 dark:border-slate-800', isCollapsed ? 'p-2' : 'p-3')}>
             <div ref={userMenuRef} className="relative">
               {userMenuOpen && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 rounded-lg border border-slate-200 bg-white shadow-lg overflow-hidden dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30">
-                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
-                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
-                      {user?.first_name || user?.username}
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email || 'Usuario'}</p>
-                  </div>
+                <div
+                  className={cn(
+                    'absolute z-20 overflow-visible',
+                    isCollapsed ? 'bottom-0 left-full ml-3 w-0' : 'bottom-full left-0 right-0 mb-2',
+                  )}
+                >
+                  <div className={cn(
+                    'overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/30',
+                    isCollapsed ? 'w-72' : 'w-full',
+                  )}>
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {user?.first_name || user?.username}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.email || 'Usuario'}</p>
+                    </div>
 
-                  <div className="p-2 space-y-1">
-                    <Link
-                      to="/account"
-                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      <span>Mi cuenta</span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500">Perfil y contraseña</span>
-                    </Link>
+                    <div className="p-2 space-y-1">
+                      <Link
+                        to="/account"
+                        className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <span>Mi cuenta</span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">Perfil y contraseña</span>
+                      </Link>
 
-                    <Link
-                      to="/notifications"
-                      className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                    >
-                      <span className="flex items-center">
-                        <Bell className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />
-                        Notificaciones
-                      </span>
-                      {!!unreadNotifications && unreadNotifications > 0 && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
-                          {unreadNotifications}
+                      <Link
+                        to="/notifications"
+                        className="flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                      >
+                        <span className="flex items-center">
+                          <Bell className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />
+                          Notificaciones
                         </span>
-                      )}
-                    </Link>
+                        {!!unreadNotifications && unreadNotifications > 0 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/40">
+                            {unreadNotifications}
+                          </span>
+                        )}
+                      </Link>
 
-                    {unreadNotificationItems.length > 0 && (
-                      <div className="px-3 py-2">
-                        <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Pendientes</p>
-                        <div className="mt-2 space-y-1">
-                          {unreadNotificationItems.map((n) => (
-                            <Link
-                              key={n.id}
-                              to={n.url || '/notifications'}
-                              className="block rounded-md border border-slate-100 px-3 py-2 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
-                              title={n.title}
-                              onClick={() => handleUnreadNotificationClick(n)}
-                            >
-                              <p className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-1">{n.title}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{n.body}</p>
-                            </Link>
-                          ))}
+                      {unreadNotificationItems.length > 0 && (
+                        <div className="px-3 py-2">
+                          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Pendientes</p>
+                          <div className="mt-2 space-y-1">
+                            {unreadNotificationItems.map((n) => (
+                              <Link
+                                key={n.id}
+                                to={n.url || '/notifications'}
+                                className="block rounded-md border border-slate-100 px-3 py-2 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"
+                                title={n.title}
+                                onClick={() => handleUnreadNotificationClick(n)}
+                              >
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-100 line-clamp-1">{n.title}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{n.body}</p>
+                              </Link>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    <button
-                      type="button"
-                      className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-                      onClick={toggleTheme}
-                    >
-                      <span className="flex items-center">
-                        {isDarkMode ? <Sun className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" /> : <Moon className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />}
-                        Apariencia
-                      </span>
-                      <span className="text-xs text-slate-400 dark:text-slate-500">
-                        {themeMode === 'auto' ? `Auto (${isDarkMode ? 'Oscuro' : 'Claro'})` : isDarkMode ? 'Oscuro' : 'Claro'}
-                      </span>
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+                        onClick={toggleTheme}
+                      >
+                        <span className="flex items-center">
+                          {isDarkMode ? <Sun className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" /> : <Moon className="w-4 h-4 mr-2 text-slate-400 dark:text-slate-500" />}
+                          Apariencia
+                        </span>
+                        <span className="text-xs text-slate-400 dark:text-slate-500">
+                          {themeMode === 'auto' ? `Auto (${isDarkMode ? 'Oscuro' : 'Claro'})` : isDarkMode ? 'Oscuro' : 'Claro'}
+                        </span>
+                      </button>
+                    </div>
 
-                  <div className="p-2 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      className="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-red-700 hover:bg-red-50 dark:text-slate-200 dark:hover:text-red-200 dark:hover:bg-red-950/30"
-                      onClick={logout}
-                      type="button"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Cerrar sesión
-                    </button>
+                    <div className="p-2 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        className="w-full flex items-center px-3 py-2 rounded-md text-sm font-medium text-slate-700 hover:text-red-700 hover:bg-red-50 dark:text-slate-200 dark:hover:text-red-200 dark:hover:bg-red-950/30"
+                        onClick={logout}
+                        type="button"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Cerrar sesión
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1227,24 +1274,19 @@ export default function DashboardLayout() {
               <button
                 type="button"
                 className={cn(
-                  "w-full flex items-center p-4 rounded-lg border transition-colors",
-                  isCollapsed && 'justify-center',
+                  'w-full border transition-all duration-200',
+                  isCollapsed
+                    ? 'mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-900/50 dark:hover:bg-slate-800/70'
+                    : 'flex items-center rounded-lg p-4',
                   userMenuOpen
-                    ? "bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800"
-                    : "bg-slate-50 border-slate-100 hover:bg-slate-100 dark:bg-slate-900/40 dark:border-slate-800 dark:hover:bg-slate-800/60"
+                    ? 'bg-white border-slate-200 shadow-sm dark:bg-slate-900 dark:border-slate-700'
+                    : 'bg-slate-50 border-slate-100 hover:bg-slate-100 dark:bg-slate-900/40 dark:border-slate-800 dark:hover:bg-slate-800/60',
                 )}
                 aria-haspopup="menu"
                 aria-expanded={userMenuOpen}
+                aria-label={isCollapsed ? 'Abrir menú de usuario' : undefined}
+                title={isCollapsed ? (user?.first_name || user?.username || 'Usuario') : undefined}
                 onClick={async () => {
-                  if (isCollapsed) {
-                    setIsSidebarCollapsed(false)
-                    try {
-                      localStorage.setItem(COLLAPSED_SIDEBAR_STORAGE_KEY, 'false')
-                    } catch {
-                      // ignore
-                    }
-                  }
-
                   const next = !userMenuOpen
                   setUserMenuOpen(next)
                   if (next) {
@@ -1252,8 +1294,16 @@ export default function DashboardLayout() {
                   }
                 }}
               >
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold dark:bg-blue-950/30 dark:text-blue-200">
+                <div className={cn(
+                  'relative flex items-center justify-center rounded-full bg-blue-100 font-semibold text-blue-600 dark:bg-blue-950/30 dark:text-blue-200',
+                  isCollapsed ? 'h-10 w-10 text-base' : 'h-10 w-10',
+                )}>
                   {user?.first_name?.[0] || user?.username?.[0] || 'U'}
+                  {isCollapsed && !!unreadNotifications && unreadNotifications > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-white bg-blue-600 px-1 text-[10px] font-bold leading-none text-white dark:border-slate-900 dark:bg-blue-500">
+                      {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                    </span>
+                  )}
                 </div>
                 {!isCollapsed && (
                   <>
@@ -1327,6 +1377,25 @@ export default function DashboardLayout() {
           </div>
         </main>
       </div>
+
+      {/* Flyout portal — renderiza fuera del nav para no causar scroll horizontal */}
+      {isCollapsed && collapsedFlyout !== null && createPortal(
+        <div
+          className="pointer-events-none fixed z-[200] flex items-center"
+          style={{ top: collapsedFlyout.top, left: 88, transform: 'translateY(-50%)' }}
+        >
+          <div className="relative inline-flex min-w-max items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 text-sm font-medium text-slate-700 shadow-lg shadow-slate-900/5 backdrop-blur-sm dark:border-slate-700/90 dark:bg-slate-900/95 dark:text-slate-200 dark:shadow-black/20">
+            <span className="absolute -left-1 top-1/2 h-2.5 w-2.5 -translate-y-1/2 rotate-45 border-b border-l border-slate-200/90 bg-white/95 dark:border-slate-700/90 dark:bg-slate-900/95" />
+            <span className="relative">{collapsedFlyout.label}</span>
+            {collapsedFlyout.meta !== undefined && (
+              <span className="relative inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                {collapsedFlyout.meta}
+              </span>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }

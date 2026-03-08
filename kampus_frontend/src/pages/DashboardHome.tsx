@@ -15,6 +15,15 @@ import {
   AlertTriangle,
   CalendarDays,
   TrendingUp,
+  CheckCircle2,
+  RefreshCw,
+  ExternalLink,
+  X,
+  CalendarRange,
+  UserCircle2,
+  ChevronRight,
+  ChevronLeft,
+  Zap,
 } from 'lucide-react'
 import { studentsApi } from '../services/students'
 import { teachersApi } from '../services/teachers'
@@ -50,6 +59,8 @@ export default function DashboardHome() {
   const [notificationsTrend, setNotificationsTrend] = useState<{ last7: number; last30: number }>({ last7: 0, last30: 0 })
   const [operationalPlanLoading, setOperationalPlanLoading] = useState(true)
   const [operationalPlanItems, setOperationalPlanItems] = useState<OperationalPlanActivity[]>([])
+  const [completingItemId, setCompletingItemId] = useState<number | null>(null)
+  const [selectedPlanItem, setSelectedPlanItem] = useState<OperationalPlanActivity | null>(null)
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false)
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
   const [lastDashboardRefreshAt, setLastDashboardRefreshAt] = useState<Date | null>(null)
@@ -348,6 +359,18 @@ export default function DashboardHome() {
     }
   }, [isAdmin])
 
+  const handleMarkComplete = useCallback(async (id: number) => {
+    setCompletingItemId(id)
+    try {
+      await operationalPlanApi.markCompleted(id)
+      setOperationalPlanItems((prev) => prev.filter((item) => item.id !== id))
+    } catch {
+      // silently ignore
+    } finally {
+      setCompletingItemId(null)
+    }
+  }, [])
+
   const refreshOperationalWidgets = useCallback(async () => {
     if (isAdmin) {
       await loadRecent()
@@ -454,9 +477,9 @@ export default function DashboardHome() {
   const quickActions = useMemo(() => {
     if (isTeacher) {
       return [
-        { label: 'Calificaciones', description: 'Registrar y revisar notas', to: '/grades' },
-        { label: 'Planeación', description: 'Gestionar planeación', to: '/planning' },
-        { label: 'Mi asignación', description: 'Ver grupos y cargas', to: '/my-assignment' },
+        { label: 'Calificaciones', description: 'Registrar y revisar notas', to: '/grades', icon: FileSpreadsheet },
+        { label: 'Planeación', description: 'Gestionar planeación', to: '/planning', icon: ClipboardCheck },
+        { label: 'Mi asignación', description: 'Ver grupos y cargas', to: '/my-assignment', icon: BookOpen },
         {
           label: 'Notificaciones',
           description:
@@ -464,24 +487,25 @@ export default function DashboardHome() {
               ? `${unreadNotificationsCount} pendientes por revisar`
               : 'Ver pendientes',
           to: '/notifications',
+          icon: Bell,
         },
       ]
     }
 
     if (isAdmin) {
       return [
-        { label: 'Registrar estudiante', description: 'Crear nuevo estudiante', to: '/students/new' },
-        { label: 'Crear docente', description: 'Registrar nuevo docente', to: '/teachers/new' },
-        { label: 'Matrículas', description: 'Gestionar matrículas', to: '/enrollments' },
-        { label: 'Configuración académica', description: 'Años, grupos y más', to: '/academic-config' },
+        { label: 'Registrar estudiante', description: 'Crear nuevo estudiante', to: '/students/new', icon: Users },
+        { label: 'Crear docente', description: 'Registrar nuevo docente', to: '/teachers/new', icon: GraduationCap },
+        { label: 'Matrículas', description: 'Gestionar matrículas', to: '/enrollments', icon: BookOpen },
+        { label: 'Configuración académica', description: 'Años, grupos y más', to: '/academic-config', icon: BarChart3 },
       ]
     }
 
     return [
-      { label: 'Estudiantes', description: 'Consultar listado', to: '/students' },
-      { label: 'Docentes', description: 'Consultar listado', to: '/teachers' },
-      { label: 'Notificaciones', description: 'Ver pendientes', to: '/notifications' },
-      { label: 'Configuración académica', description: 'Años, grupos y más', to: '/academic-config' },
+      { label: 'Estudiantes', description: 'Consultar listado', to: '/students', icon: Users },
+      { label: 'Docentes', description: 'Consultar listado', to: '/teachers', icon: GraduationCap },
+      { label: 'Notificaciones', description: 'Ver pendientes', to: '/notifications', icon: Bell },
+      { label: 'Configuración académica', description: 'Años, grupos y más', to: '/academic-config', icon: BarChart3 },
     ]
   }, [isAdmin, isTeacher, unreadNotificationsCount])
 
@@ -816,97 +840,120 @@ export default function DashboardHome() {
 
   return (
     <div className="space-y-4 md:space-y-5">
-      <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/90 sm:px-5 sm:py-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{todayLabel}</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
-              Bienvenido, {userDisplayName}.
-            </h1>
-            {isTeacher ? (
-              <p className="text-sm text-slate-500 dark:text-slate-400 sm:text-base">
-                {teacherMotivationalPhrase}
-              </p>
-            ) : (
-              <p className="text-sm text-slate-500 dark:text-slate-400 sm:text-base">
-                Priorizamos lo más importante para hoy.
-              </p>
-            )}
+      <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
+        {/* Indigo left accent bar — academia/learning signature */}
+        <div className="absolute left-0 inset-y-0 w-1 rounded-l-xl bg-linear-to-b from-indigo-400 to-violet-500" />
+        {/* Subtle background warmth */}
+        <div className="pointer-events-none absolute inset-0 bg-linear-to-br from-indigo-50/40 via-transparent to-transparent dark:from-indigo-950/15" />
+        <div className="relative flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-indigo-500 dark:text-indigo-400">{todayLabel}</p>
+            <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+              {isTeacher ? 'DOCENTE' : 'ADMINISTRADOR'}
+            </span>
           </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-            <button
-              type="button"
-              className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200"
-              onClick={() => navigate('/notifications')}
-            >
-              <p className="font-semibold">Notificaciones pendientes</p>
-              <p className="mt-0.5 text-base font-bold">{metricsLoading ? '—' : unreadNotificationsCount}</p>
-            </button>
-            <button
-              type="button"
-              className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200"
-              onClick={() => navigate(isTeacher ? '/planning' : '/operations/plan-activities')}
-            >
-              <p className="font-semibold">Actividades próximas</p>
-              <p className="mt-0.5 text-base font-bold">{operationalPlanLoading ? '—' : operationalPlanItems.length}</p>
-            </button>
-            <div className="min-h-11 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-200 sm:col-span-2 xl:col-span-1">
-              <p className="font-semibold">Estado operativo</p>
-              <span
-                className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${notificationsHealth.badgeClass}`}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">
+                Bienvenido, {userDisplayName}.
+              </h1>
+              {isTeacher ? (
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{teacherMotivationalPhrase}</p>
+              ) : (
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Priorizamos lo más importante para hoy.</p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-stretch gap-2">
+              <button
+                type="button"
+                className={`flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-left hover:bg-amber-100 transition-colors dark:border-amber-900/40 dark:bg-amber-950/20 dark:hover:bg-amber-950/30 ${focusRingClass}`}
+                onClick={() => navigate('/notifications')}
               >
-                {notificationsHealth.label}
-              </span>
+                <Bell className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">Pendientes</p>
+                  <p className="text-lg font-bold leading-tight text-amber-900 dark:text-amber-100">{metricsLoading ? '—' : unreadNotificationsCount}</p>
+                </div>
+              </button>
+              <button
+                type="button"
+                className={`flex items-center gap-2.5 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-left hover:bg-blue-100 transition-colors dark:border-blue-900/40 dark:bg-blue-950/20 dark:hover:bg-blue-950/30 ${focusRingClass}`}
+                onClick={() => navigate(isTeacher ? '/planning' : '/operations/plan-activities')}
+              >
+                <CalendarDays className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                <div>
+                  <p className="text-[11px] font-medium text-blue-700 dark:text-blue-300">Actividades</p>
+                  <p className="text-lg font-bold leading-tight text-blue-900 dark:text-blue-100">{operationalPlanLoading ? '—' : operationalPlanItems.length}</p>
+                </div>
+              </button>
+              <div className="flex items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 dark:border-slate-700 dark:bg-slate-800/60">
+                <span className={`shrink-0 h-2.5 w-2.5 rounded-full ${
+                  unreadNotificationsCount >= 30 ? 'bg-rose-500' :
+                  unreadNotificationsCount >= 10 ? 'bg-amber-500' :
+                  'bg-emerald-500'
+                }`} />
+                <div>
+                  <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Estado</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{notificationsHealth.label}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100 sm:text-lg">Resumen de indicadores</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            KPIs priorizados para {isTeacher ? 'seguimiento docente' : 'gestión administrativa'}.
-          </p>
-        </div>
-
-        {isTeacher ? (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:w-auto">
-            <Button className="w-full min-h-11 sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/grades')}>
-              Ir a calificaciones
-            </Button>
-            <Button className="w-full min-h-11 sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
-              Ver notificaciones
-            </Button>
-          </div>
-        ) : (
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                className="w-full min-h-11 sm:w-auto"
-                variant="outline"
-                size="sm"
-                onClick={refreshDashboardNow}
-                disabled={manualRefreshLoading}
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500">
+          Indicadores clave
+        </h2>
+        <div className="flex items-center gap-2">
+          {isTeacher ? (
+            <>
+              <button
+                type="button"
+                className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 min-h-9 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-300 dark:hover:bg-slate-800 ${focusRingClass}`}
+                onClick={() => navigate('/grades')}
               >
-                {manualRefreshLoading ? 'Actualizando…' : 'Actualizar panel'}
-              </Button>
-              <Button
-                className="w-full min-h-11 sm:w-auto"
-                variant="outline"
-                size="sm"
-                onClick={() => setAutoRefreshEnabled((prev) => !prev)}
+                Calificaciones <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className={`flex items-center gap-1 rounded-md px-2.5 py-1.5 min-h-9 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors dark:text-slate-300 dark:hover:bg-slate-800 ${focusRingClass}`}
+                onClick={() => navigate('/notifications')}
+              >
+                Notificaciones <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="hidden sm:block text-[11px] text-slate-400 dark:text-slate-500" role="status" aria-live="polite">
+                {lastRefreshLabel}
+              </p>
+              <button
+                type="button"
+                title={autoRefreshEnabled ? 'Desactivar auto-refresh' : 'Activar auto-refresh'}
                 aria-pressed={autoRefreshEnabled}
+                className={`flex items-center justify-center min-h-9 min-w-9 rounded-lg border transition-colors ${focusRingClass} ${
+                  autoRefreshEnabled
+                    ? 'border-indigo-200 bg-indigo-50 text-indigo-600 dark:border-indigo-900/40 dark:bg-indigo-950/30 dark:text-indigo-400'
+                    : 'border-slate-200 text-slate-400 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'
+                }`}
+                onClick={() => setAutoRefreshEnabled((prev) => !prev)}
               >
-                Auto-refresh: {autoRefreshEnabled ? 'ON' : 'OFF'}
-              </Button>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400" role="status" aria-live="polite">
-              Última actualización: {lastRefreshLabel} · automático cada 2 min
-            </p>
-          </div>
-        )}
+                <Zap className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                title="Actualizar panel"
+                disabled={manualRefreshLoading}
+                className={`flex items-center justify-center min-h-9 min-w-9 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:opacity-50 transition-colors dark:border-slate-700 dark:hover:bg-slate-800 ${focusRingClass}`}
+                onClick={refreshDashboardNow}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${manualRefreshLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {metricsError && (
@@ -918,42 +965,49 @@ export default function DashboardHome() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat, index) => (
-          <Card
-            key={index}
-            className={`cursor-pointer touch-manipulation border-slate-200 hover:border-slate-300 hover:shadow-sm active:scale-[0.99] transition-all dark:border-slate-800 ${focusRingClass}`}
-            onClick={stat.onClick}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                stat.onClick()
-              }
-            }}
-          >
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6">
-              <CardTitle className="text-sm font-medium">
-                {stat.title}
-              </CardTitle>
-              <div className={`p-2 rounded-full ${stat.bg}`}>
-                <stat.icon className={`h-4 w-4 sm:h-4 sm:w-4 ${stat.color}`} />
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 sm:p-6 pt-0">
-              <div className="text-xl sm:text-2xl font-bold">{stat.value}</div>
-              <p className="text-xs text-slate-500 leading-snug">
-                {stat.description}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {stats.map((stat, index) => {
+          const borderCls = (
+            { 'text-emerald-600': 'border-l-emerald-400', 'text-blue-600': 'border-l-blue-400', 'text-purple-600': 'border-l-purple-400', 'text-amber-600': 'border-l-amber-400' } as Record<string, string>
+          )[stat.color] ?? 'border-l-slate-300'
+          return (
+            <Card
+              key={index}
+              className={`cursor-pointer touch-manipulation border-slate-200 border-l-4 ${borderCls} hover:shadow-md hover:-translate-y-0.5 active:scale-[0.99] active:translate-y-0 transition-all dark:border-slate-800 ${focusRingClass}`}
+              onClick={stat.onClick}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  stat.onClick()
+                }
+              }}
+            >
+              <CardHeader className="p-4 pb-1.5 sm:p-5 sm:pb-1.5">
+                <CardTitle className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {stat.title}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+                <div className="flex items-end justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{stat.value}</div>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-snug">{stat.description}</p>
+                  </div>
+                  <div className={`shrink-0 p-2.5 rounded-xl ${stat.bg}`}>
+                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       {isTeacher && teacherSummary ? (
-        <div className="grid gap-4 xl:grid-cols-12">
-          <Card className="xl:col-span-7">
+        <div className="grid gap-4 lg:grid-cols-12">
+          <Card className="lg:col-span-7">
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>Estado académico del periodo</CardTitle>
             </CardHeader>
@@ -1000,7 +1054,7 @@ export default function DashboardHome() {
             </CardContent>
           </Card>
 
-          <Card className="xl:col-span-5">
+          <Card className="lg:col-span-5">
             <CardHeader className="p-4 sm:p-6">
               <CardTitle>Foco docente del día</CardTitle>
             </CardHeader>
@@ -1057,7 +1111,7 @@ export default function DashboardHome() {
             </Button>
           </CardHeader>
           <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {adminControlWidgets.map((widget) => (
                 <button
                   key={widget.title}
@@ -1082,53 +1136,53 @@ export default function DashboardHome() {
 
       {!isTeacher ? (
         <Card>
-          <CardHeader className="p-4 sm:p-6">
-            <CardTitle>Pendientes críticos</CardTitle>
+          <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-300">Pendientes críticos</CardTitle>
+              <button
+                type="button"
+                className={`flex items-center gap-1 rounded-md px-2 py-1.5 min-h-9 text-xs font-medium text-slate-500 hover:bg-slate-100 transition-colors dark:text-slate-400 dark:hover:bg-slate-800 ${focusRingClass}`}
+                onClick={() => navigate('/notifications')}
+              >
+                Ver todo <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
-            {adminCriticalItems.map((item) => {
-              const levelClasses =
-                item.level === 'red'
-                  ? {
-                      dot: 'bg-rose-500',
-                      badge: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200',
-                      text: 'Crítico',
-                    }
+          <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+            <div className="grid grid-cols-2 gap-2.5">
+              {adminCriticalItems.map((item) => {
+                const borderCls = item.level === 'red'
+                  ? 'border-t-rose-400'
                   : item.level === 'yellow'
-                    ? {
-                        dot: 'bg-amber-500',
-                        badge: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200',
-                        text: 'Atención',
-                      }
-                    : {
-                        dot: 'bg-emerald-500',
-                        badge: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200',
-                        text: 'Estable',
-                      }
-
-              return (
-                <button
-                  key={item.label}
-                  type="button"
-                  className={`w-full rounded-lg border border-slate-200 p-3 text-left transition-colors hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50 ${focusRingClass}`}
-                  onClick={() => navigate(item.to)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">{item.label}</p>
-                      <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">{item.value}</p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{item.helper}</p>
+                    ? 'border-t-amber-400'
+                    : 'border-t-emerald-400'
+                const valueCls = item.level === 'red'
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : item.level === 'yellow'
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                const dotCls = item.level === 'red'
+                  ? 'bg-rose-400'
+                  : item.level === 'yellow'
+                    ? 'bg-amber-400'
+                    : 'bg-emerald-400'
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    className={`rounded-xl border-2 border-t-4 border-slate-100 ${borderCls} bg-slate-50/60 p-3 text-left transition-all hover:bg-white hover:shadow-sm dark:border-slate-800 dark:bg-slate-800/40 dark:hover:bg-slate-800/70 ${focusRingClass}`}
+                    onClick={() => navigate(item.to)}
+                  >
+                    <div className="flex items-start justify-between gap-1.5">
+                      <p className="text-[11px] font-medium leading-snug text-slate-500 dark:text-slate-400">{item.label}</p>
+                      <span className={`mt-0.5 shrink-0 h-2 w-2 rounded-full ${dotCls}`} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block h-2.5 w-2.5 rounded-full ${levelClasses.dot}`} />
-                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${levelClasses.badge}`}>
-                        {levelClasses.text}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
+                    <p className={`mt-1.5 text-3xl font-bold tracking-tight leading-none ${valueCls}`}>{item.value}</p>
+                    <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500 leading-snug">{item.helper}</p>
+                  </button>
+                )
+              })}
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -1230,16 +1284,16 @@ export default function DashboardHome() {
         </div>
       ) : null}
 
-      <div className={isTeacher ? 'grid gap-4 xl:grid-cols-12 xl:items-start' : 'grid gap-4 xl:grid-cols-12 xl:items-start'}>
-        <div className="xl:col-span-6 2xl:col-span-5 space-y-4 self-start">
+      <div className="grid gap-4 lg:grid-cols-12 lg:items-start">
+        <div className="lg:col-span-6 xl:col-span-5 space-y-4 self-start">
           <Card>
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
+            <CardHeader className="flex items-center justify-between gap-3 p-4 pb-0 sm:p-6 sm:pb-0">
               <CardTitle>Actividad Reciente</CardTitle>
-              <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
+              <Button className="shrink-0" variant="outline" size="sm" onClick={() => navigate('/notifications')}>
                 Ver todo
               </Button>
             </CardHeader>
-            <CardContent className="p-4 sm:p-6 pt-0 max-h-112 overflow-hidden">
+            <CardContent className="p-4 sm:p-6 pt-4 sm:pt-6">
               {recentLoading ? (
                 <div className="text-sm text-slate-500">Cargando actividad…</div>
               ) : recentNotifications.length === 0 ? (
@@ -1251,48 +1305,48 @@ export default function DashboardHome() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  <div className="space-y-3 overflow-y-auto max-h-72 pr-1">
+                  <div className="space-y-3 overflow-y-auto overscroll-contain max-h-72 pr-1">
                     {recentNotificationsPage.map((n) => (
                       <button
                         key={n.id}
                         type="button"
-                        className={`w-full min-h-16 text-left p-3 rounded-lg border border-slate-200 hover:bg-slate-50 active:bg-slate-100/70 touch-manipulation transition-colors ${focusRingClass}`}
+                        className={`w-full text-left rounded-lg px-3 py-2.5 hover:bg-slate-50 active:bg-slate-100 transition-colors touch-manipulation dark:hover:bg-slate-800/50 ${focusRingClass}`}
                         onClick={() => navigate('/notifications')}
                       >
                         <div className="flex items-start gap-3">
-                          <div className="h-8 w-8 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center flex-none dark:bg-amber-950/30 dark:border-amber-900/40">
-                            <Bell className="h-4 w-4 text-amber-700" />
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-slate-800 truncate">{n.title}</div>
-                            <div className="text-xs text-slate-500 mt-1 line-clamp-1">{n.body}</div>
-                            <div className="text-xs text-slate-400 mt-1">{formatRelativeTime(n.created_at)}</div>
+                          <span className="shrink-0 mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 dark:bg-amber-500" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:justify-between sm:gap-2">
+                              <p className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2 sm:line-clamp-1">{n.title}</p>
+                              <span className="shrink-0 text-[11px] text-slate-400 dark:text-slate-500">{formatRelativeTime(n.created_at)}</span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400 line-clamp-2 sm:line-clamp-1">{n.body}</p>
                           </div>
                         </div>
                       </button>
                     ))}
                   </div>
 
-                  <div className="flex items-center justify-between border-t border-slate-200 pt-3 dark:border-slate-800">
-                    <Button
-                      variant="outline"
-                      size="sm"
+                  <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-2 mt-1">
+                    <button
+                      type="button"
                       onClick={() => setRecentPage((prev) => Math.max(0, prev - 1))}
                       disabled={recentPage === 0}
+                      className={`flex items-center justify-center min-h-11 min-w-11 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors dark:hover:bg-slate-800 dark:hover:text-slate-300 ${focusRingClass}`}
                     >
-                      Anterior
-                    </Button>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Página {Math.min(recentPage + 1, totalRecentPages)} de {totalRecentPages}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
+                      {Math.min(recentPage + 1, totalRecentPages)}/{totalRecentPages}
+                    </span>
+                    <button
+                      type="button"
                       onClick={() => setRecentPage((prev) => Math.min(totalRecentPages - 1, prev + 1))}
                       disabled={recentPage >= totalRecentPages - 1}
+                      className={`flex items-center justify-center min-h-11 min-w-11 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors dark:hover:bg-slate-800 dark:hover:text-slate-300 ${focusRingClass}`}
                     >
-                      Siguiente
-                    </Button>
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
                   </div>
                 </div>
               )}
@@ -1375,14 +1429,14 @@ export default function DashboardHome() {
                       const badgeLabel = d.isClosed ? 'Cerrado' : overdue ? 'Vencido' : 'Vigente'
 
                       return (
-                        <div key={d.periodId} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-slate-800 truncate">{d.periodName}</div>
-                            <div className="text-xs text-slate-500 mt-0.5">
-                              Límite cargue de notas: {formatDeadline(d.deadline)}
+                        <div key={d.periodId} className="flex flex-col gap-2 min-[430px]:flex-row min-[430px]:items-start min-[430px]:justify-between min-[430px]:gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-slate-800 dark:text-slate-200 line-clamp-2 min-[430px]:line-clamp-1">{d.periodName}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              Límite: {formatDeadline(d.deadline)}
                             </div>
                           </div>
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${badgeClass} self-start sm:self-auto`}>
+                          <span className={`shrink-0 self-start inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${badgeClass}`}>
                             {badgeLabel}
                           </span>
                         </div>
@@ -1394,79 +1448,329 @@ export default function DashboardHome() {
             </Card>
           ) : null}
         </div>
-        <div className="xl:col-span-6 2xl:col-span-7 space-y-4">
+        <div className="lg:col-span-6 xl:col-span-7 space-y-4">
           <Card>
-            <CardHeader className="p-4 sm:p-6">
-              <CardTitle>Accesos Rápidos</CardTitle>
+            <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3">
+              <CardTitle className="text-sm font-semibold text-slate-700 dark:text-slate-300">Accesos rápidos</CardTitle>
             </CardHeader>
-            <CardContent className="p-4 sm:p-6 pt-0">
-              <div className={isTeacher ? 'space-y-2' : 'grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1'}>
-                {quickActions.slice(0, 4).map((a) => (
-                  <button
-                    key={a.to}
-                    type="button"
-                    className={`w-full min-h-12 touch-manipulation flex items-center justify-between p-3 text-sm font-medium text-slate-700 bg-slate-50 rounded-lg hover:bg-slate-100 active:bg-slate-200/60 transition-colors dark:text-slate-200 dark:bg-slate-900/40 dark:hover:bg-slate-800/60 dark:active:bg-slate-800/80 ${focusRingClass}`}
-                    onClick={() => navigate(a.to)}
-                  >
-                    <span className="flex flex-col items-start">
-                      <span>{a.label}</span>
-                      <span className="text-xs text-slate-500 dark:text-slate-400 font-normal line-clamp-2">{a.description}</span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      {a.to === '/notifications' && unreadNotificationsCount > 0 ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-                          {unreadNotificationsCount}
+            <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
+              <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-1">
+                {quickActions.slice(0, 4).map((a) => {
+                  const ActionIcon = a.icon
+                  return (
+                    <button
+                      key={a.to}
+                      type="button"
+                      className={`w-full flex items-start gap-3 rounded-lg px-3 py-3 min-h-11 text-left hover:bg-slate-50 active:bg-slate-100 touch-manipulation transition-colors dark:hover:bg-slate-800/50 sm:items-center ${focusRingClass}`}
+                      onClick={() => navigate(a.to)}
+                    >
+                      {ActionIcon && (
+                        <span className="mt-0.5 shrink-0 w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 sm:mt-0">
+                          <ActionIcon className="h-4 w-4" />
                         </span>
-                      ) : null}
-                      <span className="text-slate-400 dark:text-slate-500">→</span>
-                    </span>
-                  </button>
-                ))}
+                      )}
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">{a.label}</span>
+                        <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400 line-clamp-2 sm:line-clamp-1">{a.description}</span>
+                      </span>
+                      <span className="mt-0.5 flex shrink-0 items-center gap-1.5 sm:mt-0">
+                        {a.to === '/notifications' && unreadNotificationsCount > 0 ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                            {unreadNotificationsCount}
+                          </span>
+                        ) : null}
+                        <ChevronRight className="h-3.5 w-3.5 text-slate-400 dark:text-slate-600" />
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-6">
-              <CardTitle>Actividades plan operativo</CardTitle>
-              <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={loadOperationalPlan}>
-                Actualizar
-              </Button>
+            <CardHeader className="p-4 sm:p-6 pb-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <CardTitle>Plan operativo</CardTitle>
+                  {!operationalPlanLoading && operationalPlanItems.length > 0 && (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                      {operationalPlanItems.length}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  {!isTeacher && (
+                    <button
+                      type="button"
+                      title="Ir a plan operativo"
+                      className={`flex items-center justify-center min-h-9 min-w-9 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:hover:bg-slate-800 dark:hover:text-slate-300 ${focusRingClass}`}
+                      onClick={() => navigate('/operations/plan-activities')}
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    title="Actualizar"
+                    className={`flex items-center justify-center min-h-9 min-w-9 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors dark:hover:bg-slate-800 dark:hover:text-slate-300 ${focusRingClass}`}
+                    onClick={loadOperationalPlan}
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-4 sm:p-6 pt-0">
               {operationalPlanLoading ? (
-                <div className="text-sm text-slate-500">Cargando actividades…</div>
-              ) : operationalPlanItems.length === 0 ? (
                 <div className="space-y-2">
-                  <div className="text-sm text-slate-500">No hay actividades próximas para los siguientes 30 días.</div>
-                  {!isTeacher ? (
-                    <Button className="w-full sm:w-auto" variant="outline" size="sm" onClick={() => navigate('/operations/plan-activities')}>
-                      Ir a plan operativo
-                    </Button>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {operationalPlanItems.slice(0, 5).map((item) => (
-                    <div key={item.id} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {item.end_date && item.end_date !== item.activity_date
-                          ? `${item.activity_date} → ${item.end_date}`
-                          : item.activity_date}{' '}
-                        · inicia en {item.days_until} día(s)
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">{item.title}</p>
-                      {item.responsible_users.length > 0 ? (
-                        <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-                          Responsables: {item.responsible_users.map((u) => u.full_name).join(', ')}
-                        </p>
-                      ) : null}
-                    </div>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-9 rounded-lg bg-slate-100 dark:bg-slate-800 animate-pulse" />
                   ))}
+                </div>
+              ) : operationalPlanItems.length === 0 ? (
+                <p className="py-2 text-sm text-slate-500 dark:text-slate-400">
+                  Sin actividades en los próximos 30 días.
+                </p>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {operationalPlanItems.slice(0, 6).map((item) => {
+                    const d = item.days_until
+                    const daysLabel = d < 0 ? 'Vencida' : d === 0 ? 'Hoy' : d === 1 ? 'Mañana' : `+${d}d`
+                    const chipCls =
+                      d <= 0
+                        ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                        : d === 1
+                          ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+                          : d <= 3
+                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                            : d <= 7
+                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                    const completing = completingItemId === item.id
+                    return (
+                      <div key={item.id} className="flex items-start gap-2.5 py-2.5 first:pt-0 last:pb-0 sm:items-center">
+                        <button
+                          type="button"
+                          className={`flex-1 min-w-0 flex flex-col items-start gap-1.5 text-left group/row rounded sm:flex-row sm:items-center sm:gap-2 ${focusRingClass}`}
+                          onClick={() => setSelectedPlanItem(item)}
+                        >
+                          <span
+                            className={`shrink-0 w-18 text-center text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${chipCls}`}
+                          >
+                            {daysLabel}
+                          </span>
+                          <span className="flex-1 min-w-0 text-sm font-medium leading-snug text-slate-800 dark:text-slate-200 transition-colors line-clamp-2 sm:truncate sm:line-clamp-1 group-hover/row:text-sky-600 dark:group-hover/row:text-sky-400">
+                            {item.title}
+                          </span>
+                        </button>
+                        {item.responsible_users.length > 0 && (
+                          <div className="hidden sm:flex shrink-0 -space-x-1.5">
+                            {item.responsible_users.slice(0, 2).map((u) => (
+                              <span
+                                key={u.id}
+                                title={u.full_name}
+                                className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 flex items-center justify-center text-[10px] font-bold ring-2 ring-white dark:ring-slate-900 select-none"
+                              >
+                                {u.full_name
+                                  .split(' ')
+                                  .map((w) => w[0])
+                                  .filter(Boolean)
+                                  .slice(0, 2)
+                                  .join('')
+                                  .toUpperCase()}
+                              </span>
+                            ))}
+                            {item.responsible_users.length > 2 && (
+                              <span className="w-6 h-6 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 flex items-center justify-center text-[10px] font-bold ring-2 ring-white dark:ring-slate-900 select-none">
+                                +{item.responsible_users.length - 2}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {!isTeacher && (
+                          <button
+                            type="button"
+                            disabled={completing}
+                            title="Marcar completada"
+                            className={`shrink-0 flex items-center justify-center min-h-9 min-w-9 rounded-lg text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 transition-colors disabled:opacity-40 ${focusRingClass}`}
+                            onClick={() => handleMarkComplete(item.id)}
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
+
+          {/* Activity detail panel */}
+          {selectedPlanItem && (() => {
+            const item = selectedPlanItem
+            const d = item.days_until
+            const daysLabel = d < 0 ? 'Vencida' : d === 0 ? 'Hoy' : d === 1 ? 'Mañana' : `+${d}d`
+            const chipCls =
+              d <= 0
+                ? 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                : d === 1
+                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+                  : d <= 3
+                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                    : d <= 7
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+            const fmt = (s: string) =>
+              new Intl.DateTimeFormat('es-CO', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(
+                new Date(s + 'T00:00:00'),
+              )
+            const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+            return (
+              <>
+                <div
+                  className="fixed inset-0 z-40 bg-black/30 dark:bg-black/50"
+                  onClick={() => setSelectedPlanItem(null)}
+                />
+                <div className="fixed inset-y-0 right-0 z-50 flex flex-col w-full sm:w-88 bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800">
+                  {/* Panel header */}
+                  <div className="flex items-start gap-3 p-5 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex-1 min-w-0">
+                      <span className={`inline-flex text-[11px] font-semibold px-2 py-0.5 rounded-full ${chipCls}`}>
+                        {daysLabel}
+                      </span>
+                      <h2 className="mt-2 text-base font-bold text-slate-900 dark:text-slate-100 leading-snug">
+                        {item.title}
+                      </h2>
+                    </div>
+                    <button
+                      type="button"
+                      title="Cerrar"
+                      className={`shrink-0 flex items-center justify-center min-h-11 min-w-11 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-300 transition-colors ${focusRingClass}`}
+                      onClick={() => setSelectedPlanItem(null)}
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Panel body */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+                    {/* Dates */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                        <CalendarRange className="w-3.5 h-3.5" />
+                        Tiempos
+                      </div>
+                      <div className="rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3 space-y-1.5 text-sm">
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500 dark:text-slate-400">Inicio</span>
+                          <span className="font-medium text-slate-800 dark:text-slate-200 text-right">
+                            {capitalize(fmt(item.activity_date))}
+                          </span>
+                        </div>
+                        {item.end_date && item.end_date !== item.activity_date && (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-500 dark:text-slate-400">Fin</span>
+                            <span className="font-medium text-slate-800 dark:text-slate-200 text-right">
+                              {capitalize(fmt(item.end_date))}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between gap-2 pt-1 border-t border-slate-200 dark:border-slate-700">
+                          <span className="text-slate-500 dark:text-slate-400">Estado</span>
+                          <span
+                            className={`font-semibold ${
+                              d < 0
+                                ? 'text-red-600 dark:text-red-400'
+                                : d === 0
+                                  ? 'text-orange-600 dark:text-orange-400'
+                                  : 'text-slate-700 dark:text-slate-300'
+                            }`}
+                          >
+                            {d < 0
+                              ? `Vencida hace ${Math.abs(d)} día${Math.abs(d) !== 1 ? 's' : ''}`
+                              : d === 0
+                                ? 'Inicia hoy'
+                                : d === 1
+                                  ? 'Inicia mañana'
+                                  : `Inicia en ${d} días`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {item.description && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">Descripción</p>
+                        <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">{item.description}</p>
+                      </div>
+                    )}
+
+                    {/* Responsible users */}
+                    {item.responsible_users.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wide">
+                          <UserCircle2 className="w-3.5 h-3.5" />
+                          Responsables ({item.responsible_users.length})
+                        </div>
+                        <div className="space-y-1.5">
+                          {item.responsible_users.map((u) => (
+                            <div
+                              key={u.id}
+                              className="flex items-center gap-2.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 px-3 py-2"
+                            >
+                              <span className="shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 flex items-center justify-center text-xs font-bold select-none">
+                                {u.full_name
+                                  .split(' ')
+                                  .map((w) => w[0])
+                                  .filter(Boolean)
+                                  .slice(0, 2)
+                                  .join('')
+                                  .toUpperCase()}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{u.full_name}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{u.role}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* No responsibles warning */}
+                    {item.responsible_users.length === 0 && (
+                      <div className="rounded-lg border border-dashed border-slate-200 dark:border-slate-700 p-3 text-center">
+                        <p className="text-xs text-slate-400 dark:text-slate-500">Sin responsables asignados</p>
+                      </div>
+                    )}
+
+                  </div>
+
+                  {/* Panel footer — admin actions */}
+                  {!isTeacher && (
+                    <div className="p-4 pb-8 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        disabled={completingItemId === item.id}
+                        className={`w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg text-sm font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/50 transition-colors disabled:opacity-40 ${focusRingClass}`}
+                        onClick={async () => {
+                          await handleMarkComplete(item.id)
+                          setSelectedPlanItem(null)
+                        }}
+                      >
+                        <CheckCircle2 className="w-4 h-4" />
+                        Marcar como completada
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )
+          })()}
 
         </div>
       </div>
