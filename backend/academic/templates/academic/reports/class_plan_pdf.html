@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @page {
+        size: A4;
+        margin: 1.15cm 1.2cm 1.45cm;
+
+        @bottom-left {
+          content: "Sistema de Gestión Escolar Kampus";
+          color: #94a3b8;
+          font-size: 8.5px;
+        }
+
+        @bottom-right {
+          content: "Página " counter(page) " de " counter(pages);
+          color: #94a3b8;
+          font-size: 8.5px;
+        }
+      }
+
+      :root {
+        --ink: #1f2937;
+        --muted: #6b7280;
+        --line: #d7dee7;
+        --soft: #f8fafc;
+        --soft-2: #f1f5f9;
+        --brand: #1d4ed8;
+        --brand-deep: #1e3a8a;
+        --brand-soft: #dbeafe;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Helvetica Neue", Arial, sans-serif;
+        color: var(--ink);
+        font-size: 11px;
+        line-height: 1.4;
+        background: #ffffff;
+      }
+
+      .document {
+        background: #ffffff;
+        padding: 4px 2px 4px;
+      }
+
+      .serif {
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      .header {
+        border-bottom: 1px solid #eaf0f7;
+        padding-bottom: 9px;
+        margin-bottom: 10px;
+      }
+
+      .meta-grid,
+      .reference-row,
+      .competency-table,
+      .two-col {
+        width: 100%;
+        border-collapse: separate;
+      }
+
+      .meta-grid td,
+      .reference-row td,
+      .competency-table td,
+      .two-col td {
+        vertical-align: top;
+      }
+
+      .header-center {
+        text-align: center;
+      }
+
+      .logo-box {
+        width: 60px;
+        height: 60px;
+        border-radius: 20px;
+        background: linear-gradient(180deg, #f8fbff 0%, #ecf4ff 100%);
+        text-align: center;
+        line-height: 60px;
+        font-weight: 700;
+        color: #64748b;
+        font-size: 12px;
+        margin: 0 auto 8px;
+        box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.7);
+      }
+
+      .logo-box img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 20px;
+      }
+
+      .institution-name {
+        font-size: 20px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #0f172a;
+        line-height: 1.1;
+      }
+
+      .institution-line {
+        font-size: 8.75px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        margin-top: 6px;
+      }
+
+      .institution-meta {
+        font-size: 8px;
+        color: #94a3b8;
+        margin-top: 4px;
+      }
+
+      .institution-divider {
+        width: 108px;
+        height: 3px;
+        background: linear-gradient(90deg, transparent 0%, #bfdbfe 25%, #1d4ed8 50%, #bfdbfe 75%, transparent 100%);
+        margin: 9px auto 0;
+        border-radius: 999px;
+      }
+
+      .plan-kicker {
+        margin-top: 10px;
+        display: inline-block;
+        padding: 3px 12px;
+        border-radius: 999px;
+        background: #e9eef7;
+        color: var(--brand-deep);
+        font-size: 7.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.15em;
+      }
+
+      .plan-title {
+        margin: 10px 0 0;
+        font-size: 16px;
+        color: var(--brand-deep);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .summary-card {
+        border-radius: 16px;
+        overflow: hidden;
+        margin-bottom: 12px;
+        page-break-inside: avoid;
+        background: linear-gradient(180deg, #fafcff 0%, #ffffff 100%);
+      }
+
+      .summary-top {
+        background: linear-gradient(135deg, #f8fbff 0%, #eef4ff 100%);
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid #e6eef9;
+      }
+
+      .meta-grid {
+        border-spacing: 0;
+      }
+
+      .meta-grid td {
+        width: 33.33%;
+        padding: 0 10px 10px 0;
+      }
+
+      .meta-item {
+        background: rgba(255, 255, 255, 0.82);
+        border-radius: 12px;
+        padding: 9px 11px;
+        box-shadow: inset 0 0 0 1px rgba(219, 234, 254, 0.65);
+      }
+
+      .meta-grid tr:last-child td {
+        padding-bottom: 0;
+      }
+
+      .eyebrow {
+        display: block;
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: #94a3b8;
+        margin-bottom: 3px;
+      }
+
+      .meta-value {
+        font-size: 11px;
+        color: #111827;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+
+      .topic-block {
+        padding: 12px 16px 15px;
+        background: #ffffff;
+      }
+
+      .topic-title {
+        margin: 2px 0 0;
+        font-size: 18px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+
+      .section {
+        margin-bottom: 12px;
+        page-break-inside: avoid;
+      }
+
+      .section-head {
+        margin-bottom: 8px;
+      }
+
+      .section-tag {
+        font-size: 8.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--brand-deep);
+      }
+
+      .section-title {
+        margin: 3px 0 0;
+        font-size: 13px;
+        font-weight: 700;
+        color: #111827;
+      }
+
+      .reference-row {
+        border-spacing: 0 8px;
+      }
+
+      .reference-label {
+        width: 82px;
+        padding: 6px 10px 0 0;
+        font-size: 8.5px;
+        font-weight: 700;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .reference-card {
+        background: #f8fbff;
+        border-radius: 12px;
+        padding: 11px 13px;
+        border-left: 4px solid #bfdbfe;
+        box-shadow: inset 0 0 0 1px rgba(219, 234, 254, 0.55);
+      }
+
+      .reference-card.alt {
+        background: #f9fafb;
+        border-left-color: #cbd5e1;
+      }
+
+      .reference-card.result-card {
+        background: linear-gradient(135deg, #eff6ff 0%, #f8fbff 100%);
+        border-left-color: #2563eb;
+      }
+
+      .reference-card.dba-card {
+        background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+        border-left-color: #64748b;
+      }
+
+      .reference-card.standard-card {
+        background: linear-gradient(135deg, #fefce8 0%, #ffffff 100%);
+        border-left-color: #ca8a04;
+      }
+
+      .reference-card-title {
+        margin: 0 0 5px;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #64748b;
+      }
+
+      .reference-card.result-card .reference-card-title {
+        color: #1d4ed8;
+      }
+
+      .reference-card.standard-card .reference-card-title {
+        color: #a16207;
+      }
+
+      .competency-table {
+        border-spacing: 10px 0;
+        margin: 0 -10px;
+      }
+
+      .competency-table td {
+        width: 33.33%;
+      }
+
+      .competency-card {
+        border-radius: 14px;
+        padding: 14px 13px 12px;
+        min-height: 126px;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+        box-shadow: inset 0 0 0 1px #edf2f7;
+      }
+
+      .competency-name {
+        font-size: 8.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--brand);
+        margin-bottom: 8px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #edf2f7;
+      }
+
+      .competency-kicker {
+        display: inline-block;
+        margin-bottom: 8px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #eff6ff;
+        color: var(--brand-deep);
+        font-size: 7.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .competency-card.do-card .competency-kicker {
+        background: #ecfeff;
+        color: #155e75;
+      }
+
+      .competency-card.be-card .competency-kicker {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .timeline {
+        border-left: 2px solid #dbeafe;
+        margin-left: 14px;
+        padding-left: 18px;
+      }
+
+      .timeline-item {
+        position: relative;
+        margin-bottom: 14px;
+        page-break-inside: avoid;
+      }
+
+      .timeline-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .timeline-dot {
+        position: absolute;
+        left: -25px;
+        top: 10px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #94a3b8;
+        border: 3px solid #ffffff;
+      }
+
+      .timeline-item.featured .timeline-dot {
+        background: var(--brand);
+      }
+
+      .timeline-card {
+        border-radius: 16px;
+        padding: 13px 14px 12px;
+        background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+        box-shadow: inset 0 0 0 1px #edf2f7;
+      }
+
+      .timeline-meta {
+        display: inline-block;
+        margin-bottom: 7px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #eff6ff;
+        font-size: 7.5px;
+        font-weight: 700;
+        color: var(--brand-deep);
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .timeline-title {
+        margin: 0 0 7px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #111827;
+      }
+
+      .two-col {
+        border-spacing: 12px 0;
+        margin: 0 -12px;
+      }
+
+      .two-col td {
+        width: 50%;
+      }
+
+      .panel,
+      .full-panel {
+        border-radius: 14px;
+        overflow: hidden;
+        background: #ffffff;
+        box-shadow: inset 0 0 0 1px #edf2f7;
+      }
+
+      .panel-head {
+        background: linear-gradient(135deg, #f8fafc 0%, #f8fbff 100%);
+        border-bottom: 1px solid #eef2f7;
+        padding: 10px 12px;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 10px;
+        font-weight: 700;
+        color: #111827;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .panel-body {
+        padding: 12px;
+      }
+
+      .dua-panel {
+        background: linear-gradient(135deg, #f8fbff 0%, #f0f9ff 100%);
+      }
+
+      .rich-content {
+        font-size: 10.5px;
+        line-height: 1.45;
+        color: #374151;
+      }
+
+      .rich-content p {
+        margin: 0 0 6px;
+        text-align: justify;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        hyphens: auto;
+      }
+
+      .rich-content p:last-child {
+        margin-bottom: 0;
+      }
+
+      .rich-content ul {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+      }
+
+      .rich-content li {
+        position: relative;
+        margin: 0 0 5px;
+        padding-left: 14px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        hyphens: auto;
+      }
+
+      .rich-content li::before {
+        content: "•";
+        position: absolute;
+        left: 0;
+        top: 0;
+        color: var(--brand);
+        font-weight: 700;
+      }
+
+      .rich-subtitle {
+        font-size: 9px;
+        font-weight: 700;
+        color: var(--brand-deep);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin-top: 2px;
+      }
+
+      .instrument-label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 8px;
+        font-weight: 700;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .instrument-chip {
+        display: inline-block;
+        margin-bottom: 8px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #dcfce7;
+        color: #166534;
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .footnote {
+        margin-top: 10px;
+        font-size: 8.5px;
+        color: #94a3b8;
+        text-align: center;
+      }
+
+      .resource-panel .panel-body,
+      .dua-panel .panel-body {
+        padding-top: 14px;
+      }
+
+      .summary-card .meta-grid tr td:last-child {
+        padding-right: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="document">
+      <div class="header">
+        <div class="header-center">
+          {% if institution and institution.pdf_show_logo and institution.logo %}
+            <div class="logo-box">
+              <img src="{{ institution.logo.url }}" alt="Logo institucional" />
+            </div>
+          {% else %}
+            <div class="logo-box">IE</div>
+          {% endif %}
+          <div class="institution-name">
+            {% if institution and institution.name %}
+              {{ institution.name }}
+            {% else %}
+              Institución Educativa
+            {% endif %}
+          </div>
+          <div class="plan-kicker">Planeación pedagógica institucional</div>
+          <div class="plan-title serif">Plan de Clases</div>
+        </div>
+      </div>
+
+      <div class="summary-card">
+        <div class="summary-top">
+          <table class="meta-grid">
+            <tr>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Área / Asignatura</span>
+                  <div class="meta-value">{{ subject_name|default:"-" }}</div>
+                </div>
+              </td>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Docente</span>
+                  <div class="meta-value">{{ teacher_name|default:"-" }}</div>
+                </div>
+              </td>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Grado / Grupo</span>
+                  <div class="meta-value">{{ grade_name|default:"-" }}{% if group_name %} - {{ group_name }}{% endif %}</div>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Periodo</span>
+                  <div class="meta-value">{{ period_name|default:"-" }}</div>
+                </div>
+              </td>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Fecha</span>
+                  <div class="meta-value">{% if plan.class_date %}{{ plan.class_date|date:"Y-m-d" }}{% else %}-{% endif %}</div>
+                </div>
+              </td>
+              <td>
+                <div class="meta-item">
+                  <span class="eyebrow">Duración</span>
+                  <div class="meta-value">{{ plan.duration_minutes }} min</div>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </div>
+        <div class="topic-block">
+          <span class="eyebrow">Tema central</span>
+          <div class="topic-title serif">{{ topic_title|default:plan.title }}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-tag">1. Referentes de calidad</div>
+          <div class="section-title">Resultado de aprendizaje, DBA y estándar de referencia</div>
+        </div>
+        <table class="reference-row">
+          <tr>
+            <td class="reference-label">Resultado</td>
+            <td>
+              <div class="reference-card result-card rich-content">
+                <p class="reference-card-title">Meta de aprendizaje</p>
+                {% if plan_html.learning_result %}{{ plan_html.learning_result|safe }}{% else %}-{% endif %}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="reference-label">DBA</td>
+            <td>
+              <div class="reference-card alt dba-card rich-content">
+                <p class="reference-card-title">Desempeño básico</p>
+                {% if plan_html.dba_reference %}{{ plan_html.dba_reference|safe }}{% else %}-{% endif %}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td class="reference-label">Estándar</td>
+            <td>
+              <div class="reference-card alt standard-card rich-content">
+                <p class="reference-card-title">Referencia curricular</p>
+                {% if plan_html.standard_reference %}{{ plan_html.standard_reference|safe }}{% else %}-{% endif %}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-tag">2. Competencias</div>
+          <div class="section-title">Desempeños esperados en saber, hacer y ser</div>
+        </div>
+        <table class="competency-table">
+          <tr>
+            <td>
+              <div class="competency-card know-card">
+                <div class="competency-kicker">Cognitivo</div>
+                <div class="competency-name">Saber</div>
+                <div class="rich-content">{% if plan_html.competency_know %}{{ plan_html.competency_know|safe }}{% else %}-{% endif %}</div>
+              </div>
+            </td>
+            <td>
+              <div class="competency-card do-card">
+                <div class="competency-kicker">Procedimental</div>
+                <div class="competency-name">Hacer</div>
+                <div class="rich-content">{% if plan_html.competency_do %}{{ plan_html.competency_do|safe }}{% else %}-{% endif %}</div>
+              </div>
+            </td>
+            <td>
+              <div class="competency-card be-card">
+                <div class="competency-kicker">Actitudinal</div>
+                <div class="competency-name">Ser</div>
+                <div class="rich-content">{% if plan_html.competency_be %}{{ plan_html.competency_be|safe }}{% else %}-{% endif %}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-tag">3. Desarrollo de la clase</div>
+          <div class="section-title">Propósito pedagógico y secuencia didáctica</div>
+        </div>
+        <div class="full-panel" style="margin-bottom: 12px;">
+          <div class="panel-head">
+            <p class="panel-title">Propósito de la sesión</p>
+          </div>
+          <div class="panel-body rich-content">{% if plan_html.class_purpose %}{{ plan_html.class_purpose|safe }}{% else %}-{% endif %}</div>
+        </div>
+        <div class="timeline">
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <div class="timeline-meta">Inicio · {{ plan.start_time_minutes }} min</div>
+              <div class="timeline-title">Activación y exploración</div>
+              <div class="rich-content">{% if plan_html.start_activities %}{{ plan_html.start_activities|safe }}{% else %}-{% endif %}</div>
+            </div>
+          </div>
+          <div class="timeline-item featured">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <div class="timeline-meta">Desarrollo · {{ plan.development_time_minutes }} min</div>
+              <div class="timeline-title">Estructuración, práctica y acompañamiento</div>
+              <div class="rich-content">{% if plan_html.development_activities %}{{ plan_html.development_activities|safe }}{% else %}-{% endif %}</div>
+            </div>
+          </div>
+          <div class="timeline-item">
+            <div class="timeline-dot"></div>
+            <div class="timeline-card">
+              <div class="timeline-meta">Cierre · {{ plan.closing_time_minutes }} min</div>
+              <div class="timeline-title">Transferencia, socialización y evaluación</div>
+              <div class="rich-content">{% if plan_html.closing_activities %}{{ plan_html.closing_activities|safe }}{% else %}-{% endif %}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-tag">4. Evidencia</div>
+          <div class="section-title">Producto o evidencia esperada</div>
+        </div>
+        <div class="full-panel">
+          <div class="panel-body rich-content">{% if plan_html.evidence_product %}{{ plan_html.evidence_product|safe }}{% else %}-{% endif %}</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <table class="two-col">
+          <tr>
+            <td>
+              <div class="panel">
+                <div class="panel-head">
+                  <p class="panel-title">5. Evaluación</p>
+                </div>
+                <div class="panel-body">
+                  <span class="instrument-label">Instrumento</span>
+                  {% if plan_display.evaluation_instrument %}
+                    <div class="instrument-chip">{{ plan_display.evaluation_instrument }}</div>
+                  {% else %}
+                    <div class="rich-content"><p>-</p></div>
+                  {% endif %}
+                  <span class="instrument-label">Criterio SIEE</span>
+                  <div class="rich-content">{% if plan_html.evaluation_criterion %}{{ plan_html.evaluation_criterion|safe }}{% else %}-{% endif %}</div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <div class="panel resource-panel">
+                <div class="panel-head">
+                  <p class="panel-title">6. Recursos didácticos</p>
+                </div>
+                <div class="panel-body rich-content">{% if plan_html.resources %}{{ plan_html.resources|safe }}{% else %}-{% endif %}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-head">
+          <div class="section-tag">7. Ajustes DUA</div>
+          <div class="section-title">Observaciones, flexibilizaciones y apoyos</div>
+        </div>
+        <div class="full-panel dua-panel">
+          <div class="panel-body rich-content">{% if plan_html.dua_adjustments %}{{ plan_html.dua_adjustments|safe }}{% else %}-{% endif %}</div>
+        </div>
+      </div>
+
+      {% if institution and institution.pdf_footer_text %}
+        <div class="footnote">{{ institution.pdf_footer_text }}</div>
+      {% endif %}
+    </div>
+  </body>
+</html>

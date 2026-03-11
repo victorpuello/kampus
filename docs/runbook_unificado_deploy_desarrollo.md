@@ -38,6 +38,9 @@ sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
 # 4) Variables criticas en .env
 grep -nE '^(KAMPUS_PUBLIC_SITE_URL|KAMPUS_FRONTEND_BASE_URL|KAMPUS_BACKEND_BASE_URL|DJANGO_SECURE_PROXY_SSL_HEADER|KAMPUS_WHATSAPP_WEBHOOK_VERIFY_TOKEN)=' .env
+
+# 5) Compose renderizado con URLs publicas en servicios criticos
+bash scripts/check_prod_public_urls.sh
 ```
 
 Si `git status` no esta limpio, resolver primero (stash/commit/restore) antes de deploy.
@@ -98,6 +101,17 @@ Esperado: `HTTP 200` o redirecciones validas de app (no 5xx).
 cd /var/www/kampus.ieplayasdelviento.edu.co
 sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python manage.py showmigrations --plan | grep '\[ \]' || echo 'Sin migraciones pendientes'
 ```
+
+### Smoke check de URLs publicas inyectadas
+
+```bash
+cd /var/www/kampus.ieplayasdelviento.edu.co
+bash scripts/smoke_check_public_urls.sh
+```
+
+Esperado:
+- `backend`, `backend_worker` y `backend_beat` exponen `KAMPUS_PUBLIC_SITE_URL`, `KAMPUS_FRONTEND_BASE_URL` y `KAMPUS_BACKEND_BASE_URL`
+- Ninguna apunta a `localhost` o `127.0.0.1`
 
 ---
 

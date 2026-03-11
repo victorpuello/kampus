@@ -9,6 +9,7 @@ const routePrefetchers: RoutePrefetcher[] = [
   { prefix: '/notifications', load: () => import('../pages/Notifications') },
   { prefix: '/students', load: () => import('../pages/StudentList') },
   { prefix: '/planning', load: () => import('../pages/planning/PlanningModule') },
+  { prefix: '/class-planner', load: () => import('../pages/planning/ClassPlanner') },
   { prefix: '/grades/preschool', load: () => import('../pages/PreschoolGrades') },
   { prefix: '/grades', load: () => import('../pages/Grades') },
   { prefix: '/attendance', load: () => import('../pages/attendance/AttendanceStats') },

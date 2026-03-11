@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core import mail
 from django.test import override_settings
 from urllib.parse import parse_qs, urlparse
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from .models import PasswordResetToken
 
@@ -18,6 +19,7 @@ TEST_CACHES = {
 @override_settings(CACHES=TEST_CACHES)
 class CookieAuthFlowTests(APITestCase):
     def setUp(self):
+        cache.clear()
         user_model = get_user_model()
         self.user = user_model.objects.create_user(
             username="cookie_auth_user",
@@ -60,6 +62,25 @@ class CookieAuthFlowTests(APITestCase):
         )
         self.assertEqual(refresh_response.status_code, 200)
         self.assertIn("kampus_access", refresh_response.cookies)
+
+    def test_cookie_authenticated_get_does_not_require_csrf_header(self):
+        client = APIClient(enforce_csrf_checks=True)
+
+        csrf_response = client.get("/api/auth/csrf/")
+        self.assertEqual(csrf_response.status_code, 200)
+        csrf_token = csrf_response.cookies.get("csrftoken").value if csrf_response.cookies.get("csrftoken") else ""
+
+        login_response = client.post(
+            "/api/auth/login/",
+            {"username": "cookie_auth_user", "password": "pass1234"},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(login_response.status_code, 200)
+
+        me_response = client.get("/api/users/me/")
+        self.assertEqual(me_response.status_code, 200)
+        self.assertEqual(me_response.data["username"], "cookie_auth_user")
 
     @override_settings(
         AUTH_LOGIN_IP_THROTTLE_RATE="2/min",
@@ -119,6 +140,7 @@ class CookieAuthFlowTests(APITestCase):
 )
 class PasswordResetFlowTests(APITestCase):
     def setUp(self):
+        cache.clear()
         user_model = get_user_model()
         self.user = user_model.objects.create_user(
             username="password_reset_user",

@@ -10,6 +10,7 @@ Base de configuración alineada con las reglas del proyecto Kampus:
 
 from pathlib import Path
 import os
+from urllib.parse import urlparse
 from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 
@@ -65,7 +66,40 @@ if IS_PRODUCTION and not ALLOWED_HOSTS:
 # Example: https://colegio.midominio.com
 # If not set, we fall back to request.build_absolute_uri(), which depends on
 # correct reverse-proxy headers.
-PUBLIC_SITE_URL = (os.getenv("KAMPUS_PUBLIC_SITE_URL") or "").strip().rstrip("/")
+def _clean_env_url(name: str) -> str:
+    return (os.getenv(name) or "").strip().rstrip("/")
+
+
+def _validate_public_base_url(name: str, value: str, *, required_in_production: bool) -> str:
+    clean = str(value or "").strip().rstrip("/")
+    if not clean:
+        if required_in_production and IS_PRODUCTION:
+            raise ImproperlyConfigured(f"{name} is required when DJANGO_ENV=production")
+        return ""
+
+    parsed = urlparse(clean)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ImproperlyConfigured(f"{name} must be an absolute http(s) URL")
+
+    if parsed.params or parsed.query or parsed.fragment:
+        raise ImproperlyConfigured(f"{name} must not include params, query strings, or fragments")
+
+    normalized_path = (parsed.path or "").rstrip("/")
+    if normalized_path:
+        raise ImproperlyConfigured(f"{name} must be a base origin without a path")
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if IS_PRODUCTION and hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        raise ImproperlyConfigured(f"{name} cannot point to localhost when DJANGO_ENV=production")
+
+    return clean
+
+
+PUBLIC_SITE_URL = _validate_public_base_url(
+    "KAMPUS_PUBLIC_SITE_URL",
+    _clean_env_url("KAMPUS_PUBLIC_SITE_URL"),
+    required_in_production=True,
+)
 
 # Public verification throttling (DRF). Example values: "60/min", "100/hour".
 PUBLIC_VERIFY_THROTTLE_RATE = (os.getenv("KAMPUS_PUBLIC_VERIFY_THROTTLE_RATE") or "60/min").strip()
@@ -78,10 +112,15 @@ AUTH_PASSWORD_RESET_CONFIRM_IP_THROTTLE_RATE = (os.getenv("KAMPUS_AUTH_PASSWORD_
 
 PASSWORD_RESET_TOKEN_TTL_SECONDS = int(os.getenv("KAMPUS_PASSWORD_RESET_TOKEN_TTL_SECONDS", "3600"))
 KAMPUS_FRONTEND_BASE_URL = (
-    os.getenv("KAMPUS_FRONTEND_BASE_URL")
+    _clean_env_url("KAMPUS_FRONTEND_BASE_URL")
     or PUBLIC_SITE_URL
     or "http://localhost:5173"
 ).strip().rstrip("/")
+KAMPUS_FRONTEND_BASE_URL = _validate_public_base_url(
+    "KAMPUS_FRONTEND_BASE_URL",
+    KAMPUS_FRONTEND_BASE_URL,
+    required_in_production=True,
+)
 NOTIFICATIONS_EMAIL_ENABLED = (os.getenv("KAMPUS_NOTIFICATIONS_EMAIL_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
 KAMPUS_NOTIFICATIONS_OUTBOX_ONLY = (os.getenv("KAMPUS_NOTIFICATIONS_OUTBOX_ONLY") or "false").strip().lower() in {"1", "true", "yes"}
 
@@ -480,10 +519,15 @@ MAILGUN_WEBHOOK_STRICT = (os.getenv("MAILGUN_WEBHOOK_STRICT") or ("true" if IS_P
 KAMPUS_MAIL_SETTINGS_ENV = (os.getenv("KAMPUS_MAIL_SETTINGS_ENV") or ("production" if IS_PRODUCTION else "development")).strip().lower()
 
 KAMPUS_BACKEND_BASE_URL = (
-    os.getenv("KAMPUS_BACKEND_BASE_URL")
+    _clean_env_url("KAMPUS_BACKEND_BASE_URL")
     or PUBLIC_SITE_URL
     or "http://localhost:8000"
 ).strip().rstrip("/")
+KAMPUS_BACKEND_BASE_URL = _validate_public_base_url(
+    "KAMPUS_BACKEND_BASE_URL",
+    KAMPUS_BACKEND_BASE_URL,
+    required_in_production=True,
+)
 MARKETING_DEFAULT_OPT_IN = (os.getenv("KAMPUS_MARKETING_DEFAULT_OPT_IN") or "false").strip().lower() in {"1", "true", "yes"}
 MARKETING_UNSUBSCRIBE_TOKEN_TTL_SECONDS = int(os.getenv("KAMPUS_MARKETING_UNSUBSCRIBE_TOKEN_TTL_SECONDS", "2592000"))
 

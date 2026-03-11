@@ -478,7 +478,7 @@ export default function DashboardHome() {
     if (isTeacher) {
       return [
         { label: 'Calificaciones', description: 'Registrar y revisar notas', to: '/grades', icon: FileSpreadsheet },
-        { label: 'Planeación', description: 'Gestionar planeación', to: '/planning', icon: ClipboardCheck },
+        { label: 'Planeador de clases', description: 'Crear y ajustar planes de clase', to: '/class-planner', icon: ClipboardCheck },
         { label: 'Mi asignación', description: 'Ver grupos y cargas', to: '/my-assignment', icon: BookOpen },
         {
           label: 'Notificaciones',
@@ -559,7 +559,7 @@ export default function DashboardHome() {
           onClick: () => navigate('/teacher-stats'),
         },
         {
-          title: 'Planeación diligenciada',
+          title: 'Planeación de periodo diligenciada',
           value: metricsLoading ? '—' : `${planning?.completion_percent ?? 0}%`,
           description:
             metricsLoading
@@ -673,9 +673,9 @@ export default function DashboardHome() {
         to: '/teacher-stats',
       },
       {
-        title: 'Planeación pendiente',
+        title: 'Planeación de periodo pendiente',
         value: planningPending,
-        helper: planningPending > 0 ? 'Asignaciones por diligenciar' : 'Planeación al día',
+        helper: planningPending > 0 ? 'Asignaciones por diligenciar en el periodo' : 'Planeación de periodo al día',
         icon: ClipboardCheck,
         to: '/planning',
       },
@@ -1027,7 +1027,7 @@ export default function DashboardHome() {
 
               <div>
                 <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
-                  <span>Planeación diligenciada</span>
+                  <span>Planeación de periodo diligenciada</span>
                   <span className="font-semibold">{teacherSummary.widgets.planning.completion_percent}%</span>
                 </div>
                 <div className="mt-2 h-2 w-full overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
@@ -1037,7 +1037,7 @@ export default function DashboardHome() {
                   />
                 </div>
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  {teacherSummary.widgets.planning.assignments_with_planning}/{teacherSummary.widgets.planning.assignments_total} asignaciones con planeación
+                  {teacherSummary.widgets.planning.assignments_with_planning}/{teacherSummary.widgets.planning.assignments_total} asignaciones con planeación de periodo
                 </p>
               </div>
 

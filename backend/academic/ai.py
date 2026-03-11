@@ -1,10 +1,75 @@
 from django.conf import settings
 import logging
 import json
+import re
 from json import JSONDecodeError
 
 
 logger = logging.getLogger(__name__)
+
+
+CLASS_PLANNER_INSTITUTIONAL_CONTEXT = {
+    "institution_name": "Institución Educativa Playas del Viento",
+    "pedagogical_model": "social-constructivista",
+    "territorial_emphasis": "turismo con articulación al entorno rural, costero, ambiental, cultural y social de Playas del Viento",
+    "formative_intention": [
+        "liderazgo",
+        "autonomía",
+        "sentido crítico",
+        "compromiso social",
+        "valores institucionales",
+        "capacidad para transformar el entorno",
+    ],
+    "preferred_methodologies": [
+        "aprendizaje por proyectos",
+        "talleres",
+        "trabajo colaborativo",
+        "exposiciones",
+        "guías de autoaprendizaje",
+        "debates o mesas redondas",
+        "dramatizaciones",
+        "juegos didácticos",
+        "uso de TIC",
+        "actividades contextualizadas",
+    ],
+    "institutional_values": [
+        "respeto",
+        "responsabilidad",
+        "honestidad",
+        "solidaridad",
+        "tolerancia",
+        "justicia",
+        "amor",
+        "cuidado del medio ambiente",
+    ],
+    "student_profile": [
+        "crítico",
+        "creativo",
+        "participativo",
+        "emprendedor",
+        "autónomo",
+        "comprometido con su comunidad",
+        "consciente del medio ambiente",
+    ],
+    "transversal_projects": [
+        "democracia y derechos humanos",
+        "educación ambiental",
+        "cátedra de paz",
+        "estilos de vida saludable",
+        "educación vial",
+        "educación económica y financiera",
+        "emprendimiento",
+        "turismo",
+        "convivencia",
+        "lectoescritura",
+    ],
+    "siee_weights": {
+        "saber": 40,
+        "saber_hacer": 40,
+        "saber_ser": 20,
+    },
+    "planning_formula": "Tema + contexto local + estrategia activa + valor institucional + evidencia de saber/hacer/ser + articulación transversal",
+}
 
 try:
     import google.generativeai as genai
@@ -72,6 +137,126 @@ class AIService:
             return json.loads(candidate)
         except JSONDecodeError as e:
             raise AIParseError(f"AI response JSON was invalid: {e}") from e
+
+    def _build_class_planner_context(self, context: dict) -> dict:
+        enriched_context = dict(context or {})
+        enriched_context["institutional_guidance"] = CLASS_PLANNER_INSTITUTIONAL_CONTEXT
+        return enriched_context
+
+    def _replace_leaked_english_terms(self, text: str) -> str:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+
+        replacements = [
+            (r"\bmethodologies\b", "metodologías"),
+            (r"\bmethodology\b", "metodología"),
+            (r"\bactivities\b", "actividades"),
+            (r"\bactivity\b", "actividad"),
+            (r"\bevidence\b", "evidencia"),
+            (r"\bresources\b", "recursos"),
+            (r"\bskills\b", "habilidades"),
+            (r"\bskill\b", "habilidad"),
+        ]
+
+        def _match_case(source: str, target: str) -> str:
+            if source.isupper():
+                return target.upper()
+            if source[:1].isupper():
+                return target[:1].upper() + target[1:]
+            return target
+
+        for pattern, replacement in replacements:
+            cleaned = re.sub(
+                pattern,
+                lambda match: _match_case(match.group(0), replacement),
+                cleaned,
+                flags=re.IGNORECASE,
+            )
+
+        return cleaned
+
+    def _normalize_class_planner_payload(self, payload: dict, *, numeric_keys: set[str]) -> dict:
+        normalized = dict(payload)
+        for key, value in list(normalized.items()):
+            if key in numeric_keys:
+                continue
+            normalized[key] = self._replace_leaked_english_terms(str(value or "").strip())
+        return normalized
+
+    def _distribute_sequence_minutes(self, duration_minutes: int) -> tuple[int, int, int]:
+        safe_duration = max(int(duration_minutes or 55), 15)
+        start = max(10, round(safe_duration * 0.2 / 5) * 5)
+        closing = max(10, round(safe_duration * 0.15 / 5) * 5)
+        development = safe_duration - start - closing
+
+        if development < 10:
+            development = max(10, safe_duration - 20)
+            start = 10
+            closing = safe_duration - development - start
+
+        if closing < 5:
+            closing = 5
+            development = safe_duration - start - closing
+
+        return start, development, closing
+
+    def _fallback_class_plan_draft(self, context: dict) -> dict:
+        duration_minutes = int(context.get("duration_minutes") or 55)
+        start_time_minutes, development_time_minutes, closing_time_minutes = self._distribute_sequence_minutes(duration_minutes)
+        topic_title = str(context.get("topic_title") or context.get("title_hint") or "Clase guiada").strip() or "Clase guiada"
+        subject_name = str(context.get("subject_name") or "la asignatura").strip() or "la asignatura"
+        grade_name = str(context.get("grade_name") or "el grado").strip() or "el grado"
+        group_name = str(context.get("group_name") or "").strip()
+        period_name = str(context.get("period_name") or "el periodo actual").strip() or "el periodo actual"
+        topic_description = str(context.get("topic_description") or "").strip()
+        group_label = f" grupo {group_name}" if group_name else ""
+        description_suffix = f" considerando {topic_description}" if topic_description else ""
+
+        return {
+            "title": topic_title,
+            "duration_minutes": duration_minutes,
+            "learning_result": f"Reconoce y aplica los conceptos clave de {topic_title} en {subject_name} para {grade_name}, relacionándolos con el contexto local y el trabajo colaborativo.",
+            "dba_reference": f"DBA sugerido para {subject_name} en {grade_name}.",
+            "standard_reference": f"Estándar básico asociado a {subject_name} para {grade_name}.",
+            "competency_know": f"Identifica ideas centrales de {topic_title} y su relación con el entorno de Playas del Viento.",
+            "competency_do": f"Desarrolla una actividad contextualizada sobre {topic_title} con evidencias prácticas y uso pertinente de estrategias activas.",
+            "competency_be": "Participa con respeto, responsabilidad y disposición al trabajo colaborativo, cuidando el entorno y la convivencia.",
+            "class_purpose": f"Orientar una sesión de {subject_name} sobre {topic_title} durante {period_name}, articulando contexto local, participación activa y formación integral.{description_suffix}",
+            "start_time_minutes": start_time_minutes,
+            "start_activities": f"Activación de saberes previos con preguntas orientadoras sobre {topic_title}{group_label}, vinculando experiencias del contexto local y valores institucionales.",
+            "development_time_minutes": development_time_minutes,
+            "development_activities": f"Desarrollo de taller colaborativo con uso de TIC o recurso contextualizado para analizar {topic_title} y aplicarlo a situaciones del entorno escolar o territorial.",
+            "closing_time_minutes": closing_time_minutes,
+            "closing_activities": "Cierre con socialización breve, reflexión sobre el impacto en la comunidad, verificación de aprendizajes y acuerdos de mejora.",
+            "evidence_product": f"Evidencia conceptual, práctica y actitudinal sobre {topic_title}, alineada con saber, saber hacer y saber ser.",
+            "evaluation_instrument": "Rúbrica analítica con criterios de saber, saber hacer y saber ser",
+            "evaluation_criterion": "Básico - Comprende el tema, desarrolla la actividad propuesta y participa con responsabilidad - Rango 3.0-3.9 (durante la clase)",
+            "resources": "Guía de trabajo, tablero, material visual, TIC y recursos del contexto institucional o territorial disponibles.",
+            "dua_adjustments": "Instrucciones claras, apoyo visual, flexibilización en productos, múltiples formas de participación y acompañamiento según necesidades del grupo.",
+        }
+
+    def _fallback_class_plan_section(self, section: str, context: dict) -> dict:
+        draft = self._fallback_class_plan_draft(context)
+        section_keys = {
+            "learning": ["learning_result", "dba_reference", "standard_reference", "class_purpose"],
+            "competencies": ["competency_know", "competency_do", "competency_be"],
+            "sequence": [
+                "duration_minutes",
+                "start_time_minutes",
+                "start_activities",
+                "development_time_minutes",
+                "development_activities",
+                "closing_time_minutes",
+                "closing_activities",
+            ],
+            "evaluation": ["evidence_product", "evaluation_instrument", "evaluation_criterion"],
+            "support": ["resources", "dua_adjustments"],
+        }
+        keys = section_keys.get(section)
+        if not keys:
+            raise AIParseError("Invalid class plan section requested.")
+        return {key: draft[key] for key in keys}
 
     def generate_indicators(self, achievement_description):
         """
@@ -271,6 +456,229 @@ Contexto (JSON):
             if isinstance(e, AIServiceError):
                 raise
             raise AIProviderError(str(e)) from e
+
+    def generate_class_plan_draft(self, context: dict) -> dict:
+        """Genera un borrador estructurado de plan de clase.
+
+        Retorna JSON con las claves esperadas por el formulario del planeador.
+        """
+        enriched_context = self._build_class_planner_context(context)
+
+        prompt = f"""
+Actúa como un diseñador instruccional y pedagogo escolar en Colombia.
+
+Tu tarea es proponer un borrador de plan de clase para bachillerato, coherente con el formato institucional de planeación.
+
+    Debes alinear la propuesta con el PEI de la Institución Educativa Playas del Viento.
+
+REGLAS ESTRICTAS:
+- Responde SOLO con un objeto JSON válido.
+- No incluyas texto adicional fuera del JSON.
+- Mantén un tono pedagógico, claro y accionable.
+- Todo el contenido textual debe estar completamente en español. No uses términos en inglés en los valores, por ejemplo: methodology, activity, evidence o resources.
+- No inventes normas específicas no suministradas; si falta detalle, propón formulaciones generales y útiles.
+- La suma de `start_time_minutes` + `development_time_minutes` + `closing_time_minutes` debe ser igual a `duration_minutes`.
+- El campo `evaluation_criterion` debe usar esta estructura: "[Nivel] - [criterio evaluado] - Rango [x-y] ([momento])".
+    - Aplica el modelo pedagógico social-constructivista: estudiante al centro y docente como mediador.
+    - Prioriza metodologías activas y participativas, evitando clases centradas solo en exposición magistral.
+    - Relaciona la clase con el contexto local, rural, costero, ambiental, cultural o social de Playas del Viento cuando sea pertinente.
+    - Incorpora al menos un valor institucional y un rasgo del perfil de estudiante en las actividades o en la intención formativa.
+    - Cuando sea pertinente, articula transversalmente turismo, emprendimiento, educación ambiental, convivencia, ciudadanía o lectoescritura.
+    - La evaluación debe reflejar integralidad formativa y contemplar evidencias de saber (40%), saber hacer (40%) y saber ser (20%).
+    - Incluye ajustes razonables y estrategias de participación real desde el enfoque de inclusión y atención a la diversidad.
+- Usa exactamente estas claves:
+  "title",
+  "duration_minutes",
+  "learning_result",
+  "dba_reference",
+  "standard_reference",
+  "competency_know",
+  "competency_do",
+  "competency_be",
+  "class_purpose",
+  "start_time_minutes",
+  "start_activities",
+  "development_time_minutes",
+  "development_activities",
+  "closing_time_minutes",
+  "closing_activities",
+  "evidence_product",
+  "evaluation_instrument",
+  "evaluation_criterion",
+  "resources",
+  "dua_adjustments".
+
+Contexto (JSON):
+{json.dumps(enriched_context, ensure_ascii=False)}
+"""
+
+        try:
+            self._ensure_available()
+            response = self.model.generate_content(prompt)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+
+            required = {
+                "title",
+                "duration_minutes",
+                "learning_result",
+                "dba_reference",
+                "standard_reference",
+                "competency_know",
+                "competency_do",
+                "competency_be",
+                "class_purpose",
+                "start_time_minutes",
+                "start_activities",
+                "development_time_minutes",
+                "development_activities",
+                "closing_time_minutes",
+                "closing_activities",
+                "evidence_product",
+                "evaluation_instrument",
+                "evaluation_criterion",
+                "resources",
+                "dua_adjustments",
+            }
+            if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
+                raise AIParseError("AI response JSON missing required keys for class plan draft.")
+
+            for numeric_key in {
+                "duration_minutes",
+                "start_time_minutes",
+                "development_time_minutes",
+                "closing_time_minutes",
+            }:
+                try:
+                    payload[numeric_key] = int(payload.get(numeric_key) or 0)
+                except Exception as exc:
+                    raise AIParseError(f"AI response key '{numeric_key}' must be numeric.") from exc
+
+            for text_key in required - {
+                "duration_minutes",
+                "start_time_minutes",
+                "development_time_minutes",
+                "closing_time_minutes",
+            }:
+                payload[text_key] = str(payload.get(text_key) or "").strip()
+
+            payload = self._normalize_class_planner_payload(
+                payload,
+                numeric_keys={
+                    "duration_minutes",
+                    "start_time_minutes",
+                    "development_time_minutes",
+                    "closing_time_minutes",
+                },
+            )
+
+            if payload["duration_minutes"] != (
+                payload["start_time_minutes"]
+                + payload["development_time_minutes"]
+                + payload["closing_time_minutes"]
+            ):
+                raise AIParseError("AI response produced inconsistent timing totals for class plan draft.")
+
+            return payload
+        except Exception as e:
+            logger.exception("Error generating class plan draft")
+            return self._fallback_class_plan_draft(enriched_context)
+
+    def generate_class_plan_section(self, section: str, context: dict) -> dict:
+        """Genera una sección específica del plan de clase."""
+        enriched_context = self._build_class_planner_context(context)
+        section_definitions = {
+            "learning": {
+                "keys": ["learning_result", "dba_reference", "standard_reference", "class_purpose"],
+                "instruction": "Propón el resultado de aprendizaje, referencias DBA y estándar, y el propósito de la clase.",
+            },
+            "competencies": {
+                "keys": ["competency_know", "competency_do", "competency_be"],
+                "instruction": "Propón las competencias Saber, Hacer y Ser alineadas a la temática y el resultado de aprendizaje.",
+            },
+            "sequence": {
+                "keys": [
+                    "duration_minutes",
+                    "start_time_minutes",
+                    "start_activities",
+                    "development_time_minutes",
+                    "development_activities",
+                    "closing_time_minutes",
+                    "closing_activities",
+                ],
+                "instruction": "Propón la secuencia didáctica de Inicio, Desarrollo y Cierre. La suma de los tiempos debe coincidir con duration_minutes.",
+            },
+            "evaluation": {
+                "keys": ["evidence_product", "evaluation_instrument", "evaluation_criterion"],
+                "instruction": "Propón evidencia o producto, instrumento de evaluación y criterio SIEE con formato institucional.",
+            },
+            "support": {
+                "keys": ["resources", "dua_adjustments"],
+                "instruction": "Propón recursos y ajustes DUA breves y aplicables a la clase.",
+            },
+        }
+
+        section_config = section_definitions.get(section)
+        if not section_config:
+            raise AIParseError("Invalid class plan section requested.")
+
+        prompt = f"""
+Actúa como un diseñador instruccional y pedagogo escolar en Colombia.
+
+Debes generar SOLO la sección solicitada de un plan de clase para bachillerato.
+
+    Debes alinear la propuesta con el PEI de la Institución Educativa Playas del Viento.
+
+REGLAS ESTRICTAS:
+- Responde SOLO con un objeto JSON válido.
+- No incluyas texto adicional fuera del JSON.
+- Usa exactamente estas claves: {', '.join(section_config['keys'])}.
+- Todo el contenido textual debe estar completamente en español. No uses términos en inglés en los valores, por ejemplo: methodology, activity, evidence o resources.
+- Mantén coherencia con el contexto suministrado.
+- Si la sección es "sequence", los tiempos deben sumar exactamente `duration_minutes`.
+- Si la sección incluye `evaluation_criterion`, usa esta estructura: "[Nivel] - [criterio evaluado] - Rango [x-y] ([momento])".
+    - Aplica el modelo pedagógico social-constructivista y prioriza metodologías activas, contextualizadas y participativas.
+    - Refleja contexto local, valores institucionales, formación integral, inclusión y articulación transversal cuando corresponda.
+    - Si la sección es de evaluación, asegúrate de incluir componentes observables de saber, saber hacer y saber ser con ponderación institucional 40/40/20.
+
+Sección solicitada: {section}
+Instrucción: {section_config['instruction']}
+
+Contexto (JSON):
+    {json.dumps(enriched_context, ensure_ascii=False)}
+"""
+
+        try:
+            self._ensure_available()
+            response = self.model.generate_content(prompt)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+            required = set(section_config["keys"])
+            if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
+                raise AIParseError(f"AI response JSON missing required keys for section '{section}'.")
+
+            numeric_keys = {"duration_minutes", "start_time_minutes", "development_time_minutes", "closing_time_minutes"}
+            for key in required:
+                if key in numeric_keys:
+                    try:
+                        payload[key] = int(payload.get(key) or 0)
+                    except Exception as exc:
+                        raise AIParseError(f"AI response key '{key}' must be numeric.") from exc
+                else:
+                    payload[key] = str(payload.get(key) or "").strip()
+
+            payload = self._normalize_class_planner_payload(payload, numeric_keys=numeric_keys)
+
+            if section == "sequence":
+                if payload["duration_minutes"] != (
+                    payload["start_time_minutes"]
+                    + payload["development_time_minutes"]
+                    + payload["closing_time_minutes"]
+                ):
+                    raise AIParseError("AI response produced inconsistent timing totals for class plan sequence.")
+
+            return payload
+        except Exception as e:
+            logger.exception("Error generating class plan section")
+            return self._fallback_class_plan_section(section, enriched_context)
 
     def generate_commission_group_acta_blocks(self, context: dict) -> dict:
         """Genera bloques de contenido para acta grupal de comisión.

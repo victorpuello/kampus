@@ -4,15 +4,24 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.conf import settings
 from django.http import HttpResponse
+from django.template.loader import render_to_string
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 from pathlib import Path
+from difflib import SequenceMatcher
 import io
+import csv
+import json
+import re
+import unicodedata
+
+from audit.models import AuditLog
+from audit.services import log_event
 
 
 def _period_end_of_day(period: "Period"):
@@ -26,6 +35,297 @@ def _period_end_of_day(period: "Period"):
     tz = timezone.get_current_timezone()
     dt = datetime.combine(period.end_date, time(23, 59, 59))
     return timezone.make_aware(dt, tz)
+
+
+TOPIC_IMPORT_COLUMNS = [
+    "academic_year",
+    "period_name",
+    "grade_name",
+    "subject_name",
+    "sequence_order",
+    "title",
+    "description",
+]
+
+
+def _normalize_topic_import_header(value):
+    return str(value or "").strip().lower()
+
+
+def _normalize_topic_lookup_value(value):
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    text = text.replace("&", " y ")
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _normalize_topic_lookup_loose(value):
+    stop_words = {"y", "e", "de", "del", "la", "las", "el", "los"}
+    normalized = _normalize_topic_lookup_value(value)
+    tokens = [token for token in normalized.split() if token not in stop_words]
+    return " ".join(tokens)
+
+
+def _grade_lookup_keys(grade_name):
+    keys = {
+        _normalize_topic_lookup_value(grade_name),
+        _normalize_topic_lookup_loose(grade_name),
+    }
+    ordinal = guess_ordinal(str(grade_name or ""))
+    if ordinal is not None:
+        keys.add(str(ordinal))
+    return {key for key in keys if key}
+
+
+def _resolve_topic_import_academic_load(grade_name, subject_name, loads_by_grade_key):
+    grade_keys = _grade_lookup_keys(grade_name)
+    candidate_loads = []
+    seen_load_ids = set()
+    for grade_key in grade_keys:
+        for load in loads_by_grade_key.get(grade_key, []):
+            if load.id in seen_load_ids:
+                continue
+            candidate_loads.append(load)
+            seen_load_ids.add(load.id)
+
+    if not candidate_loads:
+        return None, None
+
+    subject_exact = _normalize_topic_lookup_value(subject_name)
+    subject_loose = _normalize_topic_lookup_loose(subject_name)
+
+    for load in candidate_loads:
+        if _normalize_topic_lookup_value(load.subject.name) == subject_exact:
+            return load, None
+    for load in candidate_loads:
+        if _normalize_topic_lookup_loose(load.subject.name) == subject_loose:
+            return load, None
+
+    area_matches = []
+    for load in candidate_loads:
+        area_name = getattr(getattr(load, "subject", None), "area", None)
+        area_label = getattr(area_name, "name", "") if area_name is not None else ""
+        if not area_label:
+            continue
+        if _normalize_topic_lookup_value(area_label) == subject_exact or _normalize_topic_lookup_loose(area_label) == subject_loose:
+            area_matches.append(load)
+    if len(area_matches) == 1:
+        return area_matches[0], None
+
+    scored_candidates = []
+    for load in candidate_loads:
+        subject_score = SequenceMatcher(None, subject_loose, _normalize_topic_lookup_loose(load.subject.name)).ratio()
+        area_name = getattr(getattr(load, "subject", None), "area", None)
+        area_label = getattr(area_name, "name", "") if area_name is not None else ""
+        area_score = SequenceMatcher(None, subject_loose, _normalize_topic_lookup_loose(area_label)).ratio() if area_label else 0.0
+        score = max(subject_score, area_score)
+        scored_candidates.append((score, load))
+
+    scored_candidates.sort(key=lambda item: item[0], reverse=True)
+    if not scored_candidates:
+        return None, None
+
+    best_score, best_load = scored_candidates[0]
+    second_score = scored_candidates[1][0] if len(scored_candidates) > 1 else 0.0
+    if best_score >= 0.84 and (best_score - second_score >= 0.08 or len(scored_candidates) == 1):
+        return best_load, None
+
+    suggestions = []
+    for _, load in scored_candidates[:3]:
+        suggestion = load.subject.name
+        if suggestion not in suggestions:
+            suggestions.append(suggestion)
+    return None, suggestions
+
+
+def _build_topic_import_context():
+    period_map = {
+        (str(period.academic_year.year).strip().lower(), str(period.name).strip().lower()): period
+        for period in Period.objects.select_related("academic_year").all()
+    }
+    all_loads = list(AcademicLoad.objects.select_related("grade", "subject", "subject__area").all())
+    loads_by_grade_key: dict[str, list[AcademicLoad]] = {}
+    for load in all_loads:
+        for grade_key in _grade_lookup_keys(load.grade.name):
+            loads_by_grade_key.setdefault(grade_key, []).append(load)
+    return period_map, loads_by_grade_key
+
+
+def _parse_topic_import_corrections(raw_corrections):
+    if not raw_corrections:
+        return {}
+    if isinstance(raw_corrections, str):
+        try:
+            raw_corrections = json.loads(raw_corrections)
+        except Exception:
+            return {}
+    if not isinstance(raw_corrections, list):
+        return {}
+
+    corrections: dict[int, dict[str, str]] = {}
+    for item in raw_corrections:
+        if not isinstance(item, dict):
+            continue
+        row_number = item.get("row_number")
+        try:
+            parsed_row_number = int(row_number)
+        except Exception:
+            continue
+        subject_name = str(item.get("subject_name") or "").strip()
+        if not subject_name:
+            continue
+        corrections[parsed_row_number] = {"subject_name": subject_name}
+    return corrections
+
+
+def _apply_topic_import_correction(row, correction):
+    corrected_row = dict(row)
+    if correction and correction.get("subject_name"):
+        corrected_row["subject_name"] = correction["subject_name"]
+    return corrected_row
+
+
+def _validate_topic_import_row(row_number, row, period_map, loads_by_grade_key, corrections=None):
+    corrected_row = _apply_topic_import_correction(row, (corrections or {}).get(row_number))
+
+    academic_year = str(corrected_row.get("academic_year") or "").strip()
+    period_name = str(corrected_row.get("period_name") or "").strip()
+    grade_name = str(corrected_row.get("grade_name") or "").strip()
+    subject_name = str(corrected_row.get("subject_name") or "").strip()
+    sequence_order_raw = str(corrected_row.get("sequence_order") or "").strip()
+    title = str(corrected_row.get("title") or "").strip()
+    description = str(corrected_row.get("description") or "").strip()
+
+    result = {
+        "row_number": row_number,
+        "academic_year": academic_year,
+        "period_name": period_name,
+        "grade_name": grade_name,
+        "subject_name": subject_name,
+        "sequence_order": sequence_order_raw,
+        "title": title,
+        "description": description,
+        "status": "ready",
+        "message": "Lista para importar.",
+        "suggestions": [],
+        "resolved_subject_name": None,
+    }
+
+    if not all([academic_year, period_name, grade_name, subject_name, sequence_order_raw, title]):
+        result["status"] = "error"
+        result["message"] = "Faltan columnas obligatorias."
+        return result, None, None
+
+    try:
+        sequence_order = int(sequence_order_raw)
+    except Exception:
+        result["status"] = "error"
+        result["message"] = "sequence_order inválido."
+        return result, None, None
+
+    period = period_map.get((academic_year.lower(), period_name.lower()))
+    if period is None:
+        result["status"] = "error"
+        result["message"] = f"No se encontró el periodo '{period_name}' para el año {academic_year}."
+        return result, None, None
+
+    academic_load, suggestions = _resolve_topic_import_academic_load(grade_name, subject_name, loads_by_grade_key)
+    if academic_load is None:
+        result["status"] = "review" if suggestions else "error"
+        result["message"] = (
+            f"Se requiere confirmar la asignatura para '{subject_name}'."
+            if suggestions
+            else f"No se encontró la asignatura o área '{subject_name}' para el grado '{grade_name}'."
+        )
+        result["suggestions"] = suggestions or []
+        return result, None, None
+
+    result["resolved_subject_name"] = academic_load.subject.name
+    return result, period, {
+        "academic_load": academic_load,
+        "sequence_order": sequence_order,
+        "title": title,
+        "description": description,
+    }
+
+
+def _build_topic_import_validation(data_rows, period_map, loads_by_grade_key, corrections=None):
+    rows = []
+    ready_rows = 0
+    review_rows = 0
+    error_rows = 0
+    resolved_rows = []
+
+    for row_number, row in enumerate(data_rows, start=2):
+        row_result, period, resolved = _validate_topic_import_row(
+            row_number,
+            row,
+            period_map,
+            loads_by_grade_key,
+            corrections=corrections,
+        )
+        rows.append(row_result)
+        if row_result["status"] == "ready":
+            ready_rows += 1
+            resolved_rows.append((row_result, period, resolved))
+        elif row_result["status"] == "review":
+            review_rows += 1
+        else:
+            error_rows += 1
+
+    return {
+        "total_rows": len(data_rows),
+        "ready_rows": ready_rows,
+        "review_rows": review_rows,
+        "error_rows": error_rows,
+        "rows": rows,
+        "resolved_rows": resolved_rows,
+    }
+
+
+def _read_topic_import_rows(upload):
+    filename = str(getattr(upload, "name", "") or "").lower()
+    raw_bytes = upload.read()
+
+    if filename.endswith(".xlsx"):
+        from openpyxl import load_workbook  # noqa: PLC0415
+
+        workbook = load_workbook(io.BytesIO(raw_bytes), data_only=True)
+        worksheet = workbook.active
+        rows = list(worksheet.iter_rows(values_only=True))
+    elif filename.endswith(".xls"):
+        import xlrd  # noqa: PLC0415
+
+        workbook = xlrd.open_workbook(file_contents=raw_bytes)
+        sheet = workbook.sheet_by_index(0)
+        rows = [sheet.row_values(index) for index in range(sheet.nrows)]
+    else:
+        raw_text = raw_bytes.decode("utf-8-sig")
+        reader = csv.reader(raw_text.splitlines())
+        rows = list(reader)
+
+    if not rows:
+        return [], []
+
+    headers = [_normalize_topic_import_header(cell) for cell in rows[0]]
+    data_rows = []
+    for row in rows[1:]:
+        if row is None:
+            continue
+        values = list(row)
+        if not any(str(cell or "").strip() for cell in values):
+            continue
+        record = {}
+        for index, header in enumerate(headers):
+            if not header:
+                continue
+            record[header] = "" if index >= len(values) or values[index] is None else str(values[index]).strip()
+        data_rows.append(record)
+
+    return headers, data_rows
 
 from .models import (
     AcademicLevel,
@@ -53,6 +353,8 @@ from .models import (
     EditRequestItem,
     EditGrant,
     EditGrantItem,
+    PeriodTopic,
+    ClassPlan,
 )
 
 from students.academic_period_report import (
@@ -92,6 +394,8 @@ from .serializers import (
     EditRequestSerializer,
     EditRequestDecisionSerializer,
     EditGrantSerializer,
+    PeriodTopicSerializer,
+    ClassPlanSerializer,
 )
 from .ai import AIService, AIConfigError, AIParseError, AIProviderError
 from .grade_ordinals import guess_ordinal
@@ -103,6 +407,9 @@ from .grading import (
     weighted_average,
 )
 from .promotion import compute_promotions_for_year, PASSING_SCORE_DEFAULT
+from reports.models import ReportJob
+from reports.serializers import ReportJobSerializer
+from reports.tasks import generate_report_job_pdf
 
 
 class AcademicYearViewSet(viewsets.ModelViewSet):
@@ -1839,6 +2146,688 @@ class DimensionViewSet(viewsets.ModelViewSet):
                 created_count += 1
 
         return Response({"message": f"Se copiaron {created_count} dimensiones correctamente"})
+
+
+class PeriodTopicViewSet(viewsets.ModelViewSet):
+    queryset = PeriodTopic.objects.all()
+    serializer_class = PeriodTopicSerializer
+    permission_classes = [KampusModelPermissions]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["period", "academic_load", "is_active", "source"]
+    search_fields = ["title", "description", "academic_load__subject__name", "academic_load__grade__name"]
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in {"list", "retrieve", "create", "update", "partial_update", "destroy", "for_me"}:
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def _ensure_can_manage_topics(self, request):
+        role = getattr(getattr(request, "user", None), "role", None)
+        if role in {"TEACHER", "COORDINATOR", "ADMIN", "SUPERADMIN"}:
+            return None
+        return Response({"detail": "No tienes permisos para gestionar temáticas."}, status=status.HTTP_403_FORBIDDEN)
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related(
+            "period",
+            "period__academic_year",
+            "academic_load",
+            "academic_load__subject",
+            "academic_load__grade",
+            "created_by",
+        )
+        user = getattr(self.request, "user", None)
+        role = getattr(user, "role", None)
+        if role == "TEACHER":
+            allowed_loads = TeacherAssignment.objects.filter(teacher=user).values_list("academic_load_id", flat=True)
+            qs = qs.filter(academic_load_id__in=allowed_loads)
+
+        subject_id = self.request.query_params.get("subject")
+        if subject_id:
+            qs = qs.filter(academic_load__subject_id=subject_id)
+
+        grade_id = self.request.query_params.get("grade")
+        if grade_id:
+            qs = qs.filter(academic_load__grade_id=grade_id)
+
+        academic_year_id = self.request.query_params.get("academic_year")
+        if academic_year_id:
+            qs = qs.filter(period__academic_year_id=academic_year_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="for-me", permission_classes=[IsAuthenticated])
+    def for_me(self, request):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        if getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Esta vista aplica solo para docentes."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.filter_queryset(self.get_queryset()).filter(is_active=True)
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="import-template", permission_classes=[IsAuthenticated])
+    def import_template(self, request):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+
+        from openpyxl import Workbook  # noqa: PLC0415
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Tematicas"
+        worksheet.append(TOPIC_IMPORT_COLUMNS)
+        worksheet.append(["2026", "Primer Periodo", "10", "Biología", "1", "La célula", "Conceptos base y observación microscópica"])
+
+        output = io.BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="plantilla_tematicas_periodo.xlsx"'
+        return response
+
+    @action(detail=False, methods=["post"], url_path="validate-import-file", permission_classes=[IsAuthenticated])
+    def validate_import_file(self, request):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"detail": "Debes adjuntar un archivo Excel o CSV."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            headers, data_rows = _read_topic_import_rows(upload)
+        except Exception:
+            return Response({"detail": "No se pudo leer el archivo cargado. Usa .xlsx, .xls o .csv."}, status=status.HTTP_400_BAD_REQUEST)
+
+        required_columns = set(TOPIC_IMPORT_COLUMNS)
+        if not headers or not required_columns.issubset(set(headers)):
+            return Response(
+                {"detail": "El archivo no contiene las columnas requeridas.", "required_columns": sorted(required_columns)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        corrections = _parse_topic_import_corrections(request.data.get("corrections"))
+        period_map, loads_by_grade_key = _build_topic_import_context()
+        validation = _build_topic_import_validation(data_rows, period_map, loads_by_grade_key, corrections=corrections)
+        validation.pop("resolved_rows", None)
+        return Response(validation, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="import-file", permission_classes=[IsAuthenticated])
+    def import_file(self, request):
+        denied = self._ensure_can_manage_topics(request)
+        if denied is not None:
+            return denied
+
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"detail": "Debes adjuntar un archivo Excel o CSV."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            headers, data_rows = _read_topic_import_rows(upload)
+        except Exception:
+            return Response({"detail": "No se pudo leer el archivo cargado. Usa .xlsx, .xls o .csv."}, status=status.HTTP_400_BAD_REQUEST)
+
+        required_columns = set(TOPIC_IMPORT_COLUMNS)
+        if not headers or not required_columns.issubset(set(headers)):
+            return Response(
+                {"detail": "El archivo no contiene las columnas requeridas.", "required_columns": sorted(required_columns)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        corrections = _parse_topic_import_corrections(request.data.get("corrections"))
+        period_map, loads_by_grade_key = _build_topic_import_context()
+        validation = _build_topic_import_validation(data_rows, period_map, loads_by_grade_key, corrections=corrections)
+
+        created = 0
+        updated = 0
+        errors: list[str] = [f"Fila {row['row_number']}: {row['message']}" for row in validation["rows"] if row["status"] != "ready"]
+
+        with transaction.atomic():
+            for row_result, period, resolved in validation["resolved_rows"]:
+                academic_load = resolved["academic_load"]
+                sequence_order = resolved["sequence_order"]
+                title = resolved["title"]
+                description = resolved["description"]
+
+                existing = PeriodTopic.objects.filter(
+                    period=period,
+                    academic_load=academic_load,
+                    title__iexact=title,
+                ).first()
+
+                if existing is None:
+                    PeriodTopic.objects.create(
+                        period=period,
+                        academic_load=academic_load,
+                        title=title,
+                        description=description,
+                        sequence_order=sequence_order,
+                        source=PeriodTopic.SOURCE_IMPORT,
+                        is_active=True,
+                        created_by=request.user,
+                    )
+                    created += 1
+                else:
+                    existing.title = title
+                    existing.description = description
+                    existing.sequence_order = sequence_order
+                    existing.source = PeriodTopic.SOURCE_IMPORT
+                    existing.is_active = True
+                    if existing.created_by_id is None:
+                        existing.created_by = request.user
+                    existing.save(update_fields=["title", "description", "sequence_order", "source", "is_active", "created_by", "updated_at"])
+                    updated += 1
+
+        return Response({"created": created, "updated": updated, "errors": errors}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"], url_path="import-csv", permission_classes=[IsAuthenticated])
+    def import_csv(self, request):
+        return self.import_file(request)
+
+
+class ClassPlanViewSet(viewsets.ModelViewSet):
+    queryset = ClassPlan.objects.all()
+    serializer_class = ClassPlanSerializer
+    permission_classes = [KampusModelPermissions]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_fields = ["period", "teacher_assignment", "status", "topic"]
+    search_fields = ["title", "learning_result", "topic__title"]
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in {"list", "retrieve", "create", "update", "partial_update", "destroy", "my_plans", "my_summary", "generate_draft", "generate_section", "export_pdf"}:
+            return [IsAuthenticated()]
+        return super().get_permissions()
+
+    def _log_class_plan_event(self, request, *, event_type, plan=None, status_code=200, metadata=None):
+        metadata = metadata or {}
+        if plan is not None:
+            metadata = {
+                **metadata,
+                "title": getattr(plan, "title", ""),
+                "period_id": getattr(plan, "period_id", None),
+                "academic_year_id": getattr(getattr(plan, "period", None), "academic_year_id", None),
+                "teacher_assignment_id": getattr(plan, "teacher_assignment_id", None),
+                "status": getattr(plan, "status", None),
+            }
+        log_event(
+            request,
+            event_type=event_type,
+            object_type="class_plan",
+            object_id=getattr(plan, "id", "") if plan is not None else "",
+            status_code=status_code,
+            metadata=metadata,
+        )
+
+    def _ensure_can_manage_class_plans(self, request):
+        role = getattr(getattr(request, "user", None), "role", None)
+        if role in {"TEACHER", "COORDINATOR", "ADMIN", "SUPERADMIN"}:
+            return None
+        return Response({"detail": "No tienes permisos para gestionar planes de clase."}, status=status.HTTP_403_FORBIDDEN)
+
+    def _teacher_can_edit_planning(self, user, period: Period) -> bool:
+        effective_deadline = period.planning_edit_until or _period_end_of_day(period)
+        if effective_deadline is None:
+            return True
+        if timezone.now() <= effective_deadline:
+            return True
+        return EditGrant.objects.filter(
+            granted_to=user,
+            scope=EditRequest.SCOPE_PLANNING,
+            period_id=period.id,
+            valid_until__gte=timezone.now(),
+        ).exists()
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related(
+            "period",
+            "period__academic_year",
+            "teacher_assignment",
+            "teacher_assignment__teacher",
+            "teacher_assignment__group",
+            "teacher_assignment__group__grade",
+            "teacher_assignment__academic_load",
+            "teacher_assignment__academic_load__subject",
+            "topic",
+            "created_by",
+            "updated_by",
+        )
+        user = getattr(self.request, "user", None)
+        role = getattr(user, "role", None)
+        if role == "TEACHER":
+            qs = qs.filter(teacher_assignment__teacher=user)
+
+        subject_id = self.request.query_params.get("subject")
+        if subject_id:
+            qs = qs.filter(teacher_assignment__academic_load__subject_id=subject_id)
+
+        group_id = self.request.query_params.get("group")
+        if group_id:
+            qs = qs.filter(teacher_assignment__group_id=group_id)
+
+        academic_year_id = self.request.query_params.get("academic_year")
+        if academic_year_id:
+            qs = qs.filter(period__academic_year_id=academic_year_id)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user, updated_by=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    def list(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        if getattr(user, "role", None) == "TEACHER":
+            period_id = request.data.get("period")
+            period = Period.objects.filter(id=period_id).first() if period_id else None
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        response = super().create(request, *args, **kwargs)
+        if response.status_code < 400:
+            plan = ClassPlan.objects.select_related("period").filter(id=response.data.get("id")).first()
+            if plan is not None:
+                self._log_class_plan_event(request, event_type="class_plan.created", plan=plan, status_code=response.status_code)
+                if plan.status == ClassPlan.STATUS_FINALIZED:
+                    self._log_class_plan_event(request, event_type="class_plan.finalized", plan=plan, status_code=response.status_code)
+        return response
+
+    def update(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        previous_status = None
+        instance = None
+        if getattr(user, "role", None) == "TEACHER":
+            instance = self.get_object()
+            period = getattr(instance, "period", None)
+            previous_status = getattr(instance, "status", None)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        if instance is None:
+            instance = self.get_object()
+            previous_status = getattr(instance, "status", None)
+        response = super().update(request, *args, **kwargs)
+        if response.status_code < 400:
+            plan = ClassPlan.objects.select_related("period").filter(id=instance.id).first()
+            if plan is not None:
+                self._log_class_plan_event(request, event_type="class_plan.updated", plan=plan, status_code=response.status_code)
+                if previous_status != ClassPlan.STATUS_FINALIZED and plan.status == ClassPlan.STATUS_FINALIZED:
+                    self._log_class_plan_event(request, event_type="class_plan.finalized", plan=plan, status_code=response.status_code)
+        return response
+
+    def partial_update(self, request, *args, **kwargs):
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        instance = self.get_object()
+        if getattr(user, "role", None) == "TEACHER":
+            period = getattr(instance, "period", None)
+            if period is not None and not self._teacher_can_edit_planning(user, period):
+                return Response(
+                    {"detail": "La edición de planeación está cerrada para este periodo.", "code": "EDIT_WINDOW_CLOSED"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        self._log_class_plan_event(request, event_type="class_plan.deleted", plan=instance, status_code=status.HTTP_204_NO_CONTENT)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=["get"], url_path="my", permission_classes=[IsAuthenticated])
+    def my_plans(self, request):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        if getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Esta vista aplica solo para docentes."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = self.filter_queryset(self.get_queryset()).order_by("-updated_at")
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=["get"], url_path="my-summary", permission_classes=[IsAuthenticated])
+    def my_summary(self, request):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        user = getattr(request, "user", None)
+        if getattr(user, "role", None) != "TEACHER":
+            return Response({"detail": "Esta vista aplica solo para docentes."}, status=status.HTTP_400_BAD_REQUEST)
+
+        plans_qs = self.filter_queryset(self.get_queryset())
+        plan_ids = list(plans_qs.values_list("id", flat=True))
+        total_plans = len(plan_ids)
+        draft_plans = plans_qs.filter(status=ClassPlan.STATUS_DRAFT).count()
+        finalized_plans = plans_qs.filter(status=ClassPlan.STATUS_FINALIZED).count()
+        ai_assisted_plans = sum(1 for sections in plans_qs.values_list("ai_assisted_sections", flat=True) if sections)
+        planned_topic_ids = set(plans_qs.exclude(topic_id__isnull=True).values_list("topic_id", flat=True).distinct())
+
+        topics_qs = PeriodTopic.objects.filter(is_active=True)
+        academic_year_id = request.query_params.get("academic_year")
+        if academic_year_id:
+            topics_qs = topics_qs.filter(period__academic_year_id=academic_year_id)
+        period_id = request.query_params.get("period")
+        if period_id:
+            topics_qs = topics_qs.filter(period_id=period_id)
+
+        assignment_load_ids = list(
+            TeacherAssignment.objects.filter(teacher=user).values_list("academic_load_id", flat=True).distinct()
+        )
+        if academic_year_id:
+            assignment_load_ids = list(
+                TeacherAssignment.objects.filter(teacher=user, academic_year_id=academic_year_id)
+                .values_list("academic_load_id", flat=True)
+                .distinct()
+            )
+        topics_qs = topics_qs.filter(academic_load_id__in=assignment_load_ids)
+        available_topic_ids = set(topics_qs.values_list("id", flat=True).distinct())
+
+        from reports.models import ReportJob  # noqa: PLC0415
+
+        class_plan_jobs = [
+            job for job in ReportJob.objects.filter(created_by=user, report_type=ReportJob.ReportType.CLASS_PLAN).order_by("-created_at")
+            if int((job.params or {}).get("class_plan_id") or 0) in plan_ids
+        ]
+        export_pending = sum(1 for job in class_plan_jobs if job.status in {ReportJob.Status.PENDING, ReportJob.Status.RUNNING})
+        export_completed = sum(1 for job in class_plan_jobs if job.status == ReportJob.Status.SUCCEEDED)
+
+        recent_logs = AuditLog.objects.filter(actor=user, object_type="class_plan", event_type__startswith="class_plan.")
+        if academic_year_id:
+            recent_logs = recent_logs.filter(metadata__academic_year_id=int(academic_year_id))
+        if period_id:
+            recent_logs = recent_logs.filter(metadata__period_id=int(period_id))
+
+        recent_activity = [
+            {
+                "id": item.id,
+                "event_type": item.event_type,
+                "object_id": item.object_id,
+                "created_at": item.created_at,
+                "metadata": item.metadata,
+            }
+            for item in recent_logs.order_by("-created_at", "-id")[:6]
+        ]
+
+        return Response(
+            {
+                "summary": {
+                    "total_plans": total_plans,
+                    "draft_plans": draft_plans,
+                    "finalized_plans": finalized_plans,
+                    "ai_assisted_plans": ai_assisted_plans,
+                    "available_topics": len(available_topic_ids),
+                    "topics_without_plan": max(len(available_topic_ids - planned_topic_ids), 0),
+                    "completion_rate": round((finalized_plans / total_plans) * 100, 1) if total_plans else 0.0,
+                    "export_pending": export_pending,
+                    "export_completed": export_completed,
+                },
+                "recent_activity": recent_activity,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="generate-draft", permission_classes=[IsAuthenticated])
+    def generate_draft(self, request):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        teacher_assignment_id = request.data.get("teacher_assignment")
+        topic_id = request.data.get("topic")
+        duration_minutes = request.data.get("duration_minutes") or 55
+        title = str(request.data.get("title") or "").strip()
+
+        assignment = None
+        topic = None
+
+        if teacher_assignment_id:
+            assignment = TeacherAssignment.objects.select_related(
+                "teacher",
+                "group",
+                "group__grade",
+                "academic_load",
+                "academic_load__subject",
+            ).filter(id=teacher_assignment_id).first()
+            if assignment is None:
+                return Response({"detail": "Asignación docente no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
+
+            user = getattr(request, "user", None)
+            if getattr(user, "role", None) == "TEACHER" and assignment.teacher_id != getattr(user, "id", None):
+                return Response({"detail": "No puedes generar un plan para otra asignación docente."}, status=status.HTTP_403_FORBIDDEN)
+
+        if topic_id:
+            topic = PeriodTopic.objects.select_related(
+                "period",
+                "academic_load",
+                "academic_load__subject",
+                "academic_load__grade",
+            ).filter(id=topic_id).first()
+            if topic is None:
+                return Response({"detail": "Temática no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if assignment is not None and topic is not None and assignment.academic_load_id != topic.academic_load_id:
+            return Response(
+                {"detail": "La temática no corresponde a la asignación docente seleccionada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            duration_minutes = int(duration_minutes)
+        except Exception:
+            return Response({"detail": "duration_minutes inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        context = {
+            "topic_title": getattr(topic, "title", "") or title,
+            "topic_description": getattr(topic, "description", ""),
+            "subject_name": getattr(getattr(getattr(assignment, "academic_load", None), "subject", None), "name", "")
+            or getattr(getattr(getattr(topic, "academic_load", None), "subject", None), "name", ""),
+            "grade_name": getattr(getattr(getattr(assignment, "group", None), "grade", None), "name", "")
+            or getattr(getattr(getattr(topic, "academic_load", None), "grade", None), "name", ""),
+            "group_name": getattr(getattr(assignment, "group", None), "name", ""),
+            "teacher_name": getattr(getattr(assignment, "teacher", None), "get_full_name", lambda: "")(),
+            "period_name": getattr(getattr(topic, "period", None), "name", "") or request.data.get("period_name") or "",
+            "duration_minutes": duration_minutes,
+            "title_hint": title,
+        }
+
+        try:
+            ai_service = AIService()
+            payload = ai_service.generate_class_plan_draft(context)
+            self._log_class_plan_event(
+                request,
+                event_type="class_plan.generate_draft",
+                status_code=status.HTTP_200_OK,
+                metadata={
+                    "teacher_assignment_id": teacher_assignment_id,
+                    "topic_id": topic_id,
+                    "title": title,
+                },
+            )
+            return Response(payload)
+        except AIConfigError as e:
+            return Response({"detail": str(e), "code": "AI_NOT_CONFIGURED"}, status=status.HTTP_400_BAD_REQUEST)
+        except AIParseError:
+            return Response(
+                {"detail": "La IA devolvió un borrador inválido. Intenta nuevamente.", "code": "AI_INVALID_RESPONSE"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except AIProviderError:
+            return Response(
+                {"detail": "No se pudo generar el borrador con IA en este momento.", "code": "AI_PROVIDER_ERROR"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    @action(detail=False, methods=["post"], url_path="generate-section", permission_classes=[IsAuthenticated])
+    def generate_section(self, request):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        section = str(request.data.get("section") or "").strip()
+        if not section:
+            return Response({"detail": "section es requerido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        context = {
+            "topic_title": str(request.data.get("topic_title") or "").strip(),
+            "topic_description": str(request.data.get("topic_description") or "").strip(),
+            "subject_name": str(request.data.get("subject_name") or "").strip(),
+            "grade_name": str(request.data.get("grade_name") or "").strip(),
+            "group_name": str(request.data.get("group_name") or "").strip(),
+            "teacher_name": str(request.data.get("teacher_name") or "").strip(),
+            "period_name": str(request.data.get("period_name") or "").strip(),
+            "duration_minutes": request.data.get("duration_minutes") or 55,
+            "learning_result": str(request.data.get("learning_result") or "").strip(),
+            "title": str(request.data.get("title") or "").strip(),
+        }
+
+        try:
+            context["duration_minutes"] = int(context["duration_minutes"])
+        except Exception:
+            return Response({"detail": "duration_minutes inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ai_service = AIService()
+            payload = ai_service.generate_class_plan_section(section, context)
+            self._log_class_plan_event(
+                request,
+                event_type="class_plan.generate_section",
+                status_code=status.HTTP_200_OK,
+                metadata={
+                    "section": section,
+                    "title": context.get("title"),
+                    "topic_title": context.get("topic_title"),
+                },
+            )
+            return Response(payload)
+        except AIConfigError as e:
+            return Response({"detail": str(e), "code": "AI_NOT_CONFIGURED"}, status=status.HTTP_400_BAD_REQUEST)
+        except AIParseError:
+            return Response(
+                {"detail": "La IA devolvió una sección inválida. Intenta nuevamente.", "code": "AI_INVALID_RESPONSE"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except AIProviderError:
+            return Response(
+                {"detail": "No se pudo generar la sección con IA en este momento.", "code": "AI_PROVIDER_ERROR"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+    @action(detail=True, methods=["post"], url_path="export-pdf", permission_classes=[IsAuthenticated])
+    def export_pdf(self, request, pk=None):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        plan = self.get_object()
+        if plan.status != ClassPlan.STATUS_FINALIZED:
+            return Response({"detail": "Solo se pueden exportar planes finalizados."}, status=status.HTTP_400_BAD_REQUEST)
+
+        public_base = (getattr(settings, "PUBLIC_SITE_URL", "") or "").strip().rstrip("/")
+        if not public_base:
+            try:
+                public_base = request.build_absolute_uri("/").strip().rstrip("/")
+            except Exception:
+                public_base = ""
+
+        ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+        params = {"class_plan_id": plan.id}
+        if public_base:
+            params["public_site_url"] = public_base
+
+        job = ReportJob.objects.create(
+            created_by=request.user,
+            report_type=ReportJob.ReportType.CLASS_PLAN,
+            params=params,
+            expires_at=timezone.now() + timedelta(hours=ttl_hours),
+        )
+
+        self._log_class_plan_event(
+            request,
+            event_type="class_plan.export_requested",
+            plan=plan,
+            status_code=status.HTTP_202_ACCEPTED,
+            metadata={"job_id": job.id},
+        )
+
+        generate_report_job_pdf.delay(job.id)
+
+        out = ReportJobSerializer(job, context={"request": request}).data
+        return Response(out, status=status.HTTP_202_ACCEPTED)
 
     def create(self, request, *args, **kwargs):
         try:

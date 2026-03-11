@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import { Input } from '../components/ui/Input'
+import { Modal } from '../components/ui/Modal'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
 type CellKey = `${number}:${number}`
@@ -334,6 +335,11 @@ export default function Grades() {
     for (const c of gradebook?.activity_columns ?? []) map.set(c.id, c)
     return map
   }, [gradebook?.activity_columns])
+
+  const editingActivityColumn = useMemo(() => {
+    if (editingActivityColumnId == null) return null
+    return activityColumnById.get(editingActivityColumnId) ?? null
+  }, [activityColumnById, editingActivityColumnId])
 
   useEffect(() => {
     if (editingActivityColumnId == null) return
@@ -3150,60 +3156,28 @@ export default function Grades() {
                                       className={`px-1.5 lg:px-2 py-2 lg:py-2.5 font-semibold normal-case ${tone.groupBg} w-[125px] min-w-[125px] max-w-[125px]`}
                                       title={c.label}
                                     >
-                                      {editingActivityColumnId === c.id && !periodIsClosed ? (
-                                        <div className="flex items-center gap-2">
-                                          <Input
-                                            value={editingActivityColumnLabel}
-                                            onChange={(e) => setEditingActivityColumnLabel(e.target.value)}
-                                            onKeyDown={handleActivityColumnLabelKeyDown}
-                                            disabled={savingActivityColumnEdit}
-                                            className="h-8 min-w-0 flex-1 px-2 text-sm"
-                                            autoFocus
-                                            aria-label="Editar nombre de columna de actividad"
-                                          />
+                                      <div className="flex items-center justify-between gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => startEditActivityColumn(c.id, c.label)}
+                                          disabled={periodIsClosed}
+                                          className={`text-left w-full min-w-0 hover:underline disabled:no-underline disabled:opacity-60 ${editingActivityColumnId === c.id ? 'text-sky-700 dark:text-sky-300' : ''}`}
+                                          title={c.label}
+                                        >
+                                          <span className="sm:hidden">{`A${idx + 1}`}</span>
+                                          <span className="hidden sm:block truncate">{c.label.length > 9 ? `${c.label.slice(0, 9)}...` : c.label}</span>
+                                        </button>
+                                        {!periodIsClosed && (
                                           <button
                                             type="button"
-                                            onClick={saveEditActivityColumn}
-                                            disabled={savingActivityColumnEdit}
-                                            className="h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-60"
-                                            title="Guardar"
+                                            onClick={() => deactivateActivityColumn(c.id)}
+                                            className="h-7 w-7 shrink-0 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                            title="Desactivar columna"
                                           >
-                                            OK
+                                            −
                                           </button>
-                                          <button
-                                            type="button"
-                                            onClick={cancelEditActivityColumn}
-                                            disabled={savingActivityColumnEdit}
-                                            className="h-8 px-2 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 disabled:opacity-60"
-                                            title="Cancelar"
-                                          >
-                                            ✕
-                                          </button>
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center justify-between gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => startEditActivityColumn(c.id, c.label)}
-                                            disabled={periodIsClosed}
-                                            className="text-left w-full min-w-0 hover:underline disabled:no-underline disabled:opacity-60"
-                                            title={c.label}
-                                          >
-                                            <span className="sm:hidden">{`A${idx + 1}`}</span>
-                                            <span className="hidden sm:block truncate">{c.label.length > 9 ? `${c.label.slice(0, 9)}...` : c.label}</span>
-                                          </button>
-                                          {!periodIsClosed && (
-                                            <button
-                                              type="button"
-                                              onClick={() => deactivateActivityColumn(c.id)}
-                                              className="h-7 w-7 shrink-0 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                                              title="Desactivar columna"
-                                            >
-                                              −
-                                            </button>
-                                          )}
-                                        </div>
-                                      )}
+                                        )}
+                                      </div>
                                     </th>
                                   ))
                                 : [
@@ -3500,6 +3474,57 @@ export default function Grades() {
               </table>
             </div>
             )}
+            <Modal
+              isOpen={editingActivityColumnId != null && !periodIsClosed}
+              onClose={cancelEditActivityColumn}
+              title="Editar encabezado de actividad"
+              description="Usa un nombre más claro y completo para identificar la actividad en la planilla."
+              size="md"
+              loading={savingActivityColumnEdit}
+              footer={
+                <>
+                  <Button type="button" variant="outline" onClick={cancelEditActivityColumn} disabled={savingActivityColumnEdit}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" onClick={saveEditActivityColumn} disabled={savingActivityColumnEdit}>
+                    {savingActivityColumnEdit ? 'Guardando…' : 'Guardar nombre'}
+                  </Button>
+                </>
+              }
+            >
+              <div className="space-y-4">
+                {editingActivityColumn ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-800/60">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                      Nombre actual
+                    </div>
+                    <div className="mt-1 text-sm font-medium text-slate-900 dark:text-slate-100">
+                      {editingActivityColumn.label}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase text-slate-500 dark:text-slate-400">
+                    Nuevo nombre de la actividad
+                  </label>
+                  <Input
+                    value={editingActivityColumnLabel}
+                    onChange={(e) => setEditingActivityColumnLabel(e.target.value)}
+                    onKeyDown={handleActivityColumnLabelKeyDown}
+                    disabled={savingActivityColumnEdit}
+                    className="h-11 w-full px-3 text-base"
+                    autoFocus
+                    aria-label="Editar nombre de columna de actividad"
+                    placeholder="Ej: Taller de lectura crítica"
+                  />
+                  <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    Este texto se mostrará como encabezado de la columna en modo actividades.
+                  </p>
+                </div>
+              </div>
+            </Modal>
+
 
             {gradebook.students.length === 0 && (
               <div className="text-sm text-slate-500 dark:text-slate-400">No hay estudiantes activos en el grupo.</div>

@@ -26,9 +26,20 @@ from .models import (
     EditRequestItem,
     EditGrant,
     EditGrantItem,
+    PeriodTopic,
+    ClassPlan,
 )
 
 from django.utils import timezone
+
+
+def _normalized_text(value):
+    return str(value or "").strip()
+
+
+def _looks_like_placeholder(value):
+    normalized = _normalized_text(value).lower()
+    return normalized in {"n/a", "na", "ninguno", "sin definir", "por definir", "pendiente"}
 
 
 class AcademicLoadSerializer(serializers.ModelSerializer):
@@ -454,6 +465,181 @@ class DimensionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Dimension
         fields = "__all__"
+
+
+class PeriodTopicSerializer(serializers.ModelSerializer):
+    period_name = serializers.CharField(source="period.name", read_only=True)
+    academic_year_id = serializers.IntegerField(source="period.academic_year_id", read_only=True)
+    academic_load_name = serializers.SerializerMethodField()
+    subject_id = serializers.IntegerField(source="academic_load.subject_id", read_only=True)
+    subject_name = serializers.CharField(source="academic_load.subject.name", read_only=True)
+    grade_id = serializers.IntegerField(source="academic_load.grade_id", read_only=True)
+    grade_name = serializers.CharField(source="academic_load.grade.name", read_only=True)
+    created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = PeriodTopic
+        fields = "__all__"
+        read_only_fields = ["created_by", "created_at", "updated_at"]
+
+    def get_academic_load_name(self, obj):
+        subject = getattr(getattr(obj, "academic_load", None), "subject", None)
+        grade = getattr(getattr(obj, "academic_load", None), "grade", None)
+        if subject and grade:
+            return f"{subject.name} - {grade.name}"
+        return None
+
+    def validate_title(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("La temática no puede estar vacía.")
+        return cleaned
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        period = attrs.get("period") or getattr(self.instance, "period", None)
+        academic_load = attrs.get("academic_load") or getattr(self.instance, "academic_load", None)
+
+        if period is None or academic_load is None:
+            return attrs
+
+        if getattr(period.academic_year, "status", None) == AcademicYear.STATUS_CLOSED:
+            raise serializers.ValidationError({"period": "No se pueden editar temáticas en un año lectivo finalizado."})
+
+        if request is not None and getattr(request.user, "role", None) == "TEACHER":
+            allowed = TeacherAssignment.objects.filter(
+                teacher=request.user,
+                academic_year=period.academic_year,
+                academic_load=academic_load,
+            ).exists()
+            if not allowed:
+                raise serializers.ValidationError(
+                    {"academic_load": "No tienes asignación para gestionar temáticas de esta asignatura."}
+                )
+
+        title = attrs.get("title")
+        if title is None and self.instance is not None:
+            title = self.instance.title
+        duplicate_qs = PeriodTopic.objects.filter(
+            period=period,
+            academic_load=academic_load,
+            title__iexact=(title or "").strip(),
+        )
+        if self.instance is not None:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+        if duplicate_qs.exists():
+            raise serializers.ValidationError({"title": "Ya existe una temática equivalente para este periodo y asignatura."})
+
+        return attrs
+
+
+class ClassPlanSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source="teacher_assignment.teacher.get_full_name", read_only=True)
+    subject_name = serializers.CharField(source="teacher_assignment.academic_load.subject.name", read_only=True)
+    group_name = serializers.CharField(source="teacher_assignment.group.name", read_only=True)
+    grade_name = serializers.CharField(source="teacher_assignment.group.grade.name", read_only=True)
+    topic_title = serializers.CharField(source="topic.title", read_only=True)
+    period_name = serializers.CharField(source="period.name", read_only=True)
+    total_sequence_minutes = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = ClassPlan
+        fields = "__all__"
+        read_only_fields = [
+            "created_by",
+            "updated_by",
+            "created_at",
+            "updated_at",
+            "teacher_name",
+            "subject_name",
+            "group_name",
+            "grade_name",
+            "topic_title",
+            "period_name",
+            "total_sequence_minutes",
+        ]
+
+    def validate_title(self, value):
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("El título del plan no puede estar vacío.")
+        return cleaned
+
+    def validate_ai_assisted_sections(self, value):
+        if value in (None, ""):
+            return []
+        if not isinstance(value, list):
+            raise serializers.ValidationError("ai_assisted_sections debe ser una lista.")
+        return value
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        teacher_assignment = attrs.get("teacher_assignment") or getattr(self.instance, "teacher_assignment", None)
+        period = attrs.get("period") or getattr(self.instance, "period", None)
+        topic = attrs.get("topic") or getattr(self.instance, "topic", None)
+
+        if teacher_assignment and period and teacher_assignment.academic_year_id != period.academic_year_id:
+            raise serializers.ValidationError({"period": "El periodo no corresponde al año lectivo de la asignación docente."})
+
+        if topic and period and topic.period_id != period.id:
+            raise serializers.ValidationError({"topic": "La temática no corresponde al periodo seleccionado."})
+
+        if topic and teacher_assignment and topic.academic_load_id != teacher_assignment.academic_load_id:
+            raise serializers.ValidationError({"topic": "La temática no corresponde a la asignatura de la asignación docente."})
+
+        duration = attrs.get("duration_minutes", getattr(self.instance, "duration_minutes", 0)) or 0
+        start = attrs.get("start_time_minutes", getattr(self.instance, "start_time_minutes", 0)) or 0
+        development = attrs.get("development_time_minutes", getattr(self.instance, "development_time_minutes", 0)) or 0
+        closing = attrs.get("closing_time_minutes", getattr(self.instance, "closing_time_minutes", 0)) or 0
+        if duration and duration != (start + development + closing):
+            raise serializers.ValidationError(
+                {"duration_minutes": "La duración total debe coincidir con la suma de inicio, desarrollo y cierre."}
+            )
+
+        status_value = attrs.get("status", getattr(self.instance, "status", ClassPlan.STATUS_DRAFT))
+        if status_value == ClassPlan.STATUS_FINALIZED:
+            required_fields = {
+                "learning_result": attrs.get("learning_result", getattr(self.instance, "learning_result", "")),
+                "competency_know": attrs.get("competency_know", getattr(self.instance, "competency_know", "")),
+                "competency_do": attrs.get("competency_do", getattr(self.instance, "competency_do", "")),
+                "competency_be": attrs.get("competency_be", getattr(self.instance, "competency_be", "")),
+                "evidence_product": attrs.get("evidence_product", getattr(self.instance, "evidence_product", "")),
+                "evaluation_instrument": attrs.get("evaluation_instrument", getattr(self.instance, "evaluation_instrument", "")),
+                "evaluation_criterion": attrs.get("evaluation_criterion", getattr(self.instance, "evaluation_criterion", "")),
+            }
+            missing = [label for label, value in required_fields.items() if not (value or "").strip()]
+            if missing:
+                raise serializers.ValidationError(
+                    {"status": f"No se puede finalizar el plan. Faltan campos obligatorios: {', '.join(missing)}."}
+                )
+
+            evaluation_criterion = _normalized_text(required_fields["evaluation_criterion"])
+            if _looks_like_placeholder(evaluation_criterion) or len(evaluation_criterion) < 15:
+                raise serializers.ValidationError(
+                    {
+                        "evaluation_criterion": (
+                            "El criterio SIEE debe describir de forma concreta cómo se evaluará el aprendizaje."
+                        )
+                    }
+                )
+
+            evaluation_instrument = _normalized_text(required_fields["evaluation_instrument"])
+            if _looks_like_placeholder(evaluation_instrument) or len(evaluation_instrument) < 5:
+                raise serializers.ValidationError(
+                    {
+                        "evaluation_instrument": (
+                            "Define un instrumento de evaluación válido antes de finalizar el plan."
+                        )
+                    }
+                )
+
+        if request is not None and getattr(request.user, "role", None) == "TEACHER":
+            if teacher_assignment and teacher_assignment.teacher_id != request.user.id:
+                raise serializers.ValidationError(
+                    {"teacher_assignment": "No puedes crear o editar planes para otra asignación docente."}
+                )
+
+        return attrs
 
 
 class AchievementSerializer(serializers.ModelSerializer):

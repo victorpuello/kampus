@@ -293,9 +293,14 @@ services:
       - backend
     command: >
       sh -c "
-        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ] || [ ! -d node_modules/jsqr ] || [ ! -d node_modules/jspdf ] || [ ! -d node_modules/recharts ] || [ ! -d node_modules/react-is ]; then
-          echo 'Installing frontend deps (incl. Tremor, jsQR y jsPDF)…';
+        CURRENT_HASH=$$(sha256sum package-lock.json | awk '{print $$1}');
+        SAVED_HASH=$$(cat node_modules/.depshash 2>/dev/null || true);
+
+        if [ ! -d node_modules ] || [ ! -d node_modules/@tremor/react ] || [ ! -d node_modules/jsqr ] || [ ! -d node_modules/jspdf ] || [ ! -d node_modules/recharts ] || [ ! -d node_modules/react-is ] || [ ! -d node_modules/xlsx ] || [ "$$CURRENT_HASH" != "$$SAVED_HASH" ]; then
+          echo 'Installing frontend deps (incl. xlsx)…';
           npm install --legacy-peer-deps;
+          mkdir -p node_modules;
+          echo "$$CURRENT_HASH" > node_modules/.depshash;
         fi;
         npm run dev -- --host
       "

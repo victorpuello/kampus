@@ -272,12 +272,12 @@ export default function PlanningEditRequests() {
             <div className="rounded-lg bg-blue-100 p-2 dark:bg-blue-950/30">
               <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-300 md:h-6 md:w-6" />
             </div>
-            Solicitudes de edición (Planeación)
+            Solicitudes de edición (Planeación de Periodo)
           </h2>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Crea solicitudes y consulta su estado.</p>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-          <Button variant="outline" onClick={() => navigate('/planning')} className="min-h-11 w-full sm:w-auto">Ir a Planeación</Button>
+          <Button variant="outline" onClick={() => navigate('/planning')} className="min-h-11 w-full sm:w-auto">Ir a Planeación de Periodo</Button>
           {isTeacher ? (
             <Button variant="outline" onClick={refreshMyRequests} disabled={loadingMyRequests} className="min-h-11 w-full sm:w-auto">Recargar</Button>
           ) : (

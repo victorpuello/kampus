@@ -8,12 +8,29 @@ on:
       - 'kampus_frontend/**'
       - 'docker-compose*.yml'
       - 'env.backend.example'
+      - 'scripts/**'
       - '.github/workflows/security-release-gate.yml'
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
+  compose-production-config-gate:
+    runs-on: ubuntu-latest
+    env:
+      DJANGO_SECRET_KEY: ci-production-like-secret-key-abcdefghijklmnopqrstuvwxyz-0123456789
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      KAMPUS_PUBLIC_SITE_URL: https://kampus.ci.example.com
+      KAMPUS_FRONTEND_BASE_URL: https://kampus.ci.example.com
+      KAMPUS_BACKEND_BASE_URL: https://kampus.ci.example.com
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Compose production public URLs
+        run: bash scripts/check_prod_public_urls.sh
+
   backend-security-gate:
     runs-on: ubuntu-latest
     defaults:
@@ -24,6 +41,9 @@ jobs:
       DJANGO_DEBUG: 'false'
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
       DJANGO_SECRET_KEY: ci-production-like-secret-key-abcdefghijklmnopqrstuvwxyz-0123456789
+      KAMPUS_PUBLIC_SITE_URL: https://kampus.ci.example.com
+      KAMPUS_FRONTEND_BASE_URL: https://kampus.ci.example.com
+      KAMPUS_BACKEND_BASE_URL: https://kampus.ci.example.com
       DJANGO_SECURE_SSL_REDIRECT: 'true'
       DJANGO_SESSION_COOKIE_SECURE: 'true'
       DJANGO_CSRF_COOKIE_SECURE: 'true'

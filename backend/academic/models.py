@@ -629,6 +629,178 @@ class PerformanceIndicator(models.Model):
         return f"{self.get_level_display()} - {self.achievement}"
 
 
+class PeriodTopic(models.Model):
+    SOURCE_MANUAL = "MANUAL"
+    SOURCE_IMPORT = "IMPORT"
+    SOURCE_CHOICES = (
+        (SOURCE_MANUAL, "Manual"),
+        (SOURCE_IMPORT, "Importación"),
+    )
+
+    period = models.ForeignKey(Period, related_name="topics", on_delete=models.CASCADE)
+    academic_load = models.ForeignKey(
+        AcademicLoad,
+        related_name="period_topics",
+        on_delete=models.CASCADE,
+    )
+    title = models.CharField(max_length=255, verbose_name="Temática")
+    description = models.TextField(blank=True, verbose_name="Descripción")
+    sequence_order = models.PositiveIntegerField(default=1, verbose_name="Orden")
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_MANUAL)
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="period_topics_created",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Temática por Periodo"
+        verbose_name_plural = "Temáticas por Periodo"
+        ordering = ["period__start_date", "academic_load__subject__name", "sequence_order", "title"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["period", "academic_load", "sequence_order"],
+                name="uniq_period_topic_order_per_load",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["period", "academic_load"], name="idx_period_topic_period_load"),
+            models.Index(fields=["period", "is_active"], name="idx_period_topic_active"),
+        ]
+
+    def __str__(self):
+        return f"{self.period} - {self.academic_load}: {self.title}"
+
+    def clean(self):
+        super().clean()
+        if self.period_id and self.academic_load_id:
+            grade_id = getattr(self.academic_load, "grade_id", None)
+            year_id = getattr(self.period, "academic_year_id", None)
+            if grade_id is None or year_id is None:
+                return
+
+            duplicate_qs = PeriodTopic.objects.filter(
+                period_id=self.period_id,
+                academic_load_id=self.academic_load_id,
+                title__iexact=(self.title or "").strip(),
+            )
+            if self.pk:
+                duplicate_qs = duplicate_qs.exclude(pk=self.pk)
+            if duplicate_qs.exists():
+                raise ValidationError({"title": "Ya existe una temática equivalente para este periodo y asignatura."})
+
+
+class ClassPlan(models.Model):
+    STATUS_DRAFT = "DRAFT"
+    STATUS_FINALIZED = "FINALIZED"
+    STATUS_CHOICES = (
+        (STATUS_DRAFT, "Borrador"),
+        (STATUS_FINALIZED, "Finalizado"),
+    )
+
+    teacher_assignment = models.ForeignKey(
+        TeacherAssignment,
+        related_name="class_plans",
+        on_delete=models.CASCADE,
+    )
+    period = models.ForeignKey(Period, related_name="class_plans", on_delete=models.CASCADE)
+    topic = models.ForeignKey(
+        PeriodTopic,
+        related_name="class_plans",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    title = models.CharField(max_length=255, verbose_name="Título del plan")
+    class_date = models.DateField(null=True, blank=True, verbose_name="Fecha de la clase")
+    duration_minutes = models.PositiveIntegerField(default=55, verbose_name="Duración")
+
+    learning_result = models.TextField(blank=True, verbose_name="Resultado de aprendizaje")
+    dba_reference = models.TextField(blank=True, verbose_name="DBA")
+    standard_reference = models.TextField(blank=True, verbose_name="Estándar")
+
+    competency_know = models.TextField(blank=True, verbose_name="Competencia Saber")
+    competency_do = models.TextField(blank=True, verbose_name="Competencia Hacer")
+    competency_be = models.TextField(blank=True, verbose_name="Competencia Ser")
+
+    class_purpose = models.TextField(blank=True, verbose_name="Propósito de la clase")
+    start_time_minutes = models.PositiveIntegerField(default=10, verbose_name="Tiempo inicio")
+    start_activities = models.TextField(blank=True, verbose_name="Actividades de inicio")
+    development_time_minutes = models.PositiveIntegerField(default=35, verbose_name="Tiempo desarrollo")
+    development_activities = models.TextField(blank=True, verbose_name="Actividades de desarrollo")
+    closing_time_minutes = models.PositiveIntegerField(default=10, verbose_name="Tiempo cierre")
+    closing_activities = models.TextField(blank=True, verbose_name="Actividades de cierre")
+
+    evidence_product = models.TextField(blank=True, verbose_name="Evidencia o producto")
+    evaluation_instrument = models.TextField(blank=True, verbose_name="Instrumento de evaluación")
+    evaluation_criterion = models.TextField(blank=True, verbose_name="Criterio SIEE")
+    resources = models.TextField(blank=True, verbose_name="Recursos")
+    dua_adjustments = models.TextField(blank=True, verbose_name="Observaciones o ajustes DUA")
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    ai_assisted_sections = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="class_plans_created",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="class_plans_updated",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Plan de Clase"
+        verbose_name_plural = "Planes de Clase"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["teacher_assignment", "period"], name="idx_cp_assign_period"),
+            models.Index(fields=["period", "status"], name="idx_class_plan_period_status"),
+        ]
+
+    def __str__(self):
+        return f"{self.title} - {self.teacher_assignment}"
+
+    @property
+    def total_sequence_minutes(self):
+        return (
+            int(self.start_time_minutes or 0)
+            + int(self.development_time_minutes or 0)
+            + int(self.closing_time_minutes or 0)
+        )
+
+    def clean(self):
+        super().clean()
+
+        if self.teacher_assignment_id and self.period_id:
+            if self.teacher_assignment.academic_year_id != self.period.academic_year_id:
+                raise ValidationError({"period": "El periodo no corresponde al año lectivo de la asignación docente."})
+
+        if self.topic_id and self.period_id and self.topic.period_id != self.period_id:
+            raise ValidationError({"topic": "La temática no corresponde al periodo seleccionado."})
+
+        if self.topic_id and self.teacher_assignment_id:
+            if self.topic.academic_load_id != self.teacher_assignment.academic_load_id:
+                raise ValidationError({"topic": "La temática no corresponde a la asignatura de la asignación docente."})
+
+        if self.duration_minutes and self.total_sequence_minutes and self.duration_minutes != self.total_sequence_minutes:
+            raise ValidationError(
+                {"duration_minutes": "La duración total debe coincidir con la suma de inicio, desarrollo y cierre."}
+            )
+
+
 class GradeSheet(models.Model):
     STATUS_DRAFT = "DRAFT"
     STATUS_PUBLISHED = "PUBLISHED"

@@ -3,8 +3,10 @@ import AchievementBank from './AchievementBank';
 import PeriodPlanning from './PeriodPlanning';
 import { BookOpen, Calendar } from 'lucide-react';
 
+type PlanningTab = 'bank' | 'planning'
+
 export default function PlanningModule() {
-  const [activeTab, setActiveTab] = useState<'bank' | 'planning'>('planning');
+  const [activeTab, setActiveTab] = useState<PlanningTab>('planning')
 
   return (
     <div className="max-w-7xl mx-auto px-2 sm:px-0">

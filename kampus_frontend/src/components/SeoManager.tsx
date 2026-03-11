@@ -103,6 +103,20 @@ const getSeoForPath = (pathname: string): SeoConfig => {
     }
   }
 
+  if (pathname === '/class-planner') {
+    return {
+      title: `Planeador de clases | ${app}`,
+      description: 'Planeador de clases docente con temáticas por periodo, asistencia de IA y exportación PDF institucional.'
+    }
+  }
+
+  if (pathname === '/class-planner/topics') {
+    return {
+      title: `Temáticas del planeador | ${app}`,
+      description: 'Gestión docente de temáticas por periodo para el planeador de clases.'
+    }
+  }
+
   if (pathname === '/institution') {
     return {
       title: `Institución | ${app}`,

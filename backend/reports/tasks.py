@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import ast
 import base64
+import html as html_lib
 import logging
 import time
 import re
+import json
+import unicodedata
 from urllib.parse import urljoin, urlparse
 from datetime import date, datetime
 from pathlib import Path
@@ -34,6 +38,192 @@ from .weasyprint_utils import PDF_BASE_CSS, weasyprint_url_fetcher
 
 
 logger = logging.getLogger(__name__)
+
+
+def _build_class_plan_pdf_filename(plan) -> str:
+    topic_source = getattr(getattr(plan, "topic", None), "title", "") or getattr(plan, "title", "") or "tema"
+    normalized = unicodedata.normalize("NFKD", str(topic_source or "").strip())
+    normalized = "".join(character for character in normalized if not unicodedata.combining(character))
+    stopwords = {"a", "al", "con", "de", "del", "el", "en", "la", "las", "los", "para", "por", "sus", "un", "una", "y"}
+    words = [word for word in re.findall(r"[A-Za-z0-9]+", normalized) if word.lower() not in stopwords]
+    clipped_words = words[:3] or ["tema"]
+    topic_fragment = "_".join(word.capitalize() for word in clipped_words)
+
+    plan_date = getattr(plan, "class_date", None)
+    if hasattr(plan_date, "strftime"):
+        date_fragment = plan_date.strftime("%Y-%m-%d")
+    else:
+        created_at = getattr(plan, "created_at", None)
+        if hasattr(created_at, "strftime"):
+            date_fragment = created_at.strftime("%Y-%m-%d")
+        else:
+            date_fragment = date.today().strftime("%Y-%m-%d")
+
+    return f"Plan_de_Clase_{topic_fragment}_{date_fragment}.pdf"
+
+
+def _normalize_pdf_text(value) -> str:
+    def _to_lines(raw_value) -> list[str]:
+        if raw_value is None:
+            return []
+        if isinstance(raw_value, (list, tuple, set)):
+            lines: list[str] = []
+            for item in raw_value:
+                text = _normalize_pdf_text(item)
+                if text:
+                    lines.extend([part for part in text.splitlines() if part.strip()])
+            return lines
+        if isinstance(raw_value, dict):
+            lines = []
+            for key, item in raw_value.items():
+                text = _normalize_pdf_text(item)
+                if text:
+                    lines.append(f"{key}: {text}")
+            return lines
+
+        text = str(raw_value or "").strip()
+        if not text:
+            return []
+
+        parsed = None
+        if text.startswith(("[", "{")) and text.endswith(("]", "}")):
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                try:
+                    parsed = ast.literal_eval(text)
+                except Exception:
+                    parsed = None
+        if parsed is not None and parsed != raw_value:
+            return _to_lines(parsed)
+
+        text = re.sub(r"```(?:json)?", "", text, flags=re.IGNORECASE)
+        text = text.replace("```", "")
+        text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+        text = re.sub(r"__(.*?)__", r"\1", text)
+        text = re.sub(r"`([^`]+)`", r"\1", text)
+
+        normalized_lines: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                if normalized_lines and normalized_lines[-1] != "":
+                    normalized_lines.append("")
+                continue
+            stripped = re.sub(r"^[\-*•\u2022]+\s*", "- ", stripped)
+            stripped = re.sub(r"^\d+[\.)]\s*", "- ", stripped)
+            stripped = stripped.strip("[]'\"")
+            stripped = re.sub(r"\s+", " ", stripped).strip()
+            normalized_lines.append(stripped)
+
+        while normalized_lines and normalized_lines[-1] == "":
+            normalized_lines.pop()
+        return normalized_lines
+
+    lines = _to_lines(value)
+    if not lines:
+        return ""
+
+    compacted: list[str] = []
+    previous_blank = False
+    for line in lines:
+        is_blank = not line.strip()
+        if is_blank:
+            if not previous_blank and compacted:
+                compacted.append("")
+            previous_blank = True
+            continue
+        compacted.append(line)
+        previous_blank = False
+    return "\n".join(compacted).strip()
+
+
+def _text_to_pdf_html(value) -> str:
+    cleaned = _normalize_pdf_text(value)
+    if not cleaned:
+        return ""
+
+    title_re = re.compile(r"^[A-ZÁÉÍÓÚÑa-záéíóúñ][^\n]{0,120}:$")
+    html_parts: list[str] = []
+    in_list = False
+    paragraph_buffer: list[str] = []
+
+    def flush_paragraph() -> None:
+        nonlocal paragraph_buffer
+        if not paragraph_buffer:
+            return
+        paragraph_text = " ".join(part.strip() for part in paragraph_buffer if part.strip())
+        if paragraph_text:
+            html_parts.append(f"<p>{html_lib.escape(paragraph_text)}</p>")
+        paragraph_buffer = []
+
+    def close_list() -> None:
+        nonlocal in_list
+        if in_list:
+            html_parts.append("</ul>")
+            in_list = False
+
+    for raw_line in cleaned.splitlines():
+        line = raw_line.strip()
+        if not line:
+            flush_paragraph()
+            close_list()
+            continue
+
+        if title_re.match(line):
+            flush_paragraph()
+            close_list()
+            html_parts.append(f"<p class=\"rich-subtitle\">{html_lib.escape(line)}</p>")
+            continue
+
+        if line.startswith("- "):
+            flush_paragraph()
+            if not in_list:
+                html_parts.append("<ul>")
+                in_list = True
+            html_parts.append(f"<li>{html_lib.escape(line[2:].strip())}</li>")
+            continue
+
+        close_list()
+        paragraph_buffer.append(line)
+
+    flush_paragraph()
+    close_list()
+    return "".join(html_parts)
+
+
+def _build_class_plan_pdf_context(*, institution, plan) -> dict:
+    cleaned_fields = {
+        "learning_result": _normalize_pdf_text(plan.learning_result),
+        "dba_reference": _normalize_pdf_text(plan.dba_reference),
+        "standard_reference": _normalize_pdf_text(plan.standard_reference),
+        "competency_know": _normalize_pdf_text(plan.competency_know),
+        "competency_do": _normalize_pdf_text(plan.competency_do),
+        "competency_be": _normalize_pdf_text(plan.competency_be),
+        "class_purpose": _normalize_pdf_text(plan.class_purpose),
+        "start_activities": _normalize_pdf_text(plan.start_activities),
+        "development_activities": _normalize_pdf_text(plan.development_activities),
+        "closing_activities": _normalize_pdf_text(plan.closing_activities),
+        "evidence_product": _normalize_pdf_text(plan.evidence_product),
+        "evaluation_instrument": _normalize_pdf_text(plan.evaluation_instrument),
+        "evaluation_criterion": _normalize_pdf_text(plan.evaluation_criterion),
+        "resources": _normalize_pdf_text(plan.resources),
+        "dua_adjustments": _normalize_pdf_text(plan.dua_adjustments),
+    }
+    html_fields = {key: _text_to_pdf_html(value) for key, value in cleaned_fields.items()}
+    return {
+        "institution": institution,
+        "plan": plan,
+        "plan_display": cleaned_fields,
+        "plan_html": html_fields,
+        "teacher_name": _normalize_pdf_text(getattr(plan.teacher_assignment.teacher, "get_full_name", lambda: "")()),
+        "subject_name": _normalize_pdf_text(getattr(plan.teacher_assignment.academic_load.subject, "name", "")),
+        "area_name": _normalize_pdf_text(getattr(getattr(plan.teacher_assignment.academic_load.subject, "area", None), "name", "")),
+        "grade_name": _normalize_pdf_text(getattr(plan.teacher_assignment.group.grade, "name", "")),
+        "group_name": _normalize_pdf_text(getattr(plan.teacher_assignment.group, "name", "")),
+        "period_name": _normalize_pdf_text(getattr(plan.period, "name", "")),
+        "topic_title": _normalize_pdf_text(getattr(getattr(plan, "topic", None), "title", "") or plan.title),
+    }
 
 
 def _resolve_group_acta_ai_blocks_for_job(*, commission) -> dict:
@@ -508,6 +698,33 @@ def _render_report_html(job: ReportJob) -> str:
                 "teacher_name": str(params.get("teacher_name") or ""),
                 "analysis_html": str(params.get("analysis_html") or ""),
             },
+        )
+
+    if job.report_type == ReportJob.ReportType.CLASS_PLAN:
+        from academic.models import ClassPlan  # noqa: PLC0415
+        from core.models import Institution  # noqa: PLC0415
+
+        params = job.params or {}
+        plan_id = params.get("class_plan_id")
+        if not plan_id:
+            raise ValueError("class_plan_id is required")
+
+        plan = ClassPlan.objects.select_related(
+            "period",
+            "topic",
+            "teacher_assignment",
+            "teacher_assignment__teacher",
+            "teacher_assignment__group",
+            "teacher_assignment__group__grade",
+            "teacher_assignment__academic_load",
+            "teacher_assignment__academic_load__subject",
+            "teacher_assignment__academic_load__subject__area",
+        ).get(id=plan_id)
+
+        institution = Institution.objects.first() or Institution(name="")
+        return render_to_string(
+            "academic/reports/class_plan_pdf.html",
+            _build_class_plan_pdf_context(institution=institution, plan=plan),
         )
 
     if job.report_type == ReportJob.ReportType.STUDY_CERTIFICATION:
@@ -1159,6 +1376,13 @@ def generate_report_job_pdf(self, job_id: int) -> None:
             y = str(params.get("year_name") or "").strip() or "anio"
             p = str(params.get("period_name") or "").strip() or "periodo"
             out_filename = f"analisis_ia_{y}_{p}.pdf".replace(" ", "_")
+        elif job.report_type == ReportJob.ReportType.CLASS_PLAN:
+            params = job.params or {}
+            plan_id = params.get("class_plan_id")
+            from academic.models import ClassPlan  # noqa: PLC0415
+
+            plan = ClassPlan.objects.select_related("topic").filter(id=plan_id).first()
+            out_filename = _build_class_plan_pdf_filename(plan) if plan is not None else f"Plan_de_Clase_Tema_{plan_id}.pdf"
         elif job.report_type == ReportJob.ReportType.STUDY_CERTIFICATION:
             params = job.params or {}
             enrollment_id = params.get("enrollment_id")

@@ -18,6 +18,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from audit.services import log_event
 from users.models import User
 from users.permissions import IsSuperAdmin
 
@@ -918,6 +919,16 @@ class ReportJobViewSet(viewsets.ModelViewSet):
 			expires_at=expires_at,
 		)
 
+		if job.report_type == ReportJob.ReportType.CLASS_PLAN:
+			log_event(
+				request,
+				event_type="class_plan.export_requested",
+				object_type="class_plan",
+				object_id=(params or {}).get("class_plan_id") or "",
+				status_code=status.HTTP_202_ACCEPTED,
+				metadata={"job_id": job.id, "report_type": job.report_type},
+			)
+
 		# Enqueue async generation
 		generate_report_job_pdf.delay(job.id)
 
@@ -960,6 +971,15 @@ class ReportJobViewSet(viewsets.ModelViewSet):
 		filename = job.output_filename or abs_path.name
 		resp = FileResponse(open(abs_path, "rb"), content_type=job.output_content_type)
 		resp["Content-Disposition"] = f'attachment; filename="{filename}"'
+		if job.report_type == ReportJob.ReportType.CLASS_PLAN:
+			log_event(
+				request,
+				event_type="class_plan.export_downloaded",
+				object_type="class_plan",
+				object_id=(job.params or {}).get("class_plan_id") or "",
+				status_code=status.HTTP_200_OK,
+				metadata={"job_id": job.id, "filename": filename},
+			)
 		return resp
 
 	@action(detail=True, methods=["get"], url_path="preview")

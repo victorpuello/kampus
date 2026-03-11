@@ -23,6 +23,8 @@ from .views import (
     PreschoolGradebookViewSet,
     EditRequestViewSet,
     EditGrantViewSet,
+    PeriodTopicViewSet,
+    ClassPlanViewSet,
 )
 from .commission_views import (
     CommissionRuleConfigViewSet,
@@ -57,6 +59,8 @@ router.register(r"grade-sheets", GradeSheetViewSet, basename="gradesheet")
 router.register(r"preschool-gradebook", PreschoolGradebookViewSet, basename="preschool-gradebook")
 router.register(r"edit-requests", EditRequestViewSet, basename="editrequest")
 router.register(r"edit-grants", EditGrantViewSet, basename="editgrant")
+router.register(r"period-topics", PeriodTopicViewSet, basename="period-topic")
+router.register(r"class-plans", ClassPlanViewSet, basename="class-plan")
 router.register(r"commission-rule-configs", CommissionRuleConfigViewSet, basename="commission-rule-config")
 router.register(r"commissions", CommissionViewSet, basename="commission")
 router.register(r"commission-decisions", CommissionStudentDecisionViewSet, basename="commission-decision")

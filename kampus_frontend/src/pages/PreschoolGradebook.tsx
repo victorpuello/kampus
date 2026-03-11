@@ -541,11 +541,11 @@ export default function PreschoolGradebook() {
             <div className="mb-4 p-3 rounded-md border border-amber-200 bg-amber-50 text-amber-900 text-sm">
               <div className="font-medium">No hay logros configurados para este periodo.</div>
               <div className="mt-1 text-xs text-amber-800">
-                Para poder registrar valoraciones, primero debes crear los logros (planeación) de la asignación en el periodo.
+                Para poder registrar valoraciones, primero debes crear los logros de la planeación de periodo para esta asignación.
               </div>
               <div className="mt-3">
                 <Button variant="outline" onClick={() => navigate('/planning')}>
-                  Ir a Planeación
+                  Ir a Planeación de Periodo
                 </Button>
               </div>
             </div>

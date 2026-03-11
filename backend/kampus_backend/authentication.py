@@ -7,6 +7,9 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from users.security import is_password_change_exempt_path
 
 
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
 class KampusJWTAuthentication(JWTAuthentication):
     def authenticate(self, request):
         header_auth = super().authenticate(request)
@@ -34,6 +37,9 @@ class KampusJWTAuthentication(JWTAuthentication):
         raise exceptions.PermissionDenied("Debes actualizar tu contraseña temporal antes de continuar.")
 
     def _enforce_csrf(self, request) -> None:
+        if getattr(request, "method", "GET").upper() in SAFE_METHODS:
+            return
+
         check = CSRFCheck(lambda req: None)
         check.process_request(request)
         reason = check.process_view(request, None, (), {})

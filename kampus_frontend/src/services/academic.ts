@@ -308,6 +308,126 @@ export interface Achievement {
   dimension_name?: string;
 }
 
+export interface PeriodTopic {
+  id: number
+  period: number
+  period_name?: string
+  academic_year_id?: number
+  academic_load: number
+  academic_load_name?: string | null
+  subject_id?: number
+  subject_name?: string
+  grade_id?: number
+  grade_name?: string
+  title: string
+  description: string
+  sequence_order: number
+  source: 'MANUAL' | 'IMPORT'
+  is_active: boolean
+  created_by: number | null
+  created_by_name?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PeriodTopicImportResult {
+  created: number
+  updated: number
+  errors: string[]
+}
+
+export interface PeriodTopicImportCorrection {
+  row_number: number
+  subject_name: string
+}
+
+export interface PeriodTopicImportValidationRow {
+  row_number: number
+  academic_year: string
+  period_name: string
+  grade_name: string
+  subject_name: string
+  sequence_order: string
+  title: string
+  description: string
+  status: 'ready' | 'review' | 'error'
+  message: string
+  suggestions: string[]
+  resolved_subject_name: string | null
+}
+
+export interface PeriodTopicImportValidationResult {
+  total_rows: number
+  ready_rows: number
+  review_rows: number
+  error_rows: number
+  rows: PeriodTopicImportValidationRow[]
+}
+
+export interface ClassPlan {
+  id: number
+  teacher_assignment: number
+  teacher_name?: string
+  subject_name?: string
+  group_name?: string
+  grade_name?: string
+  period: number
+  period_name?: string
+  topic: number | null
+  topic_title?: string
+  title: string
+  class_date: string | null
+  duration_minutes: number
+  learning_result: string
+  dba_reference: string
+  standard_reference: string
+  competency_know: string
+  competency_do: string
+  competency_be: string
+  class_purpose: string
+  start_time_minutes: number
+  start_activities: string
+  development_time_minutes: number
+  development_activities: string
+  closing_time_minutes: number
+  closing_activities: string
+  evidence_product: string
+  evaluation_instrument: string
+  evaluation_criterion: string
+  resources: string
+  dua_adjustments: string
+  status: 'DRAFT' | 'FINALIZED'
+  ai_assisted_sections: string[]
+  total_sequence_minutes?: number
+  created_by: number | null
+  updated_by: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClassPlannerAuditEntry {
+  id: number
+  event_type: string
+  object_id: string
+  created_at: string
+  metadata: Record<string, unknown>
+}
+
+export interface ClassPlannerSummaryResponse {
+  summary: {
+    total_plans: number
+    draft_plans: number
+    finalized_plans: number
+    ai_assisted_plans: number
+    available_topics: number
+    topics_without_plan: number
+    completion_rate: number
+    export_pending: number
+    export_completed: number
+  }
+  recent_activity: ClassPlannerAuditEntry[]
+}
+
 export interface GradebookAchievement {
   id: number;
   description: string;
@@ -816,6 +936,61 @@ export const academicApi = {
     api.post<Achievement>('/api/achievements/', data),
   updateAchievement: (id: number, data: Partial<Achievement>) => api.put<Achievement>(`/api/achievements/${id}/`, data),
   deleteAchievement: (id: number) => api.delete(`/api/achievements/${id}/`),
+
+  // Class planning topics
+  listPeriodTopics: (params?: Record<string, unknown>) => api.get<PeriodTopic[]>('/api/period-topics/', { params }),
+  listMyPeriodTopics: (params?: Record<string, unknown>) => api.get<PeriodTopic[]>('/api/period-topics/for-me/', { params }),
+  createPeriodTopic: (data: Partial<PeriodTopic>) => api.post<PeriodTopic>('/api/period-topics/', data),
+  updatePeriodTopic: (id: number, data: Partial<PeriodTopic>) => api.put<PeriodTopic>(`/api/period-topics/${id}/`, data),
+  deletePeriodTopic: (id: number) => api.delete(`/api/period-topics/${id}/`),
+  downloadPeriodTopicImportTemplate: () => api.get<Blob>('/api/period-topics/import-template/', { responseType: 'blob' }),
+  validatePeriodTopicsFile: (file: File, corrections: PeriodTopicImportCorrection[] = []) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (corrections.length > 0) {
+      formData.append('corrections', JSON.stringify(corrections))
+    }
+    return api.post<PeriodTopicImportValidationResult>('/api/period-topics/validate-import-file/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  importPeriodTopicsFile: (file: File, corrections: PeriodTopicImportCorrection[] = []) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (corrections.length > 0) {
+      formData.append('corrections', JSON.stringify(corrections))
+    }
+    return api.post<PeriodTopicImportResult>('/api/period-topics/import-file/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  importPeriodTopicsCsv: (file: File, corrections: PeriodTopicImportCorrection[] = []) => {
+    return academicApi.importPeriodTopicsFile(file, corrections)
+  },
+
+  // Class plans
+  listClassPlans: (params?: Record<string, unknown>) => api.get<ClassPlan[]>('/api/class-plans/', { params }),
+  listMyClassPlans: (params?: Record<string, unknown>) => api.get<ClassPlan[]>('/api/class-plans/my/', { params }),
+  getMyClassPlanSummary: (params?: Record<string, unknown>) => api.get<ClassPlannerSummaryResponse>('/api/class-plans/my-summary/', { params }),
+  createClassPlan: (data: Partial<ClassPlan>) => api.post<ClassPlan>('/api/class-plans/', data),
+  updateClassPlan: (id: number, data: Partial<ClassPlan>) => api.put<ClassPlan>(`/api/class-plans/${id}/`, data),
+  deleteClassPlan: (id: number) => api.delete(`/api/class-plans/${id}/`),
+  generateClassPlanDraft: (data: { teacher_assignment?: number; topic?: number; duration_minutes?: number; title?: string; period_name?: string }) =>
+    api.post<Omit<ClassPlan, 'id' | 'teacher_assignment' | 'period' | 'topic' | 'status' | 'ai_assisted_sections' | 'created_by' | 'updated_by' | 'created_at' | 'updated_at' | 'teacher_name' | 'subject_name' | 'group_name' | 'grade_name' | 'period_name' | 'topic_title' | 'total_sequence_minutes' | 'class_date'>>('/api/class-plans/generate-draft/', data),
+  generateClassPlanSection: (data: {
+    section: 'learning' | 'competencies' | 'sequence' | 'evaluation' | 'support'
+    topic_title?: string
+    topic_description?: string
+    subject_name?: string
+    grade_name?: string
+    group_name?: string
+    teacher_name?: string
+    period_name?: string
+    duration_minutes?: number
+    learning_result?: string
+    title?: string
+  }) => api.post<Record<string, string | number>>('/api/class-plans/generate-section/', data),
+  createClassPlanExportJob: (id: number) => api.post<ReportJob>(`/api/class-plans/${id}/export-pdf/`),
   
   // AI
   generateIndicators: (description: string) => api.post<Record<string, string>>('/api/achievements/generate-indicators/', { description }),

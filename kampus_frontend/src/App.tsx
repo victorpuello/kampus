@@ -28,6 +28,8 @@ const EnrollmentExisting = lazy(() => import('./pages/enrollments/EnrollmentExis
 const EnrollmentReports = lazy(() => import('./pages/enrollments/EnrollmentReports'))
 const EnrollmentBulkUpload = lazy(() => import('./pages/enrollments/EnrollmentBulkUpload'))
 const PlanningModule = lazy(() => import('./pages/planning/PlanningModule'))
+const ClassPlanner = lazy(() => import('./pages/planning/ClassPlanner'))
+const PeriodTopicsAdmin = lazy(() => import('./pages/planning/PeriodTopicsAdmin'))
 const RbacSettings = lazy(() => import('./pages/RbacSettings'))
 const Grades = lazy(() => import('./pages/Grades'))
 const PreschoolGrades = lazy(() => import('./pages/PreschoolGrades'))
@@ -149,6 +151,8 @@ export default function App() {
             <Route path="/campuses/new" element={<CampusForm />} />
             <Route path="/campuses/:id/edit" element={<CampusForm />} />
             <Route path="/planning" element={<PlanningModule />} />
+            <Route path="/class-planner" element={<ClassPlanner />} />
+            <Route path="/class-planner/topics" element={<PeriodTopicsAdmin />} />
             <Route path="/grades" element={<Grades />} />
             <Route path="/grades/preschool" element={<PreschoolGrades />} />
             <Route path="/grades/preschool/:teacherAssignmentId/:periodId" element={<PreschoolGradebook />} />

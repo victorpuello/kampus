@@ -13,6 +13,7 @@ import {
   GraduationCap,
   Building2,
   FileText,
+  ClipboardPenLine,
   BarChart3,
   Sun,
   Moon,
@@ -501,13 +502,21 @@ export default function DashboardLayout() {
       const items: NavigationItem[] = [
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
         { name: 'Notificaciones', href: '/notifications', icon: Bell, badgeCount: unreadNotifications },
+        {
+          name: 'Planeador de Clases',
+          icon: ClipboardPenLine,
+          children: [
+            { name: 'Planes de clase', href: '/class-planner' },
+            { name: 'Temáticas', href: '/class-planner/topics' },
+          ],
+        },
       ]
 
       items.push({
         name: 'Académico',
         icon: GraduationCap,
         children: [
-          { name: 'Planeación', href: '/planning' },
+          { name: 'Planeación de Periodo', href: '/planning' },
           { name: 'Asistencias', href: '/attendance' },
           ...(teacherHasPreschoolAssignments && !teacherHasNonPreschoolAssignments
             ? [{ name: 'Calificaciones', href: '/grades/preschool' }]

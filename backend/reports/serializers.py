@@ -435,6 +435,38 @@ class ReportJobCreateSerializer(serializers.ModelSerializer):
 
             raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
 
+        if report_type == ReportJob.ReportType.CLASS_PLAN:
+            class_plan_id = params.get("class_plan_id")
+            if not class_plan_id:
+                raise serializers.ValidationError({"params": "class_plan_id es requerido"})
+
+            try:
+                class_plan_id = int(class_plan_id)
+            except Exception:
+                raise serializers.ValidationError({"params": "class_plan_id inválido"})
+
+            from academic.models import ClassPlan  # noqa: PLC0415
+
+            plan = (
+                ClassPlan.objects.select_related("teacher_assignment", "teacher_assignment__teacher")
+                .filter(id=class_plan_id)
+                .first()
+            )
+            if not plan:
+                raise serializers.ValidationError({"params": "Plan de clase no encontrado"})
+
+            if plan.status != ClassPlan.STATUS_FINALIZED:
+                raise serializers.ValidationError({"params": "Solo se pueden generar reportes de planes finalizados."})
+
+            admin_roles = {User.ROLE_SUPERADMIN, User.ROLE_ADMIN, User.ROLE_COORDINATOR, User.ROLE_SECRETARY}
+            if role in admin_roles:
+                return attrs
+
+            if role == User.ROLE_TEACHER and getattr(plan.teacher_assignment, "teacher_id", None) == getattr(user, "id", None):
+                return attrs
+
+            raise serializers.ValidationError({"detail": "No tienes permisos para generar este informe."})
+
         raise serializers.ValidationError({"report_type": "report_type no soportado"})
 
 

@@ -58,7 +58,7 @@ const PRECONDITION_REASON_RECOMMENDATION: Record<string, string> = {
   PERIOD_NOT_CLOSED: 'Cierra el periodo seleccionado antes de crear la comisión.',
   OPEN_PERIODS_FOR_PROMOTION: 'Cierra todos los periodos pendientes del año para habilitar promoción.',
   MISSING_TEACHER_ASSIGNMENT: 'Completa la asignación de docentes por asignatura y grupo.',
-  MISSING_ACHIEVEMENTS: 'Configura logros del periodo para las asignaturas sin planeación.',
+  MISSING_ACHIEVEMENTS: 'Configura los logros de la planeación de periodo para las asignaturas faltantes.',
   MISSING_GRADEBOOK: 'Crea las planillas faltantes para las asignaturas y periodos indicados.',
   INCOMPLETE_GRADEBOOK: 'Diligencia los registros pendientes en las planillas incompletas.',
 }
@@ -91,7 +91,7 @@ const PRECONDITION_REASON_ROUTE: Record<string, { href: string; label: string }>
   PERIOD_NOT_CLOSED: { href: '/academic-config', label: 'Abrir periodos' },
   OPEN_PERIODS_FOR_PROMOTION: { href: '/academic-config', label: 'Abrir periodos' },
   MISSING_TEACHER_ASSIGNMENT: { href: '/my-assignment', label: 'Abrir asignaciones' },
-  MISSING_ACHIEVEMENTS: { href: '/planning', label: 'Abrir planeación' },
+  MISSING_ACHIEVEMENTS: { href: '/planning', label: 'Abrir planeación de periodo' },
   MISSING_GRADEBOOK: { href: '/grades', label: 'Abrir planillas' },
   INCOMPLETE_GRADEBOOK: { href: '/grades', label: 'Abrir planillas' },
 }
