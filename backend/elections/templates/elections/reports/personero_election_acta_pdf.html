@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ office.document_title|default:"Acta de eleccion estudiantil" }}</title>
+    <style>
+      @page {
+        size: A4;
+        margin: 14mm 14mm 16mm 14mm;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        color: #0f172a;
+        line-height: 1.42;
+      }
+
+      .title {
+        text-align: center;
+        margin: 2px 0;
+        font-weight: 700;
+      }
+
+      .title-main {
+        font-size: 16.5px;
+        text-transform: uppercase;
+      }
+
+      .title-sub {
+        font-size: 13px;
+        text-transform: uppercase;
+      }
+
+      .meta {
+        border: 1px solid #cbd5e1;
+        background: #f8fafc;
+        padding: 8px;
+        margin: 8px 0 10px;
+      }
+
+      .meta-row {
+        margin: 2px 0;
+      }
+
+      h2 {
+        font-size: 12px;
+        margin: 12px 0 5px;
+        text-transform: uppercase;
+      }
+
+      p {
+        margin: 5px 0;
+      }
+
+      ul,
+      ol {
+        margin: 4px 0 6px 18px;
+        padding: 0;
+      }
+
+      li {
+        margin: 2px 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 6px 0;
+      }
+
+      th,
+      td {
+        border: 1px solid #cbd5e1;
+        padding: 5px;
+        vertical-align: top;
+      }
+
+      th {
+        background: #e2e8f0;
+        text-align: left;
+        font-size: 10.8px;
+      }
+
+      .num {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .note {
+        font-size: 10px;
+        color: #475569;
+      }
+
+      .line {
+        display: inline-block;
+        min-width: 140px;
+        border-bottom: 1px solid #64748b;
+        transform: translateY(-2px);
+      }
+
+      .divider {
+        margin: 8px 0;
+        border-top: 1px dashed #cbd5e1;
+      }
+
+      .signature-grid {
+        margin-top: 12px;
+      }
+
+      .signature-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+
+      .signature-table th,
+      .signature-table td {
+        border: 1px solid #cbd5e1;
+        padding: 7px 8px;
+        vertical-align: middle;
+      }
+
+      .signature-table th {
+        background: #e2e8f0;
+        font-size: 10.8px;
+      }
+
+      .signature-line {
+        display: block;
+        min-height: 24px;
+        border-bottom: 1px solid #64748b;
+      }
+
+      .signature-label {
+        font-weight: 700;
+      }
+
+      .footer {
+        margin-top: 12px;
+        font-size: 10px;
+        color: #64748b;
+      }
+    </style>
+  </head>
+  <body>
+    {% include "reports/partials/pdf_masthead.html" %}
+
+    <p class="title title-main">ACTA N.&deg; {% if acta_number %}{{ acta_number }}{% else %}<span class="line" style="min-width: 90px;"></span>{% endif %}</p>
+  <p class="title title-sub">{{ office.election_heading|default:"ELECCION ESTUDIANTIL - VOTACION DIGITAL (KAMPUS)" }}</p>
+
+    <div class="meta">
+      <div class="meta-row"><strong>Ano lectivo:</strong> {{ acta_year }}</div>
+      <div class="meta-row"><strong>Lugar (sede/municipio):</strong> {% if location_text %}{{ location_text }}{% else %}<span class="line" style="min-width: 260px;"></span>{% endif %}</div>
+      <div class="meta-row"><strong>Fecha:</strong> {% if process.ends_at %}{{ process.ends_at|date:"d/m/Y" }}{% else %}<span class="line" style="min-width: 180px;"></span>{% endif %}</div>
+      <div class="meta-row"><strong>Hora de apertura de votacion:</strong> {% if opening_record %}{{ opening_record.opened_at|date:"h:i a" }}{% elif process.starts_at %}{{ process.starts_at|date:"h:i a" }}{% else %}<span class="line"></span>{% endif %}</div>
+      <div class="meta-row"><strong>Hora de cierre de votacion:</strong> {% if process.ends_at %}{{ process.ends_at|date:"h:i a" }}{% else %}<span class="line"></span>{% endif %}</div>
+      <div class="meta-row"><strong>Jornada electoral:</strong> {{ process.name }}</div>
+    </div>
+
+    <p>
+      En la fecha indicada, la institucion educativa
+      {% if institution and institution.name %}<strong>{{ institution.name }}</strong>{% else %}<strong><span class="line" style="min-width: 220px;"></span></strong>{% endif %}
+      realizo el proceso de <strong>eleccion democratica de {{ office.holder_title|default:"representante estudiantil" }}</strong> mediante el
+      <strong>software institucional KAMPUS</strong>, conforme a la normativa vigente y a los reglamentos internos.
+    </p>
+
+    <h2>1. Marco normativo</h2>
+    <ul>
+      <li><strong>Ley 115 de 1994</strong> (Ley General de Educacion) - participacion y organizacion escolar.</li>
+      <li><strong>Decreto 1860 de 1994</strong> - Gobierno Escolar y participacion estudiantil (Personero Estudiantil).</li>
+      <li><strong>Decreto 1075 de 2015</strong> - disposiciones compiladas aplicables.</li>
+      <li><strong>Manual de Convivencia</strong> y reglamento interno del Proyecto de Democracia Escolar.</li>
+      <li><strong>Ley 1581 de 2012</strong> y normas de proteccion de datos personales.</li>
+    </ul>
+
+    <h2>2. Comite Electoral / Responsables del proceso</h2>
+    <p><strong>Rector(a):</strong> {% if rector_name %}{{ rector_name }}{% else %}<span class="line" style="min-width: 240px;"></span>{% endif %} &nbsp; <strong>C.C.</strong> {% if rector_document_number %}{{ rector_document_number }}{% else %}<span class="line" style="min-width: 130px;"></span>{% endif %}</p>
+    <p><strong>Integrantes del Comite de Democracia / Responsables del proceso (3):</strong></p>
+    <ol>
+      <li><strong>Responsable 1:</strong> {% if committee_members|length > 0 %}{{ committee_members.0.full_name }}{% else %}<span class="line" style="min-width: 220px;"></span>{% endif %} C.C. {% if committee_members|length > 0 and committee_members.0.document_number %}{{ committee_members.0.document_number }}{% else %}<span class="line" style="min-width: 130px;"></span>{% endif %}</li>
+      <li><strong>Responsable 2:</strong> {% if committee_members|length > 1 %}{{ committee_members.1.full_name }}{% else %}<span class="line" style="min-width: 220px;"></span>{% endif %} C.C. {% if committee_members|length > 1 and committee_members.1.document_number %}{{ committee_members.1.document_number }}{% else %}<span class="line" style="min-width: 130px;"></span>{% endif %}</li>
+      <li><strong>Responsable 3:</strong> {% if committee_members|length > 2 %}{{ committee_members.2.full_name }}{% else %}<span class="line" style="min-width: 220px;"></span>{% endif %} C.C. {% if committee_members|length > 2 and committee_members.2.document_number %}{{ committee_members.2.document_number }}{% else %}<span class="line" style="min-width: 130px;"></span>{% endif %}</li>
+    </ol>
+    <p><strong>Administrador(a) / Soporte tecnico KAMPUS:</strong> {% if support_name %}{{ support_name }}{% else %}<span class="line" style="min-width: 220px;"></span>{% endif %}{% if support_document_number %} &nbsp; <strong>C.C.</strong> {{ support_document_number }}{% endif %}</p>
+    <p><strong>{{ office.previous_holder_label|default:"Representante saliente (si aplica)" }}:</strong> {% if previous_office_holder %}{{ previous_office_holder.name }}{% if previous_office_holder.grade %} - Grado {{ previous_office_holder.grade }}{% endif %}{% if previous_office_holder.document_number %} - Doc. {{ previous_office_holder.document_number }}{% endif %}{% else %}<span class="line" style="min-width: 220px;"></span>{% endif %}</p>
+    <p><strong>Testigos estudiantiles (opcional):</strong></p>
+    <ol>
+      <li>{% if student_witnesses|length > 0 %}{{ student_witnesses.0.full_name }}{% else %}<span class="line" style="min-width: 250px;"></span>{% endif %} Grado {% if student_witnesses|length > 0 and student_witnesses.0.grade_label %}{{ student_witnesses.0.grade_label }}{% else %}<span class="line" style="min-width: 70px;"></span>{% endif %}</li>
+      <li>{% if student_witnesses|length > 1 %}{{ student_witnesses.1.full_name }}{% else %}<span class="line" style="min-width: 250px;"></span>{% endif %} Grado {% if student_witnesses|length > 1 and student_witnesses.1.grade_label %}{{ student_witnesses.1.grade_label }}{% else %}<span class="line" style="min-width: 70px;"></span>{% endif %}</li>
+    </ol>
+
+    <h2>3. Poblacion habilitada para votar</h2>
+    <ul>
+      <li><strong>Total de estudiantes habilitados:</strong> {{ census.enabled_count }}</li>
+      <li><strong>Sedes incluidas:</strong> {% if census.enabled_campuses %}{{ census.enabled_campuses|join:", " }}{% else %}[ ] Sede Principal  [ ] Otras sedes{% endif %}</li>
+      <li><strong>Grados habilitados:</strong> {% if census.enabled_grades %}{{ census.enabled_grades|join:", " }}{% else %}[ ] 1. [ ] 2. [ ] 3. [ ] 4. [ ] 5. [ ] 6. [ ] 7. [ ] 8. [ ] 9. [ ] 10. [ ] 11.{% endif %}</li>
+      <li><strong>Jornadas incluidas:</strong> {% if census.enabled_shifts %}{{ census.enabled_shifts|join:", " }}{% else %}<span class="line" style="min-width: 180px;"></span>{% endif %}</li>
+    </ul>
+    <p class="note">El listado consolidado de votantes habilitados se adjunta como Anexo 1.</p>
+
+    <h2>4. Candidatos(as) inscritos(as)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 9%">N.&deg;</th>
+          <th>Nombre del candidato(a)</th>
+          <th style="width: 14%">Grado</th>
+          <th style="width: 32%">Propuesta / Lema (opcional)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if office_result.candidates %}
+          {% for candidate in office_result.candidates %}
+            <tr>
+              <td>{{ forloop.counter }}</td>
+              <td>{{ candidate.name }}</td>
+              <td>{{ candidate.grade|default:"" }}</td>
+              <td>{{ candidate.proposal|default:"" }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td>1</td>
+            <td></td>
+            <td></td>
+            <td></td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <h2>5. Plataforma y mecanismo de votacion (KAMPUS)</h2>
+    <ul>
+      <li>Implementa un modulo de votacion escolar con apertura y cierre definidos por el Comite Electoral.</li>
+      <li>Permite la autenticacion de votantes con credenciales institucionales o mecanismo interno definido.</li>
+      <li>Restringe la votacion a estudiantes habilitados en el censo.</li>
+      <li>Registra el voto de forma anonima y genera reporte de resultados al cierre.</li>
+      <li>Genera evidencias exportables para anexar al acta.</li>
+    </ul>
+    <p class="note">
+      Nota: El Comite Electoral aclara que el uso de KAMPUS busca garantizar trazabilidad del proceso y agilidad en el escrutinio,
+      sin afectar el principio democratico del voto.
+    </p>
+
+    <h2>6. Desarrollo de la jornada electoral</h2>
+    <p><strong>6.1 Apertura:</strong> Se verifico censo, candidaturas y funcionamiento de la plataforma antes de declarar abierta la votacion.</p>
+    <p><strong>6.2 Periodo de votacion:</strong> Se brindaron orientaciones de uso y acompanamiento durante la jornada.</p>
+    <p><strong>Novedades/incidentes (si aplica):</strong></p>
+    <div class="divider"></div>
+    <div class="divider"></div>
+    <p><strong>6.3 Cierre:</strong> Siendo las {% if process.ends_at %}{{ process.ends_at|date:"h:i a" }}{% else %}<span class="line"></span>{% endif %}, el Comite Electoral procedio a cerrar la urna digital.</p>
+
+    <h2>7. Escrutinio y resultados (generados por KAMPUS)</h2>
+    <ul>
+      <li><strong>Total de votos registrados ({{ office.results_label|default:"Cargo" }}):</strong> {{ office_result.total_votes }}</li>
+      <li><strong>Total de habilitados:</strong> {{ census.enabled_count }}</li>
+      <li><strong>Participacion:</strong> {{ census.participation_percent }} %</li>
+    </ul>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Candidato(a)</th>
+          <th style="width: 20%">Votos</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if office_result.candidates %}
+          {% for candidate in office_result.candidates %}
+            <tr>
+              <td>{{ candidate.name }}</td>
+              <td class="num">{{ candidate.votes }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td>Sin candidaturas con votos</td>
+            <td class="num">0</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    <p><strong>Votos en blanco:</strong> {{ office_result.blank_votes }}</p>
+    <p><strong>Votos nulos (si la plataforma los registra):</strong> <span class="line" style="min-width: 40px;"></span></p>
+    <p class="note">El reporte oficial exportado de KAMPUS se anexa como Anexo 2.</p>
+
+    <h2>8. Proclamacion</h2>
+    <p>
+      Con base en los resultados anteriores, se <strong>proclama como {{ office.holder_title|default:"representante estudiantil" }}</strong> para el ano lectivo {{ acta_year }} a:
+    </p>
+    <p><strong>Nombre:</strong> {% if office_result.winner %}{{ office_result.winner.name }}{% else %}<span class="line" style="min-width: 280px;"></span>{% endif %}</p>
+    <p><strong>Grado:</strong> {% if office_result.winner %}{{ office_result.winner.grade|default:"" }}{% else %}<span class="line" style="min-width: 120px;"></span>{% endif %}</p>
+    <p><strong>Documento de identidad (TI/CC):</strong> {% if office_result.winner_document_number %}{{ office_result.winner_document_number }}{% else %}<span class="line" style="min-width: 180px;"></span>{% endif %}</p>
+    <p>El/La {{ office.holder_short|default:"representante" }} electo(a) manifiesta: [ ] Acepta el cargo  [ ] No acepta</p>
+    <p>En caso de no aceptacion o situaciones de inhabilidad sobreviniente, se aplicara el procedimiento definido en el reglamento interno de Democracia Escolar y/o Manual de Convivencia.</p>
+
+    <h2>9. Constancia de integridad y evidencia digital</h2>
+    <ol>
+      <li>La eleccion se ejecuto dentro del horario establecido y con censo habilitado.</li>
+      <li>El reporte de resultados fue generado por KAMPUS inmediatamente despues del cierre.</li>
+      <li>Se anexan evidencias digitales de resultados, configuracion y novedades (si aplica).</li>
+      <li>La informacion se trata conforme a normas de proteccion de datos personales.</li>
+    </ol>
+
+    <h2>10. Lectura, aprobacion y cierre</h2>
+    <p>Leida la presente acta, se aprueba: [ ] Por unanimidad  [ ] Por mayoria</p>
+    <p><strong>Observaciones:</strong> <span class="line" style="min-width: 700px;"></span></p>
+
+    <div class="signature-grid">
+      <table class="signature-table">
+        <thead>
+          <tr>
+            <th style="width: 28%;">Cargo</th>
+            <th style="width: 34%;">Nombre</th>
+            <th style="width: 16%;">Documento</th>
+            <th style="width: 22%;">Firma</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="signature-label">Rector(a)</td>
+            <td>{% if rector_name %}{{ rector_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if rector_document_number %}{{ rector_document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Responsable del proceso 1</td>
+            <td>{% if committee_members|length > 0 %}{{ committee_members.0.full_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if committee_members|length > 0 and committee_members.0.document_number %}{{ committee_members.0.document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Responsable del proceso 2</td>
+            <td>{% if committee_members|length > 1 %}{{ committee_members.1.full_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if committee_members|length > 1 and committee_members.1.document_number %}{{ committee_members.1.document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Responsable del proceso 3</td>
+            <td>{% if committee_members|length > 2 %}{{ committee_members.2.full_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if committee_members|length > 2 and committee_members.2.document_number %}{{ committee_members.2.document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Soporte técnico KAMPUS</td>
+            <td>{% if support_name %}{{ support_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if support_document_number %}{{ support_document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">{{ office.holder_short|default:"Representante" }} electo(a)</td>
+            <td>{% if office_result.winner %}{{ office_result.winner.name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if office_result.winner_document_number %}{{ office_result.winner_document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Testigo 1</td>
+            <td>{% if student_witnesses|length > 0 %}{{ student_witnesses.0.full_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if student_witnesses|length > 0 and student_witnesses.0.document_number %}{{ student_witnesses.0.document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+          <tr>
+            <td class="signature-label">Testigo 2</td>
+            <td>{% if student_witnesses|length > 1 %}{{ student_witnesses.1.full_name }}{% else %}&nbsp;{% endif %}</td>
+            <td>{% if student_witnesses|length > 1 and student_witnesses.1.document_number %}{{ student_witnesses.1.document_number }}{% else %}&nbsp;{% endif %}</td>
+            <td><span class="signature-line"></span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Anexos</h2>
+    <ul>
+      <li><strong>Anexo 1:</strong> Censo/listado de estudiantes habilitados (exportado o validado).</li>
+      <li><strong>Anexo 2:</strong> Reporte oficial de resultados y participacion generado por KAMPUS.</li>
+      <li><strong>Anexo 3:</strong> Evidencia de configuracion de la eleccion (capturas de apertura/cierre, parametros).</li>
+      <li><strong>Anexo 4:</strong> Registro de novedades/incidentes (si aplica).</li>
+    </ul>
+
+    <div class="footer">
+      Documento generado por Kampus el {{ generated_at|date:"Y-m-d H:i:s" }}. Este formato incorpora el texto base del acta institucional de eleccion de {{ office.slug|default:"gobierno escolar" }} para diligenciamiento y archivo.
+    </div>
+  </body>
+</html>

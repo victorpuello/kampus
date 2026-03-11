@@ -6,6 +6,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from audit.models import AuditLog
+from academic.models import AcademicYear, Grade
 from django.core.cache import cache
 from django.contrib.auth import get_user_model
 from django.test import override_settings
@@ -17,6 +18,7 @@ from rest_framework.test import APITestCase
 from elections.models import (
     ElectionCandidate,
     ElectionCensusMember,
+    ElectionOpeningRecord,
     ElectionProcess,
     ElectionRole,
     VoteAccessSession,
@@ -24,7 +26,10 @@ from elections.models import (
     VoterToken,
 )
 from elections.services_observer import generate_observer_congratulations_for_election
-from students.models import ObserverAnnotation, Student
+from students.models import Enrollment, ObserverAnnotation, Student
+from teachers.models import Teacher
+from core.models import Campus, Institution
+from elections.views_management import build_contralor_acta_payload, build_personero_acta_payload
 
 
 class ElectionE2EFlowTests(APITestCase):
@@ -316,6 +321,13 @@ class ElectionE2EFlowTests(APITestCase):
         else:
             self.assertIn("detail", pdf_response.data)
 
+        personero_acta_response = self.client.get(f"/api/elections/manage/processes/{process.id}/personero-acta.pdf")
+        self.assertIn(personero_acta_response.status_code, [200, 503])
+        if personero_acta_response.status_code == 200:
+            self.assertIn("application/pdf", personero_acta_response["Content-Type"])
+        else:
+            self.assertIn("detail", personero_acta_response.data)
+
     def test_validate_token_returns_410_when_token_is_expired(self):
         process, *_ = self._create_process_with_ballot(name="Jornada Expirado")
         raw_token = "VOTO-E2E-EXP-1"
@@ -575,6 +587,374 @@ class ElectionE2EFlowTests(APITestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("detail", response.data)
 
+    def test_personero_acta_export_pdf_returns_200_with_mocked_renderer(self):
+        process, *_ = self._create_process_with_ballot(name="Jornada Acta Personero OK")
+        self.client.force_authenticate(user=self.admin)
+
+        with patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 mocked"):
+            response = self.client.get(f"/api/elections/manage/processes/{process.id}/personero-acta.pdf")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/pdf", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_personero_acta_export_pdf_returns_503_when_weasyprint_unavailable(self):
+        process, *_ = self._create_process_with_ballot(name="Jornada Acta Personero 503")
+        self.client.force_authenticate(user=self.admin)
+
+        with patch(
+            "reports.weasyprint_utils.render_pdf_bytes_from_html",
+            side_effect=WeasyPrintUnavailableError("WeasyPrint no está disponible"),
+        ):
+            response = self.client.get(f"/api/elections/manage/processes/{process.id}/personero-acta.pdf")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("detail", response.data)
+
+    def test_contralor_acta_export_pdf_returns_200_with_mocked_renderer(self):
+        process, *_ = self._create_process_with_ballot(name="Jornada Acta Contralor OK")
+        self.client.force_authenticate(user=self.admin)
+
+        with patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 mocked"):
+            response = self.client.get(f"/api/elections/manage/processes/{process.id}/contralor-acta.pdf")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/pdf", response["Content-Type"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_contralor_acta_export_pdf_returns_503_when_weasyprint_unavailable(self):
+        process, *_ = self._create_process_with_ballot(name="Jornada Acta Contralor 503")
+        self.client.force_authenticate(user=self.admin)
+
+        with patch(
+            "reports.weasyprint_utils.render_pdf_bytes_from_html",
+            side_effect=WeasyPrintUnavailableError("WeasyPrint no está disponible"),
+        ):
+            response = self.client.get(f"/api/elections/manage/processes/{process.id}/contralor-acta.pdf")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("detail", response.data)
+
+    def test_personero_acta_payload_loads_dynamic_system_fields(self):
+        process, personero_role, _, _, _ = self._create_process_with_ballot(name="Jornada Acta Documentos")
+
+        winner_user = get_user_model().objects.create_user(
+            username="winner_personero_doc",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Ganador",
+            last_name="Personero",
+        )
+        winner_student = Student.objects.create(
+            user=winner_user,
+            document_number="1100123456",
+        )
+
+        winning_candidate = ElectionCandidate.objects.create(
+            role=personero_role,
+            name="Ganador Personero",
+            student_id_ref=winner_user.id,
+            student_document_number="DOC-FALLBACK",
+            number="11",
+            grade="11",
+            is_active=True,
+            display_order=10,
+        )
+
+        VoteRecord.objects.create(
+            process=process,
+            role=personero_role,
+            voter_token=VoterToken.objects.create(
+                process=process,
+                token_hash=VoterToken.hash_token("TOKEN-WINNER-1"),
+                token_prefix="TOKEN-WINNE",
+                status=VoterToken.Status.USED,
+                expires_at=timezone.now() + timedelta(hours=1),
+                used_at=timezone.now(),
+            ),
+            access_session=VoteAccessSession.objects.create(
+                voter_token=VoterToken.objects.create(
+                    process=process,
+                    token_hash=VoterToken.hash_token("TOKEN-WINNER-2"),
+                    token_prefix="TOKEN-WINNE",
+                    status=VoterToken.Status.USED,
+                    expires_at=timezone.now() + timedelta(hours=1),
+                    used_at=timezone.now(),
+                ),
+                expires_at=timezone.now() + timedelta(minutes=10),
+                consumed_at=timezone.now(),
+            ),
+            candidate=winning_candidate,
+            is_blank=False,
+        )
+
+        rector_user = get_user_model().objects.create_user(
+            username="rector_doc_user",
+            password="pass1234",
+            role=get_user_model().ROLE_ADMIN,
+            first_name="Rector",
+            last_name="Prueba",
+        )
+        Teacher.objects.create(user=rector_user, document_number="900123456")
+
+        support_user = get_user_model().objects.create_user(
+            username="support_doc_user",
+            password="pass1234",
+            role=get_user_model().ROLE_ADMIN,
+            first_name="Soporte",
+            last_name="Kampus",
+        )
+
+        witness_user = get_user_model().objects.create_user(
+            username="witness_personero_doc",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Testigo",
+            last_name="Diez",
+        )
+        witness_student = Student.objects.create(user=witness_user, document_number="555666777")
+        active_year = AcademicYear.objects.create(year=2034, status=AcademicYear.STATUS_ACTIVE)
+        grade10 = Grade.objects.create(name="10", ordinal=10)
+        Enrollment.objects.create(student=witness_student, academic_year=active_year, grade=grade10, status="ACTIVE")
+
+        previous_process = ElectionProcess.objects.create(
+            name="Jornada Personero 2025",
+            status=ElectionProcess.Status.CLOSED,
+            starts_at=timezone.now() - timedelta(days=380),
+            ends_at=timezone.now() - timedelta(days=379),
+        )
+        previous_role = ElectionRole.objects.create(
+            process=previous_process,
+            code=ElectionRole.CODE_PERSONERO,
+            title="Personería",
+            display_order=1,
+        )
+        previous_user = get_user_model().objects.create_user(
+            username="previous_personero_doc",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Anterior",
+            last_name="Personero",
+        )
+        previous_student = Student.objects.create(user=previous_user, document_number="111999333")
+        previous_candidate = ElectionCandidate.objects.create(
+            role=previous_role,
+            name="Anterior Personero",
+            student_id_ref=previous_user.id,
+            student_document_number="FALLBACK-OLD",
+            number="10",
+            grade="11",
+            is_active=True,
+            display_order=1,
+        )
+        VoteRecord.objects.create(
+            process=previous_process,
+            role=previous_role,
+            voter_token=VoterToken.objects.create(
+                process=previous_process,
+                token_hash=VoterToken.hash_token("TOKEN-PREV-1"),
+                token_prefix="TOKEN-PREV",
+                status=VoterToken.Status.USED,
+                expires_at=timezone.now() + timedelta(hours=1),
+                used_at=timezone.now(),
+            ),
+            access_session=VoteAccessSession.objects.create(
+                voter_token=VoterToken.objects.create(
+                    process=previous_process,
+                    token_hash=VoterToken.hash_token("TOKEN-PREV-2"),
+                    token_prefix="TOKEN-PREV",
+                    status=VoterToken.Status.USED,
+                    expires_at=timezone.now() + timedelta(hours=1),
+                    used_at=timezone.now(),
+                ),
+                expires_at=timezone.now() + timedelta(minutes=10),
+                consumed_at=timezone.now(),
+            ),
+            candidate=previous_candidate,
+            is_blank=False,
+        )
+
+        institution = Institution.objects.order_by("id").first()
+        if institution is None:
+            institution = Institution.objects.create(name="IE Prueba", address="Calle 10 # 20-30")
+        else:
+            institution.address = institution.address or "Calle 10 # 20-30"
+        institution.rector = rector_user
+        institution.save(update_fields=["rector", "address"])
+
+        Campus.objects.create(
+            institution=institution,
+            name="Sede Principal",
+            sede_type="PRINCIPAL",
+            status="ACTIVA",
+            municipality="Bogotá",
+            department="Cundinamarca",
+            address="Cra 1 # 2-3",
+        )
+
+        ElectionOpeningRecord.objects.create(
+            process=process,
+            opened_by=support_user,
+            votes_count_at_open=0,
+            blank_votes_count_at_open=0,
+        )
+
+        ElectionCensusMember.objects.create(
+            student_external_id="EXT-ACTA-1",
+            document_number="1001",
+            full_name="Estudiante Diez",
+            grade="10",
+            shift="Mañana",
+            campus="Sede Principal",
+            is_active=True,
+            status=ElectionCensusMember.Status.ACTIVE,
+        )
+        ElectionCensusMember.objects.create(
+            student_external_id="EXT-ACTA-2",
+            document_number="1002",
+            full_name="Estudiante Once",
+            grade="11",
+            shift="Única",
+            campus="Sede Principal",
+            is_active=True,
+            status=ElectionCensusMember.Status.ACTIVE,
+        )
+
+        process.governance_config = {
+            "committee_members": [],
+            "student_witnesses": [
+                {
+                    "source": "STUDENT",
+                    "user_id": witness_user.id,
+                    "full_name": witness_user.get_full_name(),
+                    "document_number": witness_student.document_number,
+                }
+            ],
+        }
+        process.save(update_fields=["governance_config"])
+
+        payload = build_personero_acta_payload(process)
+
+        self.assertEqual(payload["acta_number"], f"{process.id:04d}")
+        self.assertEqual(payload["personero"]["winner_document_number"], winner_student.document_number)
+        self.assertEqual(payload["rector_name"], rector_user.get_full_name())
+        self.assertEqual(payload["rector_document_number"], "900123456")
+        self.assertEqual(payload["support_name"], support_user.get_full_name())
+        self.assertEqual(payload["student_witnesses"][0]["grade_label"], "10")
+        self.assertEqual(payload["census"]["enabled_grades"], ["10", "11"])
+        self.assertEqual(payload["census"]["enabled_campuses"], ["Sede Principal"])
+        self.assertEqual(payload["previous_personero"]["name"], "Anterior Personero")
+        self.assertEqual(payload["previous_personero"]["document_number"], previous_student.document_number)
+        self.assertIn("Sede Principal", payload["location_text"])
+
+    def test_contralor_acta_payload_uses_role_specific_labels_and_winner(self):
+        process, _, contralor_role, _, contralor_candidate = self._create_process_with_ballot(name="Jornada Acta Contralor Payload")
+
+        winner_user = get_user_model().objects.create_user(
+            username="winner_contralor_doc",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Ganador",
+            last_name="Contralor",
+        )
+        winner_student = Student.objects.create(user=winner_user, document_number="2200123456")
+
+        contralor_candidate.student_id_ref = winner_user.id
+        contralor_candidate.student_document_number = "DOC-CONTRALOR"
+        contralor_candidate.save(update_fields=["student_id_ref", "student_document_number"])
+
+        VoteRecord.objects.create(
+            process=process,
+            role=contralor_role,
+            voter_token=VoterToken.objects.create(
+                process=process,
+                token_hash=VoterToken.hash_token("TOKEN-CONTRALOR-1"),
+                token_prefix="TOKEN-CONTR",
+                status=VoterToken.Status.USED,
+                expires_at=timezone.now() + timedelta(hours=1),
+                used_at=timezone.now(),
+            ),
+            access_session=VoteAccessSession.objects.create(
+                voter_token=VoterToken.objects.create(
+                    process=process,
+                    token_hash=VoterToken.hash_token("TOKEN-CONTRALOR-2"),
+                    token_prefix="TOKEN-CONTR",
+                    status=VoterToken.Status.USED,
+                    expires_at=timezone.now() + timedelta(hours=1),
+                    used_at=timezone.now(),
+                ),
+                expires_at=timezone.now() + timedelta(minutes=10),
+                consumed_at=timezone.now(),
+            ),
+            candidate=contralor_candidate,
+            is_blank=False,
+        )
+
+        previous_process = ElectionProcess.objects.create(
+            name="Jornada Contralor 2025",
+            status=ElectionProcess.Status.CLOSED,
+            starts_at=timezone.now() - timedelta(days=380),
+            ends_at=timezone.now() - timedelta(days=379),
+        )
+        previous_role = ElectionRole.objects.create(
+            process=previous_process,
+            code=ElectionRole.CODE_CONTRALOR,
+            title="Contraloría",
+            display_order=1,
+        )
+        previous_user = get_user_model().objects.create_user(
+            username="previous_contralor_doc",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Anterior",
+            last_name="Contralor",
+        )
+        previous_student = Student.objects.create(user=previous_user, document_number="333888111")
+        previous_candidate = ElectionCandidate.objects.create(
+            role=previous_role,
+            name="Anterior Contralor",
+            student_id_ref=previous_user.id,
+            student_document_number="FALLBACK-OLD-CONTRALOR",
+            number="09",
+            grade="10",
+            is_active=True,
+            display_order=1,
+        )
+        VoteRecord.objects.create(
+            process=previous_process,
+            role=previous_role,
+            voter_token=VoterToken.objects.create(
+                process=previous_process,
+                token_hash=VoterToken.hash_token("TOKEN-PREV-CONTRALOR-1"),
+                token_prefix="TOKEN-PREV-",
+                status=VoterToken.Status.USED,
+                expires_at=timezone.now() + timedelta(hours=1),
+                used_at=timezone.now(),
+            ),
+            access_session=VoteAccessSession.objects.create(
+                voter_token=VoterToken.objects.create(
+                    process=previous_process,
+                    token_hash=VoterToken.hash_token("TOKEN-PREV-CONTRALOR-2"),
+                    token_prefix="TOKEN-PREV-",
+                    status=VoterToken.Status.USED,
+                    expires_at=timezone.now() + timedelta(hours=1),
+                    used_at=timezone.now(),
+                ),
+                expires_at=timezone.now() + timedelta(minutes=10),
+                consumed_at=timezone.now(),
+            ),
+            candidate=previous_candidate,
+            is_blank=False,
+        )
+
+        payload = build_contralor_acta_payload(process)
+
+        self.assertEqual(payload["office"]["slug"], "contralor")
+        self.assertEqual(payload["office_result"]["winner_document_number"], winner_student.document_number)
+        self.assertEqual(payload["contralor"]["winner"]["name"], contralor_candidate.name)
+        self.assertEqual(payload["previous_contralor"]["name"], "Anterior Contralor")
+        self.assertEqual(payload["previous_contralor"]["document_number"], previous_student.document_number)
+
 
 class ElectionPermissionsTests(APITestCase):
     def setUp(self):
@@ -671,6 +1051,8 @@ class ElectionPermissionsTests(APITestCase):
             "scrutiny-export.csv",
             "scrutiny-export.xlsx",
             "scrutiny-export.pdf",
+            "personero-acta.pdf",
+            "contralor-acta.pdf",
         ]
 
         for export_path in export_paths:
@@ -683,6 +1065,8 @@ class ElectionPermissionsTests(APITestCase):
             "scrutiny-export.csv",
             "scrutiny-export.xlsx",
             "scrutiny-export.pdf",
+            "personero-acta.pdf",
+            "contralor-acta.pdf",
         ]
 
         for export_path in export_paths:
@@ -707,6 +1091,188 @@ class ElectionPermissionsTests(APITestCase):
 
         created_process = ElectionProcess.objects.get(id=response.data["id"])
         self.assertEqual(created_process.status, ElectionProcess.Status.DRAFT)
+
+    def test_create_and_update_process_persist_governance_config(self):
+        student_user = get_user_model().objects.create_user(
+            username="student_governance_cfg",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Estudiante",
+            last_name="Comite",
+        )
+        student = Student.objects.create(user=student_user, document_number="111222333")
+
+        year = AcademicYear.objects.create(year=2030, status=AcademicYear.STATUS_ACTIVE)
+        grade = Grade.objects.create(name="11", ordinal=11)
+        Enrollment.objects.create(student=student, academic_year=year, grade=grade, status="ACTIVE")
+
+        teacher_user = get_user_model().objects.create_user(
+            username="teacher_governance_cfg",
+            password="pass1234",
+            role=get_user_model().ROLE_TEACHER,
+            first_name="Docente",
+            last_name="Comite",
+            is_active=True,
+        )
+        Teacher.objects.create(user=teacher_user, document_number="999888777")
+
+        self.client.force_authenticate(user=self.admin)
+        create_response = self.client.post(
+            "/api/elections/manage/processes/",
+            {
+                "name": "Jornada Config Comité",
+                "governance_config": {
+                    "committee_members": [
+                        {"source": "STUDENT", "user_id": student_user.id},
+                    ],
+                    "student_witnesses": [],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, 400)
+
+        create_response = self.client.post(
+            "/api/elections/manage/processes/",
+            {
+                "name": "Jornada Config Comité",
+                "governance_config": {
+                    "committee_members": [
+                        {"source": "TEACHER", "user_id": teacher_user.id},
+                    ],
+                    "student_witnesses": [],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, 201)
+
+        process_id = create_response.data["id"]
+        process = ElectionProcess.objects.get(id=process_id)
+        self.assertEqual(len(process.governance_config.get("committee_members", [])), 2)
+
+        patch_response = self.client.patch(
+            f"/api/elections/manage/processes/{process_id}/",
+            {
+                "governance_config": {
+                    "committee_members": [
+                        {"source": "TEACHER", "user_id": teacher_user.id},
+                    ],
+                    "student_witnesses": [
+                        {"source": "STUDENT", "user_id": student_user.id},
+                    ],
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, 200)
+        process.refresh_from_db()
+        self.assertEqual(len(process.governance_config.get("committee_members", [])), 1)
+        self.assertEqual(len(process.governance_config.get("student_witnesses", [])), 1)
+
+    def test_governance_participants_endpoint_returns_active_students_and_teachers(self):
+        student_user = get_user_model().objects.create_user(
+            username="student_governance_list",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Ana",
+            last_name="Activa",
+        )
+        student = Student.objects.create(user=student_user, document_number="123456789")
+        year = AcademicYear.objects.create(year=2031, status=AcademicYear.STATUS_ACTIVE)
+        grade = Grade.objects.create(name="10", ordinal=10)
+        Enrollment.objects.create(student=student, academic_year=year, grade=grade, status="ACTIVE")
+
+        teacher_user = get_user_model().objects.create_user(
+            username="teacher_governance_list",
+            password="pass1234",
+            role=get_user_model().ROLE_TEACHER,
+            first_name="Carlos",
+            last_name="Docente",
+            is_active=True,
+        )
+        Teacher.objects.create(user=teacher_user, document_number="987654321")
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.get("/api/elections/manage/governance-participants/")
+        self.assertEqual(response.status_code, 200)
+
+        combined = response.data["results"]["combined"]
+        keys = {row["key"] for row in combined}
+        self.assertIn(f"STUDENT:{student_user.id}", keys)
+        self.assertIn(f"TEACHER:{teacher_user.id}", keys)
+
+    def test_governance_witnesses_require_students_in_grade_10_or_11(self):
+        student_user = get_user_model().objects.create_user(
+            username="student_grade9_witness",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Luis",
+            last_name="Noveno",
+        )
+        student = Student.objects.create(user=student_user, document_number="321654987")
+        year = AcademicYear.objects.create(year=2032, status=AcademicYear.STATUS_ACTIVE)
+        grade9 = Grade.objects.create(name="9", ordinal=9)
+        Enrollment.objects.create(student=student, academic_year=year, grade=grade9, status="ACTIVE")
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(
+            "/api/elections/manage/processes/",
+            {
+                "name": "Jornada Testigo Noveno",
+                "governance_config": {
+                    "committee_members": [],
+                    "student_witnesses": [
+                        {"source": "STUDENT", "user_id": student_user.id},
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_governance_witnesses_allow_grade_name_when_ordinal_is_null(self):
+        student_user = get_user_model().objects.create_user(
+            username="student_grade_text_witness",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Laura",
+            last_name="Decimo",
+        )
+        student = Student.objects.create(user=student_user, document_number="777888999")
+        year = AcademicYear.objects.create(year=2033, status=AcademicYear.STATUS_ACTIVE)
+        grade10_text = Grade.objects.create(name="D\u00e9cimo A", ordinal=None)
+        Enrollment.objects.create(student=student, academic_year=year, grade=grade10_text, status="ACTIVE")
+
+        self.client.force_authenticate(user=self.admin)
+
+        participants_response = self.client.get("/api/elections/manage/governance-participants/")
+        self.assertEqual(participants_response.status_code, 200)
+        student_rows = [
+            row
+            for row in participants_response.data["results"]["students"]
+            if row["key"] == f"STUDENT:{student_user.id}"
+        ]
+        self.assertEqual(len(student_rows), 1)
+        self.assertEqual(student_rows[0]["grade_value"], 10)
+
+        create_response = self.client.post(
+            "/api/elections/manage/processes/",
+            {
+                "name": "Jornada Testigo Decimo Texto",
+                "governance_config": {
+                    "committee_members": [],
+                    "student_witnesses": [
+                        {"source": "STUDENT", "user_id": student_user.id},
+                    ],
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, 201)
 
 
 class ElectionAuditTrailTests(APITestCase):

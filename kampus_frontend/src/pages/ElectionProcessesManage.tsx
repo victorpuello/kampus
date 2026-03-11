@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
 import { Button } from '../components/ui/Button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/Card'
@@ -9,6 +9,9 @@ import ElectionCandidatesPersoneria from './ElectionCandidatesPersoneria'
 import ElectionRolesManage from './ElectionRolesManage'
 import {
   electionsApi,
+  type ElectionGovernanceConfig,
+  type ElectionGovernanceParticipantOption,
+  type ElectionEligibleStudentItem,
   type ElectionObserverCongratsSummary,
   getApiErrorMessage,
   type ElectionOpeningRecord,
@@ -33,6 +36,241 @@ function isoToLocalDatetime(value: string | null): string {
   return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16)
 }
 
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+type MultiChoiceListProps = {
+  options: ElectionGovernanceParticipantOption[]
+  selectedValues: string[]
+  onChange: (values: string[]) => void
+  limit: number
+  emptyMessage: string
+}
+
+function MultiChoiceList({ options, selectedValues, onChange, limit, emptyMessage }: MultiChoiceListProps) {
+  const toggleValue = (value: string) => {
+    if (selectedValues.includes(value)) {
+      onChange(selectedValues.filter((item) => item !== value))
+      return
+    }
+    if (selectedValues.length >= limit) return
+    onChange([...selectedValues, value])
+  }
+
+  if (options.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-400">
+        {emptyMessage}
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 sm:max-h-72 dark:border-slate-700 dark:bg-slate-950">
+      {options.map((option) => {
+        const checked = selectedValues.includes(option.key)
+        const disabled = !checked && selectedValues.length >= limit
+        return (
+          <label
+            key={option.key}
+            className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2 text-sm transition ${
+              checked
+                ? 'border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-100'
+                : 'border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100'
+            } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
+          >
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4"
+              checked={checked}
+              disabled={disabled}
+              onChange={() => toggleValue(option.key)}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium">{option.full_name}</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                {option.document_number || 'Sin documento'}
+                {option.subtitle ? ` · ${option.subtitle}` : ''}
+              </span>
+            </span>
+          </label>
+        )
+      })}
+    </div>
+  )
+}
+
+function parseGradeValue(rawGrade: string | null | undefined): number | null {
+  const compact = normalizeText(rawGrade || '').replace(/\s+/g, '')
+  if (!compact) return null
+
+  const direct = Number(compact)
+  if (Number.isInteger(direct)) return direct
+
+  const prefixed = compact.match(/^(\d{1,2})/)
+  if (prefixed) return Number(prefixed[1])
+
+  if (compact.startsWith('decimo')) return 10
+  if (compact.startsWith('once')) return 11
+  if (compact.startsWith('undecimo')) return 11
+  if (compact.startsWith('decimoprimero')) return 11
+  return null
+}
+
+function normalizeGovernanceOption(option: ElectionGovernanceParticipantOption): ElectionGovernanceParticipantOption {
+  const source = String(option.source || '').toUpperCase() as 'STUDENT' | 'TEACHER'
+  const derivedGrade = option.grade_value ?? parseGradeValue(option.subtitle)
+  const key = option.key || `${source}:${option.user_id}`
+  return {
+    ...option,
+    key,
+    source,
+    grade_value: derivedGrade,
+  }
+}
+
+function mapEligibleStudentToGovernanceOption(student: ElectionEligibleStudentItem): ElectionGovernanceParticipantOption {
+  const gradeValue = parseGradeValue(student.grade)
+  return {
+    key: `STUDENT:${student.student_id}`,
+    source: 'STUDENT',
+    user_id: student.student_id,
+    full_name: student.full_name,
+    document_number: student.document_number,
+    grade_value: gradeValue,
+    subtitle: `Estudiante matriculado - ${student.grade || 'Sin grado'} ${student.group || ''}`.trim(),
+  }
+}
+
+function uniqueOptionsByKey(options: ElectionGovernanceParticipantOption[]): ElectionGovernanceParticipantOption[] {
+  const seen = new Set<string>()
+  return options.filter((option) => {
+    if (seen.has(option.key)) return false
+    seen.add(option.key)
+    return true
+  })
+}
+
+type ProcessActionMenuProps = {
+  item: ElectionProcessItem
+  updatingProcessId: number | null
+  deletingProcessId: number | null
+  closingProcessId: number | null
+  compact?: boolean
+  onStartEditProcess: (item: ElectionProcessItem) => void
+  onOpenProcess: (processId: number) => void
+  onRequestCloseProcess: (item: ElectionProcessItem) => void
+  onRequestDeleteProcess: (item: ElectionProcessItem) => void
+  onDownloadPersoneroActa: (processId: number) => void
+  onDownloadContralorActa: (processId: number) => void
+}
+
+function ProcessActionMenu({
+  item,
+  updatingProcessId,
+  deletingProcessId,
+  closingProcessId,
+  compact = false,
+  onStartEditProcess,
+  onOpenProcess,
+  onRequestCloseProcess,
+  onRequestDeleteProcess,
+  onDownloadPersoneroActa,
+  onDownloadContralorActa,
+}: ProcessActionMenuProps) {
+  const detailsRef = useRef<HTMLDetailsElement | null>(null)
+  const isClosed = item.status === 'CLOSED'
+  const isOpen = item.status === 'OPEN'
+  const canDelete = item.can_delete
+  const wrapperClassName = compact
+    ? 'mt-3 flex flex-wrap items-center gap-2'
+    : 'flex flex-wrap items-center gap-2'
+  const menuAlignClassName = compact ? 'left-0' : 'right-0'
+
+  const closeMenu = () => {
+    const details = detailsRef.current
+    if (!details?.open) return
+    details.open = false
+    const summary = details.querySelector('summary') as HTMLElement | null
+    summary?.focus()
+  }
+
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDetailsElement>) => {
+    if (event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopPropagation()
+    closeMenu()
+  }
+
+  return (
+    <div className={wrapperClassName}>
+      <Button type="button" variant="outline" size="sm" disabled={updatingProcessId === item.id} onClick={() => onStartEditProcess(item)}>
+        {updatingProcessId === item.id ? 'Actualizando...' : 'Editar'}
+      </Button>
+
+      {isOpen ? (
+        <Button type="button" variant="secondary" size="sm" disabled={closingProcessId === item.id} onClick={() => onRequestCloseProcess(item)}>
+          {closingProcessId === item.id ? 'Cerrando...' : 'Cerrar'}
+        </Button>
+      ) : (
+        <Button type="button" variant="secondary" size="sm" disabled={isOpen} onClick={() => void onOpenProcess(item.id)}>
+          {isOpen ? 'Abierta' : 'Abrir'}
+        </Button>
+      )}
+
+      <details ref={detailsRef} className="relative" onKeyDown={onMenuKeyDown}>
+        <summary className="flex h-9 cursor-pointer list-none items-center justify-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:border-slate-500 dark:hover:bg-slate-800">
+          Acciones
+        </summary>
+        <div className={`absolute top-11 z-20 min-w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-950 ${menuAlignClassName}`}>
+          <div className="px-2 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Gestion de jornada
+          </div>
+          <div className="space-y-1 border-b border-slate-100 pb-2 dark:border-slate-800">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full justify-start"
+              disabled={deletingProcessId === item.id || !canDelete}
+              title={canDelete ? 'Eliminar jornada' : 'No se puede eliminar: la jornada ya tiene votos registrados.'}
+              onClick={() => onRequestDeleteProcess(item)}
+            >
+              {deletingProcessId === item.id ? 'Eliminando...' : 'Eliminar jornada'}
+            </Button>
+          </div>
+          <div className="px-2 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Descargas
+          </div>
+          <div className="space-y-1">
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full justify-start"
+              disabled={!isClosed}
+              onClick={() => void onDownloadPersoneroActa(item.id)}
+            >
+              Descargar acta personero
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full justify-start"
+              disabled={!isClosed}
+              onClick={() => void onDownloadContralorActa(item.id)}
+            >
+              Descargar acta contralor
+            </Button>
+          </div>
+        </div>
+      </details>
+    </div>
+  )
+}
+
 export default function ElectionProcessesManage() {
   const user = useAuthStore((s) => s.user)
   const canManage = user?.role === 'SUPERADMIN' || user?.role === 'ADMIN'
@@ -47,6 +285,11 @@ export default function ElectionProcessesManage() {
   const [status] = useState<'DRAFT'>('DRAFT')
   const [startsAt, setStartsAt] = useState('')
   const [endsAt, setEndsAt] = useState('')
+  const [governanceOptions, setGovernanceOptions] = useState<ElectionGovernanceParticipantOption[]>([])
+  const [committeeOptions, setCommitteeOptions] = useState<ElectionGovernanceParticipantOption[]>([])
+  const [witnessOptions, setWitnessOptions] = useState<ElectionGovernanceParticipantOption[]>([])
+  const [committeeSelection, setCommitteeSelection] = useState<string[]>([])
+  const [witnessSelection, setWitnessSelection] = useState<string[]>([])
   const [activeTab, setActiveTab] = useState<'processes' | 'roles' | 'candidates'>('processes')
   const [candidatesTab, setCandidatesTab] = useState<'personeria' | 'contraloria'>('personeria')
   const [eligibilityProcessId, setEligibilityProcessId] = useState('')
@@ -67,6 +310,8 @@ export default function ElectionProcessesManage() {
   const [editingProcess, setEditingProcess] = useState<ElectionProcessItem | null>(null)
   const [editingStartsAt, setEditingStartsAt] = useState('')
   const [editingEndsAt, setEditingEndsAt] = useState('')
+  const [editingCommitteeSelection, setEditingCommitteeSelection] = useState<string[]>([])
+  const [editingWitnessSelection, setEditingWitnessSelection] = useState<string[]>([])
   const [updatingProcessId, setUpdatingProcessId] = useState<number | null>(null)
   const [closeSummaryByProcess, setCloseSummaryByProcess] = useState<Record<number, ElectionObserverCongratsSummary>>({})
 
@@ -96,6 +341,87 @@ export default function ElectionProcessesManage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage])
 
+  useEffect(() => {
+    if (!canManage) return
+    void (async () => {
+      try {
+        const [governanceResponse, eligibleResponse] = await Promise.allSettled([
+          electionsApi.listGovernanceParticipants(undefined, 250),
+          electionsApi.listEligibleStudents({ role_code: 'CONTRALOR', limit: 500 }),
+        ])
+
+        const teacherRows =
+          governanceResponse.status === 'fulfilled'
+            ? uniqueOptionsByKey(((governanceResponse.value.results.teachers || []).map(normalizeGovernanceOption)))
+            : []
+
+        const witnessRows =
+          eligibleResponse.status === 'fulfilled'
+            ? uniqueOptionsByKey(
+                (eligibleResponse.value.results || [])
+                  .map(mapEligibleStudentToGovernanceOption)
+                  .filter((option) => option.grade_value === 10 || option.grade_value === 11),
+              )
+            : []
+
+        setCommitteeOptions(teacherRows)
+        setWitnessOptions(witnessRows)
+        setGovernanceOptions([...teacherRows, ...witnessRows])
+
+        if (teacherRows.length === 0 && witnessRows.length === 0) {
+          setError('No fue posible cargar docentes y estudiantes elegibles para comité/testigos.')
+        }
+      } catch {
+        setGovernanceOptions([])
+        setCommitteeOptions([])
+        setWitnessOptions([])
+        setError('No fue posible cargar docentes y estudiantes elegibles para comité/testigos.')
+      }
+    })()
+  }, [canManage])
+
+  const optionKeyFromParticipant = (participant: { source: 'STUDENT' | 'TEACHER'; user_id: number } | undefined): string => {
+    if (!participant) return ''
+    return `${participant.source}:${participant.user_id}`
+  }
+
+  const participantFromOptionKey = (value: string): ElectionGovernanceParticipantOption | null => {
+    if (!value) return null
+    return governanceOptions.find((option) => option.key === value) || null
+  }
+
+  const buildGovernanceConfig = (slots: {
+    committee: string[]
+    witnesses: string[]
+  }): ElectionGovernanceConfig => {
+    const committeeMembers = slots.committee
+      .map(participantFromOptionKey)
+      .filter((item): item is ElectionGovernanceParticipantOption => item !== null)
+      .slice(0, 3)
+      .map((item) => ({
+        source: item.source,
+        user_id: item.user_id,
+        full_name: item.full_name,
+        document_number: item.document_number,
+      }))
+
+    const studentWitnesses = slots.witnesses
+      .map(participantFromOptionKey)
+      .filter((item): item is ElectionGovernanceParticipantOption => item !== null)
+      .slice(0, 2)
+      .map((item) => ({
+        source: item.source,
+        user_id: item.user_id,
+        full_name: item.full_name,
+        document_number: item.document_number,
+      }))
+
+    return {
+      committee_members: committeeMembers,
+      student_witnesses: studentWitnesses,
+    }
+  }
+
   const onCreate = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!canManage) return
@@ -116,11 +442,17 @@ export default function ElectionProcessesManage() {
         status,
         starts_at: localDatetimeToIso(startsAt),
         ends_at: localDatetimeToIso(endsAt),
+        governance_config: buildGovernanceConfig({
+          committee: committeeSelection,
+          witnesses: witnessSelection,
+        }),
       }
       await electionsApi.createProcess(payload)
       setName('')
       setStartsAt('')
       setEndsAt('')
+      setCommitteeSelection([])
+      setWitnessSelection([])
       setSuccess('Jornada electoral creada correctamente.')
       await loadItems()
     } catch (requestError) {
@@ -152,6 +484,7 @@ export default function ElectionProcessesManage() {
     setSuccess(null)
     try {
       const response = await electionsApi.closeProcess(processId)
+      const closedProcessName = response.name
       if (response.observer_congrats_summary) {
         setCloseSummaryByProcess((prev) => ({
           ...prev,
@@ -162,13 +495,30 @@ export default function ElectionProcessesManage() {
       const generatedCount =
         (response.observer_congrats_summary?.winner_annotations_created || 0) +
         (response.observer_congrats_summary?.participant_annotations_created || 0)
+      const closeSuccessMessage =
+        response.observer_congrats_generated && generatedCount > 0
+          ? `Jornada electoral cerrada correctamente. Felicitaciones generadas: ${generatedCount}.`
+          : 'Jornada electoral cerrada correctamente. No se generaron nuevas felicitaciones en este cierre.'
+
+      let actaDownloaded = false
+      try {
+        const actaBlob = await electionsApi.downloadPersoneroActaPdf(processId)
+        downloadBlobFile(actaBlob, `acta_personero_${processId}.pdf`)
+        actaDownloaded = true
+      } catch {
+        actaDownloaded = false
+      }
+
       if (response.observer_congrats_generated && generatedCount > 0) {
-        setSuccess(`Jornada electoral cerrada correctamente. Felicitaciones generadas: ${generatedCount}.`)
+        setSuccess(actaDownloaded ? `${closeSuccessMessage} Acta de personero descargada.` : `${closeSuccessMessage} La jornada se cerro, pero no se pudo descargar el acta de personero automaticamente.`)
       } else {
-        setSuccess('Jornada electoral cerrada correctamente. No se generaron nuevas felicitaciones en este cierre.')
+        setSuccess(actaDownloaded ? `${closeSuccessMessage} Acta de personero descargada.` : `${closeSuccessMessage} La jornada se cerro, pero no se pudo descargar el acta de personero automaticamente.`)
       }
       setProcessToClose(null)
       await loadItems()
+      if (!actaDownloaded && closedProcessName) {
+        setError(`Puedes descargar el acta manualmente desde la fila de la jornada "${closedProcessName}".`)
+      }
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible cerrar la jornada electoral.'))
     } finally {
@@ -188,6 +538,8 @@ export default function ElectionProcessesManage() {
     setEditingProcess(processItem)
     setEditingStartsAt(isoToLocalDatetime(processItem.starts_at))
     setEditingEndsAt(isoToLocalDatetime(processItem.ends_at))
+    setEditingCommitteeSelection((processItem.governance_config?.committee_members || []).map((item) => optionKeyFromParticipant(item)).filter(Boolean))
+    setEditingWitnessSelection((processItem.governance_config?.student_witnesses || []).map((item) => optionKeyFromParticipant(item)).filter(Boolean))
     setError(null)
     setSuccess(null)
   }
@@ -197,6 +549,8 @@ export default function ElectionProcessesManage() {
     setEditingProcess(null)
     setEditingStartsAt('')
     setEditingEndsAt('')
+    setEditingCommitteeSelection([])
+    setEditingWitnessSelection([])
   }
 
   const onSubmitEditProcess = async (event: React.FormEvent) => {
@@ -211,11 +565,17 @@ export default function ElectionProcessesManage() {
       await electionsApi.updateProcess(editingProcess.id, {
         starts_at: localDatetimeToIso(editingStartsAt),
         ends_at: localDatetimeToIso(editingEndsAt),
+        governance_config: buildGovernanceConfig({
+          committee: editingCommitteeSelection,
+          witnesses: editingWitnessSelection,
+        }),
       })
       setSuccess('Fechas de la jornada actualizadas correctamente.')
       setEditingProcess(null)
       setEditingStartsAt('')
       setEditingEndsAt('')
+      setEditingCommitteeSelection([])
+      setEditingWitnessSelection([])
       await loadItems()
     } catch (requestError) {
       setError(getApiErrorMessage(requestError, 'No fue posible actualizar las fechas de la jornada.'))
@@ -375,6 +735,24 @@ export default function ElectionProcessesManage() {
     }
   }
 
+  const onDownloadPersoneroActa = async (processId: number) => {
+    try {
+      const blob = await electionsApi.downloadPersoneroActaPdf(processId)
+      downloadBlobFile(blob, `acta_personero_${processId}.pdf`)
+    } catch (requestError) {
+      setScrutinyError(getApiErrorMessage(requestError, 'No fue posible descargar el acta PDF de eleccion de personero.'))
+    }
+  }
+
+  const onDownloadContralorActa = async (processId: number) => {
+    try {
+      const blob = await electionsApi.downloadContralorActaPdf(processId)
+      downloadBlobFile(blob, `acta_contralor_${processId}.pdf`)
+    } catch (requestError) {
+      setScrutinyError(getApiErrorMessage(requestError, 'No fue posible descargar el acta PDF de eleccion de contralor.'))
+    }
+  }
+
   if (!canManage) {
     return (
       <Card>
@@ -387,8 +765,29 @@ export default function ElectionProcessesManage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/80 sm:flex-row sm:space-x-1 sm:gap-0" role="tablist" aria-label="Secciones de Gobierno Escolar">
+    <div className="space-y-4 lg:space-y-6">
+      <section className="rounded-2xl border border-slate-200 bg-linear-to-br from-slate-50 via-white to-blue-50/60 p-4 shadow-sm dark:border-slate-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800/80 sm:p-5 lg:p-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-700 dark:text-blue-300">Gobierno Escolar</p>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-2xl">Procesos electorales</h1>
+            <p className="max-w-2xl text-sm text-slate-600 dark:text-slate-300">Administra jornadas, comité, testigos, prevalidación de censo y escrutinio.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-950/70">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Jornadas</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{items.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white/90 px-3 py-2 text-left dark:border-slate-700 dark:bg-slate-950/70">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Testigos</p>
+              <p className="text-lg font-semibold text-slate-900 dark:text-slate-100">{witnessOptions.length}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="overflow-x-auto pb-1">
+        <div className="inline-flex min-w-full gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800/80 sm:min-w-0" role="tablist" aria-label="Secciones de Gobierno Escolar">
         <button
           type="button"
           onClick={() => setActiveTab('processes')}
@@ -397,7 +796,7 @@ export default function ElectionProcessesManage() {
           aria-selected={activeTab === 'processes'}
           aria-controls="gobierno-panel-jornadas"
           tabIndex={activeTab === 'processes' ? 0 : -1}
-          className={`min-h-11 w-full rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
+          className={`min-h-11 min-w-34 flex-1 rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'processes'
               ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
               : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-slate-100'
@@ -413,7 +812,7 @@ export default function ElectionProcessesManage() {
           aria-selected={activeTab === 'roles'}
           aria-controls="gobierno-panel-cargos"
           tabIndex={activeTab === 'roles' ? 0 : -1}
-          className={`min-h-11 w-full rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
+          className={`min-h-11 min-w-34 flex-1 rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'roles'
               ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
               : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-slate-100'
@@ -429,7 +828,7 @@ export default function ElectionProcessesManage() {
           aria-selected={activeTab === 'candidates'}
           aria-controls="gobierno-panel-candidatos"
           tabIndex={activeTab === 'candidates' ? 0 : -1}
-          className={`min-h-11 w-full rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
+          className={`min-h-11 min-w-34 flex-1 rounded-lg px-3 py-2.5 text-sm font-medium leading-5 ring-white ring-opacity-60 ring-offset-2 ring-offset-blue-400 focus:outline-none focus:ring-2 ${
             activeTab === 'candidates'
               ? 'bg-white text-blue-700 shadow dark:bg-slate-900 dark:text-blue-300'
               : 'text-slate-600 hover:bg-white/12 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-slate-700/60 dark:hover:text-slate-100'
@@ -437,18 +836,19 @@ export default function ElectionProcessesManage() {
         >
           Candidatos
         </button>
+        </div>
       </div>
 
       {activeTab === 'processes' ? (
         <div id="gobierno-panel-jornadas" role="tabpanel" aria-labelledby="gobierno-tab-jornadas" className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Jornadas electorales</CardTitle>
+            <CardHeader className="p-4 sm:p-5 lg:p-6">
+              <CardTitle className="text-xl sm:text-2xl">Jornadas electorales</CardTitle>
               <CardDescription>Crea o abre la jornada en Election Processes.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <form className="grid gap-3 md:grid-cols-2" onSubmit={onCreate}>
-                <div className="space-y-1 md:col-span-2">
+            <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0 lg:p-6 lg:pt-0">
+              <form className="grid gap-4 xl:grid-cols-2" onSubmit={onCreate}>
+                <div className="space-y-1 xl:col-span-2">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Nombre de la jornada</label>
                   <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej: Jornada electoral 2026" />
                 </div>
@@ -469,13 +869,38 @@ export default function ElectionProcessesManage() {
                   <Input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} />
                 </div>
 
-                <div className="space-y-1 md:col-span-2">
+                <div className="space-y-1 xl:col-span-2">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Fin (opcional)</label>
                   <Input type="datetime-local" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
                 </div>
 
-                <div className="md:col-span-2">
-                  <Button type="submit" disabled={saving}>{saving ? 'Guardando...' : 'Crear jornada'}</Button>
+                <div className="space-y-1 xl:col-span-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Integrantes Comité de Democracia (solo docentes, máximo 3)</label>
+                  <MultiChoiceList
+                    options={committeeOptions}
+                    selectedValues={committeeSelection}
+                    onChange={setCommitteeSelection}
+                    limit={3}
+                    emptyMessage="No hay docentes activos disponibles para comité."
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Mantén presionado Ctrl/Cmd para seleccionar múltiples opciones. Disponibles: {committeeOptions.length}.</p>
+                </div>
+
+                <div className="space-y-1 xl:col-span-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Testigos (solo estudiantes de grado 10 y 11, máximo 2)</label>
+                  <MultiChoiceList
+                    options={witnessOptions}
+                    selectedValues={witnessSelection}
+                    onChange={setWitnessSelection}
+                    limit={2}
+                    emptyMessage="No hay estudiantes de grado 10 u 11 disponibles para testigos."
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Mantén presionado Ctrl/Cmd para seleccionar múltiples opciones. Disponibles: {witnessOptions.length}.</p>
+                </div>
+
+                <div className="xl:col-span-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Seleccionados: comité {committeeSelection.length}/3 · testigos {witnessSelection.length}/2</p>
+                  <Button type="submit" className="w-full sm:w-auto" disabled={saving}>{saving ? 'Guardando...' : 'Crear jornada'}</Button>
                 </div>
               </form>
 
@@ -485,17 +910,17 @@ export default function ElectionProcessesManage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Listado de jornadas</CardTitle>
+            <CardHeader className="p-4 sm:p-5 lg:p-6">
+              <CardTitle className="text-xl sm:text-2xl">Listado de jornadas</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0 lg:p-6 lg:pt-0">
               {loading ? (
                 <p className="text-sm text-slate-600 dark:text-slate-300">Cargando jornadas...</p>
               ) : (
                 <>
-                  <div className="space-y-3 md:hidden">
+                  <div className="space-y-3 lg:hidden">
                     {items.map((item) => (
-                      <article key={item.id} className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/60">
+                      <article key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900/60 sm:p-4">
                         {closeSummaryByProcess[item.id] ? (
                           <p className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
                             Felicitaciones generadas: {(closeSummaryByProcess[item.id].winner_annotations_created || 0) + (closeSummaryByProcess[item.id].participant_annotations_created || 0)}
@@ -512,42 +937,25 @@ export default function ElectionProcessesManage() {
                         {item.votes_count > 0 ? (
                           <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">Con votos ({item.votes_count})</p>
                         ) : null}
-                        <div className="mt-3 grid gap-2">
-                          <Button type="button" variant="outline" className="h-10 w-full" disabled={updatingProcessId === item.id} onClick={() => onStartEditProcess(item)}>
-                            {updatingProcessId === item.id ? 'Actualizando...' : 'Editar fechas'}
-                          </Button>
-                          <Button type="button" variant="secondary" className="h-10 w-full" disabled={item.status === 'OPEN'} onClick={() => void onOpenProcess(item.id)}>
-                            {item.status === 'OPEN' ? 'Abierta' : 'Abrir jornada'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-10 w-full"
-                            disabled={item.status !== 'OPEN' || closingProcessId === item.id}
-                            onClick={() => onRequestCloseProcess(item)}
-                          >
-                            {closingProcessId === item.id ? 'Cerrando...' : item.status === 'OPEN' ? 'Cerrar jornada' : 'Cerrada'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-10 w-full"
-                            disabled={deletingProcessId === item.id || !item.can_delete}
-                            title={
-                              item.can_delete
-                                ? 'Eliminar jornada'
-                                : 'No se puede eliminar: la jornada ya tiene votos registrados.'
-                            }
-                            onClick={() => onRequestDeleteProcess(item)}
-                          >
-                            {deletingProcessId === item.id ? 'Eliminando...' : 'Eliminar'}
-                          </Button>
-                        </div>
+                        <ProcessActionMenu
+                          item={item}
+                          compact
+                          updatingProcessId={updatingProcessId}
+                          deletingProcessId={deletingProcessId}
+                          closingProcessId={closingProcessId}
+                          onStartEditProcess={onStartEditProcess}
+                          onOpenProcess={onOpenProcess}
+                          onRequestCloseProcess={onRequestCloseProcess}
+                          onRequestDeleteProcess={onRequestDeleteProcess}
+                          onDownloadPersoneroActa={onDownloadPersoneroActa}
+                          onDownloadContralorActa={onDownloadContralorActa}
+                        />
                       </article>
                     ))}
                   </div>
 
-                  <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                  <div className="hidden rounded-lg border border-slate-200 dark:border-slate-700 lg:block">
+                    <div className="overflow-x-auto overflow-y-visible">
                     <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                     <thead className="bg-slate-50 dark:bg-slate-900/50">
                       <tr>
@@ -580,50 +988,24 @@ export default function ElectionProcessesManage() {
                           <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{item.starts_at ? new Date(item.starts_at).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2 text-slate-700 dark:text-slate-200">{item.ends_at ? new Date(item.ends_at).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2">
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={updatingProcessId === item.id}
-                                onClick={() => onStartEditProcess(item)}
-                              >
-                                {updatingProcessId === item.id ? 'Actualizando...' : 'Editar fechas'}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="secondary"
-                                disabled={item.status === 'OPEN'}
-                                onClick={() => void onOpenProcess(item.id)}
-                              >
-                                {item.status === 'OPEN' ? 'Abierta' : 'Abrir jornada'}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={item.status !== 'OPEN' || closingProcessId === item.id}
-                                onClick={() => onRequestCloseProcess(item)}
-                              >
-                                {closingProcessId === item.id ? 'Cerrando...' : item.status === 'OPEN' ? 'Cerrar jornada' : 'Cerrada'}
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                disabled={deletingProcessId === item.id || !item.can_delete}
-                                title={
-                                  item.can_delete
-                                    ? 'Eliminar jornada'
-                                    : 'No se puede eliminar: la jornada ya tiene votos registrados.'
-                                }
-                                onClick={() => onRequestDeleteProcess(item)}
-                              >
-                                {deletingProcessId === item.id ? 'Eliminando...' : 'Eliminar'}
-                              </Button>
-                            </div>
+                            <ProcessActionMenu
+                              item={item}
+                              updatingProcessId={updatingProcessId}
+                              deletingProcessId={deletingProcessId}
+                              closingProcessId={closingProcessId}
+                              onStartEditProcess={onStartEditProcess}
+                              onOpenProcess={onOpenProcess}
+                              onRequestCloseProcess={onRequestCloseProcess}
+                              onRequestDeleteProcess={onRequestDeleteProcess}
+                              onDownloadPersoneroActa={onDownloadPersoneroActa}
+                              onDownloadContralorActa={onDownloadContralorActa}
+                            />
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                    </div>
                   </div>
                 </>
               )}
@@ -632,14 +1014,14 @@ export default function ElectionProcessesManage() {
 
           {editingProcess ? (
             <Card>
-              <CardHeader>
-                <CardTitle>Editar fechas de jornada</CardTitle>
+              <CardHeader className="p-4 sm:p-5 lg:p-6">
+                <CardTitle className="text-xl sm:text-2xl">Editar fechas de jornada</CardTitle>
                 <CardDescription>
                   Jornada: <span className="font-semibold">{editingProcess.name}</span>
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <form className="grid gap-3 md:grid-cols-2" onSubmit={onSubmitEditProcess}>
+              <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0 lg:p-6 lg:pt-0">
+                <form className="grid gap-4 xl:grid-cols-2" onSubmit={onSubmitEditProcess}>
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Inicio (opcional)</label>
                     <Input type="datetime-local" value={editingStartsAt} onChange={(event) => setEditingStartsAt(event.target.value)} />
@@ -650,13 +1032,40 @@ export default function ElectionProcessesManage() {
                     <Input type="datetime-local" value={editingEndsAt} onChange={(event) => setEditingEndsAt(event.target.value)} />
                   </div>
 
-                  <div className="md:col-span-2 flex flex-wrap gap-2">
-                    <Button type="submit" disabled={updatingProcessId === editingProcess.id}>
+                  <div className="space-y-1 xl:col-span-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Integrantes Comité de Democracia (solo docentes, máximo 3)</label>
+                    <MultiChoiceList
+                      options={committeeOptions}
+                      selectedValues={editingCommitteeSelection}
+                      onChange={setEditingCommitteeSelection}
+                      limit={3}
+                      emptyMessage="No hay docentes activos disponibles para comité."
+                    />
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Mantén presionado Ctrl/Cmd para seleccionar múltiples opciones. Disponibles: {committeeOptions.length}.</p>
+                  </div>
+
+                  <div className="space-y-1 xl:col-span-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Testigos (solo estudiantes de grado 10 y 11, máximo 2)</label>
+                    <MultiChoiceList
+                      options={witnessOptions}
+                      selectedValues={editingWitnessSelection}
+                      onChange={setEditingWitnessSelection}
+                      limit={2}
+                      emptyMessage="No hay estudiantes de grado 10 u 11 disponibles para testigos."
+                    />
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Mantén presionado Ctrl/Cmd para seleccionar múltiples opciones. Disponibles: {witnessOptions.length}.</p>
+                  </div>
+
+                  <div className="xl:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Seleccionados: comité {editingCommitteeSelection.length}/3 · testigos {editingWitnessSelection.length}/2</p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                    <Button type="submit" className="w-full sm:w-auto" disabled={updatingProcessId === editingProcess.id}>
                       {updatingProcessId === editingProcess.id ? 'Guardando...' : 'Guardar cambios'}
                     </Button>
-                    <Button type="button" variant="outline" onClick={onCancelEditProcess} disabled={updatingProcessId === editingProcess.id}>
+                    <Button type="button" className="w-full sm:w-auto" variant="outline" onClick={onCancelEditProcess} disabled={updatingProcessId === editingProcess.id}>
                       Cancelar
                     </Button>
+                    </div>
                   </div>
                 </form>
               </CardContent>
@@ -664,15 +1073,15 @@ export default function ElectionProcessesManage() {
           ) : null}
 
           <Card>
-            <CardHeader>
-              <CardTitle>Prevalidación de censo</CardTitle>
+            <CardHeader className="p-4 sm:p-5 lg:p-6">
+              <CardTitle className="text-xl sm:text-2xl">Prevalidación de censo</CardTitle>
               <CardDescription>
                 Revisa tokens no elegibles antes de abrir jornada.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="space-y-1 md:col-span-2">
+            <CardContent className="space-y-4 p-4 pt-0 sm:p-5 sm:pt-0 lg:p-6 lg:pt-0">
+              <div className="grid gap-3 xl:grid-cols-3">
+                <div className="space-y-1 xl:col-span-2">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Jornada (opcional)</label>
                   <select
                     value={eligibilityProcessId}
@@ -687,7 +1096,7 @@ export default function ElectionProcessesManage() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button type="button" disabled={eligibilityLoading} onClick={() => void onRunEligibilityValidation()}>
+                  <Button className="w-full sm:w-auto" type="button" disabled={eligibilityLoading} onClick={() => void onRunEligibilityValidation()}>
                     {eligibilityLoading ? 'Validando...' : 'Validar elegibilidad'}
                   </Button>
                 </div>
@@ -715,7 +1124,7 @@ export default function ElectionProcessesManage() {
                     <p className="text-sm text-emerald-600 dark:text-emerald-300">No se encontraron incidencias de elegibilidad en el censo.</p>
                   ) : (
                     <>
-                      <div className="space-y-3 md:hidden">
+                      <div className="space-y-3 lg:hidden">
                         {eligibilityIssues.map((issue) => (
                           <article key={issue.token_id} className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-700 dark:bg-slate-900/60">
                             <p className="font-semibold text-slate-800 dark:text-slate-100">{issue.token_prefix || `#${issue.token_id}`}</p>
@@ -726,7 +1135,7 @@ export default function ElectionProcessesManage() {
                         ))}
                       </div>
 
-                      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 md:block">
+                      <div className="hidden overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700 lg:block">
                         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                         <thead className="bg-slate-50 dark:bg-slate-900/50">
                           <tr>
@@ -758,15 +1167,15 @@ export default function ElectionProcessesManage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Apertura en cero y escrutinio</CardTitle>
+            <CardHeader className="p-4 sm:p-5 lg:p-6">
+              <CardTitle className="text-xl sm:text-2xl">Apertura en cero y escrutinio</CardTitle>
               <CardDescription>
                 Consulta evidencia de apertura y resumen de votación por cargo.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="space-y-1 md:col-span-2">
+            <CardContent className="space-y-4 p-4 pt-0 sm:p-5 sm:pt-0 lg:p-6 lg:pt-0">
+              <div className="grid gap-3 xl:grid-cols-3">
+                <div className="space-y-1 xl:col-span-2">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Jornada</label>
                   <select
                     value={scrutinyProcessId}
@@ -781,7 +1190,7 @@ export default function ElectionProcessesManage() {
                 </div>
 
                 <div className="flex items-end">
-                  <Button type="button" disabled={scrutinyLoading} onClick={() => void onLoadScrutiny()}>
+                  <Button className="w-full sm:w-auto" type="button" disabled={scrutinyLoading} onClick={() => void onLoadScrutiny()}>
                     {scrutinyLoading ? 'Consultando...' : 'Consultar'}
                   </Button>
                 </div>
@@ -805,14 +1214,44 @@ export default function ElectionProcessesManage() {
                       Total votos: <span className="font-semibold">{scrutinySummary.summary.total_votes}</span> · Votos en blanco:{' '}
                       <span className="font-semibold">{scrutinySummary.summary.total_blank_votes}</span>
                     </p>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" variant="secondary" onClick={() => void onExportScrutinyCsv()}>
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                      <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={() => void onExportScrutinyCsv()}>
                         Exportar CSV
                       </Button>
-                      <Button type="button" variant="secondary" onClick={() => void onExportScrutinyPdf()}>
+                      <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={() => void onExportScrutinyPdf()}>
                         Exportar PDF
                       </Button>
-                      <Button type="button" variant="secondary" onClick={() => void onExportScrutinyXlsx()}>
+                      <Button
+                        className="w-full sm:w-auto"
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          const processId = Number(scrutinyProcessId)
+                          if (!Number.isFinite(processId) || processId <= 0) {
+                            setScrutinyError('Debes seleccionar una jornada para descargar el acta de personero.')
+                            return
+                          }
+                          void onDownloadPersoneroActa(processId)
+                        }}
+                      >
+                        Acta personero PDF
+                      </Button>
+                      <Button
+                        className="w-full sm:w-auto"
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          const processId = Number(scrutinyProcessId)
+                          if (!Number.isFinite(processId) || processId <= 0) {
+                            setScrutinyError('Debes seleccionar una jornada para descargar el acta de contralor.')
+                            return
+                          }
+                          void onDownloadContralorActa(processId)
+                        }}
+                      >
+                        Acta contralor PDF
+                      </Button>
+                      <Button className="w-full sm:w-auto" type="button" variant="secondary" onClick={() => void onExportScrutinyXlsx()}>
                         Exportar Excel
                       </Button>
                     </div>
@@ -823,7 +1262,7 @@ export default function ElectionProcessesManage() {
                       <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-200">
                         {role.title} ({role.code}) · Total: {role.total_votes} · Blanco: {role.blank_votes}
                       </div>
-                      <div className="space-y-2 p-3 md:hidden">
+                      <div className="space-y-2 p-3 lg:hidden">
                         {role.candidates.length === 0 ? (
                           <p className="text-sm text-slate-500 dark:text-slate-400">Sin votos registrados para candidaturas en este cargo.</p>
                         ) : (
@@ -835,7 +1274,7 @@ export default function ElectionProcessesManage() {
                           ))
                         )}
                       </div>
-                      <div className="hidden overflow-x-auto md:block">
+                      <div className="hidden overflow-x-auto lg:block">
                         <table className="min-w-full divide-y divide-slate-200 text-sm dark:divide-slate-700">
                           <thead className="bg-white dark:bg-slate-950/40">
                             <tr>

@@ -4,7 +4,9 @@ import base64
 import csv
 import json
 import logging
+import re
 import secrets
+import unicodedata
 from datetime import timedelta
 from io import BytesIO
 from io import StringIO
@@ -32,6 +34,10 @@ from academic.models import AcademicYear
 from audit.services import log_event
 from audit.models import AuditLog
 from students.models import Enrollment
+from students.models import Student
+from core.models import Campus
+from core.models import Institution
+from teachers.models import Teacher
 
 from .models import (
     CandidatoContraloria,
@@ -167,6 +173,10 @@ def _grade_value_for_enrollment(enrollment: Enrollment) -> int | None:
     if compact.isdigit():
         return int(compact)
 
+    numeric_prefix = re.match(r"^(\d{1,2})", compact)
+    if numeric_prefix:
+        return int(numeric_prefix.group(1))
+
     mapping = {
         "primero": 1,
         "segundo": 2,
@@ -182,7 +192,10 @@ def _grade_value_for_enrollment(enrollment: Enrollment) -> int | None:
         "undecimo": 11,
         "decimoprimero": 11,
     }
-    return mapping.get(compact)
+    for key, value in mapping.items():
+        if compact.startswith(key):
+            return value
+    return None
 
 
 def _grade_value_from_text(raw_grade: str | None) -> int | None:
@@ -205,7 +218,15 @@ def _grade_value_from_text(raw_grade: str | None) -> int | None:
     }
     if compact.isdigit():
         return int(compact)
-    return mapping.get(compact)
+
+    numeric_prefix = re.match(r"^(\d{1,2})", compact)
+    if numeric_prefix:
+        return int(numeric_prefix.group(1))
+
+    for key, grade_value in mapping.items():
+        if compact.startswith(key):
+            return grade_value
+    return None
 
 
 def _normalize_scope_value(value: str | None) -> str:
@@ -225,6 +246,124 @@ def _group_sort_value(group_name: str) -> tuple[int, str]:
     if digits:
         return (int(digits), raw.upper())
     return (0, raw.upper())
+
+
+def _get_active_or_latest_year() -> AcademicYear | None:
+    return AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).order_by("-year", "-id").first() or AcademicYear.objects.order_by("-year", "-id").first()
+
+
+def _get_user_document_number(user_id: int | None) -> str:
+    if not user_id:
+        return ""
+
+    teacher = Teacher.objects.filter(user_id=user_id).only("document_number").first()
+    if teacher and teacher.document_number:
+        return teacher.document_number
+
+    student = Student.objects.filter(user_id=user_id).only("document_number").first()
+    if student and student.document_number:
+        return student.document_number
+
+    return ""
+
+
+def _get_student_grade_label(user_id: int | None) -> str:
+    if not user_id:
+        return ""
+
+    active_year = _get_active_or_latest_year()
+    enrollment_qs = Enrollment.objects.select_related("grade").filter(student__user_id=user_id, status="ACTIVE")
+    if active_year is not None:
+        prioritized = enrollment_qs.filter(academic_year=active_year).order_by("-id").first()
+        if prioritized is not None:
+            return (prioritized.grade.name or str(_grade_value_for_enrollment(prioritized) or "")).strip()
+
+    fallback = enrollment_qs.order_by("-id").first()
+    if fallback is None:
+        return ""
+    return (fallback.grade.name or str(_grade_value_for_enrollment(fallback) or "")).strip()
+
+
+def _resolve_enabled_census_members(process: ElectionProcess):
+    return (
+        ElectionCensusMember.objects.filter(is_active=True, status=ElectionCensusMember.Status.ACTIVE)
+        .exclude(process_exclusions__process=process)
+        .distinct()
+    )
+
+
+def _resolve_acta_location(institution: Institution | None) -> str:
+    if institution is None:
+        return ""
+
+    active_campuses = list(institution.campuses.filter(status="ACTIVA").order_by("sede_number", "id"))
+    principal_campus = next((campus for campus in active_campuses if campus.sede_type == "PRINCIPAL"), active_campuses[0] if active_campuses else None)
+
+    if principal_campus is not None:
+        location_parts = [principal_campus.name]
+        municipality_line = ", ".join(part for part in [principal_campus.municipality, principal_campus.department] if part)
+        if municipality_line:
+            location_parts.append(municipality_line)
+        if principal_campus.address:
+            location_parts.append(principal_campus.address)
+        return " - ".join(part for part in location_parts if part)
+
+    return institution.address or institution.pdf_header_line3 or institution.name or ""
+
+
+def _resolve_previous_role_summary(process: ElectionProcess, role_code: str) -> dict | None:
+    previous_process = (
+        ElectionProcess.objects.filter(status=ElectionProcess.Status.CLOSED)
+        .exclude(id=process.id)
+        .order_by("-ends_at", "-created_at", "-id")
+        .first()
+    )
+    if previous_process is None:
+        return None
+
+    previous_summary = build_scrutiny_summary_payload(previous_process)
+    previous_role = next((role for role in previous_summary["roles"] if role["code"] == role_code), None)
+    if previous_role is None:
+        return None
+
+    ranked_candidates = previous_role.get("candidates", []) or []
+    if not ranked_candidates:
+        return None
+
+    winner_row = ranked_candidates[0]
+    winner_candidate = ElectionCandidate.objects.filter(id=winner_row["candidate_id"]).first()
+    if winner_candidate is None:
+        return None
+
+    return {
+        "name": winner_candidate.name,
+        "grade": winner_candidate.grade,
+        "document_number": _get_user_document_number(winner_candidate.student_id_ref) or winner_candidate.student_document_number or "",
+        "process_name": previous_process.name,
+        "ends_at": previous_process.ends_at,
+    }
+
+
+PERSONERO_ACTA_OFFICE = {
+    "slug": "personero",
+    "document_title": "Acta de eleccion de personero estudiantil",
+    "election_heading": "ELECCION DE PERSONERO(A) ESTUDIANTIL - VOTACION DIGITAL (KAMPUS)",
+    "holder_title": "Personero(a) Estudiantil",
+    "holder_short": "Personero(a)",
+    "results_label": "Personeria",
+    "previous_holder_label": "Personero(a) saliente (si aplica)",
+}
+
+
+CONTRALOR_ACTA_OFFICE = {
+    "slug": "contralor",
+    "document_title": "Acta de eleccion de contralor estudiantil",
+    "election_heading": "ELECCION DE CONTRALOR(A) ESTUDIANTIL - VOTACION DIGITAL (KAMPUS)",
+    "holder_title": "Contralor(a) Estudiantil",
+    "holder_short": "Contralor(a)",
+    "results_label": "Contraloria",
+    "previous_holder_label": "Contralor(a) saliente (si aplica)",
+}
 
 
 def _qr_png_data_uri(text: str) -> str:
@@ -289,6 +428,156 @@ def build_scrutiny_summary_payload(process: ElectionProcess) -> dict:
         },
         "roles": role_summaries,
     }
+
+
+def _build_role_acta_payload(
+    process: ElectionProcess,
+    summary: dict | None,
+    *,
+    role_code: str,
+    role_key: str,
+    office_context: dict,
+) -> dict:
+    summary_payload = summary or build_scrutiny_summary_payload(process)
+    target_role = next((role for role in summary_payload["roles"] if role["code"] == role_code), None)
+
+    role_candidates_payload = []
+    role_total_votes = 0
+    role_blank_votes = 0
+    elected_candidate = None
+    if target_role is not None:
+        ranked_candidates = target_role.get("candidates", []) or []
+        vote_by_candidate_id = {int(row["candidate_id"]): int(row["votes"]) for row in ranked_candidates}
+        role_id = target_role.get("role_id")
+        role_candidates = ElectionCandidate.objects.filter(role_id=role_id, is_active=True).order_by("display_order", "id")
+        role_candidates_payload = [
+            {
+                "candidate_id": candidate.id,
+                "name": candidate.name,
+                "number": candidate.number,
+                "grade": candidate.grade,
+                "proposal": candidate.proposal,
+                "votes": vote_by_candidate_id.get(candidate.id, 0),
+                "student_id_ref": candidate.student_id_ref,
+                "student_document_number": candidate.student_document_number,
+            }
+            for candidate in role_candidates
+        ]
+        role_total_votes = int(target_role.get("total_votes") or 0)
+        role_blank_votes = int(target_role.get("blank_votes") or 0)
+        if ranked_candidates:
+            top = ranked_candidates[0]
+            elected_candidate = next(
+                (candidate for candidate in role_candidates_payload if candidate["candidate_id"] == top["candidate_id"]),
+                None,
+            )
+
+    enabled_members = _resolve_enabled_census_members(process)
+    enabled_census_count = enabled_members.count()
+    participation_percent = 0.0
+    if enabled_census_count > 0:
+        participation_percent = round((role_total_votes / enabled_census_count) * 100, 2)
+
+    institution = Institution.objects.order_by("id").first()
+    opening_record = ElectionOpeningRecord.objects.filter(process=process).order_by("-opened_at", "-id").first()
+
+    committee_members = list((process.governance_config or {}).get("committee_members", []))
+    student_witnesses = [
+        {
+            **item,
+            "grade_label": _get_student_grade_label(item.get("user_id")),
+        }
+        for item in (process.governance_config or {}).get("student_witnesses", [])
+    ]
+
+    winner_document_number = ""
+    if elected_candidate:
+        winner_user_id = elected_candidate.get("student_id_ref")
+        if winner_user_id:
+            winner_student = Student.objects.filter(user_id=winner_user_id).only("document_number").first()
+            if winner_student and winner_student.document_number:
+                winner_document_number = winner_student.document_number
+        if not winner_document_number:
+            winner_document_number = elected_candidate.get("student_document_number") or ""
+
+    rector_name = ""
+    rector_document_number = ""
+    if institution and institution.rector:
+        rector_name = institution.rector.get_full_name() or institution.rector.username or ""
+        rector_profile = Teacher.objects.filter(user_id=institution.rector_id).only("document_number").first()
+        if rector_profile and rector_profile.document_number:
+            rector_document_number = rector_profile.document_number
+
+    support_name = ""
+    support_document_number = ""
+    if opening_record and opening_record.opened_by:
+        support_name = opening_record.opened_by.get_full_name() or opening_record.opened_by.username or ""
+        support_document_number = _get_user_document_number(opening_record.opened_by_id)
+
+    enabled_grades = sorted({(member.grade or "").strip() for member in enabled_members if (member.grade or "").strip()}, key=_group_sort_value)
+    enabled_campuses = sorted({(member.campus or "").strip() for member in enabled_members if (member.campus or "").strip()})
+    enabled_shifts = sorted({(member.shift or "").strip() for member in enabled_members if (member.shift or "").strip()})
+    previous_role_holder = _resolve_previous_role_summary(process, role_code)
+
+    office_result = {
+        "total_votes": role_total_votes,
+        "blank_votes": role_blank_votes,
+        "candidates": role_candidates_payload,
+        "winner": elected_candidate,
+        "winner_document_number": winner_document_number,
+    }
+
+    return {
+        "process": process,
+        "summary": summary_payload,
+        "office": office_context,
+        "institution": institution,
+        "acta_number": f"{process.id:04d}",
+        "location_text": _resolve_acta_location(institution),
+        "rector_name": rector_name,
+        "rector_document_number": rector_document_number,
+        "support_name": support_name,
+        "support_document_number": support_document_number,
+        "committee_members": committee_members,
+        "student_witnesses": student_witnesses,
+        "previous_office_holder": previous_role_holder,
+        "generated_at": timezone.now(),
+        "acta_year": process.starts_at.year if process.starts_at else timezone.now().year,
+        "office_result": office_result,
+        role_key: office_result,
+        "census": {
+            "enabled_count": enabled_census_count,
+            "participation_percent": participation_percent,
+            "enabled_grades": enabled_grades,
+            "enabled_campuses": enabled_campuses,
+            "enabled_shifts": enabled_shifts,
+        },
+        "opening_record": opening_record,
+    }
+
+
+def build_personero_acta_payload(process: ElectionProcess, summary: dict | None = None) -> dict:
+    payload = _build_role_acta_payload(
+        process,
+        summary,
+        role_code=ElectionRole.CODE_PERSONERO,
+        role_key="personero",
+        office_context=PERSONERO_ACTA_OFFICE,
+    )
+    payload["previous_personero"] = payload.get("previous_office_holder")
+    return payload
+
+
+def build_contralor_acta_payload(process: ElectionProcess, summary: dict | None = None) -> dict:
+    payload = _build_role_acta_payload(
+        process,
+        summary,
+        role_code=ElectionRole.CODE_CONTRALOR,
+        role_key="contralor",
+        office_context=CONTRALOR_ACTA_OFFICE,
+    )
+    payload["previous_contralor"] = payload.get("previous_office_holder")
+    return payload
 
 
 def _resolve_enabled_census_count(process: ElectionProcess) -> int:
@@ -772,6 +1061,137 @@ class ElectionProcessLiveDashboardStreamAPIView(APIView):
         return response
 
 
+class ElectionGovernanceParticipantsAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    @staticmethod
+    def _to_proper_name(value: str) -> str:
+        normalized = " ".join((value or "").split()).strip()
+        if not normalized:
+            return ""
+        return normalized.lower().title()
+
+    @staticmethod
+    def _grade_to_int(grade_ordinal: int | None, grade_name: str | None) -> int | None:
+        if isinstance(grade_ordinal, int):
+            return grade_ordinal
+        raw = (grade_name or "").strip().lower().replace("°", "")
+        raw = "".join(ch for ch in unicodedata.normalize("NFD", raw) if unicodedata.category(ch) != "Mn")
+        compact = re.sub(r"\s+", "", raw)
+        if compact.isdigit():
+            return int(compact)
+
+        numeric_prefix = re.match(r"^(\d{1,2})", compact)
+        if numeric_prefix:
+            return int(numeric_prefix.group(1))
+
+        mapping = {
+            "decimo": 10,
+            "once": 11,
+            "undecimo": 11,
+            "decimoprimero": 11,
+        }
+        for key, value in mapping.items():
+            if compact.startswith(key):
+                return value
+        return None
+
+    def get(self, request, *args, **kwargs):
+        q = str(request.query_params.get("q") or "").strip()
+        try:
+            limit = int(request.query_params.get("limit", 200))
+        except (TypeError, ValueError):
+            return Response({"detail": "El parámetro limit no es válido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        limit = max(20, min(limit, 500))
+        active_year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).order_by("-year", "-id").first()
+        if active_year is None:
+            active_year = AcademicYear.objects.order_by("-year", "-id").first()
+
+        enrollment_qs = Enrollment.objects.select_related("student", "student__user", "grade", "group").filter(status="ACTIVE")
+        if active_year is not None:
+            enrollment_qs = enrollment_qs.filter(academic_year=active_year)
+
+        if q:
+            enrollment_qs = enrollment_qs.filter(
+                Q(student__user__first_name__icontains=q)
+                | Q(student__user__last_name__icontains=q)
+                | Q(student__user__username__icontains=q)
+                | Q(student__document_number__icontains=q)
+            )
+
+        if not enrollment_qs.exists():
+            enrollment_qs = Enrollment.objects.select_related("student", "student__user", "grade", "group").filter(status="ACTIVE")
+            if q:
+                enrollment_qs = enrollment_qs.filter(
+                    Q(student__user__first_name__icontains=q)
+                    | Q(student__user__last_name__icontains=q)
+                    | Q(student__user__username__icontains=q)
+                    | Q(student__document_number__icontains=q)
+                )
+
+        students: list[dict] = []
+        seen_student_user_ids: set[int] = set()
+        for enrollment in enrollment_qs.order_by("student_id", "-id"):
+            student = enrollment.student
+            user = getattr(student, "user", None)
+            if user is None or user.id in seen_student_user_ids:
+                continue
+            seen_student_user_ids.add(user.id)
+            students.append(
+                {
+                    "key": f"STUDENT:{user.id}",
+                    "source": "STUDENT",
+                    "user_id": user.id,
+                    "full_name": self._to_proper_name(user.get_full_name() or user.username),
+                    "document_number": student.document_number or "",
+                    "grade_value": self._grade_to_int(
+                        getattr(enrollment.grade, "ordinal", None),
+                        getattr(enrollment.grade, "name", ""),
+                    ),
+                    "subtitle": f"Estudiante matriculado - {enrollment.grade.name if enrollment.grade else 'Sin grado'} {enrollment.group.name if enrollment.group else ''}".strip(),
+                }
+            )
+            if len(students) >= limit:
+                break
+
+        teacher_qs = Teacher.objects.select_related("user").filter(user__is_active=True)
+        if q:
+            teacher_qs = teacher_qs.filter(
+                Q(user__first_name__icontains=q)
+                | Q(user__last_name__icontains=q)
+                | Q(user__username__icontains=q)
+                | Q(document_number__icontains=q)
+            )
+
+        teachers: list[dict] = []
+        for teacher in teacher_qs.order_by("user__last_name", "user__first_name", "user_id")[:limit]:
+            user = teacher.user
+            teachers.append(
+                {
+                    "key": f"TEACHER:{user.id}",
+                    "source": "TEACHER",
+                    "user_id": user.id,
+                    "full_name": self._to_proper_name(user.get_full_name() or user.username),
+                    "document_number": teacher.document_number or "",
+                    "grade_value": None,
+                    "subtitle": "Docente activo",
+                }
+            )
+
+        return Response(
+            {
+                "results": {
+                    "students": students,
+                    "teachers": teachers,
+                    "combined": [*students, *teachers],
+                },
+                "count": len(students) + len(teachers),
+                "active_year": {"id": active_year.id, "year": active_year.year} if active_year else None,
+            }
+        )
+
+
 class ElectionProcessScrutinyExportCsvAPIView(APIView):
     permission_classes = [IsAuthenticated, CanManageElectionSetup]
 
@@ -980,6 +1400,117 @@ class ElectionProcessScrutinyExportPdfAPIView(APIView):
         )
 
         return response
+
+
+def _render_role_acta_pdf_response(
+    request,
+    process_id: int,
+    *,
+    event_slug: str,
+    filename_prefix: str,
+    error_label: str,
+    context_builder,
+):
+    process = ElectionProcess.objects.filter(id=process_id).first()
+    if process is None:
+        log_event(
+            request,
+            event_type=f"ELECTION_{event_slug}_ACTA_EXPORT_PDF_FAILED",
+            object_type="ElectionProcess",
+            object_id=process_id,
+            status_code=status.HTTP_404_NOT_FOUND,
+            metadata={"reason": "process_not_found"},
+        )
+        return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+    summary = build_scrutiny_summary_payload(process)
+    context = context_builder(process, summary)
+    html = render_to_string("elections/reports/personero_election_acta_pdf.html", context)
+
+    try:
+        from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+        pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+    except WeasyPrintUnavailableError as e:
+        log_event(
+            request,
+            event_type=f"ELECTION_{event_slug}_ACTA_EXPORT_PDF_FAILED",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            metadata={"reason": "weasyprint_unavailable"},
+        )
+        return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    except Exception:
+        log_event(
+            request,
+            event_type=f"ELECTION_{event_slug}_ACTA_EXPORT_PDF_FAILED",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            metadata={"reason": "unexpected_exception"},
+        )
+        return Response(
+            {"detail": f"No se pudo generar el PDF del acta de elección de {error_label}."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    if not pdf_bytes:
+        log_event(
+            request,
+            event_type=f"ELECTION_{event_slug}_ACTA_EXPORT_PDF_FAILED",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            metadata={"reason": "empty_pdf"},
+        )
+        return Response(
+            {"detail": f"No se pudo generar el PDF del acta de elección de {error_label}."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    safe_name = process.name.replace('"', '').replace(',', '').replace(' ', '_')
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename_prefix}_{safe_name}_{process.id}.pdf"'
+
+    log_event(
+        request,
+        event_type=f"ELECTION_{event_slug}_ACTA_EXPORT_PDF",
+        object_type="ElectionProcess",
+        object_id=process.id,
+        status_code=status.HTTP_200_OK,
+        metadata={"bytes": len(pdf_bytes)},
+    )
+
+    return response
+
+
+class ElectionProcessPersoneroActaExportPdfAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def get(self, request, process_id: int, *args, **kwargs):
+        return _render_role_acta_pdf_response(
+            request,
+            process_id,
+            event_slug="PERSONERO",
+            filename_prefix="acta_personero",
+            error_label="personero",
+            context_builder=build_personero_acta_payload,
+        )
+
+
+class ElectionProcessContralorActaExportPdfAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def get(self, request, process_id: int, *args, **kwargs):
+        return _render_role_acta_pdf_response(
+            request,
+            process_id,
+            event_slug="CONTRALOR",
+            filename_prefix="acta_contralor",
+            error_label="contralor",
+            context_builder=build_contralor_acta_payload,
+        )
 
 
 class ElectionRoleListCreateAPIView(APIView):

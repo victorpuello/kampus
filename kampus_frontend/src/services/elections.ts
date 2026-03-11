@@ -84,11 +84,44 @@ export type ElectionProcessItem = {
   status: 'DRAFT' | 'OPEN' | 'CLOSED'
   starts_at: string | null
   ends_at: string | null
+  governance_config?: ElectionGovernanceConfig
   created_at: string
   votes_count: number
   can_delete: boolean
   observer_congrats_generated?: boolean
   observer_congrats_summary?: ElectionObserverCongratsSummary | null
+}
+
+export type ElectionGovernanceParticipant = {
+  source: 'STUDENT' | 'TEACHER'
+  user_id: number
+  full_name: string
+  document_number: string
+}
+
+export type ElectionGovernanceConfig = {
+  committee_members: ElectionGovernanceParticipant[]
+  student_witnesses: ElectionGovernanceParticipant[]
+}
+
+export type ElectionGovernanceParticipantOption = {
+  key: string
+  source: 'STUDENT' | 'TEACHER'
+  user_id: number
+  full_name: string
+  document_number: string
+  grade_value: number | null
+  subtitle: string
+}
+
+export type ElectionGovernanceParticipantsResponse = {
+  results: {
+    students: ElectionGovernanceParticipantOption[]
+    teachers: ElectionGovernanceParticipantOption[]
+    combined: ElectionGovernanceParticipantOption[]
+  }
+  count: number
+  active_year: { id: number; year: number } | null
 }
 
 export type ElectionObserverCongratsSummary = {
@@ -359,7 +392,7 @@ export const electionsApi = {
     return response.data
   },
 
-  createProcess: async (payload: { name: string; status?: 'DRAFT'; starts_at?: string | null; ends_at?: string | null }) => {
+  createProcess: async (payload: { name: string; status?: 'DRAFT'; starts_at?: string | null; ends_at?: string | null; governance_config?: ElectionGovernanceConfig }) => {
     const response = await api.post<ElectionProcessItem>('/api/elections/manage/processes/', payload)
     return response.data
   },
@@ -368,7 +401,7 @@ export const electionsApi = {
     await api.delete(`/api/elections/manage/processes/${processId}/`)
   },
 
-  updateProcess: async (processId: number, payload: { starts_at?: string | null; ends_at?: string | null }) => {
+  updateProcess: async (processId: number, payload: { starts_at?: string | null; ends_at?: string | null; governance_config?: ElectionGovernanceConfig }) => {
     const response = await api.patch<ElectionProcessItem>(`/api/elections/manage/processes/${processId}/`, payload)
     return response.data
   },
@@ -470,6 +503,16 @@ export const electionsApi = {
     return response.data
   },
 
+  listGovernanceParticipants: async (q?: string, limit = 200) => {
+    const response = await api.get<ElectionGovernanceParticipantsResponse>('/api/elections/manage/governance-participants/', {
+      params: {
+        ...(q ? { q } : {}),
+        limit,
+      },
+    })
+    return response.data
+  },
+
   listTokenEligibilityIssues: async (processId?: number, limit = 200) => {
     const response = await api.get<ElectionTokenEligibilityIssueListResponse>('/api/elections/manage/tokens/eligibility-issues/', {
       params: {
@@ -556,6 +599,20 @@ export const electionsApi = {
 
   downloadScrutinyPdf: async (processId: number) => {
     const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/scrutiny-export.pdf`, {
+      responseType: 'blob',
+    })
+    return response.data
+  },
+
+  downloadPersoneroActaPdf: async (processId: number) => {
+    const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/personero-acta.pdf`, {
+      responseType: 'blob',
+    })
+    return response.data
+  },
+
+  downloadContralorActaPdf: async (processId: number) => {
+    const response = await api.get<Blob>(`/api/elections/manage/processes/${processId}/contralor-acta.pdf`, {
       responseType: 'blob',
     })
     return response.data

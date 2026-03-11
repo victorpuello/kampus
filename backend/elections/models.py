@@ -21,6 +21,7 @@ class ElectionProcess(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     starts_at = models.DateTimeField(null=True, blank=True)
     ends_at = models.DateTimeField(null=True, blank=True)
+    governance_config = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

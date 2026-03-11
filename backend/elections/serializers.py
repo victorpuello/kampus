@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import re
+import unicodedata
 
 from django.conf import settings
 from django.db import IntegrityError
@@ -10,6 +12,9 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from students.models import Student
+from students.models import Enrollment
+from teachers.models import Teacher
+from academic.models import AcademicYear
 
 from .models import (
     CandidatoContraloria,
@@ -40,6 +45,7 @@ class ElectionProcessManageSerializer(serializers.ModelSerializer):
             "status",
             "starts_at",
             "ends_at",
+            "governance_config",
             "created_at",
             "votes_count",
             "can_delete",
@@ -66,13 +72,14 @@ class ElectionProcessManageSerializer(serializers.ModelSerializer):
 class ElectionProcessCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElectionProcess
-        fields = ["name", "status", "starts_at", "ends_at"]
+        fields = ["name", "status", "starts_at", "ends_at", "governance_config"]
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at")
         ends_at = attrs.get("ends_at")
         if starts_at and ends_at and ends_at < starts_at:
             raise serializers.ValidationError({"ends_at": "La fecha de fin no puede ser anterior a la fecha de inicio."})
+        attrs["governance_config"] = _normalize_governance_config(attrs.get("governance_config"))
         attrs["status"] = ElectionProcess.Status.DRAFT
         return attrs
 
@@ -80,14 +87,164 @@ class ElectionProcessCreateSerializer(serializers.ModelSerializer):
 class ElectionProcessUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElectionProcess
-        fields = ["starts_at", "ends_at"]
+        fields = ["starts_at", "ends_at", "governance_config"]
 
     def validate(self, attrs):
         starts_at = attrs.get("starts_at", self.instance.starts_at if self.instance else None)
         ends_at = attrs.get("ends_at", self.instance.ends_at if self.instance else None)
         if starts_at and ends_at and ends_at < starts_at:
             raise serializers.ValidationError({"ends_at": "La fecha de fin no puede ser anterior a la fecha de inicio."})
+        if "governance_config" in attrs:
+            attrs["governance_config"] = _normalize_governance_config(attrs.get("governance_config"))
         return attrs
+
+
+def _get_active_or_latest_year() -> AcademicYear | None:
+    return AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).order_by("-year", "-id").first() or AcademicYear.objects.order_by("-year", "-id").first()
+
+
+def _to_proper_name(value: str) -> str:
+    cleaned = " ".join((value or "").split()).strip()
+    if not cleaned:
+        return ""
+    return cleaned.lower().title()
+
+
+def _grade_to_int(grade_ordinal: int | None, grade_name: str | None) -> int | None:
+    if isinstance(grade_ordinal, int):
+        return grade_ordinal
+    text = (grade_name or "").strip().lower().replace("°", "")
+    text = "".join(ch for ch in unicodedata.normalize("NFD", text) if unicodedata.category(ch) != "Mn")
+    compact = re.sub(r"\s+", "", text)
+    if compact.isdigit():
+        return int(compact)
+
+    numeric_prefix = re.match(r"^(\d{1,2})", compact)
+    if numeric_prefix:
+        return int(numeric_prefix.group(1))
+
+    mapping = {
+        "decimo": 10,
+        "once": 11,
+        "undecimo": 11,
+        "decimoprimero": 11,
+    }
+    for key, value in mapping.items():
+        if compact.startswith(key):
+            return value
+    return None
+
+
+def _normalize_governance_config(raw_value: dict | None) -> dict:
+    if raw_value in (None, ""):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise serializers.ValidationError({"governance_config": "La configuración del comité debe ser un objeto JSON válido."})
+
+    committee_members_raw = raw_value.get("committee_members") or []
+    student_witnesses_raw = raw_value.get("student_witnesses") or []
+    if not isinstance(committee_members_raw, list) or not isinstance(student_witnesses_raw, list):
+        raise serializers.ValidationError({"governance_config": "committee_members y student_witnesses deben ser listas."})
+
+    if len(committee_members_raw) > 3:
+        raise serializers.ValidationError({"governance_config": "Solo se permiten 3 integrantes del comité."})
+    if len(student_witnesses_raw) > 2:
+        raise serializers.ValidationError({"governance_config": "Solo se permiten 2 testigos estudiantiles."})
+
+    active_year = _get_active_or_latest_year()
+    enrollment_qs = Enrollment.objects.select_related("grade").filter(status="ACTIVE")
+    if active_year is not None:
+        enrollment_qs = enrollment_qs.filter(academic_year=active_year)
+
+    active_enrollment_by_user_id: dict[int, int | None] = {}
+    for enrollment in enrollment_qs.order_by("student_id", "-id"):
+        if enrollment.student_id in active_enrollment_by_user_id:
+            continue
+        active_enrollment_by_user_id[enrollment.student_id] = _grade_to_int(
+            getattr(enrollment.grade, "ordinal", None),
+            getattr(enrollment.grade, "name", ""),
+        )
+
+    active_enrollment_user_ids = set(active_enrollment_by_user_id.keys())
+    active_teacher_user_ids = set(Teacher.objects.filter(user__is_active=True).values_list("user_id", flat=True))
+
+    if not active_enrollment_user_ids:
+        fallback_enrollment_qs = Enrollment.objects.select_related("grade").filter(status="ACTIVE")
+        for enrollment in fallback_enrollment_qs.order_by("student_id", "-id"):
+            if enrollment.student_id in active_enrollment_by_user_id:
+                continue
+            active_enrollment_by_user_id[enrollment.student_id] = _grade_to_int(
+                getattr(enrollment.grade, "ordinal", None),
+                getattr(enrollment.grade, "name", ""),
+            )
+        active_enrollment_user_ids = set(active_enrollment_by_user_id.keys())
+
+    seen_keys: set[str] = set()
+
+    def normalize_item(item: dict, slot_label: str, *, allowed_sources: set[str]) -> dict:
+        if not isinstance(item, dict):
+            raise serializers.ValidationError({"governance_config": f"{slot_label} debe tener formato de objeto."})
+
+        source = str(item.get("source") or "").strip().upper()
+        if source not in {"STUDENT", "TEACHER"}:
+            raise serializers.ValidationError({"governance_config": f"{slot_label}: source debe ser STUDENT o TEACHER."})
+        if source not in allowed_sources:
+            if allowed_sources == {"TEACHER"}:
+                raise serializers.ValidationError({"governance_config": f"{slot_label}: los integrantes del comité solo pueden ser docentes."})
+            raise serializers.ValidationError({"governance_config": f"{slot_label}: source no permitido."})
+
+        try:
+            user_id = int(item.get("user_id"))
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({"governance_config": f"{slot_label}: user_id es requerido."})
+
+        dedupe_key = f"{source}:{user_id}"
+        if dedupe_key in seen_keys:
+            raise serializers.ValidationError({"governance_config": f"No puedes repetir el mismo participante ({dedupe_key})."})
+        seen_keys.add(dedupe_key)
+
+        if source == "STUDENT":
+            if user_id not in active_enrollment_user_ids:
+                raise serializers.ValidationError({"governance_config": f"{slot_label}: el estudiante no está matriculado activamente."})
+            if slot_label.startswith("student_witnesses"):
+                student_grade = active_enrollment_by_user_id.get(user_id)
+                if student_grade not in {10, 11}:
+                    raise serializers.ValidationError({"governance_config": f"{slot_label}: los testigos electorales solo pueden ser de grado 10 u 11."})
+            student = Student.objects.select_related("user").filter(user_id=user_id).first()
+            if student is None or student.user is None:
+                raise serializers.ValidationError({"governance_config": f"{slot_label}: estudiante no válido."})
+            return {
+                "source": source,
+                "user_id": user_id,
+                "full_name": _to_proper_name(student.user.get_full_name() or student.user.username),
+                "document_number": student.document_number or "",
+            }
+
+        if user_id not in active_teacher_user_ids:
+            raise serializers.ValidationError({"governance_config": f"{slot_label}: el docente debe estar activo."})
+        teacher = Teacher.objects.select_related("user").filter(user_id=user_id).first()
+        if teacher is None or teacher.user is None:
+            raise serializers.ValidationError({"governance_config": f"{slot_label}: docente no válido."})
+        return {
+            "source": source,
+            "user_id": user_id,
+            "full_name": _to_proper_name(teacher.user.get_full_name() or teacher.user.username),
+            "document_number": teacher.document_number or "",
+        }
+
+    normalized_committee = [
+        normalize_item(item, f"committee_members[{index + 1}]", allowed_sources={"TEACHER"})
+        for index, item in enumerate(committee_members_raw)
+    ]
+    normalized_witnesses = [
+        normalize_item(item, f"student_witnesses[{index + 1}]", allowed_sources={"STUDENT"})
+        for index, item in enumerate(student_witnesses_raw)
+    ]
+
+    return {
+        "committee_members": normalized_committee,
+        "student_witnesses": normalized_witnesses,
+    }
 
 
 class ElectionRoleManageSerializer(serializers.ModelSerializer):
