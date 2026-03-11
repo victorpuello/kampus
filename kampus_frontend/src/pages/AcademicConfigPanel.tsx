@@ -468,6 +468,27 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     return palette[idx]
   }
 
+  const getShiftBadgeClasses = (shift: Group['shift']) => {
+    if (shift === 'MORNING') {
+      return 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-500/30'
+    }
+    if (shift === 'AFTERNOON') {
+      return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/35 dark:text-orange-200 dark:border-orange-500/30'
+    }
+    if (shift === 'NIGHT') {
+      return 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/35 dark:text-indigo-200 dark:border-indigo-500/30'
+    }
+    return 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
+  }
+
+  const getShiftLabel = (shift: Group['shift']) => {
+    if (shift === 'MORNING') return 'Mañana'
+    if (shift === 'AFTERNOON') return 'Tarde'
+    if (shift === 'NIGHT') return 'Noche'
+    if (shift === 'FULL') return 'Única'
+    return 'Fin de Semana'
+  }
+
   const activeGroupFilterCount =
     (groupSearch.trim() ? 1 : 0) +
     (groupCampusFilter !== 'ALL' ? 1 : 0) +
@@ -1550,7 +1571,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     return value < 0 ? `-${padded}` : padded
   }
 
-  const panelShellClass = 'mx-auto w-full max-w-7xl space-y-4 px-3 pb-6 pt-3 sm:space-y-5 sm:px-4 sm:pb-8 sm:pt-4 lg:px-6'
+  const panelShellClass = 'mx-auto w-full max-w-[1600px] space-y-4 px-3 pb-6 pt-3 sm:space-y-5 sm:px-4 sm:pb-8 sm:pt-4 lg:px-6'
   const sectionCardHeaderClass = 'border-b bg-slate-50/80 pb-3 dark:border-slate-700/70 dark:bg-slate-900/70'
   const sectionGridTwoColsClass = 'grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6'
   const sectionGridThreeColsClass = 'grid grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6'
@@ -2992,6 +3013,12 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         (() => {
                           const meta = getLevelMetaForGroup(g)
                           const actionsOpen = openGroupActionsId === g.id
+                          const availableSeats = Math.max((g.capacity || 0) - (g.enrolled_count || 0), 0)
+                          const occupancyLabel = g.capacity > 0
+                            ? `${g.enrolled_count}/${g.capacity}`
+                            : 'Sin definir'
+                          const studentsLabel = g.enrolled_count === 1 ? 'estudiante' : 'estudiantes'
+                          const yearLabel = years.find(y => y.id === g.academic_year)?.year
                           return (
                         <div
                           key={g.id}
@@ -3004,58 +3031,61 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               navigate(`/groups/${g.id}/students`, { state: { group: g } })
                             }
                           }}
-                          className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md hover:border-cyan-300 group cursor-pointer dark:bg-slate-900 dark:border-slate-800 dark:hover:border-cyan-500/40"
+                          className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-cyan-300 hover:shadow-md cursor-pointer dark:border-slate-800 dark:bg-slate-900 dark:hover:border-cyan-500/40 sm:p-5"
                         >
                           <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-cyan-500 via-sky-500 to-indigo-500 opacity-80" />
-                          <div className="flex justify-between items-start mb-2 gap-3">
-                            <div>
-                              <div className="text-lg font-bold text-slate-800 flex flex-wrap items-center gap-2 dark:text-slate-100">
-                                <span className="inline-flex items-center gap-2">
-                                  <span className="h-7 w-7 rounded-lg bg-cyan-50 text-cyan-700 border border-cyan-100 flex items-center justify-center text-xs font-extrabold dark:bg-cyan-950/25 dark:text-cyan-200 dark:border-cyan-500/20">
+                          <div className="relative space-y-4">
+                            <div className="flex items-start justify-between gap-3" data-group-actions-root="true">
+                              <div className="min-w-0 flex-1 space-y-3">
+                                <div className="flex items-start gap-3">
+                                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyan-100 bg-cyan-50 text-sm font-extrabold text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-950/25 dark:text-cyan-200">
                                     G
                                   </span>
-                                  <span>{g.grade_name}</span>
-                                </span>
-                                <span className="text-slate-300 dark:text-slate-700">•</span>
-                                <span className="text-slate-700 dark:text-slate-100">Grupo {g.name}</span>
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded border ${
-                                  g.shift === 'MORNING' ? 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-950/35 dark:text-yellow-200 dark:border-yellow-500/30' :
-                                  g.shift === 'AFTERNOON' ? 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-950/35 dark:text-orange-200 dark:border-orange-500/30' :
-                                  g.shift === 'NIGHT' ? 'bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/35 dark:text-indigo-200 dark:border-indigo-500/30' :
-                                  'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700'
-                                }`}>
-                                  {g.shift === 'MORNING' ? 'Mañana' :
-                                   g.shift === 'AFTERNOON' ? 'Tarde' :
-                                   g.shift === 'NIGHT' ? 'Noche' :
-                                   g.shift === 'FULL' ? 'Única' : 'Fin de Semana'}
-                                </span>
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">Nivel: {meta.levelName}</span>
-                              </div>
-                              <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2 dark:text-slate-400">
-                                <span
-                                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 border ${getCampusBadgeClasses(
-                                    typeof g.campus === 'number' ? g.campus : null
-                                  )}`}
-                                >
-                                  <span className="font-semibold">Sede:</span> {g.campus_name || 'Sin Sede'}
-                                </span>
-                                {g.classroom && (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 border border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200">
-                                    <span className="font-semibold">Salón:</span> {g.classroom}
+                                  <div className="min-w-0">
+                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                                      Grupo académico
+                                    </div>
+                                    <h3 className="text-xl font-bold leading-tight text-slate-900 dark:text-slate-50">
+                                      {g.grade_name}
+                                      <span className="mx-2 text-slate-300 dark:text-slate-700">·</span>
+                                      Grupo {g.name}
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 text-xs">
+                                  <span className={`inline-flex items-center rounded-full border px-2.5 py-1 font-bold ${getShiftBadgeClasses(g.shift)}`}>
+                                    {getShiftLabel(g.shift)}
                                   </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="flex items-start gap-2" data-group-actions-root="true" onClick={(e) => e.stopPropagation()}>
-                              <div className="text-xs font-bold bg-cyan-50 text-cyan-700 px-2 py-1 rounded border border-cyan-100 dark:bg-cyan-950/25 dark:text-cyan-200 dark:border-cyan-500/20">
-                                {years.find(y => y.id === g.academic_year)?.year}
+                                  <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                    Nivel: {meta.levelName}
+                                  </span>
+                                  <span className="inline-flex items-center rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 font-bold text-cyan-700 dark:border-cyan-500/20 dark:bg-cyan-950/25 dark:text-cyan-200">
+                                    {yearLabel}
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                  <span
+                                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 ${getCampusBadgeClasses(
+                                      typeof g.campus === 'number' ? g.campus : null
+                                    )}`}
+                                  >
+                                    <span className="font-semibold">Sede:</span> {g.campus_name || 'Sin Sede'}
+                                  </span>
+                                  {g.classroom && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                                      <span className="font-semibold">Salón:</span> {g.classroom}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
 
-                              <div className="relative" data-group-actions-root="true">
+                              <div className="relative shrink-0" data-group-actions-root="true" onClick={(e) => e.stopPropagation()}>
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="h-11 w-11 p-0 lg:h-9 lg:w-9"
+                                  className="h-11 w-11 rounded-xl p-0"
                                   aria-haspopup="menu"
                                   aria-expanded={actionsOpen}
                                   onClick={() => setOpenGroupActionsId((prev) => (prev === g.id ? null : g.id))}
@@ -3066,7 +3096,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
 
                                 {actionsOpen && (
                                   <div
-                                    className="absolute right-0 mt-2 w-48 rounded-md border border-slate-200 bg-white shadow-lg z-30 overflow-hidden dark:border-slate-800 dark:bg-slate-900"
+                                    className="absolute right-0 top-full z-30 mt-2 w-52 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900"
                                     role="menu"
                                     aria-label="Acciones del grupo"
                                     data-group-actions-root="true"
@@ -3171,25 +3201,55 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                                 )}
                               </div>
                             </div>
-                          </div>
 
-                          <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-3 dark:border-slate-800">
-                            <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-bold ${
-                              g.director_name ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/35 dark:text-cyan-200' : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-400'
-                            }`}>
-                              {g.director_name ? g.director_name.charAt(0) : '?'}
-                            </div>
-                            <div>
-                              <div className="text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wider font-semibold">Director de Grupo</div>
-                              <div className={`text-sm font-medium ${g.director_name ? 'text-slate-700 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500 italic'}`}>
-                                {g.director_name || 'Sin asignar'}
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                              <div className="rounded-xl border border-cyan-100 bg-cyan-50/80 p-3 dark:border-cyan-500/20 dark:bg-cyan-950/20">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700/80 dark:text-cyan-200/80">
+                                  Estudiantes
+                                </div>
+                                <div className="mt-1 flex items-end gap-2">
+                                  <span className="text-2xl font-extrabold leading-none text-slate-900 dark:text-slate-50">
+                                    {g.enrolled_count}
+                                  </span>
+                                  <span className="pb-0.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                    {studentsLabel}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                                  Ocupación
+                                </div>
+                                <div className="mt-1 text-lg font-bold leading-none text-slate-900 dark:text-slate-100">
+                                  {occupancyLabel}
+                                </div>
+                                <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                                  {g.capacity > 0 ? `${availableSeats} cupos libres` : 'Capacidad pendiente'}
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/70 sm:col-span-2 lg:col-span-1">
+                                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                                  Director de grupo
+                                </div>
+                                <div className="mt-2 flex items-center gap-3">
+                                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                    g.director_name ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/35 dark:text-cyan-200' : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-400'
+                                  }`}>
+                                    {g.director_name ? g.director_name.charAt(0) : '?'}
+                                  </div>
+                                  <div className={`min-w-0 text-sm font-medium ${g.director_name ? 'text-slate-700 dark:text-slate-100' : 'text-slate-400 italic dark:text-slate-500'}`}>
+                                    {g.director_name || 'Sin asignar'}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <div className="ml-auto flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
+
+                            <div className="grid grid-cols-1 gap-2 border-t border-slate-100 pt-4 dark:border-slate-800 sm:grid-cols-2 xl:grid-cols-3" data-group-actions-root="true" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="min-h-11 w-full sm:w-auto lg:h-9"
+                                className="min-h-11 w-full lg:h-10"
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   navigate(`/groups/${g.id}/students`, { state: { group: g } })
@@ -3199,8 +3259,8 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               </Button>
                               <Button
                                 size="sm"
-                                variant="secondary"
-                                className="min-h-11 w-full sm:w-auto lg:h-9"
+                                variant="outline"
+                                className="min-h-11 w-full lg:h-10"
                                 disabled={printingManualSheetGroupId === g.id}
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -3212,7 +3272,7 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                               <Button
                                 size="sm"
                                 variant="secondary"
-                                className="min-h-11 w-full sm:w-auto lg:h-9"
+                                className="min-h-11 w-full sm:col-span-2 xl:col-span-1 lg:h-10"
                                 disabled={downloadingFamilyDirectoryGroupId === g.id}
                                 onClick={(e) => {
                                   e.stopPropagation()
