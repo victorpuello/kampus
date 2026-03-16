@@ -28,6 +28,7 @@ class ReportJob(models.Model):
 		ACADEMIC_COMMISSION_ACTA = "ACADEMIC_COMMISSION_ACTA", "Acta de compromiso académico"
 		ACADEMIC_COMMISSION_GROUP_ACTA = "ACADEMIC_COMMISSION_GROUP_ACTA", "Acta grupal de comisión académica"
 		CLASS_PLAN = "CLASS_PLAN", "Plan de clase"
+		ELECTION_CENSUS_QR = "ELECTION_CENSUS_QR", "Carnés QR Gobierno Escolar"
 
 	created_by = models.ForeignKey(
 		settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="report_jobs"

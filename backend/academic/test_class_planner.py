@@ -319,6 +319,51 @@ class ClassPlanImportAndExportAPITest(ClassPlannerBaseMixin, APITestCase):
         self.assertEqual(response.data["errors"], [])
         self.assertTrue(PeriodTopic.objects.filter(title="Tejidos", period=self.period, academic_load=self.load).exists())
 
+    def test_validate_import_file_allows_repeated_sequence_order_for_different_title(self):
+        self.client.force_authenticate(user=self.admin)
+
+        csv_content = "\n".join(
+            [
+                "academic_year,period_name,grade_name,subject_name,sequence_order,title,description",
+                "2026,Primer Periodo,10,Biología,1,Tejidos,Clasificación general",
+            ]
+        )
+        upload = BytesIO(csv_content.encode("utf-8"))
+        upload.name = "tematicas.csv"
+
+        response = self.client.post(
+            "/api/period-topics/validate-import-file/",
+            {"file": upload},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["ready_rows"], 1)
+        self.assertEqual(response.data["error_rows"], 0)
+        self.assertEqual(response.data["rows"][0]["status"], "ready")
+
+    def test_import_file_allows_repeated_sequence_order_for_different_title(self):
+        self.client.force_authenticate(user=self.admin)
+
+        csv_content = "\n".join(
+            [
+                "academic_year,period_name,grade_name,subject_name,sequence_order,title,description",
+                "2026,Primer Periodo,10,Biología,1,Tejidos,Clasificación general",
+            ]
+        )
+        upload = BytesIO(csv_content.encode("utf-8"))
+        upload.name = "tematicas.csv"
+
+        response = self.client.post(
+            "/api/period-topics/import-file/",
+            {"file": upload},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["created"], 1)
+        self.assertEqual(response.data["updated"], 0)
+        self.assertEqual(response.data["errors"], [])
+        self.assertTrue(PeriodTopic.objects.filter(title="Tejidos", period=self.period, academic_load=self.load, sequence_order=1).exists())
+
     def test_export_pdf_creates_async_job_for_finalized_plan(self):
         plan = self.make_finalized_plan()
         self.client.force_authenticate(user=self.teacher)

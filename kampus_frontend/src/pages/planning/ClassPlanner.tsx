@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BookMarked, ClipboardList, Download, PenSquare, Plus, Sparkles, Wand2 } from 'lucide-react'
+import { BookMarked, CheckCircle2, ChevronDown, ChevronUp, ClipboardList, Download, PenSquare, Plus, Sparkles, Wand2 } from 'lucide-react'
 import { academicApi } from '../../services/academic'
 import type {
   AcademicYear,
@@ -91,6 +91,8 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 }
 
 export default function ClassPlanner() {
+  type TopicSortKey = 'grade' | 'period'
+
   const TOPICS_PAGE_SIZE = 6
   const PLANS_PAGE_SIZE = 6
   const [years, setYears] = useState<AcademicYear[]>([])
@@ -101,6 +103,7 @@ export default function ClassPlanner() {
   const [plannerSummary, setPlannerSummary] = useState<ClassPlannerSummaryResponse | null>(null)
   const [selectedYear, setSelectedYear] = useState<number | ''>('')
   const [selectedPeriod, setSelectedPeriod] = useState<number | ''>('')
+  const [selectedGrade, setSelectedGrade] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -111,6 +114,7 @@ export default function ClassPlanner() {
   const [editingPlanId, setEditingPlanId] = useState<number | null>(null)
   const [formData, setFormData] = useState<ClassPlanFormState>(createEmptyForm())
   const [topicSearch, setTopicSearch] = useState('')
+  const [topicSort, setTopicSort] = useState<{ key: TopicSortKey; direction: 'asc' | 'desc' }>({ key: 'grade', direction: 'asc' })
   const [planSearch, setPlanSearch] = useState('')
   const [topicPage, setTopicPage] = useState(1)
   const [planPage, setPlanPage] = useState(1)
@@ -140,7 +144,7 @@ export default function ClassPlanner() {
         if (fallbackYear) {
           const filteredPeriods = periodsRes.data.filter((period) => period.academic_year === fallbackYear)
           setPeriods(filteredPeriods)
-          setSelectedPeriod(filteredPeriods[0]?.id ?? '')
+          setSelectedPeriod('')
         }
       } catch (err) {
         console.error(err)
@@ -167,7 +171,7 @@ export default function ClassPlanner() {
           if (current && filteredPeriods.some((period) => period.id === Number(current))) {
             return current
           }
-          return filteredPeriods[0]?.id ?? ''
+          return ''
         })
       } catch (err) {
         console.error(err)
@@ -289,36 +293,131 @@ export default function ClassPlanner() {
     return topics.filter((topic) => topic.period === Number(selectedPeriod))
   }, [selectedPeriod, topics])
 
+  const topicsForKpi = useMemo(() => {
+    const gradeFilter = selectedGrade.trim().toLowerCase()
+    if (!gradeFilter) return topicOptions
+    return topicOptions.filter((topic) => (topic.grade_name || '').toLowerCase() === gradeFilter)
+  }, [selectedGrade, topicOptions])
+
+  const plansForKpi = useMemo(() => {
+    const gradeFilter = selectedGrade.trim().toLowerCase()
+    if (!gradeFilter) return plans
+    return plans.filter((plan) => (plan.grade_name || '').toLowerCase() === gradeFilter)
+  }, [plans, selectedGrade])
+
+  const planByTopicId = useMemo(() => {
+    const map = new Map<number, ClassPlan>()
+    for (const plan of plans) {
+      if (typeof plan.topic !== 'number') continue
+      const current = map.get(plan.topic)
+      if (!current || new Date(plan.updated_at).getTime() > new Date(current.updated_at).getTime()) {
+        map.set(plan.topic, plan)
+      }
+    }
+    return map
+  }, [plans])
+
+  const topicsWithoutPlanCount = useMemo(() => {
+    const plannedTopicIds = new Set(
+      plansForKpi
+        .map((plan) => plan.topic)
+        .filter((topicId): topicId is number => typeof topicId === 'number')
+    )
+    return topicsForKpi.filter((topic) => !plannedTopicIds.has(topic.id)).length
+  }, [plansForKpi, topicsForKpi])
+
+  const availableGrades = useMemo(() => {
+    const gradeSet = new Set<string>()
+
+    for (const topic of topics) {
+      const grade = (topic.grade_name || '').trim()
+      if (grade) gradeSet.add(grade)
+    }
+
+    for (const plan of plans) {
+      const grade = (plan.grade_name || '').trim()
+      if (grade) gradeSet.add(grade)
+    }
+
+    for (const assignment of assignments) {
+      const grade = (assignment.grade_name || '').trim()
+      if (grade) gradeSet.add(grade)
+    }
+
+    return Array.from(gradeSet).sort((left, right) =>
+      left.localeCompare(right, 'es', { sensitivity: 'base', numeric: true })
+    )
+  }, [assignments, plans, topics])
+
   const filteredAvailableTopics = useMemo(() => {
+    const gradeFilter = selectedGrade.trim().toLowerCase()
     const query = topicSearch.trim().toLowerCase()
-    if (!query) return topicOptions
-    return topicOptions.filter((topic) => {
+    const gradeFiltered = gradeFilter
+      ? topicOptions.filter((topic) => (topic.grade_name || '').toLowerCase() === gradeFilter)
+      : topicOptions
+
+    if (!query) return gradeFiltered
+    return gradeFiltered.filter((topic) => {
       const haystack = [topic.title, topic.description, topic.subject_name, topic.grade_name]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
       return haystack.includes(query)
     })
-  }, [topicOptions, topicSearch])
+  }, [selectedGrade, topicOptions, topicSearch])
+
+  const sortedAvailableTopics = useMemo(() => {
+    const topicsToSort = [...filteredAvailableTopics]
+    const directionFactor = topicSort.direction === 'asc' ? 1 : -1
+
+    const compareText = (left?: string, right?: string) =>
+      (left || '').localeCompare(right || '', 'es', { sensitivity: 'base', numeric: true })
+
+    return topicsToSort.sort((left, right) => {
+      const gradeCmp = compareText(left.grade_name, right.grade_name)
+      const periodCmp = compareText(left.period_name, right.period_name)
+      const titleCmp = compareText(left.title, right.title)
+
+      const baseCmp = topicSort.key === 'grade'
+        ? gradeCmp || periodCmp || titleCmp
+        : periodCmp || gradeCmp || titleCmp
+
+      return baseCmp * directionFactor
+    })
+  }, [filteredAvailableTopics, topicSort])
 
   const paginatedAvailableTopics = useMemo(() => {
     const start = (topicPage - 1) * TOPICS_PAGE_SIZE
-    return filteredAvailableTopics.slice(start, start + TOPICS_PAGE_SIZE)
-  }, [filteredAvailableTopics, topicPage])
+    return sortedAvailableTopics.slice(start, start + TOPICS_PAGE_SIZE)
+  }, [sortedAvailableTopics, topicPage])
 
-  const totalTopicPages = Math.max(1, Math.ceil(filteredAvailableTopics.length / TOPICS_PAGE_SIZE))
+  const totalTopicPages = Math.max(1, Math.ceil(sortedAvailableTopics.length / TOPICS_PAGE_SIZE))
+
+  const toggleTopicSort = (key: TopicSortKey) => {
+    setTopicSort((current) => {
+      if (current.key === key) {
+        return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { key, direction: 'asc' }
+    })
+  }
 
   const filteredPlans = useMemo(() => {
+    const gradeFilter = selectedGrade.trim().toLowerCase()
     const query = planSearch.trim().toLowerCase()
-    if (!query) return plans
-    return plans.filter((plan) => {
+    const gradeFiltered = gradeFilter
+      ? plans.filter((plan) => (plan.grade_name || '').toLowerCase() === gradeFilter)
+      : plans
+
+    if (!query) return gradeFiltered
+    return gradeFiltered.filter((plan) => {
       const haystack = [plan.title, plan.topic_title, plan.group_name, plan.subject_name, plan.status]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
       return haystack.includes(query)
     })
-  }, [plans, planSearch])
+  }, [plans, planSearch, selectedGrade])
 
   const paginatedPlans = useMemo(() => {
     const start = (planPage - 1) * PLANS_PAGE_SIZE
@@ -329,7 +428,7 @@ export default function ClassPlanner() {
 
   useEffect(() => {
     setTopicPage(1)
-  }, [topicSearch, selectedPeriod, selectedYear])
+  }, [topicSearch, selectedGrade, selectedPeriod, selectedYear])
 
   useEffect(() => {
     if (topicPage > totalTopicPages) setTopicPage(totalTopicPages)
@@ -337,7 +436,7 @@ export default function ClassPlanner() {
 
   useEffect(() => {
     setPlanPage(1)
-  }, [planSearch, selectedPeriod, selectedYear])
+  }, [planSearch, selectedGrade, selectedPeriod, selectedYear])
 
   useEffect(() => {
     if (planPage > totalPlanPages) setPlanPage(totalPlanPages)
@@ -602,7 +701,7 @@ export default function ClassPlanner() {
   return (
     <>
       <div className="space-y-4">
-        <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white via-sky-50/70 to-amber-50/60 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+        <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white via-sky-50/70 to-amber-50/60 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:shadow-none">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
@@ -649,6 +748,22 @@ export default function ClassPlanner() {
                 </select>
               </label>
 
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Grado
+                <select
+                  value={selectedGrade}
+                  onChange={(event) => setSelectedGrade(event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none ring-0 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">Todos los grados</option>
+                  {availableGrades.map((grade) => (
+                    <option key={grade} value={grade}>
+                      {grade}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <Button type="button" onClick={() => openCreateModal()} className="w-full gap-2 sm:w-auto">
                 <Plus size={16} />
                 Nuevo plan
@@ -658,20 +773,20 @@ export default function ClassPlanner() {
         </div>
 
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-          <div className="rounded-lg border border-amber-100 bg-linear-to-br from-white to-amber-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <div className="rounded-lg border border-amber-100 bg-linear-to-br from-white to-amber-50/80 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-800 dark:shadow-none">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-amber-100 p-2 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                 <BookMarked size={18} />
               </div>
               <div>
                 <p className="text-xs uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">Temáticas</p>
-                <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{topics.length}</p>
+                <p className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{topicsForKpi.length}</p>
               </div>
             </div>
-            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Sin plan aún: {plannerSummary?.summary.topics_without_plan ?? Math.max(topics.length - plans.length, 0)}</p>
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Sin plan aún: {topicsWithoutPlanCount}</p>
           </div>
 
-          <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white to-sky-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white to-sky-50/80 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-800 dark:shadow-none">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-sky-100 p-2 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300">
                 <ClipboardList size={18} />
@@ -684,7 +799,7 @@ export default function ClassPlanner() {
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Borradores: {plannerSummary?.summary.draft_plans ?? Math.max(plans.length - finalizedPlans, 0)}</p>
           </div>
 
-          <div className="rounded-lg border border-emerald-100 bg-linear-to-br from-white to-emerald-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <div className="rounded-lg border border-emerald-100 bg-linear-to-br from-white to-emerald-50/80 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-800 dark:shadow-none">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-emerald-100 p-2 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
                 <Sparkles size={18} />
@@ -697,7 +812,7 @@ export default function ClassPlanner() {
             <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">Cobertura: {plannerSummary?.summary.completion_rate ?? 0}%</p>
           </div>
 
-          <div className="rounded-lg border border-violet-100 bg-linear-to-br from-white to-violet-50/80 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <div className="rounded-lg border border-violet-100 bg-linear-to-br from-white to-violet-50/80 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:to-slate-800 dark:shadow-none">
             <div className="flex items-center gap-3">
               <div className="rounded-full bg-violet-100 p-2 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300">
                 <Download size={18} />
@@ -742,23 +857,52 @@ export default function ClassPlanner() {
                 paginatedAvailableTopics.map((topic) => {
                   const matchingAssignments = assignments.filter((assignment) => assignment.academic_load === topic.academic_load)
                   const canCreate = matchingAssignments.length > 0
+                  const linkedPlan = planByTopicId.get(topic.id)
+                  const hasPlan = Boolean(linkedPlan)
 
                   return (
-                    <article key={topic.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-950/30">
+                    <article
+                      key={topic.id}
+                      className={`rounded-lg border p-4 dark:border-slate-800 ${hasPlan ? 'cursor-pointer border-emerald-200 bg-emerald-50/60 dark:bg-emerald-950/20' : 'border-slate-200 bg-slate-50/70 dark:bg-slate-950/30'}`}
+                      role={hasPlan ? 'button' : undefined}
+                      tabIndex={hasPlan ? 0 : undefined}
+                      onClick={hasPlan ? () => linkedPlan && openEditModal(linkedPlan) : undefined}
+                      onKeyDown={hasPlan ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          if (linkedPlan) openEditModal(linkedPlan)
+                        }
+                      } : undefined}
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{topic.title}</h4>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{topic.title}</h4>
+                            {hasPlan ? <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-300" /> : null}
+                          </div>
                           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                             {topic.grade_name ?? '-'} · Orden {topic.sequence_order}
                           </p>
                         </div>
-                        <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${hasPlan ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
                           {topic.subject_name ?? '-'}
                         </span>
                       </div>
-                      <Button type="button" variant="outline" size="sm" onClick={() => openCreateModal(topic)} disabled={!canCreate} className="mt-3 w-full justify-center">
-                        Crear plan
-                      </Button>
+                      {hasPlan ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => linkedPlan && openEditModal(linkedPlan)}
+                          className="mt-3 w-full justify-center border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                        >
+                          Ver plan
+                        </Button>
+                      ) : (
+                        <Button type="button" variant="outline" size="sm" onClick={() => openCreateModal(topic)} disabled={!canCreate} className="mt-3 w-full justify-center">
+                          Crear plan
+                        </Button>
+                      )}
                     </article>
                   )
                 })
@@ -769,6 +913,32 @@ export default function ClassPlanner() {
                 <thead className="bg-slate-50 dark:bg-slate-950/60">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Temática</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                      <button
+                        type="button"
+                        onClick={() => toggleTopicSort('period')}
+                        className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
+                        aria-label={`Ordenar por periodo ${topicSort.key === 'period' && topicSort.direction === 'asc' ? 'descendente' : 'ascendente'}`}
+                      >
+                        Periodo
+                        {topicSort.key === 'period' ? (
+                          topicSort.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                        ) : null}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                      <button
+                        type="button"
+                        onClick={() => toggleTopicSort('grade')}
+                        className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
+                        aria-label={`Ordenar por grado ${topicSort.key === 'grade' && topicSort.direction === 'asc' ? 'descendente' : 'ascendente'}`}
+                      >
+                        Grado
+                        {topicSort.key === 'grade' ? (
+                          topicSort.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                        ) : null}
+                      </button>
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Asignatura</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Acciones</th>
                   </tr>
@@ -776,13 +946,13 @@ export default function ClassPlanner() {
                 <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
                   {loading ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                         Cargando temáticas...
                       </td>
                     </tr>
-                  ) : filteredAvailableTopics.length === 0 ? (
+                  ) : sortedAvailableTopics.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                      <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
                         No hay temáticas que coincidan con la búsqueda actual.
                       </td>
                     </tr>
@@ -790,18 +960,41 @@ export default function ClassPlanner() {
                     paginatedAvailableTopics.map((topic) => {
                       const matchingAssignments = assignments.filter((assignment) => assignment.academic_load === topic.academic_load)
                       const canCreate = matchingAssignments.length > 0
+                      const linkedPlan = planByTopicId.get(topic.id)
+                      const hasPlan = Boolean(linkedPlan)
 
                       return (
-                        <tr key={topic.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <tr
+                          key={topic.id}
+                          className={hasPlan ? 'cursor-pointer bg-emerald-50/40 hover:bg-emerald-50 dark:bg-emerald-950/10 dark:hover:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}
+                          onClick={hasPlan ? () => linkedPlan && openEditModal(linkedPlan) : undefined}
+                        >
                           <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-200">
-                            <div className="font-medium">{topic.title}</div>
-                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{topic.grade_name ?? '-'} · Orden {topic.sequence_order}</div>
+                            <div className="flex items-center gap-2 font-medium">
+                              <span>{topic.title}</span>
+                              {hasPlan ? <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-300" /> : null}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">Orden {topic.sequence_order}</div>
                           </td>
+                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.period_name ?? '-'}</td>
+                          <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.grade_name ?? '-'}</td>
                           <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.subject_name ?? '-'}</td>
                           <td className="px-4 py-3 text-sm">
-                            <Button type="button" variant="outline" size="sm" onClick={() => openCreateModal(topic)} disabled={!canCreate}>
-                              Crear plan
-                            </Button>
+                            {hasPlan ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => linkedPlan && openEditModal(linkedPlan)}
+                                className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 dark:hover:bg-emerald-950/30"
+                              >
+                                Ver plan
+                              </Button>
+                            ) : (
+                              <Button type="button" variant="outline" size="sm" onClick={() => openCreateModal(topic)} disabled={!canCreate}>
+                                Crear plan
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       )
@@ -812,9 +1005,9 @@ export default function ClassPlanner() {
             </div>
             <div className="flex flex-col gap-2 border-t border-slate-200 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
               <span className="text-slate-500 dark:text-slate-400">
-                Mostrando {filteredAvailableTopics.length === 0 ? 0 : (topicPage - 1) * TOPICS_PAGE_SIZE + 1}
+                Mostrando {sortedAvailableTopics.length === 0 ? 0 : (topicPage - 1) * TOPICS_PAGE_SIZE + 1}
                 {' '}-{' '}
-                {Math.min(topicPage * TOPICS_PAGE_SIZE, filteredAvailableTopics.length)} de {filteredAvailableTopics.length}
+                {Math.min(topicPage * TOPICS_PAGE_SIZE, sortedAvailableTopics.length)} de {sortedAvailableTopics.length}
               </span>
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setTopicPage((page) => Math.max(1, page - 1))} disabled={topicPage === 1}>
@@ -971,7 +1164,7 @@ export default function ClassPlanner() {
             </div>
           </section>
 
-          <aside className="rounded-lg border border-violet-100 bg-linear-to-br from-white via-violet-50/40 to-slate-50 p-4 shadow-sm md:col-span-2 xl:col-span-1 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <aside className="rounded-lg border border-violet-100 bg-linear-to-br from-white via-violet-50/40 to-slate-50 p-4 shadow-sm md:col-span-2 xl:col-span-1 dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:shadow-none">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Trazabilidad</h3>

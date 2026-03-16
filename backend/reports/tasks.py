@@ -322,6 +322,212 @@ def _safe_join_private(root: Path, relpath: str) -> Path:
     return final
 
 
+def _image_file_to_data_uri(image_field) -> str:
+    """Convert a Django ImageField to a base64 data URI for embedding in HTML."""
+    import mimetypes  # noqa: PLC0415
+    if not image_field or not getattr(image_field, "name", None):
+        return ""
+    try:
+        mime = mimetypes.guess_type(image_field.name)[0] or "image/jpeg"
+        with open(image_field.path, "rb") as fh:
+            data = base64.b64encode(fh.read()).decode("ascii")
+        return f"data:{mime};base64,{data}"
+    except Exception:
+        return ""
+
+
+def _image_field_to_thumbnail_data_uri(image_field, max_w: int = 120, max_h: int = 150, quality: int = 55) -> str:
+    """Like _image_file_to_data_uri but resizes+compresses with Pillow to keep HTML small."""
+    if not image_field or not getattr(image_field, "name", None):
+        return ""
+    try:
+        from PIL import Image  # noqa: PLC0415
+        import io  # noqa: PLC0415
+        with Image.open(image_field.path) as img:
+            img = img.convert("RGB")
+            img.thumbnail((max_w, max_h), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            data = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/jpeg;base64,{data}"
+    except Exception:
+        return ""
+
+
+def _qr_png_data_uri_small(text: str, box_size: int = 4, border: int = 2) -> str:
+    """Generate a compact QR code PNG data URI (smaller box_size than default)."""
+    try:
+        import qrcode  # noqa: PLC0415
+        from qrcode.constants import ERROR_CORRECT_M  # noqa: PLC0415
+        from io import BytesIO  # noqa: PLC0415
+
+        qr = qrcode.QRCode(error_correction=ERROR_CORRECT_M, box_size=box_size, border=border)
+        qr.add_data(text)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{b64}"
+    except Exception:
+        return ""
+
+
+def _render_election_census_qr_html(job: ReportJob) -> str:
+    """Render carnets electorales as premium ID cards (no tables)."""
+    from core.models import Institution  # noqa: PLC0415
+    from students.models import Student  # noqa: PLC0415
+    from academic.models import AcademicYear  # noqa: PLC0415
+    from django.utils import timezone as tz  # noqa: PLC0415
+
+    params = job.params or {}
+    process_name = str(params.get("process_name") or "Proceso Electoral")
+    group_filter = str(params.get("group_filter") or "")
+    year_label = str(params.get("year_label") or "")
+    rows_data: list[dict] = params.get("rows_data") or []
+
+    institution = Institution.objects.order_by("id").first()
+    institution_name = str(institution.name) if institution else "Institución Educativa"
+    institution_logo_src = _image_field_to_thumbnail_data_uri(
+        getattr(institution, "logo", None), max_w=72, max_h=72, quality=85
+    ) if institution else ""
+
+    if not year_label:
+        active_year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).order_by("-year", "-id").only("year").first()
+        year_label = str(active_year.year) if active_year else str(tz.now().year)
+
+    student_ids = [r["student_id"] for r in rows_data if r.get("student_id")]
+    students_by_id: dict[int, Student] = {}
+    if student_ids:
+        for student in Student.objects.filter(user_id__in=student_ids).only("user_id", "photo", "photo_thumb"):
+            students_by_id[student.user_id] = student
+
+    qr_cache: dict[str, str] = {}
+
+    def _get_qr(code: str) -> str:
+        if code not in qr_cache:
+            qr_cache[code] = _qr_png_data_uri_small(code, box_size=6, border=1)
+        return qr_cache[code]
+
+    css = (
+        "* { box-sizing: border-box; margin: 0; padding: 0; }"
+        "@page { size: A4 portrait; margin: 6mm; }"
+        "body { font-family: Arial, Helvetica, sans-serif; color: #0f172a; background: #dbe5f2; }"
+        "h1.doc-title { font-size: 10pt; color: #102f56; font-weight: bold; margin-bottom: 0.6mm; }"
+        "p.meta { font-size: 6.2pt; color: #4a5d74; margin-bottom: 3mm; }"
+        ".cards { font-size: 0; }"
+        ".card-shell { display: inline-block; width: 62mm; margin-right: 3mm; margin-bottom: 3mm; vertical-align: top; page-break-inside: avoid; }"
+        ".card-shell:nth-child(3n) { margin-right: 0; }"
+        ".card { background: #ffffff; border: 0.7pt solid #9eb2ca; }"
+        ".top { background: #0f2d57; padding: 1.7mm 2mm 1.8mm 2mm; }"
+        ".logo-box { float: left; width: 9mm; height: 9mm; margin-right: 1.3mm; }"
+        ".logo-box img { display: block; width: 9mm; height: 9mm; object-fit: contain; }"
+        ".logo-ph { width: 9mm; height: 9mm; border: 0.4pt dashed #9db7da; color: #9db7da; text-align: center; font-size: 5pt; line-height: 8.5mm; }"
+        ".top-txt { overflow: hidden; min-height: 9mm; }"
+        ".inst { color: #f3f7ff; font-size: 5.3pt; font-weight: bold; text-transform: uppercase; line-height: 1.22; letter-spacing: 0.12pt; }"
+        ".sub { color: #bdd3f7; font-size: 4.5pt; margin-top: 0.25mm; }"
+        ".stripe { height: 1.4mm; background: #d97706; font-size: 0; line-height: 0; }"
+        ".body { padding: 1.9mm 2mm 1.2mm 2mm; }"
+        ".photo-col { float: left; width: 15mm; }"
+        ".photo { width: 14mm; height: 18.8mm; border: 0.45pt solid #b6c7dc; object-fit: cover; display: block; }"
+        ".photo-ph { width: 14mm; height: 18.8mm; border: 0.55pt dashed #9aaec6; color: #8196ad; background: #f0f5fc; text-align: center; font-size: 10pt; padding-top: 3.2mm; display: block; }"
+        ".year-chip { margin-top: 0.55mm; width: 14mm; background: #0f2d57; color: #d9e7fb; text-align: center; font-size: 4.1pt; font-weight: bold; padding: 0.45mm 0; letter-spacing: 0.25pt; }"
+        ".info-col { margin-left: 16mm; }"
+        ".name { font-size: 6.25pt; font-weight: bold; text-transform: uppercase; color: #122f56; line-height: 1.22; border-bottom: 0.45pt solid #dbe4f0; padding-bottom: 0.8mm; margin-bottom: 0.8mm; }"
+        ".pill { display: inline-block; background: #eaf1fb; border: 0.45pt solid #c6d6e8; color: #1a3b68; font-size: 4.9pt; font-weight: bold; padding: 0.35mm 0.9mm; margin-bottom: 0.6mm; }"
+        ".line { font-size: 5.1pt; color: #33475d; line-height: 1.42; margin-bottom: 0.25mm; }"
+        ".lbl { color: #5d738b; font-size: 4.35pt; font-weight: bold; text-transform: uppercase; letter-spacing: 0.08pt; }"
+        ".clr { clear: both; }"
+        ".foot { border-top: 0.6pt solid #cad7e6; background: #edf3fb; padding: 1.05mm 2mm 1.2mm 2mm; }"
+        ".code-wrap { float: left; width: 70%; }"
+        ".code-lbl { font-size: 4pt; color: #8c9eb4; text-transform: uppercase; letter-spacing: 0.34pt; margin-bottom: 0.25mm; }"
+        ".code { font-size: 7.6pt; font-weight: bold; color: #112f57; font-family: 'Courier New', monospace; letter-spacing: 0.45pt; line-height: 1.2; }"
+        ".qr-wrap { float: right; width: 16mm; text-align: right; }"
+        ".qr-wrap img { width: 15mm; height: 15mm; display: block; margin-left: auto; }"
+    )
+
+    institution_name_esc = html_lib.escape(institution_name)
+    process_name_esc = html_lib.escape(process_name)
+    group_label_esc = html_lib.escape(group_filter or "Todos")
+
+    cards: list[str] = []
+    for row in rows_data:
+        manual_code = str(row.get("manual_code") or "")
+        qr_src = _get_qr(manual_code)
+
+        full_name = html_lib.escape(str(row.get("full_name") or "Estudiante"))
+        grade = html_lib.escape(str(row.get("grade") or "—"))
+        group = html_lib.escape(str(row.get("group") or "—"))
+        document_number = html_lib.escape(str(row.get("document_number") or "—"))
+        shift = html_lib.escape(str(row.get("shift") or ""))
+        campus_name = html_lib.escape(str(row.get("campus") or ""))
+        code_esc = html_lib.escape(manual_code)
+
+        student = students_by_id.get(row.get("student_id")) if row.get("student_id") else None
+        photo_src = ""
+        if student:
+            photo_src = _image_field_to_thumbnail_data_uri(
+                student.photo_thumb if student.photo_thumb else student.photo,
+                max_w=140,
+                max_h=180,
+                quality=82,
+            )
+
+        if photo_src:
+            photo_block = f'<img src="{photo_src}" class="photo" alt=""/>'
+        else:
+            photo_block = '<div class="photo-ph">&#128100;</div>'
+
+        if institution_logo_src:
+            logo_block = f'<div class="logo-box"><img src="{institution_logo_src}" alt=""/></div>'
+        else:
+            logo_block = '<div class="logo-box"><div class="logo-ph">IE</div></div>'
+
+        shift_line = f'<div class="line"><span class="lbl">Jornada:</span> {shift}</div>' if shift else ""
+        campus_line = f'<div class="line"><span class="lbl">Sede:</span> {campus_name}</div>' if campus_name else ""
+        qr_block = f'<div class="qr-wrap"><img src="{qr_src}" alt=""/></div>' if qr_src else '<div class="qr-wrap"></div>'
+
+        card = (
+            '<div class="card-shell"><div class="card">'
+            '<div class="top">'
+            + logo_block
+            + '<div class="top-txt">'
+            + f'<div class="inst">{institution_name_esc}</div>'
+            + '<div class="sub">Carn&#233; Electoral &middot; Gobierno Escolar</div>'
+            + '</div><div class="clr"></div>'
+            + '</div>'
+            + '<div class="stripe"></div>'
+            + '<div class="body">'
+            + f'<div class="photo-col">{photo_block}<div class="year-chip">{html_lib.escape(year_label)}</div></div>'
+            + '<div class="info-col">'
+            + f'<div class="name">{full_name}</div>'
+            + f'<div class="pill">Grado {grade} · Grupo {group}</div>'
+            + shift_line
+            + campus_line
+            + f'<div class="line"><span class="lbl">Documento:</span> {document_number}</div>'
+            + '</div><div class="clr"></div>'
+            + '</div>'
+            + '<div class="foot">'
+            + '<div class="code-wrap"><div class="code-lbl">C&#243;digo de votaci&#243;n</div>'
+            + f'<div class="code">{code_esc}</div></div>'
+            + qr_block
+            + '<div class="clr"></div></div>'
+            + '</div></div>'
+        )
+        cards.append(card)
+
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'/>"
+        "<title>Carn&#233;s Gobierno Escolar</title>"
+        f"<style>{css}</style>"
+        "</head><body>"
+        f"<h1 class='doc-title'>Carn&#233;s electorales &middot; {process_name_esc}</h1>"
+        f"<p class='meta'>Grupo: {group_label_esc} &nbsp;&middot;&nbsp; Generado: {tz.now().strftime('%d/%m/%Y %H:%M')}</p>"
+        f"<div class='cards'>{''.join(cards)}</div>"
+        "</body></html>"
+    )
+
+
 def _render_report_html(job: ReportJob) -> str:
     if job.report_type == ReportJob.ReportType.DUMMY:
         from core.models import Institution  # noqa: PLC0415
@@ -1243,6 +1449,9 @@ def _render_report_html(job: ReportJob) -> str:
         }
         return render_to_string("students/reports/certificate_studies_pdf.html", ctx)
 
+    if job.report_type == ReportJob.ReportType.ELECTION_CENSUS_QR:
+        return _render_election_census_qr_html(job)
+
     raise ValueError(f"Unsupported report_type: {job.report_type}")
 
 
@@ -1395,6 +1604,11 @@ def generate_report_job_pdf(self, job_id: int) -> None:
             params = job.params or {}
             cu = str(params.get("certificate_uuid") or "")
             out_filename = f"certificado_estudios_{cu}.pdf".replace(" ", "_")
+        elif job.report_type == ReportJob.ReportType.ELECTION_CENSUS_QR:
+            params = job.params or {}
+            process_id = params.get("process_id") or "0"
+            group_suffix = (str(params.get("group_filter") or "todos")).replace(" ", "_")
+            out_filename = f"carnes_electorales_proceso-{process_id}_grupo-{group_suffix}.pdf"
         else:
             out_filename = f"report_{job.id}.pdf"
 

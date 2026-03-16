@@ -32,10 +32,6 @@
     <div class="col" style="width: 50%; padding-right: 8px;">
       <div class="k">Estudiante</div>
       <div class="v-lg">{{ student_name|default:"-" }}</div>
-      {% if student_code %}
-        <div class="k" style="margin-top: 8px;">Documento</div>
-        <div class="v">{{ student_code }}</div>
-      {% endif %}
     </div>
 
     <div class="col" style="width: 16%; padding-right: 8px;">
@@ -49,14 +45,9 @@
     </div>
 
     <div class="col" style="width: 18%; text-align: right;">
-      <div class="k">Fecha</div>
-      <div class="v"><span class="pill" style="max-width: 100%;">{{ report_date|default:"" }}</span></div>
+      <div class="k">Documento</div>
+      <div class="v">{{ student_code|default:"-" }}</div>
     </div>
-  </div>
-
-  <div class="divider">
-    <span class="k">Director de Grupo:</span>
-    <span class="v" style="display:inline; font-size: 11px; font-weight: 800; color:#374151;"> {{ director_name|default:"-" }}</span>
   </div>
 </section>
 
@@ -69,7 +60,7 @@
       <th style="width: 8%;">P2</th>
       <th style="width: 8%;">P3</th>
       <th style="width: 8%;">P4</th>
-      <th style="width: 16%; background:#f3f4f6; color:#111827;">Final</th>
+      <th style="width: 16%; background:#f3f4f6; color:#111827;">Acumulado</th>
     </tr>
   </thead>
   <tbody>
@@ -107,56 +98,81 @@
           </td>
         </tr>
       {% else %}
-      <tr class="avoid-break subject-row{% if row.is_single_area %} single-area-row{% endif %}">
+      {% if row.is_single_area %}
+        {# Fila 1: nombre del área con fondo azul y notas #}
+        <tr class="avoid-break single-area-row">
+          <td class="subject">
+            <div class="subject-title">{{ row.title|default:"" }}</div>
+          </td>
+          <td class="grade-cell muted">{% if row.absences != "" %}{{ row.absences }}{% else %}-{% endif %}</td>
+          <td class="grade-cell">
+            <span class="{% if 'superior' in row.p1_scale|lower %}perf-superior{% elif 'alto' in row.p1_scale|lower %}perf-alto{% elif 'basi' in row.p1_scale|lower %}perf-basico{% elif 'bajo' in row.p1_scale|lower %}perf-bajo{% endif %}">{{ row.p1_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span class="{% if 'superior' in row.p2_scale|lower %}perf-superior{% elif 'alto' in row.p2_scale|lower %}perf-alto{% elif 'basi' in row.p2_scale|lower %}perf-basico{% elif 'bajo' in row.p2_scale|lower %}perf-bajo{% endif %}">{{ row.p2_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span class="{% if 'superior' in row.p3_scale|lower %}perf-superior{% elif 'alto' in row.p3_scale|lower %}perf-alto{% elif 'basi' in row.p3_scale|lower %}perf-basico{% elif 'bajo' in row.p3_scale|lower %}perf-bajo{% endif %}">{{ row.p3_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell">
+            <span class="{% if 'superior' in row.p4_scale|lower %}perf-superior{% elif 'alto' in row.p4_scale|lower %}perf-alto{% elif 'basi' in row.p4_scale|lower %}perf-basico{% elif 'bajo' in row.p4_scale|lower %}perf-bajo{% endif %}">{{ row.p4_score|default:"" }}</span>
+          </td>
+          <td class="grade-cell grade-final">
+            <span class="{% if 'superior' in row.final_scale|lower %}perf-superior{% elif 'alto' in row.final_scale|lower %}perf-alto{% elif 'basi' in row.final_scale|lower %}perf-basico{% elif 'bajo' in row.final_scale|lower %}perf-bajo{% endif %}">{{ row.final_display|default:row.final_score }}</span>
+          </td>
+        </tr>
+        {# Fila 2: indicadores con fondo blanco, solo si hay indicadores #}
+        {% if row.lines and row.lines|length > 0 %}
+          <tr class="single-area-desc-row">
+            <td class="subject" colspan="7">
+              <div class="subject-desc" style="margin-top:0;">
+                {% if row.lines_as_paragraph %}
+                  <div>{{ row.lines|join:" "|truncatechars:160 }}</div>
+                {% else %}
+                  {% for line in row.lines %}
+                    <div>• {{ line|truncatechars:160 }}</div>
+                  {% endfor %}
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endif %}
+      {% else %}
+      <tr class="avoid-break subject-row">
         <td class="subject">
-          <div class="subject-title{% if not row.is_single_area %} subject-title-indent{% endif %}">
-            {% if row.is_single_area %}
-              {{ row.title|default:"" }}
-            {% else %}
-              {{ row.title|default:""|title }}{% if row.weight_percentage %} ({{ row.weight_percentage }}%){% endif %}
-            {% endif %}
+          <div class="subject-title subject-title-indent">
+            {{ row.title|default:""|title }}{% if row.weight_percentage %} ({{ row.weight_percentage }}%){% endif %}
           </div>
           {% if row.lines and row.lines|length > 0 %}
             <div class="subject-desc">
               {% if row.lines_as_paragraph %}
-                <div>{{ row.lines|join:" " }}</div>
+                <div>{{ row.lines|join:" "|truncatechars:160 }}</div>
               {% else %}
                 {% for line in row.lines %}
-                  <div>• {{ line }}</div>
+                  <div>• {{ line|truncatechars:160 }}</div>
                 {% endfor %}
               {% endif %}
             </div>
           {% endif %}
         </td>
-        <td class="grade-cell muted">{% if row.absences %}{{ row.absences }}{% else %}-{% endif %}</td>
-
+        <td class="grade-cell muted">{% if row.absences != "" %}{{ row.absences }}{% else %}-{% endif %}</td>
         <td class="grade-cell">
-          <span
-            class="{% if 'superior' in row.p1_scale|lower %}perf-superior{% elif 'alto' in row.p1_scale|lower %}perf-alto{% elif 'basi' in row.p1_scale|lower %}perf-basico{% elif 'bajo' in row.p1_scale|lower %}perf-bajo{% endif %}"
-          >{{ row.p1_score|default:"" }}</span>
+          <span class="{% if 'superior' in row.p1_scale|lower %}perf-superior{% elif 'alto' in row.p1_scale|lower %}perf-alto{% elif 'basi' in row.p1_scale|lower %}perf-basico{% elif 'bajo' in row.p1_scale|lower %}perf-bajo{% endif %}">{{ row.p1_score|default:"" }}</span>
         </td>
         <td class="grade-cell">
-          <span
-            class="{% if 'superior' in row.p2_scale|lower %}perf-superior{% elif 'alto' in row.p2_scale|lower %}perf-alto{% elif 'basi' in row.p2_scale|lower %}perf-basico{% elif 'bajo' in row.p2_scale|lower %}perf-bajo{% endif %}"
-          >{{ row.p2_score|default:"" }}</span>
+          <span class="{% if 'superior' in row.p2_scale|lower %}perf-superior{% elif 'alto' in row.p2_scale|lower %}perf-alto{% elif 'basi' in row.p2_scale|lower %}perf-basico{% elif 'bajo' in row.p2_scale|lower %}perf-bajo{% endif %}">{{ row.p2_score|default:"" }}</span>
         </td>
         <td class="grade-cell">
-          <span
-            class="{% if 'superior' in row.p3_scale|lower %}perf-superior{% elif 'alto' in row.p3_scale|lower %}perf-alto{% elif 'basi' in row.p3_scale|lower %}perf-basico{% elif 'bajo' in row.p3_scale|lower %}perf-bajo{% endif %}"
-          >{{ row.p3_score|default:"" }}</span>
+          <span class="{% if 'superior' in row.p3_scale|lower %}perf-superior{% elif 'alto' in row.p3_scale|lower %}perf-alto{% elif 'basi' in row.p3_scale|lower %}perf-basico{% elif 'bajo' in row.p3_scale|lower %}perf-bajo{% endif %}">{{ row.p3_score|default:"" }}</span>
         </td>
         <td class="grade-cell">
-          <span
-            class="{% if 'superior' in row.p4_scale|lower %}perf-superior{% elif 'alto' in row.p4_scale|lower %}perf-alto{% elif 'basi' in row.p4_scale|lower %}perf-basico{% elif 'bajo' in row.p4_scale|lower %}perf-bajo{% endif %}"
-          >{{ row.p4_score|default:"" }}</span>
+          <span class="{% if 'superior' in row.p4_scale|lower %}perf-superior{% elif 'alto' in row.p4_scale|lower %}perf-alto{% elif 'basi' in row.p4_scale|lower %}perf-basico{% elif 'bajo' in row.p4_scale|lower %}perf-bajo{% endif %}">{{ row.p4_score|default:"" }}</span>
         </td>
-
         <td class="grade-cell grade-final">
-          <span
-            class="{% if 'superior' in row.final_scale|lower %}perf-superior{% elif 'alto' in row.final_scale|lower %}perf-alto{% elif 'basi' in row.final_scale|lower %}perf-basico{% elif 'bajo' in row.final_scale|lower %}perf-bajo{% endif %}"
-          >{{ row.final_display|default:row.final_score }}</span>
+          <span class="{% if 'superior' in row.final_scale|lower %}perf-superior{% elif 'alto' in row.final_scale|lower %}perf-alto{% elif 'basi' in row.final_scale|lower %}perf-basico{% elif 'bajo' in row.final_scale|lower %}perf-bajo{% endif %}">{{ row.final_display|default:row.final_score }}</span>
         </td>
       </tr>
+      {% endif %}
       {% endif %}
     {% endfor %}
   </tbody>
@@ -201,24 +217,4 @@
       <div class="sign-role">Director de grupo</div>
     </div>
   </div>
-
-  {% if qr_image_src or verify_url %}
-    <div class="qr-wrap">
-      {% if qr_image_src %}
-        <img src="{{ qr_image_src }}" alt="QR verificación" />
-      {% endif %}
-      {% if verify_url %}
-        <div class="qr-text">
-          <span style="font-weight:900;">Verificación:</span>
-          <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
-        </div>
-        {% if verify_url_prefix and verify_token %}
-          <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
-          <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
-        {% else %}
-          <div class="qr-text verify-url">{{ verify_url }}</div>
-        {% endif %}
-      {% endif %}
-    </div>
-  {% endif %}
 </div>

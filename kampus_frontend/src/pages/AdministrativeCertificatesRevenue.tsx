@@ -127,6 +127,15 @@ export default function AdministrativeCertificatesRevenue() {
   const [confirmMode, setConfirmMode] = useState<'revoke' | 'delete'>('delete')
   const [revokeReason, setRevokeReason] = useState('')
 
+  const refreshSummary = async () => {
+    const summaryRes = await certificatesApi.revenueSummary({
+      certificate_type: 'STUDIES',
+      start_date: startDate || undefined,
+      end_date: endDate || undefined,
+    })
+    setSummary(summaryRes.data as RevenueSummaryResponse)
+  }
+
   const load = async () => {
     setLoading(true)
     try {
@@ -232,10 +241,18 @@ export default function AdministrativeCertificatesRevenue() {
           if (statusFilter === 'ISSUED') return prev.filter((it) => it.uuid !== issue.uuid)
           return prev.map((it) => (it.uuid === issue.uuid ? { ...it, ...updated, status: nextStatus } : it))
         })
+        if (statusFilter === 'ISSUED') {
+          setCount((prev) => Math.max(0, prev - 1))
+        }
+        await refreshSummary()
         showToast('Certificado revocado.', 'success')
       } else {
         await certificatesApi.deleteIssue(issue.uuid)
         setIssues((prev) => prev.filter((it) => it.uuid !== issue.uuid))
+        setCount((prev) => Math.max(0, prev - 1))
+        if (issue.status === 'ISSUED') {
+          await refreshSummary()
+        }
         showToast('Certificado eliminado.', 'success')
       }
 

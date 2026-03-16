@@ -662,12 +662,6 @@ class PeriodTopic(models.Model):
         verbose_name = "Temática por Periodo"
         verbose_name_plural = "Temáticas por Periodo"
         ordering = ["period__start_date", "academic_load__subject__name", "sequence_order", "title"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["period", "academic_load", "sequence_order"],
-                name="uniq_period_topic_order_per_load",
-            )
-        ]
         indexes = [
             models.Index(fields=["period", "academic_load"], name="idx_period_topic_period_load"),
             models.Index(fields=["period", "is_active"], name="idx_period_topic_active"),

@@ -7,7 +7,6 @@ from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
-from django.db import IntegrityError
 from django.db.models import Q
 from django.utils import timezone
 from datetime import datetime, time, timedelta

@@ -3448,6 +3448,94 @@ class CertificateStudiesIssueView(APIView):
                     pass
 
 
+def _certificate_issue_private_pdf_response(issue: CertificateIssue):
+    from pathlib import Path  # noqa: PLC0415
+
+    def _safe_join_private(root: Path, relpath: str) -> Path:
+        rel = Path(relpath)
+        if rel.is_absolute():
+            raise ValueError("Absolute paths are not allowed")
+        final = (root / rel).resolve()
+        root_resolved = root.resolve()
+        if root_resolved not in final.parents and final != root_resolved:
+            raise ValueError("Invalid path")
+        return final
+
+    if getattr(issue, "pdf_private_relpath", None):
+        abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), issue.pdf_private_relpath)
+        if abs_path.exists():
+            filename = issue.pdf_private_filename or abs_path.name or f"certificado_{issue.uuid}.pdf"
+            response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="{filename}"'
+            return response
+
+    if issue.pdf_file:
+        try:
+            issue.pdf_file.open("rb")
+            response = FileResponse(issue.pdf_file, content_type="application/pdf")
+            response["Content-Disposition"] = f'inline; filename="certificado_{issue.uuid}.pdf"'
+            return response
+        except FileNotFoundError:
+            pass
+
+    return None
+
+
+def _certificate_issue_recover_pdf_from_report_job(issue: CertificateIssue):
+    try:
+        from reports.models import ReportJob  # noqa: PLC0415
+        from pathlib import Path  # noqa: PLC0415
+
+        def _safe_join_private(root: Path, relpath: str) -> Path:
+            rel = Path(relpath)
+            if rel.is_absolute():
+                raise ValueError("Absolute paths are not allowed")
+            final = (root / rel).resolve()
+            root_resolved = root.resolve()
+            if root_resolved not in final.parents and final != root_resolved:
+                raise ValueError("Invalid path")
+            return final
+
+        fallback_job = (
+            ReportJob.objects.filter(
+                report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
+                status=ReportJob.Status.SUCCEEDED,
+                params__certificate_uuid=str(issue.uuid),
+            )
+            .exclude(output_relpath__isnull=True)
+            .exclude(output_relpath="")
+            .order_by("-finished_at", "-id")
+            .first()
+        )
+        if not fallback_job or not fallback_job.output_relpath:
+            return None
+
+        abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), fallback_job.output_relpath)
+        if not abs_path.exists():
+            return None
+
+        update_fields = []
+        if issue.pdf_private_relpath != fallback_job.output_relpath:
+            issue.pdf_private_relpath = fallback_job.output_relpath
+            update_fields.append("pdf_private_relpath")
+        fallback_name = fallback_job.output_filename or ""
+        if fallback_name and issue.pdf_private_filename != fallback_name:
+            issue.pdf_private_filename = fallback_name
+            update_fields.append("pdf_private_filename")
+        if update_fields:
+            issue.save(update_fields=update_fields)
+
+        return fallback_job
+    except Exception:
+        return None
+
+
+def _certificate_issue_has_available_pdf(issue: CertificateIssue) -> bool:
+    if _certificate_issue_private_pdf_response(issue) is not None:
+        return True
+    return _certificate_issue_recover_pdf_from_report_job(issue) is not None
+
+
 class CertificateIssuesListView(APIView):
     """List issued certificates for auditing/income reconciliation."""
 
@@ -3552,7 +3640,7 @@ class CertificateIssuesListView(APIView):
                         if issued_by
                         else None
                     ),
-                    "has_pdf": bool(getattr(issue, "pdf_private_relpath", None) or getattr(issue, "pdf_file", None)),
+                    "has_pdf": _certificate_issue_has_available_pdf(issue),
                 }
             )
 
@@ -3591,7 +3679,7 @@ class CertificateIssueDetailView(APIView):
                 if issued_by
                 else None
             ),
-            "has_pdf": bool(getattr(issue, "pdf_private_relpath", None) or getattr(issue, "pdf_file", None)),
+            "has_pdf": _certificate_issue_has_available_pdf(issue),
         }
 
     def patch(self, request, uuid, format=None):
@@ -3697,35 +3785,17 @@ class CertificateIssueDownloadPDFView(APIView):
             return Response({"detail": "Certificate not found"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            from pathlib import Path  # noqa: PLC0415
-
-            def _safe_join_private(root: Path, relpath: str) -> Path:
-                rel = Path(relpath)
-                if rel.is_absolute():
-                    raise ValueError("Absolute paths are not allowed")
-                final = (root / rel).resolve()
-                root_resolved = root.resolve()
-                if root_resolved not in final.parents and final != root_resolved:
-                    raise ValueError("Invalid path")
-                return final
-
-            if getattr(issue, "pdf_private_relpath", None):
-                abs_path = _safe_join_private(Path(settings.PRIVATE_STORAGE_ROOT), issue.pdf_private_relpath)
-                if not abs_path.exists():
-                    return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
-
-                filename = issue.pdf_private_filename or f"certificado_{issue.uuid}.pdf"
-                response = FileResponse(open(abs_path, "rb"), content_type="application/pdf")
-                response["Content-Disposition"] = f'inline; filename="{filename}"'
+            response = _certificate_issue_private_pdf_response(issue)
+            if response is not None:
                 return response
 
-            if not issue.pdf_file:
-                return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
+            recovered = _certificate_issue_recover_pdf_from_report_job(issue)
+            if recovered is not None:
+                response = _certificate_issue_private_pdf_response(issue)
+                if response is not None:
+                    return response
 
-            issue.pdf_file.open("rb")
-            response = FileResponse(issue.pdf_file, content_type="application/pdf")
-            response["Content-Disposition"] = f'inline; filename="certificado_{issue.uuid}.pdf"'
-            return response
+            return Response({"detail": "No stored PDF for this certificate"}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             payload = {"error": "Error reading stored PDF", "detail": str(e)}
             if getattr(settings, 'DEBUG', False):

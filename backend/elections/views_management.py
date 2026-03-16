@@ -376,6 +376,20 @@ def _qr_png_data_uri(text: str) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def _image_file_to_data_uri(image_field) -> str:
+    """Convert a Django ImageField to a base64 data URI. Returns empty string on failure."""
+    import mimetypes
+    if not image_field or not getattr(image_field, "name", None):
+        return ""
+    try:
+        mime = mimetypes.guess_type(image_field.name)[0] or "image/jpeg"
+        with open(image_field.path, "rb") as fh:
+            data = base64.b64encode(fh.read()).decode("ascii")
+        return f"data:{mime};base64,{data}"
+    except Exception:
+        return ""
+
+
 def build_scrutiny_summary_payload(process: ElectionProcess) -> dict:
     roles = list(ElectionRole.objects.filter(process=process).order_by("display_order", "id"))
     role_summaries: list[dict] = []
@@ -2491,6 +2505,20 @@ class ElectionProcessCensusManualCodesXlsxAPIView(APIView):
             return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
 
         group_filter = str(request.query_params.get("group") or "").strip()
+        if not group_filter:
+            log_event(
+                request,
+                event_type="ELECTION_CENSUS_QR_PRINT_FAILED",
+                object_type="ElectionProcess",
+                object_id=process.id,
+                status_code=status.HTTP_400_BAD_REQUEST,
+                metadata={"reason": "group_required", "group": ""},
+            )
+            return Response(
+                {"detail": "Debes seleccionar un grupo/salón para generar carnés. Ejemplo: 8-A."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         mode, _, regeneration_reason, mode_error = _parse_manual_code_mode(request)
         if mode_error:
             log_event(
@@ -2630,7 +2658,14 @@ class ElectionProcessCensusQrPrintAPIView(APIView):
             )
             return Response({"detail": "No hay estudiantes habilitados para impresión en la selección actual."}, status=status.HTTP_400_BAD_REQUEST)
 
-        cards: list[str] = []
+        # ── Institution logo ──────────────────────────────────────────────
+        institution = Institution.objects.order_by("id").first()
+
+        active_year = AcademicYear.objects.filter(status=AcademicYear.STATUS_ACTIVE).order_by("-year", "-id").only("year").first()
+        year_label = str(active_year.year) if active_year else str(timezone.now().year)
+
+        # Resolve manual codes at request time (has DB side effects + needs audit context)
+        rows_data: list[dict] = []
         generated_count = 0
         reused_count = 0
         missing_count = 0
@@ -2647,50 +2682,53 @@ class ElectionProcessCensusQrPrintAPIView(APIView):
                 reused_count += 1
             else:
                 missing_count += 1
-            qr_image_src = _qr_png_data_uri(manual_code)
-            cards.append(
-                "".join(
-                    [
-                        '<article class="card">',
-                        f'<h3>{row.get("full_name") or "Estudiante"}</h3>',
-                        f'<p><strong>Grado:</strong> {row.get("grade") or "—"} · <strong>Grupo:</strong> {row.get("group") or "—"}</p>',
-                        f'<p><strong>Documento:</strong> {row.get("document_number") or "—"}</p>',
-                        f'<p><strong>Código manual:</strong> <span class="code">{manual_code}</span></p>',
-                        (f'<img src="{qr_image_src}" alt="QR" class="qr" />' if qr_image_src else ''),
-                        "</article>",
-                    ]
-                )
-            )
+            rows_data.append({
+                "manual_code": manual_code,
+                "full_name": row.get("full_name") or "",
+                "grade": row.get("grade") or "",
+                "group": row.get("group") or "",
+                "document_number": row.get("document_number") or "",
+                "shift": row.get("shift") or "",
+                "campus": row.get("campus") or "",
+                "student_id": row.get("student_id"),
+            })
 
-        html = "".join(
-            [
-                "<!doctype html><html><head><meta charset='utf-8' />",
-                "<title>QR censo</title>",
-                "<style>",
-                "body{font-family:Arial,sans-serif;margin:16px;color:#0f172a}",
-                "h1{font-size:18px;margin:0 0 6px}",
-                "p.meta{margin:0 0 16px;font-size:12px;color:#475569}",
-                ".grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}",
-                ".card{border:1px solid #cbd5e1;border-radius:8px;padding:10px;break-inside:avoid}",
-                ".card h3{margin:0 0 6px;font-size:14px}",
-                ".card p{margin:2px 0;font-size:12px}",
-                ".code{font-weight:700;letter-spacing:0.5px}",
-                ".qr{width:120px;height:120px;margin-top:8px}",
-                "@media print{body{margin:8px}.grid{gap:8px}}",
-                "</style></head><body>",
-                f"<h1>Censo habilitado para votación · {process.name}</h1>",
-                f"<p class='meta'>Grupo: {group_filter or 'Todos'} · Generado: {timezone.now().isoformat()}</p>",
-                f"<section class='grid'>{''.join(cards)}</section>",
-                "</body></html>",
-            ]
+        # Build ReportJob and enqueue to Celery worker
+        from reports.models import ReportJob  # noqa: PLC0415
+        from reports.tasks import generate_report_job_pdf  # noqa: PLC0415
+        from datetime import timedelta  # noqa: PLC0415
+
+        ttl_hours = int(getattr(settings, "REPORT_JOBS_TTL_HOURS", 24))
+        expires_at = timezone.now() + timedelta(hours=ttl_hours)
+
+        job = ReportJob.objects.create(
+            created_by=request.user,
+            report_type=ReportJob.ReportType.ELECTION_CENSUS_QR,
+            params={
+                "process_id": process.id,
+                "process_name": process.name,
+                "group_filter": group_filter,
+                "year_label": year_label,
+                "rows_data": rows_data,
+            },
+            expires_at=expires_at,
         )
+
+        try:
+            generate_report_job_pdf.delay(job.id)
+        except Exception as e:
+            job.mark_failed(error_code="ENQUEUE_FAILED", error_message=str(e))
+            return Response(
+                {"detail": "No se pudo encolar la generación del PDF. Revisa que Celery/Redis estén activos."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         log_event(
             request,
             event_type="ELECTION_CENSUS_QR_PRINT",
             object_type="ElectionProcess",
             object_id=process.id,
-            status_code=status.HTTP_200_OK,
+            status_code=status.HTTP_202_ACCEPTED,
             metadata={
                 "group": group_filter or "",
                 "rows": len(rows),
@@ -2699,7 +2737,10 @@ class ElectionProcessCensusQrPrintAPIView(APIView):
                 "generated_count": generated_count,
                 "reused_count": reused_count,
                 "missing_count": missing_count,
+                "job_id": job.id,
             },
         )
 
-        return HttpResponse(html)
+        from reports.serializers import ReportJobSerializer  # noqa: PLC0415
+        return Response(ReportJobSerializer(job, context={"request": request}).data, status=status.HTTP_202_ACCEPTED)
+

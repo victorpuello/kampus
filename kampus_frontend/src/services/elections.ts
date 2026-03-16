@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { api } from './api'
+import type { ReportJob } from './reports'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -688,6 +689,27 @@ export const electionsApi = {
     const response = await api.get<string>(`/api/elections/manage/processes/${processId}/census/qr-print/`, {
       params,
       responseType: 'text',
+    })
+    return response.data
+  },
+
+  createCensusQrPrintJob: async (
+    processId: number,
+    options?: {
+      group?: string
+      mode?: 'existing' | 'regenerate'
+      confirm_regeneration?: boolean
+      regeneration_reason?: string
+    },
+  ): Promise<ReportJob> => {
+    const params: Record<string, string | boolean> = {}
+    if (options?.group) params.group = options.group
+    if (options?.mode) params.mode = options.mode
+    if (typeof options?.confirm_regeneration === 'boolean') params.confirm_regeneration = options.confirm_regeneration
+    if (options?.regeneration_reason) params.regeneration_reason = options.regeneration_reason
+
+    const response = await api.get<ReportJob>(`/api/elections/manage/processes/${processId}/census/qr-print/`, {
+      params,
     })
     return response.data
   },

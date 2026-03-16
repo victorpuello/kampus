@@ -11,6 +11,9 @@ from rest_framework import status
 from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.cache import cache
+from django.conf import settings
+from pathlib import Path
+from io import StringIO
 from academic.models import AcademicYear, Grade, Group
 from academic.models import TeacherAssignment
 from reports.models import ReportJob
@@ -750,6 +753,163 @@ class CertificateIssueEditDeleteAPITest(APITestCase):
         self.assertEqual(issue.status, CertificateIssue.STATUS_REVOKED)
         self.assertTrue(bool(issue.revoked_at))
         self.assertEqual(issue.revoke_reason, "Duplicado")
+
+
+class CertificateIssueDownloadPDFAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_cert_pdf",
+            password="admin123",
+            email="admin_cert_pdf@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.client.force_authenticate(user=self.admin)
+
+    def test_download_uses_report_job_fallback_and_backfills_issue_paths(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={"student_full_name": "Ana"},
+            pdf_private_relpath="",
+            pdf_private_filename="",
+        )
+
+        pdf_bytes = b"%PDF-1.4\n% test fallback\n"
+        relpath = f"reports/jobs/certificates/certificado_estudios_{issue.uuid}.pdf"
+        abs_path = Path(settings.PRIVATE_STORAGE_ROOT) / relpath
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_bytes(pdf_bytes)
+
+        job = ReportJob.objects.create(
+            created_by=self.admin,
+            report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
+            params={"certificate_uuid": str(issue.uuid)},
+            status=ReportJob.Status.RUNNING,
+        )
+        job.mark_succeeded(
+            output_relpath=relpath,
+            output_filename=f"certificado_estudios_{issue.uuid}.pdf",
+            output_size_bytes=len(pdf_bytes),
+        )
+
+        res = self.client.get(f"/api/certificates/issues/{issue.uuid}/pdf/")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res["Content-Type"].startswith("application/pdf"))
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.pdf_private_relpath, relpath)
+        self.assertEqual(issue.pdf_private_filename, f"certificado_estudios_{issue.uuid}.pdf")
+
+    def test_list_does_not_expose_has_pdf_when_private_file_is_missing(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={"student_full_name": "Ana"},
+            pdf_private_relpath="reports/certificado_estudios_missing.pdf",
+            pdf_private_filename="certificado_estudios_missing.pdf",
+        )
+
+        res = self.client.get("/api/certificates/issues/?certificate_type=STUDIES&status=ISSUED&limit=10")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        row = next(item for item in res.data["results"] if item["uuid"] == str(issue.uuid))
+        self.assertFalse(row["has_pdf"])
+
+    def test_list_exposes_has_pdf_when_report_job_fallback_is_available(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={"student_full_name": "Ana"},
+            pdf_private_relpath="reports/certificado_estudios_missing.pdf",
+            pdf_private_filename="certificado_estudios_missing.pdf",
+        )
+
+        pdf_bytes = b"%PDF-1.4\n% test list fallback\n"
+        relpath = f"reports/jobs/certificates/certificado_estudios_{issue.uuid}.pdf"
+        abs_path = Path(settings.PRIVATE_STORAGE_ROOT) / relpath
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+        abs_path.write_bytes(pdf_bytes)
+
+        job = ReportJob.objects.create(
+            created_by=self.admin,
+            report_type=ReportJob.ReportType.CERTIFICATE_STUDIES,
+            params={"certificate_uuid": str(issue.uuid)},
+            status=ReportJob.Status.RUNNING,
+        )
+        job.mark_succeeded(
+            output_relpath=relpath,
+            output_filename=f"certificado_estudios_{issue.uuid}.pdf",
+            output_size_bytes=len(pdf_bytes),
+        )
+
+        res = self.client.get("/api/certificates/issues/?certificate_type=STUDIES&status=ISSUED&limit=10")
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        row = next(item for item in res.data["results"] if item["uuid"] == str(issue.uuid))
+        self.assertTrue(row["has_pdf"])
+
+
+class BackfillCertificateIssuePDFsCommandTests(TestCase):
+    def test_dry_run_does_not_modify_missing_issue(self):
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={
+                "student_full_name": "Ana Uno",
+                "document_type": "CC",
+                "document_number": "DOC-1",
+                "academic_year": "2026",
+                "grade_name": "5",
+                "rows": [],
+                "issue_date": "2026-03-11",
+            },
+        )
+
+        out = StringIO()
+        call_command("backfill_certificate_issue_pdfs", stdout=out)
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.pdf_private_relpath, None)
+        self.assertIn("Dry-run", out.getvalue())
+        self.assertIn(str(issue.uuid), out.getvalue())
+
+    @patch("students.management.commands.backfill_certificate_issue_pdfs.render_pdf_bytes_from_html")
+    def test_apply_regenerates_missing_issue_pdf(self, mock_render_pdf):
+        mock_render_pdf.return_value = b"%PDF-1.4\n% regenerated\n"
+
+        issue = CertificateIssue.objects.create(
+            certificate_type=CertificateIssue.TYPE_STUDIES,
+            status=CertificateIssue.STATUS_ISSUED,
+            payload={
+                "student_full_name": "Ana Uno",
+                "document_type": "CC",
+                "document_number": "DOC-1",
+                "academic_year": "2026",
+                "grade_name": "5",
+                "rows": [],
+                "issue_date": "2026-03-11",
+            },
+            seal_hash="seal-1",
+        )
+
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            out = StringIO()
+            with self.settings(PRIVATE_STORAGE_ROOT=tmp, PRIVATE_REPORTS_DIR="reports"):
+                call_command("backfill_certificate_issue_pdfs", "--apply", stdout=out)
+
+                issue.refresh_from_db()
+                self.assertTrue(bool(issue.pdf_private_relpath))
+                self.assertEqual(
+                    issue.pdf_private_relpath,
+                    f"reports/jobs/certificates/certificado_estudios_{issue.uuid}.pdf",
+                )
+                self.assertEqual(
+                    issue.pdf_private_filename,
+                    f"certificado_estudios_{issue.uuid}.pdf",
+                )
+                self.assertTrue((Path(tmp) / issue.pdf_private_relpath).exists())
+
+            self.assertIn("Regenerated", out.getvalue())
 
 
 class PublicCertificateVerifyLegacyURLTests(TestCase):

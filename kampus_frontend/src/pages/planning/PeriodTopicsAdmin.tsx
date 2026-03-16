@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Download, FileUp, Pencil, Plus } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, FileUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { academicApi } from '../../services/academic'
 import type {
   AcademicLoad,
@@ -13,6 +13,7 @@ import type {
 } from '../../services/academic'
 import { useAuthStore } from '../../store/auth'
 import { Button } from '../../components/ui/Button'
+import { ConfirmationModal } from '../../components/ui/ConfirmationModal'
 import { Input } from '../../components/ui/Input'
 import { Label } from '../../components/ui/Label'
 import { Modal } from '../../components/ui/Modal'
@@ -95,6 +96,8 @@ const getErrorMessage = (error: unknown, fallback: string) => {
 }
 
 export default function PeriodTopicsAdmin() {
+  type TopicSortKey = 'grade' | 'period'
+
   const TOPICS_PAGE_SIZE = 8
   const user = useAuthStore((state) => state.user)
   const isTeacher = user?.role === 'TEACHER'
@@ -109,6 +112,8 @@ export default function PeriodTopicsAdmin() {
   const [selectedSubject, setSelectedSubject] = useState<number | ''>('')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deletingTopicId, setDeletingTopicId] = useState<number | null>(null)
+  const [topicPendingDelete, setTopicPendingDelete] = useState<PeriodTopic | null>(null)
   const [importing, setImporting] = useState(false)
   const [previewingFile, setPreviewingFile] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -120,6 +125,7 @@ export default function PeriodTopicsAdmin() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [formData, setFormData] = useState<TopicFormState>(emptyForm())
   const [searchTerm, setSearchTerm] = useState('')
+  const [topicSort, setTopicSort] = useState<{ key: TopicSortKey; direction: 'asc' | 'desc' }>({ key: 'grade', direction: 'asc' })
   const [currentPage, setCurrentPage] = useState(1)
   const [importResult, setImportResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
@@ -212,12 +218,41 @@ export default function PeriodTopicsAdmin() {
     })
   }, [searchTerm, topics])
 
-  const totalPages = Math.max(1, Math.ceil(filteredTopics.length / TOPICS_PAGE_SIZE))
+  const sortedTopics = useMemo(() => {
+    const list = [...filteredTopics]
+    const factor = topicSort.direction === 'asc' ? 1 : -1
+    const compareText = (left?: string, right?: string) =>
+      (left || '').localeCompare(right || '', 'es', { sensitivity: 'base', numeric: true })
+
+    return list.sort((left, right) => {
+      const gradeCmp = compareText(left.grade_name, right.grade_name)
+      const periodCmp = compareText(left.period_name, right.period_name)
+      const subjectCmp = compareText(left.subject_name, right.subject_name)
+      const titleCmp = compareText(left.title, right.title)
+
+      const baseCmp = topicSort.key === 'grade'
+        ? gradeCmp || periodCmp || subjectCmp || titleCmp
+        : periodCmp || gradeCmp || subjectCmp || titleCmp
+
+      return baseCmp * factor
+    })
+  }, [filteredTopics, topicSort])
+
+  const totalPages = Math.max(1, Math.ceil(sortedTopics.length / TOPICS_PAGE_SIZE))
 
   const paginatedTopics = useMemo(() => {
     const start = (currentPage - 1) * TOPICS_PAGE_SIZE
-    return filteredTopics.slice(start, start + TOPICS_PAGE_SIZE)
-  }, [currentPage, filteredTopics])
+    return sortedTopics.slice(start, start + TOPICS_PAGE_SIZE)
+  }, [currentPage, sortedTopics])
+
+  const toggleTopicSort = (key: TopicSortKey) => {
+    setTopicSort((current) => {
+      if (current.key === key) {
+        return { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      }
+      return { key, direction: 'asc' }
+    })
+  }
 
   useEffect(() => {
     setCurrentPage(1)
@@ -306,6 +341,30 @@ export default function PeriodTopicsAdmin() {
       showToast(getErrorMessage(error, 'No se pudo guardar la temática.'), 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDeleteTopic = (topic: PeriodTopic) => {
+    setTopicPendingDelete(topic)
+  }
+
+  const confirmDeleteTopic = async () => {
+    if (!topicPendingDelete) return
+
+    setDeletingTopicId(topicPendingDelete.id)
+    try {
+      await academicApi.deletePeriodTopic(topicPendingDelete.id)
+      showToast('Temática eliminada correctamente.', 'success')
+      await refreshTopics()
+      if (editingId === topicPendingDelete.id) {
+        closeModal()
+      }
+      setTopicPendingDelete(null)
+    } catch (error) {
+      console.error(error)
+      showToast(getErrorMessage(error, 'No se pudo eliminar la temática.'), 'error')
+    } finally {
+      setDeletingTopicId(null)
     }
   }
 
@@ -418,7 +477,7 @@ export default function PeriodTopicsAdmin() {
   return (
     <>
       <div className="space-y-4">
-        <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white via-sky-50/70 to-emerald-50/50 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+        <div className="rounded-lg border border-sky-100 bg-linear-to-br from-white via-sky-50/70 to-emerald-50/50 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:shadow-none">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Planeador de clases docente</p>
@@ -505,10 +564,41 @@ export default function PeriodTopicsAdmin() {
                         <span className="mt-1 block text-sm text-slate-700 dark:text-slate-200">{topic.subject_name}</span>
                       </div>
                     </div>
-                    <Button type="button" variant="outline" size="sm" className="mt-3 w-full justify-center gap-2" onClick={() => openEdit(topic)}>
-                      <Pencil size={14} />
-                      Editar
-                    </Button>
+                    <div className="mt-3 flex items-center justify-end gap-1">
+                      <div className="group/tooltip relative">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0 text-sky-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-sky-50 hover:text-sky-700 focus-visible:ring-sky-500 dark:text-sky-300 dark:hover:bg-slate-800"
+                          onClick={() => openEdit(topic)}
+                          title="Editar temática"
+                          aria-label="Editar temática"
+                        >
+                          <Pencil size={16} />
+                        </Button>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 dark:bg-slate-700">
+                          Editar
+                        </span>
+                      </div>
+                      <div className="group/tooltip relative">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 w-9 p-0 text-rose-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-rose-50 hover:text-rose-700 focus-visible:ring-rose-500 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                          onClick={() => void handleDeleteTopic(topic)}
+                          disabled={deletingTopicId === topic.id}
+                          title="Eliminar temática"
+                          aria-label="Eliminar temática"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                        <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 dark:bg-slate-700">
+                          Eliminar
+                        </span>
+                      </div>
+                    </div>
                   </article>
                 ))
               )}
@@ -518,16 +608,40 @@ export default function PeriodTopicsAdmin() {
                 <thead className="bg-slate-50 dark:bg-slate-950/60">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Temática</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Periodo</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                      <button
+                        type="button"
+                        onClick={() => toggleTopicSort('period')}
+                        className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
+                        aria-label={`Ordenar por periodo ${topicSort.key === 'period' && topicSort.direction === 'asc' ? 'descendente' : 'ascendente'}`}
+                      >
+                        Periodo
+                        {topicSort.key === 'period' ? (
+                          topicSort.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                        ) : null}
+                      </button>
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Asignatura</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Orden</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Acción</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">
+                      <button
+                        type="button"
+                        onClick={() => toggleTopicSort('grade')}
+                        className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100"
+                        aria-label={`Ordenar por grado ${topicSort.key === 'grade' && topicSort.direction === 'asc' ? 'descendente' : 'ascendente'}`}
+                      >
+                        Grado
+                        {topicSort.key === 'grade' ? (
+                          topicSort.direction === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                        ) : null}
+                      </button>
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-400">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white dark:divide-slate-800 dark:bg-slate-900">
                   {loading ? (
                     <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">Cargando temáticas...</td></tr>
-                  ) : filteredTopics.length === 0 ? (
+                  ) : sortedTopics.length === 0 ? (
                     <tr><td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No hay temáticas que coincidan con la búsqueda actual.</td></tr>
                   ) : paginatedTopics.map((topic) => (
                     <tr key={topic.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
@@ -537,12 +651,47 @@ export default function PeriodTopicsAdmin() {
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.period_name}</td>
                       <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.subject_name}</td>
-                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{topic.sequence_order}</td>
+                      <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">
+                        <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                          {topic.grade_name || 'Sin grado'}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-sm">
-                        <Button type="button" variant="outline" size="sm" className="gap-2" onClick={() => openEdit(topic)}>
-                          <Pencil size={14} />
-                          Editar
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <div className="group/tooltip relative">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 transition-all duration-150 hover:-translate-y-0.5 hover:bg-sky-50 hover:text-sky-600 focus-visible:ring-sky-500 dark:hover:bg-slate-800 dark:hover:text-sky-300"
+                              onClick={() => openEdit(topic)}
+                              title="Editar temática"
+                              aria-label="Editar temática"
+                            >
+                              <Pencil size={15} />
+                            </Button>
+                            <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 dark:bg-slate-700">
+                              Editar
+                            </span>
+                          </div>
+                          <div className="group/tooltip relative">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 transition-all duration-150 hover:-translate-y-0.5 hover:bg-rose-50 hover:text-rose-600 focus-visible:ring-rose-500 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+                              onClick={() => void handleDeleteTopic(topic)}
+                              disabled={deletingTopicId === topic.id}
+                              title="Eliminar temática"
+                              aria-label="Eliminar temática"
+                            >
+                              <Trash2 size={15} />
+                            </Button>
+                            <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 dark:bg-slate-700">
+                              Eliminar
+                            </span>
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -551,9 +700,9 @@ export default function PeriodTopicsAdmin() {
             </div>
             <div className="mt-3 flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
               <span className="text-slate-500 dark:text-slate-400">
-                Mostrando {filteredTopics.length === 0 ? 0 : (currentPage - 1) * TOPICS_PAGE_SIZE + 1}
+                Mostrando {sortedTopics.length === 0 ? 0 : (currentPage - 1) * TOPICS_PAGE_SIZE + 1}
                 {' '}-{' '}
-                {Math.min(currentPage * TOPICS_PAGE_SIZE, filteredTopics.length)} de {filteredTopics.length}
+                {Math.min(currentPage * TOPICS_PAGE_SIZE, sortedTopics.length)} de {sortedTopics.length}
               </span>
               <div className="flex flex-wrap items-center gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1}>
@@ -567,7 +716,7 @@ export default function PeriodTopicsAdmin() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-amber-100 bg-linear-to-br from-white via-amber-50/50 to-sky-50/40 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:shadow-none">
+          <section className="rounded-lg border border-amber-100 bg-linear-to-br from-white via-amber-50/50 to-sky-50/40 p-4 shadow-sm dark:border-slate-800 dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 dark:shadow-none">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Importación masiva</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Carga un archivo Excel `.xlsx` o `.xls` con las columnas de la plantilla. El sistema creará o actualizará temáticas y también acepta `.csv` por compatibilidad.</p>
             <div className="mt-4 space-y-3">
@@ -754,6 +903,25 @@ export default function PeriodTopicsAdmin() {
       </Modal>
 
       <Toast message={toast.message} type={toast.type} isVisible={toast.isVisible} onClose={() => setToast((prev) => ({ ...prev, isVisible: false }))} />
+
+      <ConfirmationModal
+        isOpen={Boolean(topicPendingDelete)}
+        onClose={() => {
+          if (deletingTopicId !== null) return
+          setTopicPendingDelete(null)
+        }}
+        onConfirm={() => void confirmDeleteTopic()}
+        title="Eliminar temática"
+        description={
+          topicPendingDelete
+            ? `¿Seguro que deseas eliminar la temática "${topicPendingDelete.title}"? Esta acción no se puede deshacer.`
+            : ''
+        }
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={deletingTopicId !== null}
+      />
     </>
   )
 }

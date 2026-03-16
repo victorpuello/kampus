@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/Button'
 import { Label } from '../../components/ui/Label'
 import { Modal } from '../../components/ui/Modal'
 import { Toast, type ToastType } from '../../components/ui/Toast'
-import { FileSpreadsheet, FileText } from 'lucide-react'
+import { FileSpreadsheet, FileText, BookOpen, ClipboardList, Clock, Users, ChevronRight, Loader2, Download } from 'lucide-react'
 import { useAuthStore } from '../../store/auth'
 
 type EnrollmentOption = {
@@ -499,7 +499,7 @@ export default function EnrollmentReports() {
 
   if (isTeacher) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6">
+      <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-slate-900 dark:text-slate-100 text-xl sm:text-2xl">Reportes de Matrículas</CardTitle>
@@ -515,49 +515,113 @@ export default function EnrollmentReports() {
     )
   }
 
+  const JobStatusBadge = ({ job }: { job: ReportJob | null }) => {
+    if (!job) return null
+    const config: Record<string, { ring: string; dot: string; label: string }> = {
+      PENDING:   { ring: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-300',   dot: 'bg-amber-400',                    label: 'En cola…'   },
+      RUNNING:   { ring: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300',         dot: 'bg-blue-500 animate-pulse',       label: 'Generando…' },
+      SUCCEEDED: { ring: 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300', dot: 'bg-emerald-500', label: '¡PDF listo!' },
+      FAILED:    { ring: 'border-red-200 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/20 dark:text-red-300',               dot: 'bg-red-500',                      label: 'Error'      },
+      CANCELED:  { ring: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400',      dot: 'bg-slate-400',                    label: 'Cancelado'  },
+    }
+    const cfg = config[job.status] ?? config.CANCELED
+    return (
+      <div className="mt-4 space-y-2">
+        <div className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm ${cfg.ring}`}>
+          <span className={`h-2 w-2 shrink-0 rounded-full ${cfg.dot}`} />
+          <span className="font-medium">{cfg.label}</span>
+          {typeof job.progress === 'number' && (
+            <span className="ml-auto text-xs opacity-60">{job.progress}%</span>
+          )}
+          {job.status === 'FAILED' && job.error_message && (
+            <span className="ml-1 truncate text-xs opacity-70">{job.error_message}</span>
+          )}
+        </div>
+        {(job.status === 'RUNNING' || job.status === 'PENDING') && typeof job.progress === 'number' && (
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+            <div
+              className="h-full rounded-full bg-blue-500 transition-all duration-700"
+              style={{ width: `${Math.max(4, job.progress)}%` }}
+            />
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const ReportCard = ({
     title,
     description,
     icon,
-    actionText,
+    formats,
+    accentClass,
+    iconBgClass,
     onAction,
-    disabled,
+    comingSoon,
   }: {
     title: string
     description: string
     icon: ReactNode
-    actionText: string
+    formats?: ('CSV' | 'XLSX' | 'PDF')[]
+    accentClass: string
+    iconBgClass: string
     onAction: () => void
-    disabled?: boolean
+    comingSoon?: boolean
   }) => {
+    const formatPill: Record<string, string> = {
+      CSV:  'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+      XLSX: 'border-green-200 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-900/20 dark:text-green-300',
+      PDF:  'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-700 dark:bg-rose-900/20 dark:text-rose-300',
+    }
     return (
-      <Card className="h-full">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <span className="inline-flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-              {icon}
-            </span>
-            <span className="text-lg sm:text-xl">{title}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-slate-600 dark:text-slate-300">{description}</p>
-          <Button onClick={onAction} disabled={disabled} className="w-full">
-            {actionText}
-          </Button>
-        </CardContent>
-      </Card>
+      <div
+        className={`group relative flex flex-col overflow-hidden rounded-xl border border-l-4 border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900 ${accentClass} ${comingSoon ? 'opacity-55' : 'hover:shadow-md transition-shadow duration-200'}`}
+      >
+        {comingSoon && (
+          <span className="absolute right-3 top-3 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            Próximamente
+          </span>
+        )}
+        <div className="flex flex-1 flex-col p-5">
+          <div className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBgClass}`}>
+            {icon}
+          </div>
+          <h3 className="mt-3 text-[15px] font-semibold leading-snug text-slate-900 dark:text-slate-100">{title}</h3>
+          <p className="mt-1.5 flex-1 text-sm leading-relaxed text-slate-500 dark:text-slate-400">{description}</p>
+          {formats && formats.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {formats.map((f) => (
+                <span key={f} className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-semibold ${formatPill[f]}`}>
+                  {f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+          <button
+            onClick={onAction}
+            disabled={comingSoon}
+            className={`flex w-full items-center justify-center gap-1.5 rounded-lg py-2.5 text-sm font-medium transition-colors ${comingSoon ? 'cursor-not-allowed text-slate-300 dark:text-slate-600' : 'text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800'}`}
+          >
+            {comingSoon
+              ? 'Disponible pronto'
+              : <><Download className="h-3.5 w-3.5" /><span>Generar reporte</span><ChevronRight className="h-3.5 w-3.5 opacity-40" /></>
+            }
+          </button>
+        </div>
+      </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6">
+    <div className="space-y-6">
       <div>
-        <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-100 sm:text-2xl">
           Centro de Reportes
         </h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Genera reportes y PDFs desde un solo lugar. Cada reporte abre su propio formulario.
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
+          Genera y descarga reportes académicos e institucionales.
         </p>
       </div>
 
@@ -568,42 +632,51 @@ export default function EnrollmentReports() {
         onClose={() => setToast(prev => ({ ...prev, isVisible: false }))}
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <ReportCard
           title="Reporte de Matriculados"
-          description="Exporta matrículas activas por año, grado y/o grupo (CSV/XLSX) o genera PDF desde Jobs."
-          icon={<FileSpreadsheet className="h-5 w-5" />}
-          actionText="Abrir"
+          description="Exporta matrículas activas por año, grado y grupo en CSV, XLSX o PDF institucional."
+          icon={<ClipboardList className="h-5 w-5" />}
+          formats={['CSV', 'XLSX', 'PDF']}
+          accentClass="border-l-indigo-500"
+          iconBgClass="bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:text-indigo-300"
           onAction={() => setActiveModal('ENROLLMENT_LIST')}
         />
         <ReportCard
           title="Boletines por periodo"
-          description="Genera boletines en PDF por grupo o por estudiante, con verificación por QR."
-          icon={<FileText className="h-5 w-5" />}
-          actionText="Abrir"
+          description="Boletines en PDF por grupo completo o por estudiante, con código QR de verificación."
+          icon={<BookOpen className="h-5 w-5" />}
+          formats={['PDF']}
+          accentClass="border-l-violet-500"
+          iconBgClass="bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300"
           onAction={() => setActiveModal('BULLETINS')}
         />
         <ReportCard
-          title="Sábana de notas por periodo"
-          description="Genera un PDF horizontal (grupo × asignaturas) con semáforo por nivel y conteo de perdidas."
+          title="Sábana de notas"
+          description="PDF horizontal con todas las notas del grupo, semáforo por nivel y conteo de perdidas."
           icon={<FileSpreadsheet className="h-5 w-5" />}
-          actionText="Abrir"
+          formats={['PDF']}
+          accentClass="border-l-teal-500"
+          iconBgClass="bg-teal-100 text-teal-600 dark:bg-teal-900/40 dark:text-teal-300"
           onAction={() => setActiveModal('SABANA')}
         />
         <ReportCard
-          title="Directorio de padres (PDF)"
-          description="Genera el directorio de padres de familia ordenado por grado y grupo, con membrete institucional."
-          icon={<FileText className="h-5 w-5" />}
-          actionText="Abrir"
+          title="Directorio de padres"
+          description="PDF ordenado por grado y grupo con acudientes, teléfonos y membrete institucional."
+          icon={<Users className="h-5 w-5" />}
+          formats={['PDF']}
+          accentClass="border-l-rose-500"
+          iconBgClass="bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-300"
           onAction={() => setActiveModal('FAMILY_DIRECTORY')}
         />
         <ReportCard
           title="Reporte de Seguimiento"
-          description="Asistencias, novedades y observaciones (próximamente)."
-          icon={<FileText className="h-5 w-5" />}
-          actionText="Próximamente"
-          onAction={() => showToast('Este reporte estará disponible pronto.', 'info')}
-          disabled
+          description="Asistencias, novedades y observaciones consolidadas."
+          icon={<Clock className="h-5 w-5" />}
+          accentClass="border-l-slate-300"
+          iconBgClass="bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500"
+          onAction={() => {}}
+          comingSoon
         />
       </div>
 
@@ -700,30 +773,28 @@ export default function EnrollmentReports() {
           </div>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2 md:flex-row">
-          <Button onClick={() => handleDownloadReport('csv')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
-            <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-            CSV
-          </Button>
-          <Button onClick={() => handleDownloadReport('xlsx')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
-            <FileSpreadsheet className="w-4 h-4 mr-2 text-green-600" />
-            XLSX
-          </Button>
-          <Button onClick={() => handleDownloadReport('pdf')} disabled={loading} variant="outline" className="min-h-11 w-full md:flex-1">
-            <FileText className="w-4 h-4 mr-2 text-red-600" />
-            PDF
-          </Button>
+        <div className="mt-6">
+          <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Formato de descarga</p>
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
+            {[
+              { fmt: 'csv'  as const, label: 'CSV',  icon: <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />, hover: 'hover:border-emerald-300 hover:bg-emerald-50 dark:hover:border-emerald-700 dark:hover:bg-emerald-900/20' },
+              { fmt: 'xlsx' as const, label: 'XLSX', icon: <FileSpreadsheet className="h-5 w-5 text-green-600 dark:text-green-400" />,   hover: 'hover:border-green-300 hover:bg-green-50 dark:hover:border-green-700 dark:hover:bg-green-900/20' },
+              { fmt: 'pdf'  as const, label: 'PDF',  icon: <FileText className="h-5 w-5 text-rose-600 dark:text-rose-400" />,             hover: 'hover:border-rose-300 hover:bg-rose-50 dark:hover:border-rose-700 dark:hover:bg-rose-900/20' },
+            ].map(({ fmt, label, icon, hover }) => (
+              <button
+                key={fmt}
+                onClick={() => handleDownloadReport(fmt)}
+                disabled={loading}
+                className={`flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-slate-200 py-4 text-center transition-colors disabled:opacity-40 dark:border-slate-700 ${hover}`}
+              >
+                {icon}
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {enrollmentListJob ? (
-          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
-            PDF: <span className="font-medium">{enrollmentListJob.status}</span>
-            {typeof enrollmentListJob.progress === 'number' ? ` (${enrollmentListJob.progress}%)` : ''}
-            {enrollmentListJob.status === 'FAILED' && enrollmentListJob.error_message
-              ? ` — ${enrollmentListJob.error_message}`
-              : ''}
-          </div>
-        ) : null}
+        <JobStatusBadge job={enrollmentListJob} />
 
         {enrollmentListJob?.status === 'FAILED' ? (
           <div className="mt-3">
@@ -894,17 +965,14 @@ export default function EnrollmentReports() {
             }
             className="w-full"
           >
-            Generar PDF
+            {loading
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generando…</>
+              : <><FileText className="mr-2 h-4 w-4" />Generar PDF</>
+            }
           </Button>
         </div>
 
-        {bulletinJob ? (
-          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
-            Estado: <span className="font-medium">{bulletinJob.status}</span>
-            {typeof bulletinJob.progress === 'number' ? ` (${bulletinJob.progress}%)` : ''}
-            {bulletinJob.status === 'FAILED' && bulletinJob.error_message ? ` — ${bulletinJob.error_message}` : ''}
-          </div>
-        ) : null}
+        <JobStatusBadge job={bulletinJob} />
 
         {bulletinJob?.status === 'FAILED' ? (
           <div className="mt-3">
@@ -1018,17 +1086,14 @@ export default function EnrollmentReports() {
             disabled={loading || !sabanaFilters.group || !sabanaFilters.year || !sabanaPeriodId}
             className="w-full"
           >
-            Generar PDF
+            {loading
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generando…</>
+              : <><FileText className="mr-2 h-4 w-4" />Generar PDF</>
+            }
           </Button>
         </div>
 
-        {sabanaJob ? (
-          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
-            Estado: <span className="font-medium">{sabanaJob.status}</span>
-            {typeof sabanaJob.progress === 'number' ? ` (${sabanaJob.progress}%)` : ''}
-            {sabanaJob.status === 'FAILED' && sabanaJob.error_message ? ` — ${sabanaJob.error_message}` : ''}
-          </div>
-        ) : null}
+        <JobStatusBadge job={sabanaJob} />
 
         {sabanaJob?.status === 'FAILED' ? (
           <div className="mt-3">
@@ -1065,19 +1130,14 @@ export default function EnrollmentReports() {
 
         <div className="mt-5">
           <Button onClick={handleDownloadFamilyDirectoryByGroupPdf} disabled={loading} className="w-full">
-            Generar PDF
+            {loading
+              ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Generando…</>
+              : <><FileText className="mr-2 h-4 w-4" />Generar PDF</>
+            }
           </Button>
         </div>
 
-        {familyDirectoryJob ? (
-          <div className="mt-4 text-xs text-slate-600 dark:text-slate-300">
-            Estado: <span className="font-medium">{familyDirectoryJob.status}</span>
-            {typeof familyDirectoryJob.progress === 'number' ? ` (${familyDirectoryJob.progress}%)` : ''}
-            {familyDirectoryJob.status === 'FAILED' && familyDirectoryJob.error_message
-              ? ` — ${familyDirectoryJob.error_message}`
-              : ''}
-          </div>
-        ) : null}
+        <JobStatusBadge job={familyDirectoryJob} />
 
         {familyDirectoryJob?.status === 'FAILED' ? (
           <div className="mt-3">

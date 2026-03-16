@@ -5,6 +5,7 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from django.conf import settings
+from django.db.models import Count
 from django.template.loader import render_to_string
 
 from academic.grading import DEFAULT_EMPTY_SCORE, final_grade_from_dimensions, match_scale, weighted_average
@@ -98,17 +99,17 @@ def _scale_equivalences(academic_year_id: int) -> str:
 
 
 def _compute_overall_from_rows(academic_year_id: int, rows: List[Dict[str, Any]]) -> Tuple[str, str]:
+    """Promedio general basado en la nota de cada AREA para el periodo del reporte.
+    Las areas sin nota en ese periodo aportan 1.00.
+    Para areas de una sola asignatura (is_single_area) se usa igualmente su nota del periodo.
+    """
     scores: List[Decimal] = []
     for r in rows:
-        if (r.get("row_type") or "").upper() != "SUBJECT":
-            continue
-        raw = (r.get("final_score") or "").strip()
-        if not raw:
-            continue
-        try:
-            scores.append(Decimal(raw))
-        except Exception:
-            continue
+        row_type = (r.get("row_type") or "").upper()
+        is_single = r.get("is_single_area", False)
+        if row_type == "AREA" or (row_type == "SUBJECT" and is_single):
+            raw = (r.get("selected_period_score") or "").strip()
+            scores.append(Decimal(raw) if raw else Decimal("1.00"))
 
     if not scores:
         return "", ""
@@ -118,17 +119,14 @@ def _compute_overall_from_rows(academic_year_id: int, rows: List[Dict[str, Any]]
 
 
 def _overall_decimal_from_rows(rows: List[Dict[str, Any]]) -> Optional[Decimal]:
+    """Versión decimal del promedio general, usada para el ranking."""
     scores: List[Decimal] = []
     for r in rows:
-        if (r.get("row_type") or "").upper() != "SUBJECT":
-            continue
-        raw = (r.get("final_score") or "").strip()
-        if not raw:
-            continue
-        try:
-            scores.append(Decimal(raw))
-        except Exception:
-            continue
+        row_type = (r.get("row_type") or "").upper()
+        is_single = r.get("is_single_area", False)
+        if row_type == "AREA" or (row_type == "SUBJECT" and is_single):
+            raw = (r.get("selected_period_score") or "").strip()
+            scores.append(Decimal(raw) if raw else Decimal("1.00"))
 
     if not scores:
         return None
@@ -189,6 +187,38 @@ def _teacher_assignments(group_id: int, academic_year_id: int) -> List[TeacherAs
     )
 
 
+def _absences_by_ta(enrollment_id: int, period_id: int) -> Dict[int, int]:
+    """Return dict mapping teacher_assignment_id -> absence count (ABSENT + TARDY) for one enrollment/period."""
+    from attendance.models import AttendanceRecord  # noqa: PLC0415
+
+    qs = (
+        AttendanceRecord.objects.filter(
+            enrollment_id=enrollment_id,
+            session__period_id=period_id,
+            status__in=["ABSENT", "TARDY"],
+        )
+        .values("session__teacher_assignment_id")
+        .annotate(count=Count("id"))
+    )
+    return {r["session__teacher_assignment_id"]: r["count"] for r in qs}
+
+
+def _absences_bulk(enrollment_ids: List[int], period_id: int) -> Dict[Tuple[int, int], int]:
+    """Return dict mapping (enrollment_id, teacher_assignment_id) -> absence count."""
+    from attendance.models import AttendanceRecord  # noqa: PLC0415
+
+    qs = (
+        AttendanceRecord.objects.filter(
+            enrollment_id__in=enrollment_ids,
+            session__period_id=period_id,
+            status__in=["ABSENT", "TARDY"],
+        )
+        .values("enrollment_id", "session__teacher_assignment_id")
+        .annotate(count=Count("id"))
+    )
+    return {(r["enrollment_id"], r["session__teacher_assignment_id"]): r["count"] for r in qs}
+
+
 def build_academic_period_report_context(enrollment: Enrollment, period: Period) -> Dict[str, Any]:
     year_periods = _year_periods(enrollment.academic_year_id)
     assignments = _teacher_assignments(enrollment.group_id, enrollment.academic_year_id) if enrollment.group_id else []
@@ -208,6 +238,7 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
         gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
         achievements_by_ta_period=achievements_by_ta_period,
         dim_percentage_by_id=dim_percentage_by_id,
+        absences_by_ta=_absences_by_ta(enrollment.id, period.id),
     )
 
     institution = Institution.objects.first() or Institution()
@@ -689,6 +720,7 @@ def _build_rows_for_enrollment(
     gradesheet_id_by_ta_period: Dict[Tuple[int, int], int],
     achievements_by_ta_period: Dict[Tuple[int, int], List[Dict[str, Any]]],
     dim_percentage_by_id: Dict[int, int],
+    absences_by_ta: Optional[Dict[int, int]] = None,
 ) -> List[Dict[str, Any]]:
     period_ids = [p.id for p in year_periods]
     period_index_by_id = {p.id: idx for idx, p in enumerate(year_periods)}
@@ -773,6 +805,7 @@ def _build_rows_for_enrollment(
             single["weight_percentage"] = None
             single["is_single_area"] = True
             single["lines_as_paragraph"] = True
+            # selected_period_score already set from subject_row
             rows.append(single)
         else:
             p_scores: List[Optional[Decimal]] = []
@@ -789,6 +822,9 @@ def _build_rows_for_enrollment(
                     sum(Decimal(s) for s in filled_period_scores) / Decimal(len(filled_period_scores))
                 ).quantize(Decimal("0.01"))
 
+            # Score of the area for the selected period (used for overall average/ranking).
+            area_selected_score = p_scores[selected_period_idx] if selected_period_idx < len(p_scores) else None
+
             rows.append(
                 {
                     "row_type": "AREA",
@@ -800,6 +836,7 @@ def _build_rows_for_enrollment(
                     "p4_score": _format_score(p_scores[3]),
                     "final_score": _format_score(final_score),
                     "final_display": _format_score(final_score),
+                    "selected_period_score": _format_score(area_selected_score),
                     "p1_scale": p_scales[0],
                     "p2_scale": p_scales[1],
                     "p3_scale": p_scales[2],
@@ -839,12 +876,17 @@ def _build_rows_for_enrollment(
         scores_by_period: Dict[int, Optional[Decimal]] = {}
         scales_by_period: Dict[int, str] = {}
         for p in year_periods:
+            p_idx = period_index_by_id.get(p.id, 999)
             s, sc = compute_subject_score(ta, p)
             scores_by_period[p.id] = s
             scales_by_period[p.id] = sc
-            if area_key and s is not None:
-                current_area_items_by_period.setdefault(p.id, []).append((s, weight_pct))
+            if area_key and p_idx <= selected_period_idx:
+                # If the subject has no grade for this period, default to 1.00 so it
+                # is not silently ignored when computing the area weighted average.
+                area_score = s if s is not None else Decimal("1.00")
+                current_area_items_by_period.setdefault(p.id, []).append((area_score, weight_pct))
 
+        filled = [Decimal(s) for s in scores_by_period.values() if s is not None]
         filled = [Decimal(s) for s in scores_by_period.values() if s is not None]
         final_score = None
         if filled:
@@ -902,13 +944,14 @@ def _build_rows_for_enrollment(
             "row_type": "SUBJECT",
             "title": title,
             "weight_percentage": weight_pct,
-            "absences": "",
+            "absences": str((absences_by_ta or {}).get(ta.id, 0)),
             "p1_score": cell_score(0),
             "p2_score": cell_score(1),
             "p3_score": cell_score(2),
             "p4_score": cell_score(3),
             "final_score": _format_score(final_score),
             "final_display": "",
+            "selected_period_score": cell_score(selected_period_idx),
             "p1_scale": cell_scale(0),
             "p2_scale": cell_scale(1),
             "p3_scale": cell_scale(2),
@@ -995,12 +1038,19 @@ def build_academic_period_group_report_context(
     institution = Institution.objects.first() or Institution()
     scale_equivalences = _scale_equivalences(academic_year_id)
 
+    # Bulk-fetch absences for all enrollments in a single query.
+    enrollment_ids = [e.id for e in enrollments]
+    bulk_absences = _absences_bulk(enrollment_ids, period.id)
+
     pages: List[Dict[str, Any]] = []
     score_items: List[Tuple[int, Optional[Decimal]]] = []
     for enrollment in enrollments:
         director_name = ""
         if enrollment.group and getattr(enrollment.group, "director", None):
             director_name = enrollment.group.director.get_full_name()
+
+        # Extract per-enrollment absence dict from the bulk result.
+        abs_by_ta = {ta_id: cnt for (enr_id, ta_id), cnt in bulk_absences.items() if enr_id == enrollment.id}
 
         rows = _build_rows_for_enrollment(
             enrollment=enrollment,
@@ -1010,6 +1060,7 @@ def build_academic_period_group_report_context(
             gradesheet_id_by_ta_period=gradesheet_id_by_ta_period,
             achievements_by_ta_period=achievements_by_ta_period,
             dim_percentage_by_id=dim_percentage_by_id,
+            absences_by_ta=abs_by_ta,
         )
 
         overall_score, overall_scale = _compute_overall_from_rows(academic_year_id, rows)
