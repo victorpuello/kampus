@@ -417,6 +417,11 @@ export const electionsApi = {
     return response.data
   },
 
+  restartProcess: async (processId: number) => {
+    const response = await api.post<ElectionProcessItem>(`/api/elections/manage/processes/${processId}/restart/`)
+    return response.data
+  },
+
   listRoles: async (processId?: number) => {
     const response = await api.get<ListResponse<ElectionRoleItem>>('/api/elections/manage/roles/', {
       params: processId ? { process_id: processId } : undefined,

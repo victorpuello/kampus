@@ -35,6 +35,7 @@ from audit.services import log_event
 from audit.models import AuditLog
 from students.models import Enrollment
 from students.models import Student
+from students.models import ObserverAnnotation
 from core.models import Campus
 from core.models import Institution
 from teachers.models import Teacher
@@ -49,6 +50,8 @@ from .models import (
     ElectionProcess,
     ElectionProcessCensusExclusion,
     ElectionRole,
+    TokenResetEvent,
+    VoteAccessSession,
     VoteRecord,
     VoterToken,
 )
@@ -773,6 +776,23 @@ class ElectionProcessListCreateAPIView(APIView):
 
         observer_congrats_summary_by_process: dict[int, dict] = {}
         if process_ids:
+            restart_logs = AuditLog.objects.filter(
+                event_type="ELECTION_PROCESS_RESTART",
+                object_type="ElectionProcess",
+                object_id__in=process_ids,
+                status_code=status.HTTP_200_OK,
+            ).order_by("-created_at", "-id")
+
+            latest_restart_by_process: dict[int, timezone.datetime] = {}
+            for restart_log in restart_logs:
+                try:
+                    process_id = int(restart_log.object_id)
+                except (TypeError, ValueError):
+                    continue
+                if process_id in latest_restart_by_process:
+                    continue
+                latest_restart_by_process[process_id] = restart_log.created_at
+
             congrats_logs = AuditLog.objects.filter(
                 event_type="ELECTION_OBSERVER_CONGRATS_AUTOGEN",
                 object_type="ElectionProcess",
@@ -786,6 +806,9 @@ class ElectionProcessListCreateAPIView(APIView):
                 except (TypeError, ValueError):
                     continue
                 if process_id in observer_congrats_summary_by_process:
+                    continue
+                latest_restart_at = latest_restart_by_process.get(process_id)
+                if latest_restart_at is not None and log_item.created_at <= latest_restart_at:
                     continue
                 metadata = log_item.metadata if isinstance(log_item.metadata, dict) else {}
                 observer_congrats_summary_by_process[process_id] = metadata
@@ -998,6 +1021,95 @@ class ElectionProcessCloseAPIView(APIView):
                 "observer_congrats_summary": observer_congrats_summary,
             }
         )
+
+
+class ElectionProcessRestartAPIView(APIView):
+    permission_classes = [IsAuthenticated, CanManageElectionSetup]
+
+    def post(self, request, process_id: int, *args, **kwargs):
+        with transaction.atomic():
+            process = ElectionProcess.objects.select_for_update().filter(id=process_id).first()
+            if process is None:
+                log_event(
+                    request,
+                    event_type="ELECTION_PROCESS_RESTART_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process_id,
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    metadata={"reason": "process_not_found"},
+                )
+                return Response({"detail": "No se encontró la jornada electoral."}, status=status.HTTP_404_NOT_FOUND)
+
+            if process.status == ElectionProcess.Status.DRAFT:
+                log_event(
+                    request,
+                    event_type="ELECTION_PROCESS_RESTART_FAILED",
+                    object_type="ElectionProcess",
+                    object_id=process.id,
+                    status_code=status.HTTP_409_CONFLICT,
+                    metadata={"reason": "draft_process_not_restartable", "status": process.status},
+                )
+                return Response(
+                    {"detail": "No se puede reiniciar una jornada en estado borrador."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            votes_deleted = VoteRecord.objects.filter(process_id=process.id).delete()[0]
+            sessions_deleted = VoteAccessSession.objects.filter(voter_token__process_id=process.id).delete()[0]
+            reset_events_deleted = TokenResetEvent.objects.filter(voter_token__process_id=process.id).delete()[0]
+
+            tokens_qs = VoterToken.objects.filter(process_id=process.id)
+            token_ids = list(tokens_qs.values_list("id", flat=True))
+            tokens_reactivated = tokens_qs.exclude(status=VoterToken.Status.ACTIVE).count()
+            tokens_updated = tokens_qs.update(
+                status=VoterToken.Status.ACTIVE,
+                used_at=None,
+                revoked_at=None,
+                revoked_reason="",
+            )
+
+            process_rule_prefixes = [
+                f"ELECTION_WINNER:{process.id}:",
+                f"ELECTION_PARTICIPANT:{process.id}:",
+            ]
+            observer_annotations_cleared = ObserverAnnotation.objects.filter(
+                is_deleted=False,
+            ).filter(
+                Q(rule_key__startswith=process_rule_prefixes[0]) | Q(rule_key__startswith=process_rule_prefixes[1])
+            ).update(
+                is_deleted=True,
+                deleted_at=timezone.now(),
+                deleted_by=request.user,
+                updated_by=request.user,
+            )
+
+            process.status = ElectionProcess.Status.OPEN
+            process.ends_at = None
+            if process.starts_at is None:
+                process.starts_at = timezone.now()
+                process.save(update_fields=["status", "starts_at", "ends_at", "updated_at"])
+            else:
+                process.save(update_fields=["status", "ends_at", "updated_at"])
+
+        log_event(
+            request,
+            event_type="ELECTION_PROCESS_RESTART",
+            object_type="ElectionProcess",
+            object_id=process.id,
+            status_code=status.HTTP_200_OK,
+            metadata={
+                "status": process.status,
+                "votes_deleted": votes_deleted,
+                "sessions_deleted": sessions_deleted,
+                "reset_events_deleted": reset_events_deleted,
+                "tokens_updated": tokens_updated,
+                "tokens_reactivated": tokens_reactivated,
+                "token_ids": token_ids,
+                "observer_annotations_cleared": observer_annotations_cleared,
+            },
+        )
+
+        return Response(ElectionProcessManageSerializer(process).data)
 
 
 class ElectionProcessOpeningRecordAPIView(APIView):

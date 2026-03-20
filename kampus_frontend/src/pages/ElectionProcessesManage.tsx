@@ -160,10 +160,12 @@ type ProcessActionMenuProps = {
   updatingProcessId: number | null
   deletingProcessId: number | null
   closingProcessId: number | null
+  restartingProcessId: number | null
   compact?: boolean
   onStartEditProcess: (item: ElectionProcessItem) => void
   onOpenProcess: (processId: number) => void
   onRequestCloseProcess: (item: ElectionProcessItem) => void
+  onRequestRestartProcess: (item: ElectionProcessItem) => void
   onRequestDeleteProcess: (item: ElectionProcessItem) => void
   onDownloadPersoneroActa: (processId: number) => void
   onDownloadContralorActa: (processId: number) => void
@@ -174,10 +176,12 @@ function ProcessActionMenu({
   updatingProcessId,
   deletingProcessId,
   closingProcessId,
+  restartingProcessId,
   compact = false,
   onStartEditProcess,
   onOpenProcess,
   onRequestCloseProcess,
+  onRequestRestartProcess,
   onRequestDeleteProcess,
   onDownloadPersoneroActa,
   onDownloadContralorActa,
@@ -185,6 +189,7 @@ function ProcessActionMenu({
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const isClosed = item.status === 'CLOSED'
   const isOpen = item.status === 'OPEN'
+  const canRestart = item.status !== 'DRAFT'
   const canDelete = item.can_delete
   const wrapperClassName = compact
     ? 'mt-3 flex flex-wrap items-center gap-2'
@@ -231,6 +236,17 @@ function ProcessActionMenu({
             Gestion de jornada
           </div>
           <div className="space-y-1 border-b border-slate-100 pb-2 dark:border-slate-800">
+            {canRestart ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full justify-start text-red-700 hover:text-red-800 dark:text-red-300 dark:hover:text-red-200"
+                disabled={restartingProcessId === item.id}
+                onClick={() => onRequestRestartProcess(item)}
+              >
+                {restartingProcessId === item.id ? 'Reiniciando...' : 'Reiniciar jornada'}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -307,6 +323,8 @@ export default function ElectionProcessesManage() {
   const [processToDelete, setProcessToDelete] = useState<ElectionProcessItem | null>(null)
   const [closingProcessId, setClosingProcessId] = useState<number | null>(null)
   const [processToClose, setProcessToClose] = useState<ElectionProcessItem | null>(null)
+  const [restartingProcessId, setRestartingProcessId] = useState<number | null>(null)
+  const [processToRestart, setProcessToRestart] = useState<ElectionProcessItem | null>(null)
   const [editingProcess, setEditingProcess] = useState<ElectionProcessItem | null>(null)
   const [editingStartsAt, setEditingStartsAt] = useState('')
   const [editingEndsAt, setEditingEndsAt] = useState('')
@@ -530,6 +548,10 @@ export default function ElectionProcessesManage() {
     setProcessToClose(processItem)
   }
 
+  const onRequestRestartProcess = (processItem: ElectionProcessItem) => {
+    setProcessToRestart(processItem)
+  }
+
   const onRequestDeleteProcess = (processItem: ElectionProcessItem) => {
     setProcessToDelete(processItem)
   }
@@ -599,6 +621,24 @@ export default function ElectionProcessesManage() {
       setError(getApiErrorMessage(requestError, 'No fue posible eliminar la jornada electoral.'))
     } finally {
       setDeletingProcessId(null)
+    }
+  }
+
+  const onConfirmRestartProcess = async () => {
+    if (!processToRestart) return
+
+    setRestartingProcessId(processToRestart.id)
+    setError(null)
+    setSuccess(null)
+    try {
+      await electionsApi.restartProcess(processToRestart.id)
+      setSuccess('Jornada electoral reiniciada correctamente. Se limpiaron votos, se reactivaron tokens y se retiraron felicitaciones automáticas del observador.')
+      setProcessToRestart(null)
+      await loadItems()
+    } catch (requestError) {
+      setError(getApiErrorMessage(requestError, 'No fue posible reiniciar la jornada electoral.'))
+    } finally {
+      setRestartingProcessId(null)
     }
   }
 
@@ -943,9 +983,11 @@ export default function ElectionProcessesManage() {
                           updatingProcessId={updatingProcessId}
                           deletingProcessId={deletingProcessId}
                           closingProcessId={closingProcessId}
+                          restartingProcessId={restartingProcessId}
                           onStartEditProcess={onStartEditProcess}
                           onOpenProcess={onOpenProcess}
                           onRequestCloseProcess={onRequestCloseProcess}
+                          onRequestRestartProcess={onRequestRestartProcess}
                           onRequestDeleteProcess={onRequestDeleteProcess}
                           onDownloadPersoneroActa={onDownloadPersoneroActa}
                           onDownloadContralorActa={onDownloadContralorActa}
@@ -993,9 +1035,11 @@ export default function ElectionProcessesManage() {
                               updatingProcessId={updatingProcessId}
                               deletingProcessId={deletingProcessId}
                               closingProcessId={closingProcessId}
+                              restartingProcessId={restartingProcessId}
                               onStartEditProcess={onStartEditProcess}
                               onOpenProcess={onOpenProcess}
                               onRequestCloseProcess={onRequestCloseProcess}
+                              onRequestRestartProcess={onRequestRestartProcess}
                               onRequestDeleteProcess={onRequestDeleteProcess}
                               onDownloadPersoneroActa={onDownloadPersoneroActa}
                               onDownloadContralorActa={onDownloadContralorActa}
@@ -1388,6 +1432,26 @@ export default function ElectionProcessesManage() {
         cancelText="Cancelar"
         variant="destructive"
         loading={closingProcessId !== null}
+      />
+
+      <ConfirmationModal
+        isOpen={Boolean(processToRestart)}
+        onClose={() => {
+          if (!restartingProcessId) {
+            setProcessToRestart(null)
+          }
+        }}
+        onConfirm={() => void onConfirmRestartProcess()}
+        title="Reiniciar jornada electoral"
+        description={
+          processToRestart
+            ? `¿Reiniciar la jornada ${processToRestart.name}? Esta acción eliminará votos registrados y reactivará todos los tokens de votación.`
+            : '¿Reiniciar esta jornada electoral?'
+        }
+        confirmText="Reiniciar jornada"
+        cancelText="Cancelar"
+        variant="destructive"
+        loading={restartingProcessId !== null}
       />
     </div>
   )

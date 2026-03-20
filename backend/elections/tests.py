@@ -21,6 +21,7 @@ from elections.models import (
     ElectionOpeningRecord,
     ElectionProcess,
     ElectionRole,
+    TokenResetEvent,
     VoteAccessSession,
     VoteRecord,
     VoterToken,
@@ -1273,6 +1274,138 @@ class ElectionPermissionsTests(APITestCase):
         )
 
         self.assertEqual(create_response.status_code, 201)
+
+    def test_restart_process_requires_admin_role(self):
+        self.client.force_authenticate(user=self.teacher)
+        response = self.client.post(f"/api/elections/manage/processes/{self.process.id}/restart/", format="json")
+        self.assertEqual(response.status_code, 403)
+
+    def test_restart_process_rejects_draft_process(self):
+        self.process.status = ElectionProcess.Status.DRAFT
+        self.process.save(update_fields=["status", "updated_at"])
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(f"/api/elections/manage/processes/{self.process.id}/restart/", format="json")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("borrador", response.data["detail"].lower())
+
+    def test_restart_process_resets_votes_sessions_and_tokens(self):
+        role = ElectionRole.objects.create(
+            process=self.process,
+            code=ElectionRole.CODE_CONTRALOR,
+            title="Contraloría",
+            display_order=1,
+        )
+        candidate = ElectionCandidate.objects.create(
+            role=role,
+            name="Candidato Reinicio",
+            number="01",
+            grade="10",
+            is_active=True,
+            display_order=1,
+        )
+
+        student_user = get_user_model().objects.create_user(
+            username="student_restart_observer",
+            password="pass1234",
+            role=get_user_model().ROLE_STUDENT,
+            first_name="Estudiante",
+            last_name="Reinicio",
+        )
+        student = Student.objects.create(user=student_user, document_number="11223344")
+
+        used_token = VoterToken.objects.create(
+            process=self.process,
+            token_hash=VoterToken.hash_token("VOTO-RESET-USED"),
+            token_prefix="VOTO-RESET",
+            status=VoterToken.Status.USED,
+            expires_at=timezone.now() + timedelta(hours=1),
+            used_at=timezone.now() - timedelta(minutes=2),
+        )
+        session = VoteAccessSession.objects.create(
+            voter_token=used_token,
+            expires_at=timezone.now() + timedelta(minutes=10),
+            consumed_at=timezone.now(),
+        )
+        VoteRecord.objects.create(
+            process=self.process,
+            role=role,
+            candidate=candidate,
+            voter_token=used_token,
+            access_session=session,
+            is_blank=False,
+        )
+        TokenResetEvent.objects.create(
+            voter_token=used_token,
+            reset_by=self.admin,
+            reason="Contingencia previa",
+            previous_status=VoterToken.Status.USED,
+            new_status=VoterToken.Status.ACTIVE,
+            previous_expires_at=timezone.now() - timedelta(hours=1),
+            new_expires_at=timezone.now() + timedelta(hours=2),
+        )
+        observer_note = ObserverAnnotation.objects.create(
+            student=student,
+            period=None,
+            annotation_type=ObserverAnnotation.TYPE_PRAISE,
+            title="Felicitación por elección",
+            text="Texto de felicitación",
+            is_automatic=True,
+            rule_key=f"ELECTION_WINNER:{self.process.id}:{role.code}:{candidate.id}",
+            meta={"source": "elections", "kind": "winner", "process_id": self.process.id},
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+        AuditLog.objects.create(
+            actor=self.admin,
+            event_type="ELECTION_OBSERVER_CONGRATS_AUTOGEN",
+            object_type="ElectionProcess",
+            object_id=str(self.process.id),
+            status_code=200,
+            metadata={"winner_annotations_created": 1, "participant_annotations_created": 0},
+        )
+
+        self.process.status = ElectionProcess.Status.CLOSED
+        self.process.ends_at = timezone.now()
+        self.process.save(update_fields=["status", "ends_at", "updated_at"])
+
+        self.client.force_authenticate(user=self.admin)
+        response = self.client.post(f"/api/elections/manage/processes/{self.process.id}/restart/", format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], ElectionProcess.Status.OPEN)
+        self.assertIsNone(response.data["ends_at"])
+        self.assertEqual(VoteRecord.objects.filter(process=self.process).count(), 0)
+        self.assertEqual(VoteAccessSession.objects.filter(voter_token__process=self.process).count(), 0)
+        self.assertEqual(TokenResetEvent.objects.filter(voter_token__process=self.process).count(), 0)
+
+        used_token.refresh_from_db()
+        self.assertEqual(used_token.status, VoterToken.Status.ACTIVE)
+        self.assertIsNone(used_token.used_at)
+        self.assertIsNone(used_token.revoked_at)
+        self.assertEqual(used_token.revoked_reason, "")
+
+        observer_note.refresh_from_db()
+        self.assertTrue(observer_note.is_deleted)
+        self.assertIsNotNone(observer_note.deleted_at)
+        self.assertEqual(observer_note.deleted_by_id, self.admin.id)
+
+        list_response = self.client.get("/api/elections/manage/processes/")
+        self.assertEqual(list_response.status_code, 200)
+        process_row = next(item for item in list_response.data["results"] if item["id"] == self.process.id)
+        self.assertFalse(process_row["observer_congrats_generated"])
+        self.assertIsNone(process_row["observer_congrats_summary"])
+
+        self.assertTrue(
+            AuditLog.objects.filter(
+                event_type="ELECTION_PROCESS_RESTART",
+                object_type="ElectionProcess",
+                object_id=str(self.process.id),
+                actor=self.admin,
+                status_code=200,
+            ).exists()
+        )
 
 
 class ElectionAuditTrailTests(APITestCase):
