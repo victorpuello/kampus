@@ -2,7 +2,9 @@ from django.conf import settings
 import logging
 import json
 import re
+import ast
 from json import JSONDecodeError
+from typing import Iterator
 
 
 logger = logging.getLogger(__name__)
@@ -176,13 +178,142 @@ class AIService:
 
         return cleaned
 
+    def _strip_markdown_noise(self, text: str) -> str:
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return ""
+
+        cleaned = re.sub(r"^```(?:json|markdown|md|text)?", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+        cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+        cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+        cleaned = re.sub(r"\r\n?", "\n", cleaned)
+        return cleaned.strip()
+
+    def _try_parse_structured_text(self, text: str):
+        candidate = str(text or "").strip()
+        if not candidate or candidate[0] not in "[{":
+            return None
+
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+
+        try:
+            return ast.literal_eval(candidate)
+        except Exception:
+            return None
+
+    def _stringify_class_planner_value(self, value) -> str:
+        if value is None:
+            return ""
+
+        if isinstance(value, str):
+            parsed = self._try_parse_structured_text(value)
+            if parsed is not None:
+                return self._stringify_class_planner_value(parsed)
+            return self._strip_markdown_noise(value)
+
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+
+        if isinstance(value, dict):
+            normalized_keys = {str(key).strip().lower(): item for key, item in value.items()}
+            name = self._stringify_class_planner_value(
+                normalized_keys.get("activity_name")
+                or normalized_keys.get("name")
+                or normalized_keys.get("title")
+                or ""
+            )
+            description = self._stringify_class_planner_value(
+                normalized_keys.get("activity_description")
+                or normalized_keys.get("description")
+                or normalized_keys.get("detail")
+                or normalized_keys.get("content")
+                or ""
+            )
+            if name and description:
+                return f"{name}: {description}"
+            if name:
+                return name
+            if description:
+                return description
+
+            fragments = [self._stringify_class_planner_value(item) for item in value.values()]
+            fragments = [fragment for fragment in fragments if fragment]
+            return " - ".join(fragments)
+
+        if isinstance(value, (list, tuple, set)):
+            items = [self._stringify_class_planner_value(item) for item in value]
+            items = [item for item in items if item]
+            if not items:
+                return ""
+            if len(items) == 1:
+                return items[0]
+            return "\n".join(f"- {item}" for item in items)
+
+        return self._strip_markdown_noise(str(value))
+
     def _normalize_class_planner_payload(self, payload: dict, *, numeric_keys: set[str]) -> dict:
         normalized = dict(payload)
         for key, value in list(normalized.items()):
             if key in numeric_keys:
                 continue
-            normalized[key] = self._replace_leaked_english_terms(str(value or "").strip())
+            normalized[key] = self._replace_leaked_english_terms(self._stringify_class_planner_value(value))
         return normalized
+
+    def _validate_class_plan_draft_payload(self, payload: dict) -> dict:
+        required = {
+            "title",
+            "duration_minutes",
+            "learning_result",
+            "dba_reference",
+            "standard_reference",
+            "competency_know",
+            "competency_do",
+            "competency_be",
+            "class_purpose",
+            "start_time_minutes",
+            "start_activities",
+            "development_time_minutes",
+            "development_activities",
+            "closing_time_minutes",
+            "closing_activities",
+            "evidence_product",
+            "evaluation_instrument",
+            "evaluation_criterion",
+            "resources",
+            "dua_adjustments",
+        }
+        if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
+            raise AIParseError("AI response JSON missing required keys for class plan draft.")
+
+        numeric_keys = {
+            "duration_minutes",
+            "start_time_minutes",
+            "development_time_minutes",
+            "closing_time_minutes",
+        }
+        for numeric_key in numeric_keys:
+            try:
+                payload[numeric_key] = int(payload.get(numeric_key) or 0)
+            except Exception as exc:
+                raise AIParseError(f"AI response key '{numeric_key}' must be numeric.") from exc
+
+        for text_key in required - numeric_keys:
+            payload[text_key] = str(payload.get(text_key) or "").strip()
+
+        payload = self._normalize_class_planner_payload(payload, numeric_keys=numeric_keys)
+
+        if payload["duration_minutes"] != (
+            payload["start_time_minutes"]
+            + payload["development_time_minutes"]
+            + payload["closing_time_minutes"]
+        ):
+            raise AIParseError("AI response produced inconsistent timing totals for class plan draft.")
+
+        return payload
 
     def _distribute_sequence_minutes(self, duration_minutes: int) -> tuple[int, int, int]:
         safe_duration = max(int(duration_minutes or 55), 15)
@@ -516,6 +647,45 @@ Contexto (JSON):
             self._ensure_available()
             response = self.model.generate_content(prompt)
             payload = self._extract_json_object(getattr(response, "text", "") or "")
+            return self._validate_class_plan_draft_payload(payload)
+        except Exception as e:
+            logger.exception("Error generating class plan draft")
+            return self._fallback_class_plan_draft(enriched_context)
+
+    def generate_class_plan_draft_stream_events(self, context: dict) -> Iterator[dict]:
+        """Genera eventos incrementales por sección para poblar el formulario en tiempo real.
+
+        Nota: el streaming token-a-token del proveedor no siempre produce JSON parseable de forma temprana;
+        por eso emitimos parches por sección para asegurar actualizaciones visibles durante la generación.
+        """
+        section_plan = [
+            ("learning", 20),
+            ("competencies", 40),
+            ("sequence", 65),
+            ("evaluation", 85),
+            ("support", 95),
+        ]
+
+        merged_payload: dict = {}
+        evolving_context = dict(context or {})
+
+        try:
+            self._ensure_available()
+
+            for section, progress in section_plan:
+                section_payload = self.generate_class_plan_section(section, evolving_context)
+                if not isinstance(section_payload, dict):
+                    continue
+
+                merged_payload.update(section_payload)
+                evolving_context.update(section_payload)
+
+                yield {
+                    "event": "patch",
+                    "section": section,
+                    "progress": progress,
+                    "data": section_payload,
+                }
 
             required = {
                 "title",
@@ -539,49 +709,19 @@ Contexto (JSON):
                 "resources",
                 "dua_adjustments",
             }
-            if not isinstance(payload, dict) or not required.issubset(set(payload.keys())):
-                raise AIParseError("AI response JSON missing required keys for class plan draft.")
 
-            for numeric_key in {
-                "duration_minutes",
-                "start_time_minutes",
-                "development_time_minutes",
-                "closing_time_minutes",
-            }:
-                try:
-                    payload[numeric_key] = int(payload.get(numeric_key) or 0)
-                except Exception as exc:
-                    raise AIParseError(f"AI response key '{numeric_key}' must be numeric.") from exc
+            if not required.issubset(set(merged_payload.keys())):
+                fallback_payload = self.generate_class_plan_draft(context)
+                for key in required:
+                    merged_payload.setdefault(key, fallback_payload.get(key))
 
-            for text_key in required - {
-                "duration_minutes",
-                "start_time_minutes",
-                "development_time_minutes",
-                "closing_time_minutes",
-            }:
-                payload[text_key] = str(payload.get(text_key) or "").strip()
-
-            payload = self._normalize_class_planner_payload(
-                payload,
-                numeric_keys={
-                    "duration_minutes",
-                    "start_time_minutes",
-                    "development_time_minutes",
-                    "closing_time_minutes",
-                },
-            )
-
-            if payload["duration_minutes"] != (
-                payload["start_time_minutes"]
-                + payload["development_time_minutes"]
-                + payload["closing_time_minutes"]
-            ):
-                raise AIParseError("AI response produced inconsistent timing totals for class plan draft.")
-
-            return payload
-        except Exception as e:
-            logger.exception("Error generating class plan draft")
-            return self._fallback_class_plan_draft(enriched_context)
+            validated_payload = self._validate_class_plan_draft_payload(merged_payload)
+            yield {"event": "done", "progress": 100, "data": validated_payload}
+        except AIServiceError:
+            raise
+        except Exception as exc:
+            logger.exception("Error generating class plan draft stream")
+            raise AIProviderError(str(exc)) from exc
 
     def generate_class_plan_section(self, section: str, context: dict) -> dict:
         """Genera una sección específica del plan de clase."""

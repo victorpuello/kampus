@@ -73,7 +73,34 @@ const createEmptyForm = (): ClassPlanFormState => ({
   status: 'DRAFT',
 })
 
+const NUMERIC_CLASS_PLAN_FIELDS = new Set<keyof ClassPlanFormState>([
+  'duration_minutes',
+  'start_time_minutes',
+  'development_time_minutes',
+  'closing_time_minutes',
+])
+
+const TEXT_CLASS_PLAN_FIELDS = new Set<keyof ClassPlanFormState>([
+  'title',
+  'learning_result',
+  'dba_reference',
+  'standard_reference',
+  'competency_know',
+  'competency_do',
+  'competency_be',
+  'class_purpose',
+  'start_activities',
+  'development_activities',
+  'closing_activities',
+  'evidence_product',
+  'evaluation_instrument',
+  'evaluation_criterion',
+  'resources',
+  'dua_adjustments',
+])
+
 const getErrorMessage = (error: unknown, fallback: string) => {
+  if (error instanceof Error && error.message.trim()) return error.message
   if (typeof error !== 'object' || error === null) return fallback
   const maybeAxios = error as { response?: { data?: unknown } }
   const data = maybeAxios.response?.data
@@ -109,6 +136,8 @@ export default function ClassPlanner() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [draftAlreadyGenerated, setDraftAlreadyGenerated] = useState(false)
+  const [draftProgress, setDraftProgress] = useState(0)
   const [generatingSection, setGeneratingSection] = useState<string | null>(null)
   const [activeExportJobs, setActiveExportJobs] = useState<Record<number, ReportJob>>({})
   const [editingPlanId, setEditingPlanId] = useState<number | null>(null)
@@ -119,6 +148,9 @@ export default function ClassPlanner() {
   const [topicPage, setTopicPage] = useState(1)
   const [planPage, setPlanPage] = useState(1)
   const downloadedJobIds = useRef<Set<number>>(new Set())
+  const draftStreamAbortRef = useRef<AbortController | null>(null)
+  const typingTimersRef = useRef<Partial<Record<keyof ClassPlanFormState, number>>>({})
+  const formDataRef = useRef<ClassPlanFormState>(formData)
   const [toast, setToast] = useState<{ message: string; type: ToastType; isVisible: boolean }>({
     message: '',
     type: 'info',
@@ -127,6 +159,62 @@ export default function ClassPlanner() {
 
   const showToast = (message: string, type: ToastType = 'info') => {
     setToast({ message, type, isVisible: true })
+  }
+
+  useEffect(() => {
+    formDataRef.current = formData
+  }, [formData])
+
+  const clearTypingTimerForField = (field: keyof ClassPlanFormState) => {
+    const timerId = typingTimersRef.current[field]
+    if (timerId !== undefined) {
+      window.clearInterval(timerId)
+      delete typingTimersRef.current[field]
+    }
+  }
+
+  const clearAllTypingTimers = () => {
+    for (const field of Object.keys(typingTimersRef.current) as Array<keyof ClassPlanFormState>) {
+      clearTypingTimerForField(field)
+    }
+  }
+
+  const animateTextFieldValue = (field: keyof ClassPlanFormState, targetValue: string) => {
+    clearTypingTimerForField(field)
+
+    const currentValueRaw = formDataRef.current[field]
+    const currentValue = typeof currentValueRaw === 'string' ? currentValueRaw : ''
+    const target = targetValue || ''
+
+    if (!target || currentValue === target) {
+      setFormData((prev) => ({ ...prev, [field]: target as never }))
+      return
+    }
+
+    const startsWithCurrent = target.startsWith(currentValue)
+    let index = startsWithCurrent ? currentValue.length : 0
+
+    if (!startsWithCurrent) {
+      setFormData((prev) => ({ ...prev, [field]: '' as never }))
+      formDataRef.current = { ...formDataRef.current, [field]: '' }
+    }
+
+    const remaining = Math.max(target.length - index, 1)
+    const frames = Math.min(48, Math.max(18, remaining))
+    const step = Math.max(1, Math.ceil(remaining / frames))
+
+    const timerId = window.setInterval(() => {
+      index = Math.min(target.length, index + step)
+      const nextChunk = target.slice(0, index)
+      setFormData((prev) => ({ ...prev, [field]: nextChunk as never }))
+      formDataRef.current = { ...formDataRef.current, [field]: nextChunk }
+
+      if (index >= target.length) {
+        clearTypingTimerForField(field)
+      }
+    }, 55)
+
+    typingTimersRef.current[field] = timerId
   }
 
   useEffect(() => {
@@ -454,6 +542,7 @@ export default function ClassPlanner() {
     }
     setEditingPlanId(null)
     setFormData(nextForm)
+    setDraftAlreadyGenerated(false)
     setIsModalOpen(true)
   }
 
@@ -486,15 +575,33 @@ export default function ClassPlanner() {
       dua_adjustments: plan.dua_adjustments,
       status: plan.status,
     })
+    setDraftAlreadyGenerated(false)
     setIsModalOpen(true)
   }
 
   const closeModal = () => {
     if (saving) return
+    if (draftStreamAbortRef.current) {
+      draftStreamAbortRef.current.abort()
+      draftStreamAbortRef.current = null
+    }
+    clearAllTypingTimers()
     setIsModalOpen(false)
     setEditingPlanId(null)
     setFormData(createEmptyForm())
+    setDraftAlreadyGenerated(false)
+    setDraftProgress(0)
   }
+
+  useEffect(() => {
+    return () => {
+      if (draftStreamAbortRef.current) {
+        draftStreamAbortRef.current.abort()
+        draftStreamAbortRef.current = null
+      }
+      clearAllTypingTimers()
+    }
+  }, [])
 
   const handleTopicChange = (topicIdRaw: string) => {
     const topicId = topicIdRaw ? Number(topicIdRaw) : ''
@@ -572,29 +679,94 @@ export default function ClassPlanner() {
       return
     }
 
+    if (draftStreamAbortRef.current) {
+      draftStreamAbortRef.current.abort()
+      draftStreamAbortRef.current = null
+    }
+    clearAllTypingTimers()
+
+    const controller = new AbortController()
+    draftStreamAbortRef.current = controller
+
     setGeneratingDraft(true)
+    setDraftProgress(5)
     try {
       const periodName = periods.find((period) => period.id === Number(selectedPeriod))?.name
-      const response = await academicApi.generateClassPlanDraft({
+      let didReceiveDone = false
+
+      await academicApi.generateClassPlanDraftStream(
+        {
         teacher_assignment: formData.teacher_assignment ? Number(formData.teacher_assignment) : undefined,
         topic: formData.topic ? Number(formData.topic) : undefined,
         duration_minutes: formData.duration_minutes,
         title: formData.title,
         period_name: periodName,
-      })
+        },
+        (event) => {
+          if (typeof event.progress === 'number') {
+            setDraftProgress(Math.max(0, Math.min(100, event.progress)))
+          }
 
-      setFormData((prev) => ({
-        ...prev,
-        ...response.data,
-      }))
+          if ((event.event === 'patch' || event.event === 'done') && event.data) {
+            const numericPatch: Partial<ClassPlanFormState> = {}
+
+            for (const [rawKey, rawValue] of Object.entries(event.data ?? {})) {
+              const key = rawKey as keyof ClassPlanFormState
+              if (!(key in formDataRef.current) || rawValue === undefined || rawValue === null) continue
+
+              if (NUMERIC_CLASS_PLAN_FIELDS.has(key)) {
+                const numericValue = Number(rawValue)
+                if (Number.isFinite(numericValue)) {
+                  numericPatch[key] = numericValue as never
+                }
+                continue
+              }
+
+              if (TEXT_CLASS_PLAN_FIELDS.has(key) && typeof rawValue === 'string') {
+                animateTextFieldValue(key, rawValue)
+              }
+            }
+
+            if (Object.keys(numericPatch).length > 0) {
+              setFormData((prev) => ({ ...prev, ...numericPatch }))
+              formDataRef.current = { ...formDataRef.current, ...numericPatch }
+            }
+          }
+
+          if (event.event === 'done') {
+            didReceiveDone = true
+            setDraftProgress(100)
+          }
+
+          if (event.event === 'error') {
+            const message = event.detail?.trim() || 'No se pudo completar la generación en tiempo real.'
+            throw new Error(message)
+          }
+        },
+        controller.signal,
+      )
+
+      if (!didReceiveDone) {
+        throw new Error('La generación en tiempo real se interrumpió antes de finalizar.')
+      }
+      setDraftAlreadyGenerated(true)
       showToast('La IA generó un borrador editable del plan.', 'success')
     } catch (err) {
+      if (controller.signal.aborted) {
+        return
+      }
       console.error(err)
       showToast(getErrorMessage(err, 'No se pudo generar el borrador con IA.'), 'error')
     } finally {
+      if (draftStreamAbortRef.current === controller) {
+        draftStreamAbortRef.current = null
+      }
       setGeneratingDraft(false)
+      setDraftProgress(0)
     }
   }
+
+  const formInputsDisabled = saving || generatingDraft
 
   const buildSectionContext = () => {
     const topic = topics.find((item) => item.id === Number(formData.topic))
@@ -1208,10 +1380,10 @@ export default function ClassPlanner() {
             <Button type="button" variant="outline" onClick={closeModal} disabled={saving}>
               Cancelar
             </Button>
-            <Button type="button" variant="secondary" onClick={() => handleSubmit('DRAFT')} disabled={saving}>
+            <Button type="button" variant="secondary" onClick={() => handleSubmit('DRAFT')} disabled={saving || generatingDraft}>
               Guardar borrador
             </Button>
-            <Button type="button" onClick={() => handleSubmit('FINALIZED')} disabled={saving}>
+            <Button type="button" onClick={() => handleSubmit('FINALIZED')} disabled={saving || generatingDraft}>
               Finalizar plan
             </Button>
           </>
@@ -1219,12 +1391,12 @@ export default function ClassPlanner() {
       >
         <div className="grid gap-6">
           <div className="flex justify-end">
-            <Button type="button" variant="outline" onClick={handleGenerateDraft} disabled={saving || generatingDraft} className="gap-2">
+            <Button type="button" variant="outline" onClick={handleGenerateDraft} disabled={saving || generatingDraft || draftAlreadyGenerated} className="gap-2">
               <Wand2 size={16} />
-              {generatingDraft ? 'Generando borrador...' : 'Sugerir borrador con IA'}
+              {generatingDraft ? `Generando borrador... ${draftProgress}%` : 'Sugerir borrador con IA'}
             </Button>
           </div>
-
+          <fieldset disabled={formInputsDisabled} className="grid gap-6">
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="xl:col-span-2">
               <Label htmlFor="topic">Temática</Label>
@@ -1398,6 +1570,7 @@ export default function ClassPlanner() {
               <textarea id="dua_adjustments" value={formData.dua_adjustments} onChange={(event) => setFormData((prev) => ({ ...prev, dua_adjustments: event.target.value }))} className="mt-1 min-h-24 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-600 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-sky-400" />
             </div>
           </section>
+          </fieldset>
         </div>
       </Modal>
 

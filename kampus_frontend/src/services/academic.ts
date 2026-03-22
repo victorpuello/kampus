@@ -1,4 +1,4 @@
-import { api } from './api'
+import { API_BASE_URL, api, authApi, getCsrfToken } from './api'
 import type { ReportJob } from './reports'
 
 export interface AcademicYear { 
@@ -426,6 +426,74 @@ export interface ClassPlannerSummaryResponse {
     export_completed: number
   }
   recent_activity: ClassPlannerAuditEntry[]
+}
+
+export type ClassPlanDraftEvent = {
+  event: 'start' | 'patch' | 'done' | 'error'
+  progress?: number
+  section?: string
+  data?: Partial<ClassPlan>
+  code?: string
+  detail?: string
+}
+
+export type ClassPlanDraftPayload = {
+  teacher_assignment?: number
+  topic?: number
+  duration_minutes?: number
+  title?: string
+  period_name?: string
+}
+
+async function parseNdjsonStream(
+  response: Response,
+  onEvent: (event: ClassPlanDraftEvent) => void,
+): Promise<void> {
+  const stream = response.body
+  if (!stream) {
+    throw new Error('La respuesta de streaming no contiene datos.')
+  }
+
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim()
+      if (!line) continue
+
+      let parsed: ClassPlanDraftEvent
+      try {
+        parsed = JSON.parse(line) as ClassPlanDraftEvent
+      } catch {
+        continue
+      }
+
+      if (parsed && typeof parsed === 'object' && typeof parsed.event === 'string') {
+        onEvent(parsed)
+      }
+    }
+  }
+
+  const tail = buffer.trim()
+  if (!tail) return
+
+  try {
+    const parsed = JSON.parse(tail) as ClassPlanDraftEvent
+    if (parsed && typeof parsed === 'object' && typeof parsed.event === 'string') {
+      onEvent(parsed)
+    }
+  } catch {
+    // Ignore incomplete trailing chunks from intermediary proxies.
+  }
 }
 
 export interface GradebookAchievement {
@@ -975,8 +1043,42 @@ export const academicApi = {
   createClassPlan: (data: Partial<ClassPlan>) => api.post<ClassPlan>('/api/class-plans/', data),
   updateClassPlan: (id: number, data: Partial<ClassPlan>) => api.put<ClassPlan>(`/api/class-plans/${id}/`, data),
   deleteClassPlan: (id: number) => api.delete(`/api/class-plans/${id}/`),
-  generateClassPlanDraft: (data: { teacher_assignment?: number; topic?: number; duration_minutes?: number; title?: string; period_name?: string }) =>
+  generateClassPlanDraft: (data: ClassPlanDraftPayload) =>
     api.post<Omit<ClassPlan, 'id' | 'teacher_assignment' | 'period' | 'topic' | 'status' | 'ai_assisted_sections' | 'created_by' | 'updated_by' | 'created_at' | 'updated_at' | 'teacher_name' | 'subject_name' | 'group_name' | 'grade_name' | 'period_name' | 'topic_title' | 'total_sequence_minutes' | 'class_date'>>('/api/class-plans/generate-draft/', data),
+  generateClassPlanDraftStream: async (
+    data: ClassPlanDraftPayload,
+    onEvent: (event: ClassPlanDraftEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    await authApi.ensureCsrf()
+    const csrfToken = getCsrfToken()
+
+    const response = await fetch(`${API_BASE_URL}/api/class-plans/generate-draft-stream/`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {}),
+      },
+      body: JSON.stringify(data),
+      signal,
+    })
+
+    if (!response.ok) {
+      let detail = 'No se pudo iniciar la generación en tiempo real.'
+      try {
+        const payload = (await response.json()) as { detail?: string }
+        if (typeof payload.detail === 'string' && payload.detail.trim()) {
+          detail = payload.detail
+        }
+      } catch {
+        // Keep default error message.
+      }
+      throw new Error(detail)
+    }
+
+    await parseNdjsonStream(response, onEvent)
+  },
   generateClassPlanSection: (data: {
     section: 'learning' | 'competencies' | 'sequence' | 'evaluation' | 'support'
     topic_title?: string

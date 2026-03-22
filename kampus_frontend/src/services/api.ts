@@ -5,7 +5,7 @@ const DEFAULT_API_BASE_URL =
     ? `${window.location.protocol}//${window.location.hostname}:8000`
     : 'http://localhost:8000'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/+$/, '')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -26,6 +26,10 @@ function getCookieValue(name: string): string | null {
     }
   }
   return null
+}
+
+export function getCsrfToken(): string | null {
+  return getCookieValue('csrftoken') || csrfTokenFromBootstrap
 }
 
 function isUnsafeMethod(method?: string): boolean {

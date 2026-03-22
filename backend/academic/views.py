@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.conf import settings
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.template.loader import render_to_string
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
@@ -397,6 +397,7 @@ from .serializers import (
     ClassPlanSerializer,
 )
 from .ai import AIService, AIConfigError, AIParseError, AIProviderError
+from .throttles import AcademicAIUserRateThrottle
 from .grade_ordinals import guess_ordinal
 from .grading import (
     DEFAULT_EMPTY_SCORE,
@@ -1877,7 +1878,13 @@ class AchievementDefinitionViewSet(viewsets.ModelViewSet):
             return denied
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=False, methods=['post'], url_path='improve-wording', permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='improve-wording',
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[AcademicAIUserRateThrottle],
+    )
     def improve_wording(self, request):
         """
         Mejora la redacción de un texto usando IA.
@@ -1994,7 +2001,13 @@ class AchievementViewSet(viewsets.ModelViewSet):
                 )
         return super().destroy(request, *args, **kwargs)
 
-    @action(detail=False, methods=['post'], url_path='generate-indicators', permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=['post'],
+        url_path='generate-indicators',
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[AcademicAIUserRateThrottle],
+    )
     def generate_indicators(self, request):
         """
         Genera sugerencias de indicadores usando IA.
@@ -2379,7 +2392,7 @@ class ClassPlanViewSet(viewsets.ModelViewSet):
     search_fields = ["title", "learning_result", "topic__title"]
 
     def get_permissions(self):
-        if getattr(self, "action", None) in {"list", "retrieve", "create", "update", "partial_update", "destroy", "my_plans", "my_summary", "generate_draft", "generate_section", "export_pdf"}:
+        if getattr(self, "action", None) in {"list", "retrieve", "create", "update", "partial_update", "destroy", "my_plans", "my_summary", "generate_draft", "generate_draft_stream", "generate_section", "export_pdf"}:
             return [IsAuthenticated()]
         return super().get_permissions()
 
@@ -2421,6 +2434,73 @@ class ClassPlanViewSet(viewsets.ModelViewSet):
             period_id=period.id,
             valid_until__gte=timezone.now(),
         ).exists()
+
+    def _resolve_generate_draft_context(self, request):
+        teacher_assignment_id = request.data.get("teacher_assignment")
+        topic_id = request.data.get("topic")
+        duration_minutes = request.data.get("duration_minutes") or 55
+        title = str(request.data.get("title") or "").strip()
+
+        assignment = None
+        topic = None
+
+        if teacher_assignment_id:
+            assignment = TeacherAssignment.objects.select_related(
+                "teacher",
+                "group",
+                "group__grade",
+                "academic_load",
+                "academic_load__subject",
+            ).filter(id=teacher_assignment_id).first()
+            if assignment is None:
+                return None, None, Response({"detail": "Asignación docente no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
+
+            user = getattr(request, "user", None)
+            if getattr(user, "role", None) == "TEACHER" and assignment.teacher_id != getattr(user, "id", None):
+                return None, None, Response({"detail": "No puedes generar un plan para otra asignación docente."}, status=status.HTTP_403_FORBIDDEN)
+
+        if topic_id:
+            topic = PeriodTopic.objects.select_related(
+                "period",
+                "academic_load",
+                "academic_load__subject",
+                "academic_load__grade",
+            ).filter(id=topic_id).first()
+            if topic is None:
+                return None, None, Response({"detail": "Temática no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if assignment is not None and topic is not None and assignment.academic_load_id != topic.academic_load_id:
+            return None, None, Response(
+                {"detail": "La temática no corresponde a la asignación docente seleccionada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            duration_minutes = int(duration_minutes)
+        except Exception:
+            return None, None, Response({"detail": "duration_minutes inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        context = {
+            "topic_title": getattr(topic, "title", "") or title,
+            "topic_description": getattr(topic, "description", ""),
+            "subject_name": getattr(getattr(getattr(assignment, "academic_load", None), "subject", None), "name", "")
+            or getattr(getattr(getattr(topic, "academic_load", None), "subject", None), "name", ""),
+            "grade_name": getattr(getattr(getattr(assignment, "group", None), "grade", None), "name", "")
+            or getattr(getattr(getattr(topic, "academic_load", None), "grade", None), "name", ""),
+            "group_name": getattr(getattr(assignment, "group", None), "name", ""),
+            "teacher_name": getattr(getattr(assignment, "teacher", None), "get_full_name", lambda: "")(),
+            "period_name": getattr(getattr(topic, "period", None), "name", "") or request.data.get("period_name") or "",
+            "duration_minutes": duration_minutes,
+            "title_hint": title,
+        }
+
+        metadata = {
+            "teacher_assignment_id": teacher_assignment_id,
+            "topic_id": topic_id,
+            "title": title,
+        }
+
+        return context, metadata, None
 
     def get_queryset(self):
         qs = super().get_queryset().select_related(
@@ -2640,69 +2720,21 @@ class ClassPlanViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["post"], url_path="generate-draft", permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="generate-draft",
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[AcademicAIUserRateThrottle],
+    )
     def generate_draft(self, request):
         denied = self._ensure_can_manage_class_plans(request)
         if denied is not None:
             return denied
 
-        teacher_assignment_id = request.data.get("teacher_assignment")
-        topic_id = request.data.get("topic")
-        duration_minutes = request.data.get("duration_minutes") or 55
-        title = str(request.data.get("title") or "").strip()
-
-        assignment = None
-        topic = None
-
-        if teacher_assignment_id:
-            assignment = TeacherAssignment.objects.select_related(
-                "teacher",
-                "group",
-                "group__grade",
-                "academic_load",
-                "academic_load__subject",
-            ).filter(id=teacher_assignment_id).first()
-            if assignment is None:
-                return Response({"detail": "Asignación docente no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
-
-            user = getattr(request, "user", None)
-            if getattr(user, "role", None) == "TEACHER" and assignment.teacher_id != getattr(user, "id", None):
-                return Response({"detail": "No puedes generar un plan para otra asignación docente."}, status=status.HTTP_403_FORBIDDEN)
-
-        if topic_id:
-            topic = PeriodTopic.objects.select_related(
-                "period",
-                "academic_load",
-                "academic_load__subject",
-                "academic_load__grade",
-            ).filter(id=topic_id).first()
-            if topic is None:
-                return Response({"detail": "Temática no encontrada."}, status=status.HTTP_400_BAD_REQUEST)
-
-        if assignment is not None and topic is not None and assignment.academic_load_id != topic.academic_load_id:
-            return Response(
-                {"detail": "La temática no corresponde a la asignación docente seleccionada."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            duration_minutes = int(duration_minutes)
-        except Exception:
-            return Response({"detail": "duration_minutes inválido."}, status=status.HTTP_400_BAD_REQUEST)
-
-        context = {
-            "topic_title": getattr(topic, "title", "") or title,
-            "topic_description": getattr(topic, "description", ""),
-            "subject_name": getattr(getattr(getattr(assignment, "academic_load", None), "subject", None), "name", "")
-            or getattr(getattr(getattr(topic, "academic_load", None), "subject", None), "name", ""),
-            "grade_name": getattr(getattr(getattr(assignment, "group", None), "grade", None), "name", "")
-            or getattr(getattr(getattr(topic, "academic_load", None), "grade", None), "name", ""),
-            "group_name": getattr(getattr(assignment, "group", None), "name", ""),
-            "teacher_name": getattr(getattr(assignment, "teacher", None), "get_full_name", lambda: "")(),
-            "period_name": getattr(getattr(topic, "period", None), "name", "") or request.data.get("period_name") or "",
-            "duration_minutes": duration_minutes,
-            "title_hint": title,
-        }
+        context, metadata, error_response = self._resolve_generate_draft_context(request)
+        if error_response is not None:
+            return error_response
 
         try:
             ai_service = AIService()
@@ -2711,11 +2743,7 @@ class ClassPlanViewSet(viewsets.ModelViewSet):
                 request,
                 event_type="class_plan.generate_draft",
                 status_code=status.HTTP_200_OK,
-                metadata={
-                    "teacher_assignment_id": teacher_assignment_id,
-                    "topic_id": topic_id,
-                    "title": title,
-                },
+                metadata=metadata,
             )
             return Response(payload)
         except AIConfigError as e:
@@ -2731,7 +2759,103 @@ class ClassPlanViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
-    @action(detail=False, methods=["post"], url_path="generate-section", permission_classes=[IsAuthenticated])
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="generate-draft-stream",
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[AcademicAIUserRateThrottle],
+    )
+    def generate_draft_stream(self, request):
+        denied = self._ensure_can_manage_class_plans(request)
+        if denied is not None:
+            return denied
+
+        context, metadata, error_response = self._resolve_generate_draft_context(request)
+        if error_response is not None:
+            return error_response
+
+        ai_service = AIService()
+        try:
+            ai_service._ensure_available()
+        except AIConfigError as exc:
+            return Response({"detail": str(exc), "code": "AI_NOT_CONFIGURED"}, status=status.HTTP_400_BAD_REQUEST)
+
+        def event_stream():
+            has_done = False
+            try:
+                yield json.dumps({"event": "start", "progress": 5}, ensure_ascii=False) + "\n"
+
+                for event in ai_service.generate_class_plan_draft_stream_events(context):
+                    if event.get("event") == "done":
+                        has_done = True
+                    yield json.dumps(event, ensure_ascii=False) + "\n"
+
+                if has_done:
+                    self._log_class_plan_event(
+                        request,
+                        event_type="class_plan.generate_draft",
+                        status_code=status.HTTP_200_OK,
+                        metadata={**metadata, "mode": "stream"},
+                    )
+                else:
+                    self._log_class_plan_event(
+                        request,
+                        event_type="class_plan.generate_draft",
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        metadata={**metadata, "mode": "stream", "error": "stream_terminated_without_done"},
+                    )
+                    yield json.dumps(
+                        {
+                            "event": "error",
+                            "code": "AI_STREAM_INCOMPLETE",
+                            "detail": "La generación en tiempo real se interrumpió antes de finalizar.",
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
+            except AIProviderError:
+                self._log_class_plan_event(
+                    request,
+                    event_type="class_plan.generate_draft",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    metadata={**metadata, "mode": "stream", "error": "provider_error"},
+                )
+                yield json.dumps(
+                    {
+                        "event": "error",
+                        "code": "AI_PROVIDER_ERROR",
+                        "detail": "No se pudo generar el borrador con IA en este momento.",
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+            except Exception:
+                self._log_class_plan_event(
+                    request,
+                    event_type="class_plan.generate_draft",
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    metadata={**metadata, "mode": "stream", "error": "unexpected_stream_error"},
+                )
+                yield json.dumps(
+                    {
+                        "event": "error",
+                        "code": "AI_STREAM_ERROR",
+                        "detail": "No se pudo completar la generación en tiempo real.",
+                    },
+                    ensure_ascii=False,
+                ) + "\n"
+
+        response = StreamingHttpResponse(event_stream(), content_type="application/x-ndjson")
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="generate-section",
+        permission_classes=[IsAuthenticated],
+        throttle_classes=[AcademicAIUserRateThrottle],
+    )
     def generate_section(self, request):
         denied = self._ensure_can_manage_class_plans(request)
         if denied is not None:
