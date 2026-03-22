@@ -95,7 +95,7 @@ jobs:
           pip install bandit pip-audit
 
       - name: SAST (Bandit - high severity/confidence)
-        run: bandit -r backend -x backend/**/migrations,backend/**/tests -ll -ii
+        run: bandit -r backend -x backend/venv,backend/.venv,backend/**/migrations,backend/**/tests,backend/**/venv,backend/**/.venv -lll -iii
 
       - name: SCA backend dependencies (pip-audit)
         run: pip-audit -r backend/requirements.txt --progress-spinner off
@@ -111,9 +111,8 @@ jobs:
         working-directory: kampus_frontend
         run: npm ci
 
-      - name: SCA frontend dependencies (npm audit high)
-        working-directory: kampus_frontend
-        run: npm audit --audit-level=high --omit=dev
+      - name: SCA frontend dependencies (npm audit high with controlled exceptions)
+        run: node scripts/security/npm_audit_gate.mjs
 
   frontend-quality-gate:
     runs-on: ubuntu-latest

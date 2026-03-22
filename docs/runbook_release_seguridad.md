@@ -25,7 +25,7 @@ Este workflow ejecuta:
    - `students.tests.PublicCertificateVerificationNotificationTest`
 3. SAST backend con `bandit` (alta severidad/confianza).
 4. SCA dependencias backend con `pip-audit`.
-5. SCA dependencias frontend con `npm audit --audit-level=high --omit=dev`.
+5. SCA dependencias frontend con gate de excepciones controladas (`node scripts/security/npm_audit_gate.mjs`).
 6. `npm run lint` en frontend.
 
 ## Validación manual local (antes de merge)
@@ -34,14 +34,13 @@ Este workflow ejecuta:
 python backend/manage.py check --deploy
 python backend/manage.py test users.tests users.tests_cookie_auth students.tests.PublicCertificateVerificationNotificationTest
 python -m pip install bandit pip-audit
-bandit -r backend -x backend/**/migrations,backend/**/tests -ll -ii
+bandit -r backend -x backend/venv,backend/.venv,backend/**/migrations,backend/**/tests,backend/**/venv,backend/**/.venv -lll -iii
 pip-audit -r backend/requirements.txt --progress-spinner off
 ```
 
 ### Frontend
 ```bash
-cd kampus_frontend
-npm audit --audit-level=high --omit=dev
+node scripts/security/npm_audit_gate.mjs
 npm run lint
 ```
 
@@ -79,3 +78,4 @@ Validar que el resultado efectivo contenga:
 Si aparece un hallazgo `High/Critical` no remediable en el release actual, aplicar la política:
 
 - `docs/politica_excepciones_vulnerabilidades.md`
+- `docs/registro_excepciones_vulnerabilidades.md`

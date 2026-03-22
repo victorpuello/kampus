@@ -6,10 +6,10 @@ djangorestframework_simplejwt==5.5.1
 Pillow==12.1.1
 opencv-python-headless==4.12.0.88
 psycopg2-binary==2.9.11
-PyJWT==2.10.1
+PyJWT==2.12.0
 sqlparse==0.5.4
 google-generativeai==0.8.3
-pypdf==6.7.5
+pypdf==6.9.1
 python-dotenv==1.2.1
 django-filter
 openpyxl==3.1.5
