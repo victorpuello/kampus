@@ -208,7 +208,15 @@ export default function Grades() {
     window.URL.revokeObjectURL(url)
   }
 
-  const handleDownloadGroupReport = useCallback(async () => {
+  const handleDownloadGroupReport = async () => {
+    const anyInFlightSavesNow = inFlightSavesRef.current.size > 0 || inFlightActivitySavesRef.current.size > 0
+    const hasDirtyNow = dirtyKeys.size > 0 || dirtyActivityKeys.size > 0
+
+    if (saving || anyInFlightSavesNow || hasDirtyNow) {
+      showToast('Termina de guardar los cambios de la planilla antes de descargar el informe.', 'info')
+      return
+    }
+
     const periodId = gradebook?.period?.id ?? selectedPeriodId
     const teacherAssignmentId = gradebook?.teacher_assignment?.id ?? selectedTeacherAssignmentId
 
@@ -236,7 +244,7 @@ export default function Grades() {
     } finally {
       setDownloadingGroupReport(false)
     }
-  }, [gradebook?.period?.id, gradebook?.teacher_assignment?.id, selectedPeriodId, selectedTeacherAssignmentId, showToast])
+  }
 
   const selectedPeriod = useMemo(() => {
     if (!selectedPeriodId) return null
@@ -2669,7 +2677,7 @@ export default function Grades() {
                   variant="outline"
                   size="sm"
                   onClick={handleDownloadGroupReport}
-                  disabled={!gradebook || downloadingGroupReport}
+                  disabled={!gradebook || downloadingGroupReport || saving || anyInFlightSaves || hasDirty}
                   title="Descargar informe de la planilla actual diligenciada"
                 >
                   {downloadingGroupReport ? 'Generando informe...' : 'Descargar informe planilla'}

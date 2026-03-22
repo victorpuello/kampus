@@ -407,6 +407,7 @@ from .grading import (
     weighted_average,
 )
 from .promotion import compute_promotions_for_year, PASSING_SCORE_DEFAULT
+from communications.email_service import send_email
 from reports.models import ReportJob
 from reports.serializers import ReportJobSerializer
 from reports.tasks import generate_report_job_pdf
@@ -3246,6 +3247,436 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         )
         return len(to_upsert)
 
+    def _active_enrollment_ids_for_assignment(self, *, teacher_assignment: TeacherAssignment) -> set[int]:
+        from students.models import Enrollment
+
+        return set(
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+                status="ACTIVE",
+            ).values_list("id", flat=True)
+        )
+
+    def _compute_gradebook_completion_stats(
+        self,
+        *,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+        gradesheet: GradeSheet,
+    ) -> dict:
+        from students.models import Enrollment
+
+        enrollments_qs = Enrollment.objects.filter(
+            academic_year_id=teacher_assignment.academic_year_id,
+            group_id=teacher_assignment.group_id,
+            status="ACTIVE",
+        )
+        students_count = enrollments_qs.count()
+
+        achievements_qs = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        achievement_ids = list(achievements_qs.values_list("id", flat=True))
+        achievements_count = len(achievement_ids)
+
+        total = students_count * achievements_count
+        filled = 0
+        if total > 0 and achievement_ids:
+            filled = (
+                AchievementGrade.objects.filter(
+                    gradesheet=gradesheet,
+                    enrollment__in=enrollments_qs,
+                    achievement_id__in=achievement_ids,
+                    score__isnull=False,
+                )
+                .only("id")
+                .count()
+            )
+
+        percent = int(round((filled / total) * 100)) if total > 0 else 0
+        is_complete = total > 0 and filled >= total
+        return {
+            "filled": filled,
+            "total": total,
+            "percent": percent,
+            "is_complete": is_complete,
+        }
+
+    def _build_gradebook_payload(
+        self,
+        *,
+        gradesheet: GradeSheet,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+    ) -> dict:
+        achievements = self._valid_achievements_for_assignment_period(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        ).select_related("dimension").order_by("id")
+
+        from students.models import Enrollment
+
+        enrollments = (
+            Enrollment.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                group_id=teacher_assignment.group_id,
+                status="ACTIVE",
+            )
+            .select_related("student__user")
+            .order_by("student__user__last_name", "student__user__first_name")
+        )
+
+        existing_grades = AchievementGrade.objects.filter(
+            gradesheet=gradesheet,
+            enrollment__in=enrollments,
+            achievement__in=achievements,
+        ).only("enrollment_id", "achievement_id", "score")
+
+        score_by_cell = {
+            (g.enrollment_id, g.achievement_id): g.score for g in existing_grades
+        }
+
+        achievement_payload = [
+            {
+                "id": a.id,
+                "description": a.description,
+                "dimension": a.dimension_id,
+                "dimension_name": a.dimension.name if a.dimension else None,
+                "percentage": a.percentage,
+            }
+            for a in achievements
+        ]
+
+        student_payload = [
+            {
+                "enrollment_id": e.id,
+                "student_id": e.student_id,
+                "student_name": e.student.user.get_full_name(),
+            }
+            for e in enrollments
+        ]
+
+        cell_payload = [
+            {
+                "enrollment": e.id,
+                "achievement": a.id,
+                "score": score_by_cell.get((e.id, a.id)),
+            }
+            for e in enrollments
+            for a in achievements
+        ]
+
+        achievements_by_dimension: dict[int, list[Achievement]] = {}
+        for a in achievements:
+            if not a.dimension_id:
+                continue
+            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
+
+        dimensions = (
+            Dimension.objects.filter(
+                academic_year_id=teacher_assignment.academic_year_id,
+                id__in=list(achievements_by_dimension.keys()),
+            )
+            .only("id", "name", "percentage")
+            .order_by("id")
+        )
+        dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
+
+        dimensions_payload = [
+            {"id": d.id, "name": d.name, "percentage": int(d.percentage)} for d in dimensions
+        ]
+
+        computed = []
+        for e in enrollments:
+            dim_items = []
+            for dim_id, dim_achievements in achievements_by_dimension.items():
+                items = [
+                    (score_by_cell.get((e.id, a.id)), int(a.percentage) if a.percentage else 1)
+                    for a in dim_achievements
+                ]
+                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
+                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
+
+            final_score = final_grade_from_dimensions(dim_items)
+            scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
+            computed.append(
+                {
+                    "enrollment_id": e.id,
+                    "final_score": final_score,
+                    "scale": scale_match.name if scale_match else None,
+                }
+            )
+
+        payload = {
+            "gradesheet": GradeSheetSerializer(gradesheet).data,
+            "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
+            "teacher_assignment": {
+                "id": teacher_assignment.id,
+                "group": teacher_assignment.group_id,
+                "academic_load": teacher_assignment.academic_load_id,
+            },
+            "dimensions": dimensions_payload,
+            "achievements": achievement_payload,
+            "students": student_payload,
+            "cells": cell_payload,
+            "computed": computed,
+        }
+
+        if getattr(gradesheet, "grading_mode", None) == GradeSheet.GRADING_MODE_ACTIVITIES:
+            activity_columns = AchievementActivityColumn.objects.filter(
+                gradesheet=gradesheet,
+                achievement__in=achievements,
+            ).order_by("achievement_id", "order", "id")
+
+            activity_grades = AchievementActivityGrade.objects.filter(
+                column__in=activity_columns,
+                enrollment__in=enrollments,
+            ).only("column_id", "enrollment_id", "score")
+            activity_score_by_cell = {
+                (g.enrollment_id, g.column_id): g.score for g in activity_grades
+            }
+
+            payload["activity_columns"] = AchievementActivityColumnSerializer(activity_columns, many=True).data
+            payload["activity_cells"] = [
+                {
+                    "enrollment": e.id,
+                    "column": c.id,
+                    "score": activity_score_by_cell.get((e.id, c.id)),
+                }
+                for e in enrollments
+                for c in activity_columns
+            ]
+
+        return payload
+
+    def _build_gradebook_filled_report_context(
+        self,
+        *,
+        payload: dict,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+    ) -> tuple[dict | None, str | None]:
+        def _fmt_score(value):
+            if value is None:
+                return ""
+            try:
+                return f"{Decimal(str(value)):.2f}"
+            except Exception:
+                return str(value)
+
+        students = payload.get("students") or []
+        computed_by_enrollment = {
+            int(item.get("enrollment_id")): item for item in (payload.get("computed") or [])
+        }
+        achievements = payload.get("achievements") or []
+        achievement_label_by_id = {int(a.get("id")): f"L{idx + 1}" for idx, a in enumerate(achievements)}
+        achievement_desc_by_id = {
+            int(a.get("id")): (a.get("description") or "").strip() for a in achievements
+        }
+
+        grading_mode = (payload.get("gradesheet") or {}).get("grading_mode")
+        columns = []
+        column_groups = []
+        rows = []
+
+        if grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES and payload.get("activity_columns"):
+            activity_columns = payload.get("activity_columns") or []
+            activity_cells = payload.get("activity_cells") or []
+
+            filled_column_ids = {
+                int(c.get("column"))
+                for c in activity_cells
+                if c.get("score") is not None and c.get("column") is not None
+            }
+
+            ordered_columns = [c for c in activity_columns if int(c.get("id")) in filled_column_ids]
+            columns = [
+                {
+                    "id": int(c.get("id")),
+                    "group_label": achievement_label_by_id.get(int(c.get("achievement")), "L?"),
+                    "label": (c.get("label") or "Actividad").strip(),
+                    "description": achievement_desc_by_id.get(int(c.get("achievement")), ""),
+                }
+                for c in ordered_columns
+            ]
+
+            for col in columns:
+                if not column_groups or column_groups[-1]["label"] != col["group_label"]:
+                    column_groups.append({"label": col["group_label"], "count": 1})
+                else:
+                    column_groups[-1]["count"] += 1
+
+            score_by_cell = {
+                (int(c.get("enrollment")), int(c.get("column"))): c.get("score")
+                for c in activity_cells
+                if c.get("enrollment") is not None and c.get("column") is not None
+            }
+
+            for s in students:
+                enrollment_id = int(s.get("enrollment_id"))
+                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
+                if all(score is None for score in raw_scores):
+                    continue
+
+                rows.append(
+                    {
+                        "index": len(rows) + 1,
+                        "student_name": s.get("student_name") or "",
+                        "scores": [_fmt_score(score) for score in raw_scores],
+                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
+                    }
+                )
+        else:
+            cells = payload.get("cells") or []
+
+            filled_achievement_ids = {
+                int(c.get("achievement"))
+                for c in cells
+                if c.get("score") is not None and c.get("achievement") is not None
+            }
+
+            ordered_achievements = [a for a in achievements if int(a.get("id")) in filled_achievement_ids]
+            columns = [
+                {
+                    "id": int(a.get("id")),
+                    "group_label": "Logro",
+                    "label": f"L{idx + 1}",
+                    "description": (a.get("description") or "").strip(),
+                }
+                for idx, a in enumerate(ordered_achievements)
+            ]
+
+            score_by_cell = {
+                (int(c.get("enrollment")), int(c.get("achievement"))): c.get("score")
+                for c in cells
+                if c.get("enrollment") is not None and c.get("achievement") is not None
+            }
+
+            for s in students:
+                enrollment_id = int(s.get("enrollment_id"))
+                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
+                if all(score is None for score in raw_scores):
+                    continue
+
+                rows.append(
+                    {
+                        "index": len(rows) + 1,
+                        "student_name": s.get("student_name") or "",
+                        "scores": [_fmt_score(score) for score in raw_scores],
+                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
+                    }
+                )
+
+        if not columns or not rows:
+            return None, "La planilla actual no tiene notas diligenciadas para generar el informe."
+
+        generated_at = timezone.localtime().strftime("%Y-%m-%d %H:%M")
+        grade_name = ""
+        try:
+            if teacher_assignment.group and teacher_assignment.group.grade:
+                grade_name = teacher_assignment.group.grade.name or ""
+        except Exception:
+            grade_name = ""
+
+        context = {
+            "title": "Informe de planilla diligenciada",
+            "grading_mode": grading_mode or GradeSheet.GRADING_MODE_ACHIEVEMENT,
+            "group_name": teacher_assignment.group.name if teacher_assignment.group else "",
+            "grade_name": grade_name,
+            "subject_name": teacher_assignment.academic_load.subject.name if teacher_assignment.academic_load else "",
+            "period_name": period.name,
+            "generated_at": generated_at,
+            "columns": columns,
+            "column_groups": column_groups,
+            "rows": rows,
+        }
+
+        institution = Institution.objects.first() or Institution()
+        institution_logo_src = ""
+        try:
+            if getattr(institution, "pdf_show_logo", True) and getattr(institution, "logo", None):
+                logo_field = institution.logo
+                if getattr(logo_field, "path", None) and Path(logo_field.path).exists():
+                    institution_logo_src = Path(logo_field.path).resolve().as_uri()
+                elif getattr(logo_field, "url", None):
+                    institution_logo_src = logo_field.url
+        except Exception:
+            institution_logo_src = ""
+
+        context["institution_logo_src"] = institution_logo_src
+        return context, None
+
+    def _send_gradebook_completed_email(
+        self,
+        *,
+        teacher,
+        teacher_assignment: TeacherAssignment,
+        period: Period,
+        gradesheet: GradeSheet,
+        payload: dict,
+    ) -> None:
+        from reports.weasyprint_utils import render_pdf_bytes_from_html
+
+        recipient_email = (getattr(teacher, "email", "") or "").strip()
+        if not recipient_email:
+            return
+
+        context, error_message = self._build_gradebook_filled_report_context(
+            payload=payload,
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        if error_message:
+            return
+
+        html_string = render_to_string("academic/reports/gradebook_filled_report_pdf.html", context)
+        pdf_bytes = render_pdf_bytes_from_html(html=html_string, base_url=str(settings.BASE_DIR))
+
+        group_name = getattr(getattr(teacher_assignment, "group", None), "name", "") or "grupo"
+        grade_name = ""
+        try:
+            if teacher_assignment.group and teacher_assignment.group.grade:
+                grade_name = teacher_assignment.group.grade.name or ""
+        except Exception:
+            grade_name = ""
+        period_name = getattr(period, "name", "periodo") or "periodo"
+        attachment_name = f"planilla-diligenciada-{group_name}-{period_name}.pdf".replace(" ", "_")
+
+        teacher_name = ""
+        try:
+            teacher_name = teacher.get_full_name() or getattr(teacher, "username", "")
+        except Exception:
+            teacher_name = getattr(teacher, "username", "") or "Docente"
+
+        subject_name = ""
+        try:
+            if teacher_assignment.academic_load and teacher_assignment.academic_load.subject:
+                subject_name = teacher_assignment.academic_load.subject.name or ""
+        except Exception:
+            subject_name = ""
+
+        detail_parts = [p for p in [subject_name, period_name] if p]
+        detail_text = " | ".join(detail_parts)
+        body_text = (
+            f"Hola {teacher_name},\n\n"
+            "Tu planilla de calificaciones fue completada al 100%.\n"
+            f"Grado: {grade_name or 'N/A'}\n"
+            f"Grupo: {group_name or 'N/A'}\n"
+            f"Detalle: {detail_text}\n\n"
+            "Adjuntamos el informe en PDF, generado con el mismo formato del botón 'Descargar informe de planilla'."
+        )
+
+        send_email(
+            recipient_email=recipient_email,
+            subject="[Kampus] Tu planilla de calificaciones está completa (100%)",
+            body_text=body_text,
+            attachments=[(attachment_name, pdf_bytes, "application/pdf")],
+            category="gradebook-complete",
+            idempotency_key=f"gradebook-complete-email:sheet={gradesheet.id}",
+        )
+
     @action(detail=False, methods=["get"], url_path="available")
     def available(self, request):
         period_id = request.query_params.get("period")
@@ -3377,154 +3808,11 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             teacher_assignment=teacher_assignment,
             period=period,
         )
-
-        base_achievements = Achievement.objects.filter(
-            academic_load=teacher_assignment.academic_load,
+        payload = self._build_gradebook_payload(
+            gradesheet=gradesheet,
+            teacher_assignment=teacher_assignment,
             period=period,
         )
-
-        group_achievements = base_achievements.filter(group=teacher_assignment.group)
-        if group_achievements.exists():
-            achievements = group_achievements
-        else:
-            achievements = base_achievements.filter(group__isnull=True)
-
-        achievements = achievements.select_related("dimension").order_by("id")
-
-        from students.models import Enrollment
-
-        enrollments = (
-            Enrollment.objects.filter(
-                academic_year_id=teacher_assignment.academic_year_id,
-                group_id=teacher_assignment.group_id,
-                status="ACTIVE",
-            )
-            .select_related("student__user")
-            .order_by("student__user__last_name", "student__user__first_name")
-        )
-
-        existing_grades = AchievementGrade.objects.filter(
-            gradesheet=gradesheet,
-            enrollment__in=enrollments,
-            achievement__in=achievements,
-        ).only("enrollment_id", "achievement_id", "score")
-
-        score_by_cell = {
-            (g.enrollment_id, g.achievement_id): g.score for g in existing_grades
-        }
-
-        achievement_payload = [
-            {
-                "id": a.id,
-                "description": a.description,
-                "dimension": a.dimension_id,
-                "dimension_name": a.dimension.name if a.dimension else None,
-                "percentage": a.percentage,
-            }
-            for a in achievements
-        ]
-
-        student_payload = [
-            {
-                "enrollment_id": e.id,
-                "student_id": e.student_id,
-                "student_name": e.student.user.get_full_name(),
-            }
-            for e in enrollments
-        ]
-
-        cell_payload = [
-            {
-                "enrollment": e.id,
-                "achievement": a.id,
-                "score": score_by_cell.get((e.id, a.id)),
-            }
-            for e in enrollments
-            for a in achievements
-        ]
-
-        # Compute per-student final grade using dimensions + NULL=>1.00
-        achievements_by_dimension: dict[int, list[Achievement]] = {}
-        for a in achievements:
-            if not a.dimension_id:
-                continue
-            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
-
-        dimensions = (
-            Dimension.objects.filter(
-                academic_year_id=teacher_assignment.academic_year_id,
-                id__in=list(achievements_by_dimension.keys()),
-            )
-            .only("id", "name", "percentage")
-            .order_by("id")
-        )
-        dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
-
-        dimensions_payload = [
-            {"id": d.id, "name": d.name, "percentage": int(d.percentage)} for d in dimensions
-        ]
-
-        computed = []
-        for e in enrollments:
-            dim_items = []
-            for dim_id, dim_achievements in achievements_by_dimension.items():
-                items = [
-                    (score_by_cell.get((e.id, a.id)), int(a.percentage) if a.percentage else 1)
-                    for a in dim_achievements
-                ]
-                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-            final_score = final_grade_from_dimensions(dim_items)
-            scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
-            computed.append(
-                {
-                    "enrollment_id": e.id,
-                    "final_score": final_score,
-                    "scale": scale_match.name if scale_match else None,
-                }
-            )
-
-        payload = {
-            "gradesheet": GradeSheetSerializer(gradesheet).data,
-            "period": {"id": period.id, "name": period.name, "is_closed": period.is_closed},
-            "teacher_assignment": {
-                "id": teacher_assignment.id,
-                "group": teacher_assignment.group_id,
-                "academic_load": teacher_assignment.academic_load_id,
-            },
-            "dimensions": dimensions_payload,
-            "achievements": achievement_payload,
-            "students": student_payload,
-            "cells": cell_payload,
-            "computed": computed,
-        }
-
-        # Activities mode payload (columns + per-column grades)
-        if getattr(gradesheet, "grading_mode", None) == GradeSheet.GRADING_MODE_ACTIVITIES:
-            activity_columns = AchievementActivityColumn.objects.filter(
-                gradesheet=gradesheet,
-                achievement__in=achievements,
-            ).order_by("achievement_id", "order", "id")
-
-            activity_grades = AchievementActivityGrade.objects.filter(
-                column__in=activity_columns,
-                enrollment__in=enrollments,
-            ).only("column_id", "enrollment_id", "score")
-            activity_score_by_cell = {
-                (g.enrollment_id, g.column_id): g.score for g in activity_grades
-            }
-
-            payload["activity_columns"] = AchievementActivityColumnSerializer(activity_columns, many=True).data
-            payload["activity_cells"] = [
-                {
-                    "enrollment": e.id,
-                    "column": c.id,
-                    "score": activity_score_by_cell.get((e.id, c.id)),
-                }
-                for e in enrollments
-                for c in activity_columns
-            ]
 
         return Response(payload)
 
@@ -3538,12 +3826,6 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         GET /api/grade-sheets/gradebook-filled-report/?teacher_assignment=<id>&period=<id>&format=pdf|html
         """
-
-        gradebook_response = self.gradebook(request)
-        if gradebook_response.status_code != status.HTTP_200_OK:
-            return gradebook_response
-
-        payload = gradebook_response.data
 
         teacher_assignment_id = request.query_params.get("teacher_assignment")
         period_id = request.query_params.get("period")
@@ -3563,163 +3845,50 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         except Period.DoesNotExist:
             return Response({"error": "Periodo no encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
-        fmt = (request.query_params.get("format") or "pdf").strip().lower()
-
-        def _fmt_score(value):
-            if value is None:
-                return ""
-            try:
-                return f"{Decimal(str(value)):.2f}"
-            except Exception:
-                return str(value)
-
-        students = payload.get("students") or []
-        computed_by_enrollment = {
-            int(item.get("enrollment_id")): item for item in (payload.get("computed") or [])
-        }
-        achievements = payload.get("achievements") or []
-        achievement_label_by_id = {int(a.get("id")): f"L{idx + 1}" for idx, a in enumerate(achievements)}
-        achievement_desc_by_id = {
-            int(a.get("id")): (a.get("description") or "").strip() for a in achievements
-        }
-
-        grading_mode = (payload.get("gradesheet") or {}).get("grading_mode")
-        columns = []
-        column_groups = []
-        rows = []
-
-        if grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES and payload.get("activity_columns"):
-            activity_columns = payload.get("activity_columns") or []
-            activity_cells = payload.get("activity_cells") or []
-
-            # Keep only columns that have at least one diligenced score.
-            filled_column_ids = {
-                int(c.get("column"))
-                for c in activity_cells
-                if c.get("score") is not None and c.get("column") is not None
-            }
-
-            ordered_columns = [c for c in activity_columns if int(c.get("id")) in filled_column_ids]
-            columns = [
-                {
-                    "id": int(c.get("id")),
-                    "group_label": achievement_label_by_id.get(int(c.get("achievement")), "L?"),
-                    "label": (c.get("label") or "Actividad").strip(),
-                    "description": achievement_desc_by_id.get(int(c.get("achievement")), ""),
-                }
-                for c in ordered_columns
-            ]
-
-            for col in columns:
-                if not column_groups or column_groups[-1]["label"] != col["group_label"]:
-                    column_groups.append({"label": col["group_label"], "count": 1})
-                else:
-                    column_groups[-1]["count"] += 1
-
-            score_by_cell = {
-                (int(c.get("enrollment")), int(c.get("column"))): c.get("score")
-                for c in activity_cells
-                if c.get("enrollment") is not None and c.get("column") is not None
-            }
-
-            for s in students:
-                enrollment_id = int(s.get("enrollment_id"))
-                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
-                if all(score is None for score in raw_scores):
-                    continue
-
-                rows.append(
-                    {
-                        "index": len(rows) + 1,
-                        "student_name": s.get("student_name") or "",
-                        "scores": [_fmt_score(score) for score in raw_scores],
-                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
-                    }
-                )
-        else:
-            cells = payload.get("cells") or []
-
-            # Keep only achievements that have at least one diligenced score.
-            filled_achievement_ids = {
-                int(c.get("achievement"))
-                for c in cells
-                if c.get("score") is not None and c.get("achievement") is not None
-            }
-
-            ordered_achievements = [a for a in achievements if int(a.get("id")) in filled_achievement_ids]
-            columns = [
-                {
-                    "id": int(a.get("id")),
-                    "group_label": "Logro",
-                    "label": f"L{idx + 1}",
-                    "description": (a.get("description") or "").strip(),
-                }
-                for idx, a in enumerate(ordered_achievements)
-            ]
-
-            score_by_cell = {
-                (int(c.get("enrollment")), int(c.get("achievement"))): c.get("score")
-                for c in cells
-                if c.get("enrollment") is not None and c.get("achievement") is not None
-            }
-
-            for s in students:
-                enrollment_id = int(s.get("enrollment_id"))
-                raw_scores = [score_by_cell.get((enrollment_id, col["id"])) for col in columns]
-                if all(score is None for score in raw_scores):
-                    continue
-
-                rows.append(
-                    {
-                        "index": len(rows) + 1,
-                        "student_name": s.get("student_name") or "",
-                        "scores": [_fmt_score(score) for score in raw_scores],
-                        "final_score": _fmt_score((computed_by_enrollment.get(enrollment_id) or {}).get("final_score")),
-                    }
-                )
-
-        if not columns or not rows:
+        if period.academic_year_id != teacher_assignment.academic_year_id:
             return Response(
-                {"error": "La planilla actual no tiene notas diligenciadas para generar el informe."},
+                {"error": "El periodo no corresponde al año lectivo de la asignación"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from django.template.loader import render_to_string
+        current_resp = self._enforce_teacher_current_period(user=request.user, period=period)
+        if current_resp is not None:
+            return current_resp
 
-        generated_at = timezone.localtime().strftime("%Y-%m-%d %H:%M")
-        grade_name = ""
-        try:
-            if teacher_assignment.group and teacher_assignment.group.grade:
-                grade_name = teacher_assignment.group.grade.name or ""
-        except Exception:
-            grade_name = ""
+        gradesheet, _ = GradeSheet.objects.get_or_create(
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
 
-        context = {
-            "title": "Informe de planilla diligenciada",
-            "grading_mode": grading_mode or GradeSheet.GRADING_MODE_ACHIEVEMENT,
-            "group_name": teacher_assignment.group.name if teacher_assignment.group else "",
-            "grade_name": grade_name,
-            "subject_name": teacher_assignment.academic_load.subject.name if teacher_assignment.academic_load else "",
-            "period_name": period.name,
-            "generated_at": generated_at,
-            "columns": columns,
-            "column_groups": column_groups,
-            "rows": rows,
-        }
+        if gradesheet.grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES:
+            achievement_ids = set(
+                self._valid_achievements_for_assignment_period(
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                ).values_list("id", flat=True)
+            )
+            enrollment_ids = self._active_enrollment_ids_for_assignment(teacher_assignment=teacher_assignment)
+            self._recompute_achievement_grades_from_activities(
+                gradesheet=gradesheet,
+                achievement_ids=achievement_ids,
+                enrollment_ids=enrollment_ids,
+            )
 
-        institution = Institution.objects.first() or Institution()
-        institution_logo_src = ""
-        try:
-            if getattr(institution, "pdf_show_logo", True) and getattr(institution, "logo", None):
-                logo_field = institution.logo
-                if getattr(logo_field, "path", None) and Path(logo_field.path).exists():
-                    institution_logo_src = Path(logo_field.path).resolve().as_uri()
-                elif getattr(logo_field, "url", None):
-                    institution_logo_src = logo_field.url
-        except Exception:
-            institution_logo_src = ""
+        payload = self._build_gradebook_payload(
+            gradesheet=gradesheet,
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
 
-        context["institution_logo_src"] = institution_logo_src
+        fmt = (request.query_params.get("format") or "pdf").strip().lower()
+
+        context, error_message = self._build_gradebook_filled_report_context(
+            payload=payload,
+            teacher_assignment=teacher_assignment,
+            period=period,
+        )
+        if error_message:
+            return Response({"error": error_message}, status=status.HTTP_400_BAD_REQUEST)
 
         html_string = render_to_string("academic/reports/gradebook_filled_report_pdf.html", context)
 
@@ -3835,10 +4004,26 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                         AchievementActivityColumn.objects.bulk_create(to_create)
                         created_columns = len(to_create)
 
+        recomputed = 0
+        if grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES:
+            achievement_ids = set(
+                self._valid_achievements_for_assignment_period(
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                ).values_list("id", flat=True)
+            )
+            enrollment_ids = self._active_enrollment_ids_for_assignment(teacher_assignment=teacher_assignment)
+            recomputed = self._recompute_achievement_grades_from_activities(
+                gradesheet=gradesheet,
+                achievement_ids=achievement_ids,
+                enrollment_ids=enrollment_ids,
+            )
+
         return Response(
             {
                 "gradesheet": GradeSheetSerializer(gradesheet).data,
                 "created_columns": created_columns,
+                "recomputed_achievement_grades": recomputed,
             },
             status=status.HTTP_200_OK,
         )
@@ -4036,6 +4221,17 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             if to_update:
                 AchievementActivityColumn.objects.bulk_update(to_update, ["label", "order", "is_active", "updated_at"])
 
+        # Keep persisted achievement grades in sync when activities structure changes.
+        touched_achievement_ids = {int(item["achievement"]) for item in columns_payload}
+        recomputed = 0
+        if touched_achievement_ids and gradesheet.grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES:
+            enrollment_ids = self._active_enrollment_ids_for_assignment(teacher_assignment=teacher_assignment)
+            recomputed = self._recompute_achievement_grades_from_activities(
+                gradesheet=gradesheet,
+                achievement_ids=touched_achievement_ids,
+                enrollment_ids=enrollment_ids,
+            )
+
         cols = AchievementActivityColumn.objects.filter(
             gradesheet=gradesheet,
             achievement_id__in=list(valid_achievement_ids),
@@ -4045,6 +4241,7 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             {
                 "created": len(to_create),
                 "updated": len(to_update),
+                "recomputed_achievement_grades": recomputed,
                 "columns": AchievementActivityColumnSerializer(cols, many=True).data,
             },
             status=status.HTTP_200_OK,
@@ -4088,6 +4285,11 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,
             period=period,
+        )
+        completion_before = self._compute_gradebook_completion_stats(
+            teacher_assignment=teacher_assignment,
+            period=period,
+            gradesheet=gradesheet,
         )
 
         from students.models import Enrollment
@@ -4235,6 +4437,31 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                 }
             )
 
+        completion_after = self._compute_gradebook_completion_stats(
+            teacher_assignment=teacher_assignment,
+            period=period,
+            gradesheet=gradesheet,
+        )
+        transitioned_to_complete = (not completion_before["is_complete"]) and completion_after["is_complete"]
+        is_teacher = getattr(getattr(request, "user", None), "role", None) == "TEACHER"
+        if transitioned_to_complete and is_teacher:
+            try:
+                payload = self._build_gradebook_payload(
+                    gradesheet=gradesheet,
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                )
+                self._send_gradebook_completed_email(
+                    teacher=request.user,
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                    gradesheet=gradesheet,
+                    payload=payload,
+                )
+            except Exception:
+                # Email dispatch is best-effort and must not break grade registration.
+                pass
+
         return Response(
             {
                 "requested": len(grades_payload),
@@ -4307,6 +4534,11 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         gradesheet, _ = GradeSheet.objects.get_or_create(
             teacher_assignment=teacher_assignment,
             period=period,
+        )
+        completion_before = self._compute_gradebook_completion_stats(
+            teacher_assignment=teacher_assignment,
+            period=period,
+            gradesheet=gradesheet,
         )
 
         from students.models import Enrollment
@@ -4434,6 +4666,30 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
                     "scale": scale_match.name if scale_match else None,
                 }
             )
+
+        completion_after = self._compute_gradebook_completion_stats(
+            teacher_assignment=teacher_assignment,
+            period=period,
+            gradesheet=gradesheet,
+        )
+        transitioned_to_complete = (not completion_before["is_complete"]) and completion_after["is_complete"]
+        if transitioned_to_complete and is_teacher:
+            try:
+                payload = self._build_gradebook_payload(
+                    gradesheet=gradesheet,
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                )
+                self._send_gradebook_completed_email(
+                    teacher=user,
+                    teacher_assignment=teacher_assignment,
+                    period=period,
+                    gradesheet=gradesheet,
+                    payload=payload,
+                )
+            except Exception:
+                # Email dispatch is best-effort and must not break grade registration.
+                pass
 
         return Response(
             {

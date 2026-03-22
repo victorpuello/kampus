@@ -90,6 +90,7 @@ def send_email(
     subject: str,
     body_text: str,
     body_html: str = "",
+    attachments: Optional[list[tuple[str, bytes, str]]] = None,
     category: str = "transactional",
     idempotency_key: str = "",
     from_email: Optional[str] = None,
@@ -222,6 +223,15 @@ def send_email(
             }
     if normalized_body_html:
         message.attach_alternative(normalized_body_html, "text/html")
+
+    for attachment in attachments or []:
+        try:
+            filename, content, mimetype = attachment
+        except Exception:
+            continue
+        if not filename or content is None:
+            continue
+        message.attach(filename, content, mimetype or "application/octet-stream")
 
     message.tags = [category]
     message.metadata = {

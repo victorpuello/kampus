@@ -1,8 +1,11 @@
 from decimal import Decimal
 
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -49,6 +52,14 @@ class GradebookApiTests(APITestCase):
             role="TEACHER",
             first_name="Docente",
             last_name="Dos",
+        )
+        self.admin = User.objects.create_user(
+            username="admin1",
+            password="pass",
+            email="admin@example.com",
+            role="ADMIN",
+            first_name="Admin",
+            last_name="Uno",
         )
 
         self.year = AcademicYear.objects.create(year=2026, status=AcademicYear.STATUS_ACTIVE)
@@ -195,6 +206,56 @@ class GradebookApiTests(APITestCase):
         )
         row = next(x for x in resp2.data["computed"] if x["enrollment_id"] == self.enrollment.id)
         self.assertEqual(Decimal(str(row["final_score"])), Decimal("4.00"))
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    @patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 test")
+    def test_bulk_upsert_sends_completion_email_with_gradebook_report_pdf_once(self, _mock_pdf):
+        resp = self.client.post(
+            "/api/grade-sheets/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {
+                        "enrollment": self.enrollment.id,
+                        "achievement": self.achievement.id,
+                        "score": "4.00",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, [self.teacher.email])
+        self.assertIn("planilla de calificaciones", sent.subject.lower())
+        self.assertIn("100%", sent.subject)
+        self.assertIn("Grado:", sent.body)
+        self.assertIn("Grupo:", sent.body)
+        self.assertTrue(sent.attachments)
+        self.assertTrue(str(sent.attachments[0][0]).startswith("planilla-diligenciada-"))
+        self.assertTrue(str(sent.attachments[0][0]).endswith(".pdf"))
+
+        # Once complete, further edits should not send duplicates for the same sheet.
+        resp2 = self.client.post(
+            "/api/grade-sheets/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {
+                        "enrollment": self.enrollment.id,
+                        "achievement": self.achievement.id,
+                        "score": "4.10",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_bulk_upsert_blocked_when_period_closed(self):
         self.period.is_closed = True
@@ -353,6 +414,56 @@ class GradebookApiTests(APITestCase):
         self.assertIn("column", any_cell)
         self.assertIn("score", any_cell)
 
+    def test_set_grading_mode_activities_recomputes_existing_achievement_grades(self):
+        # Seed an existing logro score from traditional mode.
+        seed = self.client.post(
+            "/api/grade-sheets/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {
+                        "enrollment": self.enrollment.id,
+                        "achievement": self.achievement.id,
+                        "score": "4.00",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(seed.status_code, 200)
+
+        # Switching to activities should recompute persisted logro score from activities data.
+        # With two default activities and no activity scores yet: (1.00 + 1.00) / 2 = 1.00.
+        resp = self.client.post(
+            "/api/grade-sheets/set-grading-mode/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grading_mode": "ACTIVITIES",
+                "default_columns": 2,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreaterEqual(int(resp.data.get("recomputed_achievement_grades", 0)), 1)
+
+        updated = AchievementGrade.objects.get(
+            enrollment_id=self.enrollment.id,
+            achievement_id=self.achievement.id,
+            gradesheet__teacher_assignment=self.assignment,
+            gradesheet__period=self.period,
+        )
+        self.assertEqual(updated.score, Decimal("1.00"))
+
+        gb = self.client.get(
+            "/api/grade-sheets/gradebook/",
+            {"teacher_assignment": self.assignment.id, "period": self.period.id},
+        )
+        self.assertEqual(gb.status_code, 200)
+        row = next(x for x in gb.data["computed"] if x["enrollment_id"] == self.enrollment.id)
+        self.assertEqual(Decimal(str(row["final_score"])), Decimal("1.00"))
+
     def test_activity_grades_bulk_upsert_recomputes_average_with_blanks_as_one(self):
         self.client.post(
             "/api/grade-sheets/set-grading-mode/",
@@ -402,6 +513,69 @@ class GradebookApiTests(APITestCase):
 
         row = next(x for x in resp.data["computed"] if x["enrollment_id"] == self.enrollment.id)
         self.assertEqual(Decimal(str(row["final_score"])), Decimal("3.00"))
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    @patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 test")
+    def test_activity_grades_bulk_upsert_sends_completion_email_with_pdf_once(self, _mock_pdf):
+        self.client.post(
+            "/api/grade-sheets/set-grading-mode/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grading_mode": "ACTIVITIES",
+                "default_columns": 2,
+            },
+            format="json",
+        )
+
+        cols = list(
+            AchievementActivityColumn.objects.filter(
+                gradesheet__teacher_assignment=self.assignment,
+                gradesheet__period=self.period,
+                achievement=self.achievement,
+                is_active=True,
+            ).order_by("order")
+        )
+        self.assertEqual(len(cols), 2)
+
+        resp = self.client.post(
+            "/api/grade-sheets/activity-grades/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {"enrollment": self.enrollment.id, "column": cols[0].id, "score": "5.00"}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, [self.teacher.email])
+        self.assertIn("planilla de calificaciones", sent.subject.lower())
+        self.assertIn("100%", sent.subject)
+        self.assertIn("Grado:", sent.body)
+        self.assertIn("Grupo:", sent.body)
+        self.assertTrue(sent.attachments)
+        self.assertTrue(str(sent.attachments[0][0]).startswith("planilla-diligenciada-"))
+        self.assertTrue(str(sent.attachments[0][0]).endswith(".pdf"))
+
+        # Editing again after completion must not send a duplicate email.
+        resp2 = self.client.post(
+            "/api/grade-sheets/activity-grades/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {"enrollment": self.enrollment.id, "column": cols[1].id, "score": "4.00"}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp2.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_activity_grades_blocked_after_deadline_without_grant_and_allowed_with_partial_grant(self):
         self.client.post(
