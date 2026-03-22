@@ -40,38 +40,60 @@ class PublicValidateTokenAPIView(APIView):
             return Response({"detail": "No se encontró el token de votación."}, status=status.HTTP_404_NOT_FOUND)
 
         with transaction.atomic():
-            voter_token = (
+            candidate_tokens = list(
                 VoterToken.objects.select_for_update()
                 .select_related("process")
                 .filter(token_hash__in=token_hashes)
-                .first()
+                .order_by("-created_at", "-id")
             )
-            if voter_token is None:
+            if not candidate_tokens:
                 return Response({"detail": "No se encontró el token de votación."}, status=status.HTTP_404_NOT_FOUND)
 
-            token_status = voter_token.ensure_fresh_status()
-            if token_status != VoterToken.Status.ACTIVE:
+            voter_token: VoterToken | None = None
+            census_error_detail: str | None = None
+            has_active_in_closed_process = False
+            latest_status = VoterToken.Status.ACTIVE
+
+            for token_candidate in candidate_tokens:
+                token_status = token_candidate.ensure_fresh_status()
+                latest_status = token_status
+                if token_status != VoterToken.Status.ACTIVE:
+                    continue
+
+                process_candidate: ElectionProcess = token_candidate.process
+                if not process_candidate.is_open():
+                    has_active_in_closed_process = True
+                    continue
+
+                census_error = get_voter_token_census_eligibility_error(token_candidate)
+                if census_error:
+                    census_error_detail = census_error
+                    continue
+
+                voter_token = token_candidate
+                break
+
+            if voter_token is None:
+                if census_error_detail:
+                    return Response({"detail": census_error_detail}, status=status.HTTP_403_FORBIDDEN)
+
+                if has_active_in_closed_process:
+                    return Response(
+                        {"detail": "La jornada electoral no se encuentra abierta en este momento."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
                 status_map = {
                     VoterToken.Status.USED: status.HTTP_409_CONFLICT,
                     VoterToken.Status.REVOKED: status.HTTP_403_FORBIDDEN,
                     VoterToken.Status.EXPIRED: status.HTTP_410_GONE,
                 }
                 return Response(
-                    {"detail": "El token no se encuentra disponible para votar.", "status": token_status},
-                    status=status_map.get(token_status, status.HTTP_400_BAD_REQUEST),
+                    {"detail": "El token no se encuentra disponible para votar.", "status": latest_status},
+                    status=status_map.get(latest_status, status.HTTP_400_BAD_REQUEST),
                 )
 
             process: ElectionProcess = voter_token.process
-            if not process.is_open():
-                return Response(
-                    {"detail": "La jornada electoral no se encuentra abierta en este momento."},
-                    status=status.HTTP_409_CONFLICT,
-                )
-
-            census_error = get_voter_token_census_eligibility_error(voter_token)
-            if census_error:
-                return Response({"detail": census_error}, status=status.HTTP_403_FORBIDDEN)
-
             access_session = build_or_reuse_access_session(voter_token)
             roles = process.roles.all().order_by("display_order", "id")
             roles_data = ElectionRolePublicSerializer(roles, many=True, context={"request": request}).data
@@ -160,8 +182,13 @@ class ResetVoterTokenAPIView(APIView):
             return Response({"detail": "No se encontró el token de votación."}, status=status.HTTP_404_NOT_FOUND)
 
         with transaction.atomic():
-            voter_token = VoterToken.objects.select_for_update().filter(token_hash__in=token_hashes).first()
-            if voter_token is None:
+            candidate_tokens = list(
+                VoterToken.objects.select_for_update()
+                .select_related("process")
+                .filter(token_hash__in=token_hashes)
+                .order_by("-created_at", "-id")
+            )
+            if not candidate_tokens:
                 log_event(
                     request,
                     event_type="ELECTION_TOKEN_RESET_NOT_FOUND",
@@ -171,6 +198,9 @@ class ResetVoterTokenAPIView(APIView):
                     metadata={"token_prefix": VoterToken.normalize_token_input(raw_token)[:12], "reason": reason},
                 )
                 return Response({"detail": "No se encontró el token de votación."}, status=status.HTTP_404_NOT_FOUND)
+
+            open_process_tokens = [token for token in candidate_tokens if token.process.is_open()]
+            voter_token = open_process_tokens[0] if open_process_tokens else candidate_tokens[0]
 
             reset_event = reset_voter_token_with_audit(
                 voter_token=voter_token,

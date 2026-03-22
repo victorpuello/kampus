@@ -2249,73 +2249,172 @@ def _issue_manual_token_for_row(process: ElectionProcess, row: dict) -> str:
     return _issue_manual_token_for_row_with_reason(process, row, revoked_reason="Regeneración de código manual para censo por jornada.")
 
 
+def _resolve_permanent_manual_code_for_row(row: dict) -> str:
+    member_id = row.get("member_id")
+    try:
+        member_id_int = int(member_id)
+    except (TypeError, ValueError):
+        member_id_int = None
+
+    member = ElectionCensusMember.objects.filter(id=member_id_int).first() if member_id_int is not None else None
+    if member is None:
+        # Fallback defensivo para filas sin referencia de censo.
+        return f"VOTO-{secrets.token_hex(5).upper()}"
+
+    metadata = member.metadata if isinstance(member.metadata, dict) else {}
+    permanent_code = str(metadata.get("permanent_manual_code") or "").strip()
+    if permanent_code:
+        return permanent_code
+
+    student_external_id = str(member.student_external_id or "").strip()
+    if student_external_id:
+        historical_token = (
+            VoterToken.objects.filter(
+                metadata__student_external_id=student_external_id,
+                metadata__manual_code__isnull=False,
+            )
+            .order_by("created_at", "id")
+            .first()
+        )
+        if historical_token is not None:
+            historical_metadata = historical_token.metadata if isinstance(historical_token.metadata, dict) else {}
+            permanent_code = str(historical_metadata.get("manual_code") or "").strip()
+
+    if not permanent_code:
+        permanent_code = f"VOTO-{secrets.token_hex(5).upper()}"
+
+    metadata["permanent_manual_code"] = permanent_code
+    member.metadata = metadata
+    member.save(update_fields=["metadata", "updated_at"])
+    return permanent_code
+
+
+def _resolve_token_expiration_for_process(process: ElectionProcess) -> timezone.datetime:
+    now = timezone.now()
+    expires_at = process.ends_at
+    if expires_at is None or expires_at <= now:
+        return timezone.now() + timedelta(hours=24)
+    return expires_at
+
+
+def _build_manual_token_metadata(*, row: dict, student_external_id: str, manual_code: str) -> dict:
+    return {
+        "student_external_id": student_external_id,
+        "student_id": row.get("student_id"),
+        "document_number": row.get("document_number") or "",
+        "full_name": row.get("full_name") or "",
+        "group": row.get("group") or "",
+        "manual_code": manual_code,
+        "issued_from": "process_census",
+    }
+
+
 def _issue_manual_token_for_row_with_reason(process: ElectionProcess, row: dict, *, revoked_reason: str) -> str:
+    raw_token = _resolve_permanent_manual_code_for_row(row)
+    token_hash = VoterToken.hash_token(raw_token)
+    expires_at = _resolve_token_expiration_for_process(process)
     student_external_id = str(row.get("student_external_id") or "").strip()
+
     if student_external_id:
         VoterToken.objects.filter(
             process=process,
             metadata__student_external_id=student_external_id,
             status=VoterToken.Status.ACTIVE,
-        ).update(
+        ).exclude(token_hash=token_hash).update(
             status=VoterToken.Status.REVOKED,
             revoked_at=timezone.now(),
             revoked_reason=revoked_reason,
         )
 
-    raw_token = f"VOTO-{secrets.token_hex(5).upper()}"
-    token_hash = VoterToken.hash_token(raw_token)
-    now = timezone.now()
-    expires_at = process.ends_at
-    if expires_at is None or expires_at <= now:
-        expires_at = timezone.now() + timedelta(hours=24)
-
-    VoterToken.objects.create(
+    defaults = {
+        "token_prefix": raw_token[:12],
+        "status": VoterToken.Status.ACTIVE,
+        "expires_at": expires_at,
+        "student_grade": str(row.get("grade") or ""),
+        "student_shift": str(row.get("shift") or ""),
+        "metadata": _build_manual_token_metadata(row=row, student_external_id=student_external_id, manual_code=raw_token),
+    }
+    token, created = VoterToken.objects.get_or_create(
         process=process,
         token_hash=token_hash,
-        token_prefix=raw_token[:12],
-        status=VoterToken.Status.ACTIVE,
-        expires_at=expires_at,
-        student_grade=str(row.get("grade") or ""),
-        student_shift=str(row.get("shift") or ""),
-        metadata={
-            "student_external_id": student_external_id,
-            "student_id": row.get("student_id"),
-            "document_number": row.get("document_number") or "",
-            "full_name": row.get("full_name") or "",
-            "group": row.get("group") or "",
-            "manual_code": raw_token,
-            "issued_from": "process_census",
-        },
+        defaults=defaults,
     )
+
+    if not created:
+        token_metadata = token.metadata if isinstance(token.metadata, dict) else {}
+        token_metadata.update(_build_manual_token_metadata(row=row, student_external_id=student_external_id, manual_code=raw_token))
+        token.token_prefix = raw_token[:12]
+        token.status = VoterToken.Status.ACTIVE
+        token.used_at = None
+        token.revoked_at = None
+        token.revoked_reason = ""
+        token.expires_at = expires_at
+        token.student_grade = str(row.get("grade") or "")
+        token.student_shift = str(row.get("shift") or "")
+        token.metadata = token_metadata
+        token.save(
+            update_fields=[
+                "token_prefix",
+                "status",
+                "used_at",
+                "revoked_at",
+                "revoked_reason",
+                "expires_at",
+                "student_grade",
+                "student_shift",
+                "metadata",
+            ]
+        )
+
     return raw_token
 
 
 def _issue_manual_token_for_row_without_revocation(process: ElectionProcess, row: dict) -> str:
-    raw_token = f"VOTO-{secrets.token_hex(5).upper()}"
+    raw_token = _resolve_permanent_manual_code_for_row(row)
     token_hash = VoterToken.hash_token(raw_token)
-    now = timezone.now()
-    expires_at = process.ends_at
-    if expires_at is None or expires_at <= now:
-        expires_at = timezone.now() + timedelta(hours=24)
+    expires_at = _resolve_token_expiration_for_process(process)
+    student_external_id = str(row.get("student_external_id") or "").strip()
 
-    VoterToken.objects.create(
+    defaults = {
+        "token_prefix": raw_token[:12],
+        "status": VoterToken.Status.ACTIVE,
+        "expires_at": expires_at,
+        "student_grade": str(row.get("grade") or ""),
+        "student_shift": str(row.get("shift") or ""),
+        "metadata": _build_manual_token_metadata(row=row, student_external_id=student_external_id, manual_code=raw_token),
+    }
+    token, created = VoterToken.objects.get_or_create(
         process=process,
         token_hash=token_hash,
-        token_prefix=raw_token[:12],
-        status=VoterToken.Status.ACTIVE,
-        expires_at=expires_at,
-        student_grade=str(row.get("grade") or ""),
-        student_shift=str(row.get("shift") or ""),
-        metadata={
-            "student_external_id": str(row.get("student_external_id") or "").strip(),
-            "student_id": row.get("student_id"),
-            "document_number": row.get("document_number") or "",
-            "full_name": row.get("full_name") or "",
-            "group": row.get("group") or "",
-            "manual_code": raw_token,
-            "issued_from": "process_census",
-        },
+        defaults=defaults,
     )
+
+    if not created:
+        token_metadata = token.metadata if isinstance(token.metadata, dict) else {}
+        token_metadata.update(_build_manual_token_metadata(row=row, student_external_id=student_external_id, manual_code=raw_token))
+        token.token_prefix = raw_token[:12]
+        token.status = VoterToken.Status.ACTIVE
+        token.used_at = None
+        token.revoked_at = None
+        token.revoked_reason = ""
+        token.expires_at = expires_at
+        token.student_grade = str(row.get("grade") or "")
+        token.student_shift = str(row.get("shift") or "")
+        token.metadata = token_metadata
+        token.save(
+            update_fields=[
+                "token_prefix",
+                "status",
+                "used_at",
+                "revoked_at",
+                "revoked_reason",
+                "expires_at",
+                "student_grade",
+                "student_shift",
+                "metadata",
+            ]
+        )
+
     return raw_token
 
 
@@ -2349,6 +2448,8 @@ def _resolve_manual_code_for_row(
     mode: str,
     regeneration_reason: str | None,
 ) -> tuple[str, bool]:
+    permanent_code = _resolve_permanent_manual_code_for_row(row)
+    permanent_hash = VoterToken.hash_token(permanent_code)
     student_external_id = str(row.get("student_external_id") or "").strip()
     if student_external_id:
         existing_token = (
@@ -2362,10 +2463,16 @@ def _resolve_manual_code_for_row(
             .first()
         )
         if existing_token is not None:
-            metadata = existing_token.metadata if isinstance(existing_token.metadata, dict) else {}
-            manual_code = str(metadata.get("manual_code") or "").strip()
-            if manual_code:
-                return manual_code, False
+            if existing_token.token_hash == permanent_hash:
+                return permanent_code, False
+
+            if mode == "existing":
+                # En modo existing, normalizamos al token permanente sin generar un nuevo código.
+                return _issue_manual_token_for_row_with_reason(
+                    process,
+                    row,
+                    revoked_reason="Normalización automática a código permanente del estudiante.",
+                ), True
 
     if mode == "existing":
         return _issue_manual_token_for_row_without_revocation(process, row), True

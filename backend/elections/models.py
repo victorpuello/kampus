@@ -190,7 +190,7 @@ class VoterToken(models.Model):
         EXPIRED = "EXPIRED", "Expirado"
 
     process = models.ForeignKey(ElectionProcess, on_delete=models.CASCADE, related_name="voter_tokens")
-    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    token_hash = models.CharField(max_length=64, db_index=True)
     token_prefix = models.CharField(max_length=12, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -204,6 +204,9 @@ class VoterToken(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["process", "token_hash"], name="uniq_votertoken_process_hash"),
+        ]
         permissions = [
             ("reset_votertoken", "Can reset voter token for contingency"),
         ]
