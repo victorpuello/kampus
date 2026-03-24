@@ -3279,21 +3279,72 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             period=period,
         )
         achievement_ids = list(achievements_qs.values_list("id", flat=True))
-        achievements_count = len(achievement_ids)
 
-        total = students_count * achievements_count
+        total = 0
         filled = 0
-        if total > 0 and achievement_ids:
-            filled = (
-                AchievementGrade.objects.filter(
-                    gradesheet=gradesheet,
-                    enrollment__in=enrollments_qs,
-                    achievement_id__in=achievement_ids,
-                    score__isnull=False,
+
+        if achievement_ids and students_count > 0:
+            if gradesheet.grading_mode == GradeSheet.GRADING_MODE_ACTIVITIES:
+                active_columns = list(
+                    AchievementActivityColumn.objects.filter(
+                        gradesheet=gradesheet,
+                        achievement_id__in=achievement_ids,
+                        is_active=True,
+                    ).only("id", "achievement_id")
                 )
-                .only("id")
-                .count()
-            )
+
+                column_ids_by_achievement: dict[int, list[int]] = {}
+                for col in active_columns:
+                    column_ids_by_achievement.setdefault(int(col.achievement_id), []).append(int(col.id))
+
+                total_columns_per_student = 0
+                achievements_without_columns: list[int] = []
+                for achievement_id in achievement_ids:
+                    current_cols = column_ids_by_achievement.get(int(achievement_id), [])
+                    if current_cols:
+                        total_columns_per_student += len(current_cols)
+                    else:
+                        # Fallback to logro cell when an achievement has no activity columns.
+                        total_columns_per_student += 1
+                        achievements_without_columns.append(int(achievement_id))
+
+                total = students_count * total_columns_per_student
+
+                all_column_ids = [col_id for col_ids in column_ids_by_achievement.values() for col_id in col_ids]
+                if all_column_ids:
+                    filled += (
+                        AchievementActivityGrade.objects.filter(
+                            column_id__in=all_column_ids,
+                            enrollment__in=enrollments_qs,
+                            score__isnull=False,
+                        )
+                        .only("id")
+                        .count()
+                    )
+
+                if achievements_without_columns:
+                    filled += (
+                        AchievementGrade.objects.filter(
+                            gradesheet=gradesheet,
+                            enrollment__in=enrollments_qs,
+                            achievement_id__in=achievements_without_columns,
+                            score__isnull=False,
+                        )
+                        .only("id")
+                        .count()
+                    )
+            else:
+                total = students_count * len(achievement_ids)
+                filled = (
+                    AchievementGrade.objects.filter(
+                        gradesheet=gradesheet,
+                        enrollment__in=enrollments_qs,
+                        achievement_id__in=achievement_ids,
+                        score__isnull=False,
+                    )
+                    .only("id")
+                    .count()
+                )
 
         percent = int(round((filled / total) * 100)) if total > 0 else 0
         is_complete = total > 0 and filled >= total
@@ -3657,21 +3708,75 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         except Exception:
             subject_name = ""
 
+        institution = Institution.objects.first() or Institution()
+        institution_name = (getattr(institution, "name", "") or "").strip() or "Institución Educativa"
+        institution_logo_src = ""
+        try:
+            logo_field = getattr(institution, "logo", None)
+            raw_logo_url = getattr(logo_field, "url", "") if logo_field else ""
+            if raw_logo_url:
+                if str(raw_logo_url).startswith(("http://", "https://", "data:")):
+                    institution_logo_src = raw_logo_url
+                else:
+                    backend_base_url = (getattr(settings, "KAMPUS_BACKEND_BASE_URL", "") or "").rstrip("/")
+                    if backend_base_url:
+                        if str(raw_logo_url).startswith("/"):
+                            institution_logo_src = f"{backend_base_url}{raw_logo_url}"
+                        else:
+                            institution_logo_src = f"{backend_base_url}/{raw_logo_url}"
+                    else:
+                        institution_logo_src = raw_logo_url
+        except Exception:
+            institution_logo_src = ""
+
+        grade_group_label = ""
+        if grade_name and group_name:
+            grade_group_label = f"{grade_name}-{group_name}"
+        else:
+            grade_group_label = grade_name or group_name or "grupo"
+
+        frontend_base_url = (getattr(settings, "KAMPUS_FRONTEND_BASE_URL", "") or "").rstrip("/")
+        gradebook_url = ""
+        if frontend_base_url and getattr(period, "id", None) and getattr(teacher_assignment, "id", None):
+            gradebook_url = f"{frontend_base_url}/grades?period={period.id}&ta={teacher_assignment.id}"
+
         detail_parts = [p for p in [subject_name, period_name] if p]
         detail_text = " | ".join(detail_parts)
         body_text = (
             f"Hola {teacher_name},\n\n"
             "Tu planilla de calificaciones fue completada al 100%.\n"
+            f"Grado/Grupo: {grade_group_label}\n"
             f"Grado: {grade_name or 'N/A'}\n"
             f"Grupo: {group_name or 'N/A'}\n"
             f"Detalle: {detail_text}\n\n"
             "Adjuntamos el informe en PDF, generado con el mismo formato del botón 'Descargar informe de planilla'."
         )
+        if gradebook_url:
+            body_text = f"{body_text}\n\nAbrir planilla: {gradebook_url}"
+
+        email_html = render_to_string(
+            "academic/emails/gradebook_complete_email.html",
+            {
+                "teacher_name": teacher_name,
+                "grade_name": grade_name,
+                "group_name": group_name,
+                "grade_group_label": grade_group_label,
+                "subject_name": subject_name,
+                "period_name": period_name,
+                "institution_name": institution_name,
+                "institution_logo_src": institution_logo_src,
+                "gradebook_url": gradebook_url,
+                "attachment_name": attachment_name,
+            },
+        )
+
+        subject_line = f"[Kampus] Tu planilla de calificaciones para el grupo {grade_group_label} está completa (100%)"
 
         send_email(
             recipient_email=recipient_email,
-            subject="[Kampus] Tu planilla de calificaciones está completa (100%)",
+            subject=subject_line,
             body_text=body_text,
+            body_html=email_html,
             attachments=[(attachment_name, pdf_bytes, "application/pdf")],
             category="gradebook-complete",
             idempotency_key=f"gradebook-complete-email:sheet={gradesheet.id}",

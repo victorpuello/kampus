@@ -232,9 +232,12 @@ class GradebookApiTests(APITestCase):
         self.assertEqual(sent.to, [self.teacher.email])
         self.assertIn("planilla de calificaciones", sent.subject.lower())
         self.assertIn("100%", sent.subject)
+        self.assertIn("grupo 1-A", sent.subject)
         self.assertIn("Grado:", sent.body)
         self.assertIn("Grupo:", sent.body)
         self.assertTrue(sent.attachments)
+        self.assertTrue(sent.alternatives)
+        self.assertIn("Resumen de la planilla", sent.alternatives[0][0])
         self.assertTrue(str(sent.attachments[0][0]).startswith("planilla-diligenciada-"))
         self.assertTrue(str(sent.attachments[0][0]).endswith(".pdf"))
 
@@ -550,19 +553,8 @@ class GradebookApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mail.outbox), 0)
 
-        self.assertEqual(len(mail.outbox), 1)
-        sent = mail.outbox[0]
-        self.assertEqual(sent.to, [self.teacher.email])
-        self.assertIn("planilla de calificaciones", sent.subject.lower())
-        self.assertIn("100%", sent.subject)
-        self.assertIn("Grado:", sent.body)
-        self.assertIn("Grupo:", sent.body)
-        self.assertTrue(sent.attachments)
-        self.assertTrue(str(sent.attachments[0][0]).startswith("planilla-diligenciada-"))
-        self.assertTrue(str(sent.attachments[0][0]).endswith(".pdf"))
-
-        # Editing again after completion must not send a duplicate email.
         resp2 = self.client.post(
             "/api/grade-sheets/activity-grades/bulk-upsert/",
             {
@@ -575,6 +567,34 @@ class GradebookApiTests(APITestCase):
             format="json",
         )
         self.assertEqual(resp2.status_code, 200)
+
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, [self.teacher.email])
+        self.assertIn("planilla de calificaciones", sent.subject.lower())
+        self.assertIn("100%", sent.subject)
+        self.assertIn("grupo 1-A", sent.subject)
+        self.assertIn("Grado:", sent.body)
+        self.assertIn("Grupo:", sent.body)
+        self.assertTrue(sent.attachments)
+        self.assertTrue(sent.alternatives)
+        self.assertIn("Resumen de la planilla", sent.alternatives[0][0])
+        self.assertTrue(str(sent.attachments[0][0]).startswith("planilla-diligenciada-"))
+        self.assertTrue(str(sent.attachments[0][0]).endswith(".pdf"))
+
+        # Editing again after completion must not send a duplicate email.
+        resp3 = self.client.post(
+            "/api/grade-sheets/activity-grades/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {"enrollment": self.enrollment.id, "column": cols[1].id, "score": "4.10"}
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp3.status_code, 200)
         self.assertEqual(len(mail.outbox), 1)
 
     def test_activity_grades_blocked_after_deadline_without_grant_and_allowed_with_partial_grant(self):
