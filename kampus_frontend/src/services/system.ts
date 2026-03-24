@@ -71,7 +71,22 @@ export type EmailTemplateItem = {
   body_html_template: string
   allowed_variables: string[]
   is_active: boolean
+  managed_by_code: boolean
   updated_at: string
+}
+
+export type EmailTemplateSyncResponse = {
+  detail: string
+  summary: {
+    created: number
+    updated: number
+    unchanged: number
+    deactivated: number
+    templates_count: number
+    dry_run: boolean
+    deactivate_missing: boolean
+    artifact_path: string
+  }
 }
 
 export type EmailTemplateListResponse = {
@@ -382,6 +397,13 @@ export const systemApi = {
     api.post<{ detail: string; status: string; error?: string }>(`/api/communications/settings/email-templates/${encodeURIComponent(slug)}/test/`, {
       test_email: testEmail,
       context,
+    }),
+
+  syncEmailTemplatesFromCode: (params?: { dry_run?: boolean; deactivate_missing?: boolean; artifact_path?: string }) =>
+    api.post<EmailTemplateSyncResponse>('/api/communications/settings/email-templates/sync/', {
+      dry_run: !!params?.dry_run,
+      deactivate_missing: !!params?.deactivate_missing,
+      artifact_path: params?.artifact_path || '',
     }),
 
   listWhatsAppTemplateMaps: (approvalStatus?: WhatsAppTemplateApprovalStatus) => {

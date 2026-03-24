@@ -5,6 +5,8 @@ from django.core.management import call_command
 import hashlib
 import hmac
 import json
+import tempfile
+from pathlib import Path
 from io import StringIO
 from unittest.mock import patch
 from rest_framework.test import APIClient
@@ -19,6 +21,7 @@ from .models import (
 	EmailPreference,
 	EmailPreferenceAudit,
 	EmailSuppression,
+	EmailTemplate,
 	MailgunSettingsAudit,
 	WhatsAppContact,
 	WhatsAppDelivery,
@@ -27,6 +30,7 @@ from .models import (
 	WhatsAppTemplateMap,
 )
 from .whatsapp_service import send_whatsapp_notification
+from .code_managed_templates import reset_code_managed_template_cache
 from .preferences import build_unsubscribe_token
 
 
@@ -522,6 +526,163 @@ class MailSettingsAdminTests(TestCase):
 
 		teacher_response = self.teacher_client.get("/api/communications/settings/notifications/baseline/")
 		self.assertEqual(teacher_response.status_code, 403)
+
+	def test_email_templates_sync_endpoint_admin_only_and_supports_dry_run(self):
+		with tempfile.TemporaryDirectory() as tmpdir:
+			artifact_path = Path(tmpdir) / "templates.json"
+			artifact_path.write_text(
+				json.dumps(
+					{
+						"templates": [
+							{
+								"slug": "mail-settings-test",
+								"name": "Correo prueba",
+								"description": "sync test",
+								"templateType": "transactional",
+								"category": "transactional",
+								"allowedVariables": ["environment"],
+								"subjectTemplate": "Test",
+								"bodyTextTemplate": "{{ environment }}",
+								"bodyHtmlTemplate": "<p>{{ environment }}</p>",
+							}
+						]
+					}
+				),
+				encoding="utf-8",
+			)
+
+			forbidden = self.teacher_client.post(
+				"/api/communications/settings/email-templates/sync/",
+				{"dry_run": True, "artifact_path": str(artifact_path)},
+				format="json",
+			)
+			self.assertEqual(forbidden.status_code, 403)
+
+			with override_settings(KAMPUS_EMAIL_TEMPLATES_ARTIFACT_PATH=str(artifact_path)):
+				reset_code_managed_template_cache()
+				response = self.admin_client.post(
+					"/api/communications/settings/email-templates/sync/",
+					{"dry_run": True},
+					format="json",
+				)
+				self.assertEqual(response.status_code, 200)
+				self.assertIn("[DRY-RUN]", response.data.get("detail", ""))
+				self.assertEqual(int(response.data["summary"]["templates_count"]), 1)
+				self.assertEqual(EmailTemplate.objects.filter(slug="mail-settings-test").count(), 0)
+				reset_code_managed_template_cache()
+
+
+class EmailTemplateCodeManagedLockTests(TestCase):
+	def setUp(self):
+		self.admin_user = User.objects.create_user(
+			username="admin_email_templates",
+			email="admin-templates@example.com",
+			password="pass1234",
+			role=User.ROLE_ADMIN,
+		)
+		self.client_api = APIClient()
+		self.client_api.force_authenticate(user=self.admin_user)
+
+	def test_put_blocks_manual_edit_for_code_managed_slug(self):
+		with tempfile.TemporaryDirectory() as tmpdir:
+			artifact_path = Path(tmpdir) / "templates.json"
+			artifact_path.write_text(
+				json.dumps(
+					{
+						"templates": [
+							{
+								"slug": "password-reset",
+								"name": "Reset",
+								"description": "",
+								"templateType": "transactional",
+								"category": "password-reset",
+								"allowedVariables": ["reset_url"],
+								"subjectTemplate": "Reset",
+								"bodyTextTemplate": "{{ reset_url }}",
+								"bodyHtmlTemplate": "<p>{{ reset_url }}</p>",
+							}
+						]
+					}
+				),
+				encoding="utf-8",
+			)
+
+			EmailTemplate.objects.create(
+				slug="password-reset",
+				name="Original",
+				template_type=EmailTemplate.TYPE_TRANSACTIONAL,
+				category="password-reset",
+				subject_template="Original",
+				body_text_template="Original",
+				body_html_template="<p>Original</p>",
+			)
+
+			with override_settings(KAMPUS_EMAIL_TEMPLATES_ARTIFACT_PATH=str(artifact_path)):
+				reset_code_managed_template_cache()
+				response = self.client_api.put(
+					"/api/communications/settings/email-templates/password-reset/",
+					{
+						"slug": "password-reset",
+						"name": "Intento manual",
+						"template_type": "transactional",
+						"category": "password-reset",
+						"subject_template": "Intento manual",
+						"body_text_template": "Manual",
+						"body_html_template": "<p>Manual</p>",
+						"allowed_variables": ["reset_url"],
+						"is_active": True,
+					},
+					format="json",
+				)
+				self.assertEqual(response.status_code, 409)
+				self.assertIn("gestionado por codigo", response.data.get("detail", ""))
+
+				template = EmailTemplate.objects.get(slug="password-reset")
+				self.assertEqual(template.name, "Original")
+
+				reset_code_managed_template_cache()
+
+	def test_get_template_includes_managed_by_code_flag(self):
+		with tempfile.TemporaryDirectory() as tmpdir:
+			artifact_path = Path(tmpdir) / "templates.json"
+			artifact_path.write_text(
+				json.dumps(
+					{
+						"templates": [
+							{
+								"slug": "mail-settings-test",
+								"name": "Test",
+								"description": "",
+								"templateType": "transactional",
+								"category": "transactional",
+								"allowedVariables": ["environment"],
+								"subjectTemplate": "Test",
+								"bodyTextTemplate": "{{ environment }}",
+								"bodyHtmlTemplate": "<p>{{ environment }}</p>",
+							}
+						]
+					}
+				),
+				encoding="utf-8",
+			)
+
+			EmailTemplate.objects.create(
+				slug="mail-settings-test",
+				name="Correo de prueba",
+				template_type=EmailTemplate.TYPE_TRANSACTIONAL,
+				category="transactional",
+				subject_template="Correo",
+				body_text_template="Texto",
+				body_html_template="<p>Html</p>",
+			)
+
+			with override_settings(KAMPUS_EMAIL_TEMPLATES_ARTIFACT_PATH=str(artifact_path)):
+				reset_code_managed_template_cache()
+				response = self.client_api.get("/api/communications/settings/email-templates/mail-settings-test/")
+				self.assertEqual(response.status_code, 200)
+				self.assertTrue(response.data.get("managed_by_code"))
+
+				reset_code_managed_template_cache()
 
 
 class NotificationsBaselineCommandTests(TestCase):

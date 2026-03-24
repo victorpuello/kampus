@@ -42,6 +42,8 @@ from .runtime_settings import (
 	get_effective_whatsapp_settings,
 )
 from .management.commands.notifications_baseline_snapshot import build_notifications_baseline_snapshot
+from .code_managed_templates import is_code_managed_template_slug
+from .management.commands.sync_email_templates_from_artifact import sync_email_templates_from_artifact
 from .template_service import list_template_defaults, render_email_template, send_templated_email
 from .whatsapp_service import classify_whatsapp_error, send_whatsapp, send_whatsapp_template
 
@@ -245,6 +247,7 @@ def _serialize_email_template(template: EmailTemplate) -> dict:
 		"body_html_template": template.body_html_template,
 		"allowed_variables": list(template.allowed_variables or []),
 		"is_active": bool(template.is_active),
+		"managed_by_code": bool(is_code_managed_template_slug(template.slug)),
 		"updated_at": template.updated_at,
 	}
 
@@ -779,6 +782,17 @@ class EmailTemplateDetailView(APIView):
 		if not normalized_slug:
 			return Response({"detail": "slug es requerido."}, status=status.HTTP_400_BAD_REQUEST)
 
+		if is_code_managed_template_slug(slug) or is_code_managed_template_slug(normalized_slug):
+			return Response(
+				{
+					"detail": (
+						"Este slug esta gestionado por codigo (React Email) y no permite edicion manual. "
+						"Ejecuta sync_email_templates_from_artifact para actualizarlo."
+					)
+				},
+				status=status.HTTP_409_CONFLICT,
+			)
+
 		name = str(payload.get("name") or "").strip()
 		subject_template = str(payload.get("subject_template") or "").strip()
 		if not name:
@@ -855,6 +869,43 @@ class EmailTemplatePreviewView(APIView):
 				"subject": rendered.subject,
 				"body_text": rendered.body_text,
 				"body_html": rendered.body_html,
+			},
+			status=status.HTTP_200_OK,
+		)
+
+
+class EmailTemplateSyncView(APIView):
+	permission_classes = [IsAdmin]
+
+	def post(self, request, *args, **kwargs):
+		payload = request.data if isinstance(request.data, dict) else {}
+		dry_run = bool(payload.get("dry_run", False))
+		deactivate_missing = bool(payload.get("deactivate_missing", False))
+
+		artifact_raw = str(payload.get("artifact_path") or "").strip()
+		from pathlib import Path
+		from communications.management.commands.sync_email_templates_from_artifact import _default_artifact_path
+
+		artifact_path = Path(artifact_raw) if artifact_raw else _default_artifact_path()
+
+		try:
+			summary = sync_email_templates_from_artifact(
+				artifact_path=artifact_path,
+				dry_run=dry_run,
+				deactivate_missing=deactivate_missing,
+			)
+		except Exception as exc:
+			return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+		prefix = "[DRY-RUN] " if dry_run else ""
+		return Response(
+			{
+				"detail": (
+					f"{prefix}Sincronizacion completada: "
+					f"created={summary['created']}, updated={summary['updated']}, "
+					f"unchanged={summary['unchanged']}, deactivated={summary['deactivated']}"
+				),
+				"summary": summary,
 			},
 			status=status.HTTP_200_OK,
 		)
