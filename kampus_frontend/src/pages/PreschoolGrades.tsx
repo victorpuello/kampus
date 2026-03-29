@@ -7,11 +7,24 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Toast, type ToastType } from '../components/ui/Toast'
 
-function isCurrentPeriod(period: Period): boolean {
+function isDateInsidePeriod(period: Period): boolean {
   const start = new Date(`${period.start_date}T00:00:00`)
   const end = new Date(`${period.end_date}T23:59:59`)
   const now = new Date()
   return now.getTime() >= start.getTime() && now.getTime() <= end.getTime()
+}
+
+function isTeacherGradePeriodAvailable(period: Period): boolean {
+  const nowMs = Date.now()
+  const startMs = new Date(`${period.start_date}T00:00:00`).getTime()
+  if (!Number.isFinite(startMs) || nowMs < startMs) return false
+
+  const deadlineMs = period.grades_edit_until
+    ? new Date(period.grades_edit_until).getTime()
+    : new Date(`${period.end_date}T23:59:59`).getTime()
+
+  if (!Number.isFinite(deadlineMs)) return false
+  return nowMs <= deadlineMs
 }
 
 export default function PreschoolGrades() {
@@ -84,7 +97,8 @@ export default function PreschoolGrades() {
   useEffect(() => {
     if (!isTeacher) return
     if (selectedPeriodId) return
-    const current = periods.find((p) => isCurrentPeriod(p))
+    const available = periods.filter((p) => isTeacherGradePeriodAvailable(p))
+    const current = available.find((p) => isDateInsidePeriod(p)) ?? available[available.length - 1] ?? null
     if (current) setSelectedPeriodId(current.id)
   }, [isTeacher, periods, selectedPeriodId])
 
@@ -276,8 +290,8 @@ export default function PreschoolGrades() {
                     </option>
                   ))}
               </select>
-              {selectedPeriod && !isCurrentPeriod(selectedPeriod) && (
-                <p className="text-xs text-amber-700 mt-1">Solo se puede diligenciar el periodo actual.</p>
+              {selectedPeriod && !isTeacherGradePeriodAvailable(selectedPeriod) && (
+                <p className="text-xs text-amber-700 mt-1">La ventana de edición para este periodo ya está cerrada.</p>
               )}
 
               {showNoPreschoolAccess ? (

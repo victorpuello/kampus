@@ -81,6 +81,15 @@ class GradebookApiTests(APITestCase):
             is_closed=False,
         )
 
+        self.recent_period_open_window = Period.objects.create(
+            academic_year=self.year,
+            name="P0",
+            start_date=today - timedelta(days=35),
+            end_date=today - timedelta(days=1),
+            is_closed=False,
+            grades_edit_until=timezone.now() + timedelta(days=2),
+        )
+
         self.level = AcademicLevel.objects.create(name="Primaria", level_type="PRIMARY")
         self.grade = Grade.objects.create(name="1", level=self.level)
         self.group = Group.objects.create(
@@ -303,6 +312,39 @@ class GradebookApiTests(APITestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.data.get("code"), "PERIOD_NOT_CURRENT")
+
+    def test_teacher_can_access_recently_ended_period_with_open_grades_window(self):
+        Achievement.objects.create(
+            academic_load=self.load,
+            group=self.group,
+            period=self.recent_period_open_window,
+            dimension=self.dimension,
+            description="Repaso del periodo",
+            percentage=100,
+        )
+
+        resp = self.client.get(
+            "/api/grade-sheets/gradebook/",
+            {"teacher_assignment": self.assignment.id, "period": self.recent_period_open_window.id},
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_teacher_can_list_available_for_recently_ended_period_with_open_grades_window(self):
+        Achievement.objects.create(
+            academic_load=self.load,
+            group=self.group,
+            period=self.recent_period_open_window,
+            dimension=self.dimension,
+            description="Repaso del periodo",
+            percentage=100,
+        )
+
+        resp = self.client.get(
+            "/api/grade-sheets/available/",
+            {"period": self.recent_period_open_window.id},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("results", resp.data)
 
     def test_teacher_can_reset_gradesheet(self):
         # Seed a score and activities, then reset and ensure everything is cleared.

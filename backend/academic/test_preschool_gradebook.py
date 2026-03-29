@@ -58,6 +58,15 @@ class PreschoolGradebookApiTests(APITestCase):
             is_closed=False,
         )
 
+        self.recent_period_open_window = Period.objects.create(
+            academic_year=self.year,
+            name="P0",
+            start_date=today - timedelta(days=45),
+            end_date=today - timedelta(days=1),
+            is_closed=False,
+            grades_edit_until=timezone.now() + timedelta(days=2),
+        )
+
         self.level = AcademicLevel.objects.create(name="Preescolar", level_type="PRESCHOOL")
         self.grade = Grade.objects.create(name="Prejardín", level=self.level)
         self.group = Group.objects.create(
@@ -91,6 +100,15 @@ class PreschoolGradebookApiTests(APITestCase):
             period=self.period,
             dimension=self.dimension,
             description="Reconoce colores",
+            percentage=100,
+        )
+
+        self.achievement_recent = Achievement.objects.create(
+            academic_load=self.load,
+            group=self.group,
+            period=self.recent_period_open_window,
+            dimension=self.dimension,
+            description="Describe su entorno",
             percentage=100,
         )
 
@@ -306,3 +324,10 @@ class PreschoolGradebookApiTests(APITestCase):
 
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data["updated"], 1)
+
+    def test_gradebook_recently_ended_period_with_open_window_is_allowed(self):
+        res = self.client.get(
+            "/api/preschool-gradebook/gradebook/",
+            {"teacher_assignment": self.assignment.id, "period": self.recent_period_open_window.id},
+        )
+        self.assertEqual(res.status_code, 200)

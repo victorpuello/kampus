@@ -41,7 +41,15 @@ class AcademicYearAdmin(admin.ModelAdmin):
 
 @admin.register(Period)
 class PeriodAdmin(admin.ModelAdmin):
-    list_display = ("name", "academic_year", "start_date", "end_date", "is_closed")
+    list_display = (
+        "name",
+        "academic_year",
+        "start_date",
+        "end_date",
+        "grades_edit_until",
+        "planning_edit_until",
+        "is_closed",
+    )
     list_filter = ("academic_year", "is_closed")
     search_fields = ("name", "academic_year__year")
 

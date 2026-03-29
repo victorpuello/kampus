@@ -2987,10 +2987,12 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         return super().get_serializer_class()
 
     def _enforce_teacher_current_period(self, *, user, period: Period):
-        """Teachers can only work with the *current* period.
+        """Teachers can only work while the grade edit window is open.
 
-        Current period means: today's date is within [start_date, end_date].
-        This prevents exposing future-period grade sheets to teachers.
+        Rules:
+        - Future periods are blocked (today < start_date).
+        - For started/current/recently-ended periods, allow access until
+          `grades_edit_until` (or period end-of-day when not configured).
         """
 
         is_teacher = user is not None and getattr(user, "role", None) == "TEACHER"
@@ -2998,10 +3000,25 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             return None
 
         today = timezone.localdate()
-        if today < period.start_date or today > period.end_date:
+        if today < period.start_date:
             return Response(
                 {
-                    "error": "Solo se pueden diligenciar planillas del periodo actual.",
+                    "error": "La ventana de edición de planillas no está disponible para este periodo.",
+                    "code": "PERIOD_NOT_CURRENT",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ongoing periods stay accessible here; granular deadline restrictions
+        # are enforced later (including edit grants) by each write endpoint.
+        if today <= period.end_date:
+            return None
+
+        effective_deadline = period.grades_edit_until or _period_end_of_day(period)
+        if effective_deadline is not None and timezone.now() > effective_deadline:
+            return Response(
+                {
+                    "error": "La ventana de edición de planillas no está disponible para este periodo.",
                     "code": "PERIOD_NOT_CURRENT",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4828,10 +4845,23 @@ class PreschoolGradebookViewSet(viewsets.ViewSet):
 
     def _enforce_teacher_current_period(self, *, user, period: Period):
         today = timezone.localdate()
-        if today < period.start_date or today > period.end_date:
+        if today < period.start_date:
             return Response(
                 {
-                    "error": "Solo se pueden diligenciar planillas del periodo actual.",
+                    "error": "La ventana de edición de planillas no está disponible para este periodo.",
+                    "code": "PERIOD_NOT_CURRENT",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if today <= period.end_date:
+            return None
+
+        effective_deadline = period.grades_edit_until or _period_end_of_day(period)
+        if effective_deadline is not None and timezone.now() > effective_deadline:
+            return Response(
+                {
+                    "error": "La ventana de edición de planillas no está disponible para este periodo.",
                     "code": "PERIOD_NOT_CURRENT",
                 },
                 status=status.HTTP_400_BAD_REQUEST,

@@ -29,11 +29,24 @@ const makeActivityKey = (enrollmentId: number, columnId: number): ActivityCellKe
 
 type BlockedAny = { enrollment: number; reason: string; achievement?: number; column?: number }
 
-function isCurrentPeriod(period: Period): boolean {
+function isDateInsidePeriod(period: Period): boolean {
   const start = new Date(`${period.start_date}T00:00:00`)
   const end = new Date(`${period.end_date}T23:59:59`)
   const now = new Date()
   return now.getTime() >= start.getTime() && now.getTime() <= end.getTime()
+}
+
+function isTeacherGradePeriodAvailable(period: Period): boolean {
+  const nowMs = Date.now()
+  const startMs = new Date(`${period.start_date}T00:00:00`).getTime()
+  if (!Number.isFinite(startMs) || nowMs < startMs) return false
+
+  const deadlineMs = period.grades_edit_until
+    ? new Date(period.grades_edit_until).getTime()
+    : new Date(`${period.end_date}T23:59:59`).getTime()
+
+  if (!Number.isFinite(deadlineMs)) return false
+  return nowMs <= deadlineMs
 }
 
 const sanitizeScoreInput = (raw: string): string => {
@@ -604,7 +617,7 @@ export default function Grades() {
     const yearIds = new Set<number>()
     for (const a of visibleAssignments) yearIds.add(a.academic_year)
     return periods
-      .filter((p) => yearIds.has(p.academic_year) && isCurrentPeriod(p))
+      .filter((p) => yearIds.has(p.academic_year) && isTeacherGradePeriodAvailable(p))
       .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
   }, [periods, user?.role, visibleAssignments])
 
@@ -1068,10 +1081,13 @@ export default function Grades() {
         setSelectedAcademicLoadId(firstAssignment.academic_load)
 
         const pForYear = periodsRes.data.filter((p) => p.academic_year === firstAssignment.academic_year)
-        const current = pForYear.find((p) => isCurrentPeriod(p)) ?? null
+        const availableForYear = pForYear
+          .filter((p) => isTeacherGradePeriodAvailable(p))
+          .sort((a, b) => (a.start_date || '').localeCompare(b.start_date || ''))
+        const current = availableForYear.find((p) => isDateInsidePeriod(p)) ?? availableForYear[availableForYear.length - 1] ?? null
         if (selectedPeriodId == null) {
           setSelectedPeriodId(current?.id ?? null)
-          if (!current) showToast('No hay un periodo actual activo para diligenciar planillas.', 'error')
+          if (!current) showToast('No hay periodos con ventana de edición abierta para diligenciar planillas.', 'error')
         }
 
         // Nota: no forzar selección en TEACHER; el flujo por defecto es cards.
@@ -1098,7 +1114,7 @@ export default function Grades() {
 
     if (periodId && periodId !== selectedPeriodId) {
       const candidate = periods.find((p) => p.id === periodId)
-      if (candidate && isCurrentPeriod(candidate)) {
+      if (candidate && isTeacherGradePeriodAvailable(candidate)) {
         setSelectedPeriodId(periodId)
       }
     }
