@@ -317,6 +317,39 @@
       overflow-wrap: normal;
     }
 
+    .fit-l1 .student-card { padding: 4px; margin-bottom: 4px; }
+    .fit-l1 table.grades tbody td { padding: 2px 3px; font-size: 9px; }
+    .fit-l1 .subject-desc { font-size: 9px; line-height: 1.15; }
+    .fit-l1 .summary { padding: 4px; margin-bottom: 4px; }
+    .fit-l1 .sign-grid { margin-top: 10px; }
+
+    .fit-l2 .header { padding-bottom: 3px; margin-bottom: 4px; }
+    .fit-l2 .student-card { padding: 3px; margin-bottom: 3px; }
+    .fit-l2 table.grades { margin-top: 1px; }
+    .fit-l2 table.grades thead th { padding: 2px 3px; font-size: 9px; }
+    .fit-l2 table.grades tbody td { padding: 1px 2px; font-size: 8px; }
+    .fit-l2 .subject-title,
+    .fit-l2 .area-title,
+    .fit-l2 .k,
+    .fit-l2 .v,
+    .fit-l2 .v-lg,
+    .fit-l2 .grade-cell,
+    .fit-l2 .grade-final,
+    .fit-l2 .subject-desc,
+    .fit-l2 .summary,
+    .fit-l2 .rank-pill,
+    .fit-l2 .rank-badge,
+    .fit-l2 .sign-name,
+    .fit-l2 .sign-role,
+    .fit-l2 .qr-text,
+    .fit-l2 .verify-url,
+    .fit-l2 .verify-token {
+      font-size: 8px;
+      line-height: 1.1;
+    }
+    .fit-l2 .summary { padding: 3px; margin-bottom: 3px; }
+    .fit-l2 .sign-grid { margin-top: 6px; }
+
     /* Extra guards for long words in content */
     .v, .v-lg, .subject-title { overflow-wrap: anywhere; word-break: break-word; }
     </style>
@@ -324,8 +357,8 @@
 
 <body>
   {% for page in pages %}
-  <div class="page">
-    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences overall_score=page.overall_score overall_scale=page.overall_scale rank_position=page.rank_position rank_total=page.rank_total rank_badge_label=page.rank_badge_label verify_url=page.verify_url verify_url_prefix=page.verify_url_prefix verify_token=page.verify_token qr_image_src=page.qr_image_src %}
+  <div class="page fit-{{ page.report_fit.level|default:'l0' }}">
+    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences overall_score=page.overall_score overall_scale=page.overall_scale rank_position=page.rank_position rank_total=page.rank_total rank_badge_label=page.rank_badge_label verify_url=page.verify_url verify_url_prefix=page.verify_url_prefix verify_token=page.verify_token qr_image_src=page.qr_image_src report_fit=page.report_fit %}
   </div>
   {% endfor %}
 </body>

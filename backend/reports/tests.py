@@ -53,8 +53,7 @@ class ReportJobVerificationTests(APITestCase):
 		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
 		self.assertEqual(res.status_code, 200, res.content.decode("utf-8", errors="ignore"))
 		html = res.content.decode("utf-8", errors="ignore")
-		self.assertIn("Verificación:", html)
-		self.assertIn("/api/public/verify/", html)
+		self.assertNotIn("Verificación:", html)
 
 		self.assertTrue(
 			VerifiableDocument.objects.filter(
@@ -101,8 +100,8 @@ class ReportJobVerificationTests(APITestCase):
 		res = self.client.get(f"/api/reports/jobs/{job.id}/preview/")
 		self.assertEqual(res.status_code, 200, res.content.decode("utf-8", errors="ignore"))
 		html = res.content.decode("utf-8", errors="ignore")
-		self.assertIn("Verificación:", html)
-		self.assertIn("/api/public/verify/", html)
+		self.assertNotIn("Verificación:", html)
+		self.assertNotIn("/api/public/verify/", html)
 
 		self.assertTrue(
 			VerifiableDocument.objects.filter(

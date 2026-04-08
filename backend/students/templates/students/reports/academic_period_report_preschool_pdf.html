@@ -263,13 +263,43 @@
     .verify-url { white-space: normal; }
     .verify-token { white-space: nowrap; overflow-wrap: normal; }
 
+    .fit-l1 .header { padding-bottom: 8px; margin-bottom: 8px; }
+    .fit-l1 .student-card { padding: 8px; margin-bottom: 8px; }
+    .fit-l1 table.grades thead th { padding: 5px 4px; }
+    .fit-l1 table.grades tbody td { padding: 5px 4px; font-size: 10px; }
+    .fit-l1 .summary { padding: 7px; margin-bottom: 8px; }
+    .fit-l1 .sign-grid { margin-top: 12px; }
+
+    .fit-l2 .header { padding-bottom: 4px; margin-bottom: 5px; }
+    .fit-l2 .student-card { padding: 5px; margin-bottom: 5px; }
+    .fit-l2 table.grades { margin-top: 2px; }
+    .fit-l2 table.grades thead th { padding: 3px 3px; font-size: 9px; }
+    .fit-l2 table.grades tbody td { padding: 3px 3px; font-size: 9px; }
+    .fit-l2 .achievement-title,
+    .fit-l2 .k,
+    .fit-l2 .v,
+    .fit-l2 .v-lg,
+    .fit-l2 .grade-cell,
+    .fit-l2 .grade-final,
+    .fit-l2 .summary,
+    .fit-l2 .sign-name,
+    .fit-l2 .sign-role,
+    .fit-l2 .qr-text,
+    .fit-l2 .verify-url,
+    .fit-l2 .verify-token {
+      font-size: 8px;
+      line-height: 1.1;
+    }
+    .fit-l2 .summary { padding: 5px; margin-bottom: 5px; }
+    .fit-l2 .sign-grid { margin-top: 8px; }
+
     /* Extra guards for long words in content */
     .v, .v-lg, .achievement-title { overflow-wrap: anywhere; word-break: break-word; }
   </style>
 </head>
 
-<body>
-  <div class="page">
+<body class="fit-{{ report_fit.level|default:'l0' }}">
+  <div class="page fit-{{ report_fit.level|default:'l0' }}">
     {% include "students/reports/_academic_period_report_preschool_page.html" %}
   </div>
 </body>

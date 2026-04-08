@@ -119,23 +119,4 @@
     </div>
   </div>
 
-  {% if qr_image_src or verify_url %}
-    <div class="qr-wrap">
-      {% if qr_image_src %}
-        <img src="{{ qr_image_src }}" alt="QR verificación" />
-      {% endif %}
-      {% if verify_url %}
-        <div class="qr-text">
-          <span style="font-weight:900;">Verificación:</span>
-          <a class="verify-link" href="{{ verify_url }}">Abrir enlace</a>
-        </div>
-        {% if verify_url_prefix and verify_token %}
-          <div class="qr-text verify-url">{{ verify_url_prefix }}{{ verify_token }}/</div>
-          <div class="qr-text">Código: <span class="verify-token">{{ verify_token }}</span></div>
-        {% else %}
-          <div class="qr-text verify-url">{{ verify_url }}</div>
-        {% endif %}
-      {% endif %}
-    </div>
-  {% endif %}
 </div>

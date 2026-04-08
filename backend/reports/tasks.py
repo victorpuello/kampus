@@ -26,6 +26,7 @@ from students.academic_period_report import (
     build_preschool_academic_period_group_report_context,
     build_preschool_academic_period_report_context,
 )
+from students.single_page_report_fit import fit_report_to_single_page
 from students.academic_period_sabana_report import build_academic_period_sabana_context
 from students.models import Enrollment
 
@@ -584,6 +585,16 @@ def _render_report_html(job: ReportJob) -> str:
         else:
             ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
 
+        ctx = fit_report_to_single_page(
+            ctx,
+            template_name=(
+                "students/reports/academic_period_report_preschool_pdf.html"
+                if is_preschool
+                else "students/reports/academic_period_report_pdf.html"
+            ),
+            is_preschool=is_preschool,
+        )
+
         rows_public = []
         for r in (ctx.get("rows") or [])[:80]:
             if not isinstance(r, dict):
@@ -685,6 +696,25 @@ def _render_report_html(job: ReportJob) -> str:
             ctx = build_preschool_academic_period_group_report_context(enrollments=enrollments, period=period)
         else:
             ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
+
+        pages_to_fit = ctx.get("pages") or []
+        if isinstance(pages_to_fit, list):
+            fitted_pages = []
+            for page in pages_to_fit:
+                if not isinstance(page, dict):
+                    continue
+                fitted_pages.append(
+                    fit_report_to_single_page(
+                        page,
+                        template_name=(
+                            "students/reports/academic_period_report_preschool_pdf.html"
+                            if is_preschool_group
+                            else "students/reports/academic_period_report_pdf.html"
+                        ),
+                        is_preschool=is_preschool_group,
+                    )
+                )
+            ctx["pages"] = fitted_pages
 
         # One verification token per student/page.
         pages = ctx.get("pages") or []

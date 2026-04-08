@@ -194,7 +194,7 @@
           <span style="margin-left: 6px;" class="muted">-</span>
         {% endif %}
 
-        {% if rank_position and rank_total %}
+        {% if not report_fit.hide_rank and rank_position and rank_total %}
           <div class="rank-row">
             <span class="rank-pill">Puesto en el grupo: {{ rank_position }} de {{ rank_total }}</span>
             {% if rank_badge_label %}
@@ -217,4 +217,5 @@
       <div class="sign-role">Director de grupo</div>
     </div>
   </div>
+
 </div>

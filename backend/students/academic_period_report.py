@@ -24,6 +24,8 @@ from students.models import Enrollment
 
 from reports.weasyprint_utils import render_pdf_bytes_from_html
 
+from .single_page_report_fit import fit_report_to_single_page
+
 
 def _group_label(group: Any) -> str:
     if not group:
@@ -523,6 +525,11 @@ def build_preschool_academic_period_report_context(enrollment: Enrollment, perio
 
 def generate_preschool_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
     ctx = build_preschool_academic_period_report_context(enrollment=enrollment, period=period)
+    ctx = fit_report_to_single_page(
+        ctx,
+        template_name="students/reports/academic_period_report_preschool_pdf.html",
+        is_preschool=True,
+    )
 
     html_string = render_to_string("students/reports/academic_period_report_preschool_pdf.html", ctx)
     try:
@@ -600,6 +607,17 @@ def generate_preschool_academic_period_group_report_pdf(
     period: Period,
 ) -> bytes:
     ctx = build_preschool_academic_period_group_report_context(enrollments=enrollments, period=period)
+    pages = ctx.get("pages") or []
+    if isinstance(pages, list):
+        ctx["pages"] = [
+            fit_report_to_single_page(
+                page,
+                template_name="students/reports/academic_period_report_preschool_pdf.html",
+                is_preschool=True,
+            )
+            for page in pages
+            if isinstance(page, dict)
+        ]
     html_string = render_to_string("students/reports/academic_period_report_group_preschool_pdf.html", ctx)
 
     try:
@@ -977,6 +995,11 @@ def _build_rows_for_enrollment(
 
 def generate_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
     ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
+    ctx = fit_report_to_single_page(
+        ctx,
+        template_name="students/reports/academic_period_report_pdf.html",
+        is_preschool=False,
+    )
 
     html_string = render_to_string("students/reports/academic_period_report_pdf.html", ctx)
     try:
@@ -1008,6 +1031,17 @@ def generate_academic_period_group_report_pdf(
     scale_equivalences = _scale_equivalences(academic_year_id)
 
     ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
+    pages = ctx.get("pages") or []
+    if isinstance(pages, list):
+        ctx["pages"] = [
+            fit_report_to_single_page(
+                page,
+                template_name="students/reports/academic_period_report_pdf.html",
+                is_preschool=False,
+            )
+            for page in pages
+            if isinstance(page, dict)
+        ]
     html_string = render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
 
     try:
