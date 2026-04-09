@@ -1,26 +1,20 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="utf-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
+  <style>
     @page {
-      /* Legal: 216mm x 356mm */
       size: 216mm 356mm;
-      margin: 6mm 8mm 8mm 8mm;
-
-      @bottom-center {
-        content: "Plataforma de Gestión Académica | Página " counter(page) " de " counter(pages);
-        font-size: 9px;
-        color: #9ca3af;
-      }
+      margin: 4.2mm;
     }
 
     html, body {
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, "Noto Sans", sans-serif;
+      font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
       color: #111827;
+      background: #f3f4f6;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
@@ -28,337 +22,579 @@
     *, *::before, *::after { box-sizing: border-box; }
 
     .page {
+      width: 216mm;
+      min-height: 356mm;
+      margin: 6mm auto;
+      padding: 0 12mm 10mm;
+      background: #ffffff;
+      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
       page-break-after: always;
     }
     .page:last-child { page-break-after: auto; }
+    .page + .page {
+      break-before: page;
+      page-break-before: always;
+    }
 
     .avoid-break { page-break-inside: avoid; }
-    thead { display: table-header-group; }
-    tr { page-break-inside: avoid; }
 
-    tr.area-row { page-break-after: avoid; break-after: avoid; }
-
-    /* Layout */
-    .header {
-      display: table;
-      width: 100%;
-      border-bottom: 2px solid #111827;
-      padding-bottom: 5px;
-      margin-bottom: 6px;
-      table-layout: fixed;
-    }
-    .header-left { display: table-cell; vertical-align: middle; width: 72%; }
-    .header-right { display: table-cell; vertical-align: middle; width: 28%; text-align: right; }
-
-    .logo {
-      width: 56px;
-      height: 56px;
-      border-radius: 999px;
+    .institution-header { text-align: center; margin-bottom: 16px; }
+    .institution-logo {
+      width: 46px;
+      height: 46px;
+      margin: 0 auto 6px;
+      border-radius: 50%;
       background: #f3f4f6;
       border: 1px solid #e5e7eb;
-      display: inline-block;
       overflow: hidden;
-      vertical-align: middle;
-      text-align: center;
-      line-height: 56px;
-      margin-right: 12px;
-      color: #9ca3af;
-      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #6b7280;
+      font-size: 11px;
     }
-    .logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
-
-    .inst { display: inline-block; vertical-align: middle; width: calc(100% - 76px); }
-    .inst-name {
-      font-size: 10px;
-      font-weight: 900;
-      text-transform: uppercase;
+    .institution-logo img { width: 100%; height: 100%; object-fit: contain; }
+    .institution-name {
       margin: 0;
-      line-height: 1.15;
-      word-break: break-word;
+      font-family: "Times New Roman", Georgia, serif;
+      font-size: 17px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-weight: 700;
+      color: #111827;
     }
-    .inst-line {
+    .institution-line,
+    .institution-meta {
+      margin: 2px 0 0;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: #6b7280;
+      font-weight: 300;
+    }
+    .institution-divider {
+      width: 70px;
+      height: 2px;
+      margin: 10px auto 8px;
+      background: #e5e7eb;
+    }
+    .report-title {
+      margin: 0;
+      font-family: "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 800;
+      color: #1f2937;
+    }
+
+    .student-block {
+      border-top: 0;
+      padding-top: 4px;
+      margin-bottom: 12px;
+    }
+    .student-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .student-name {
+      margin: 0;
+      font-size: 20px;
+      text-transform: uppercase;
+      font-weight: 800;
+      line-height: 1.1;
+      color: #0f172a;
+    }
+    .student-doc {
+      font-size: 11px;
+      font-weight: 700;
+      color: #4b5563;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 0;
+      padding: 4px 10px;
+      white-space: nowrap;
+    }
+    .student-meta {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 24px;
       font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       color: #6b7280;
       font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin: 3px 0 0;
     }
-    .inst-meta {
-      margin-top: 2px;
-      font-size: 10px;
-      color: #9ca3af;
-    }
-    .inst-meta span { margin-right: 10px; }
-
-    .period-kicker {
-      font-size: 10px;
-      font-weight: 900;
-      color: #9ca3af;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      margin: 0 0 2px;
-    }
-    .period-number {
-      font-size: 10px;
-      font-weight: 900;
-      color: #111827;
-      line-height: 1;
-      margin: 0;
-    }
-    .period-year {
-      margin-top: 2px;
-      font-size: 10px;
-      color: #9ca3af;
-    }
-
-    .student-card {
-      background: #f9fafb;
-      border: 1px solid #f3f4f6;
-      border-radius: 10px;
-      padding: 6px;
-      margin-bottom: 6px;
-    }
-
-    .row { display: table; width: 100%; table-layout: fixed; }
-    .col { display: table-cell; vertical-align: top; }
-    .k { font-size: 10px; color: #9ca3af; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; }
-    .v { margin-top: 3px; font-size: 10px; font-weight: 700; color: #111827; }
-    .v-lg { margin-top: 3px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
-    .pill {
-      display: inline-block;
+    .student-meta strong { color: #111827; letter-spacing: 0; text-transform: none; }
+    .rank-chip {
+      color: #1e3a8a;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 0;
       padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .performance-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      background: #fbfdff;
+      padding: 12px;
+      margin-bottom: 14px;
+      position: relative;
+      overflow: hidden;
+    }
+    .performance-ghost {
+      position: absolute;
+      right: -16px;
+      top: -16px;
+      width: 92px;
+      height: 92px;
       border-radius: 999px;
       background: #dbeafe;
-      color: #1e3a8a;
-      font-size: 10px;
-      font-weight: 900;
+      opacity: 0.35;
     }
-    .divider { border-top: 1px solid #e5e7eb; margin-top: 2px; padding-top: 4px; }
-
-    table.grades {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 2px;
+    .performance-head {
+      position: relative;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+      margin-bottom: 8px;
     }
-    table.grades thead th {
-      border-bottom: 2px solid #111827;
-      padding: 3px 4px;
+    .performance-title {
+      margin: 0;
       font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #6b7280;
-      text-align: center;
-      font-weight: 900;
+      letter-spacing: 0.12em;
+      font-weight: 800;
+      color: #1f2937;
     }
-    table.grades thead th.subject {
-      text-align: left;
-      color: #111827;
-      letter-spacing: 0.05em;
-    }
-    table.grades tbody td {
-      border-bottom: 1px solid #e5e7eb;
-      padding: 3px 4px;
-      vertical-align: top;
-      font-size: 10px;
-    }
-    td.subject { padding-left: 6px; }
-    tr.area-row td {
-      border-bottom: 1px solid #e5e7eb;
-      background: #eff6ff;
-      padding-top: 3px;
-      padding-bottom: 3px;
-    }
-    tr.area-row .grade-final {
-      background: #f3f4f6;
-    }
-    .area-title {
-      font-weight: 900;
-      font-size: 10px;
+    .performance-score-label {
+      margin: 0;
+      font-size: 9px;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #111827;
-    }
-    tr.subject-row td {
-      padding-top: 2px;
-      padding-bottom: 2px;
-      font-size: 10px;
-    }
-    tr.single-area-row td {
-      background: #eff6ff;
-      padding-top: 0px;
-      padding-bottom: 0px;
-    }
-    tr.single-area-row .subject-title {
-      text-transform: uppercase;
-      font-size: 10px;
-      font-weight: 900;
-      letter-spacing: 0.08em;
-      color: #111827;
-    }
-    tr.single-area-row .grade-final {
-      background: #f3f4f6;
-    }
-    tr.single-area-desc-row td {
-      background: #fff;
-      padding-top: 0px;
-      padding-bottom: 0px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-    .subject-title-indent {
-      padding-left: 10px;
-    }
-    .subject-title {
-      font-weight: 400;
-      color: #4b5563;
-      text-transform: none;
-      font-size: 10px;
-    }
-    .subject-desc {
-      margin-top: 2px;
-      font-size: 10px;
+      font-weight: 800;
       color: #6b7280;
-      font-style: italic;
-      line-height: 1.25;
-      text-align: justify;
+      text-align: right;
     }
-
-    .grade-cell {
-      text-align: center;
-      vertical-align: middle;
-      padding: 3px 4px;
-      font-size: 10px;
-      white-space: nowrap;
-    }
-    .grade-final {
-      background: #f9fafb;
-      font-weight: 900;
-      font-size: 10px;
-      border-left: 1px solid #f3f4f6;
-    }
-
-    .perf-superior { color: #15803d; font-weight: 900; }
-    .perf-alto { color: #0369a1; font-weight: 800; }
-    .perf-basico { color: #b45309; font-weight: 700; }
-    .perf-bajo { color: #b91c1c; font-weight: 700; }
-    .muted { color: #9ca3af; }
-
-    .footer { margin-top: 2px; }
-    .summary {
-      border: 1px solid #e5e7eb;
-      background: #f9fafb;
-      border-radius: 10px;
-      padding: 5px;
-      font-size: 10px;
-      color: #6b7280;
-      margin-bottom: 6px;
-    }
-    .summary strong { color: #111827; }
-
-    .rank-row { margin-top: 2px; }
-    .rank-pill {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      background: #eef2ff;
-      color: #1e3a8a;
-      font-size: 10px;
-      font-weight: 900;
-      margin-right: 6px;
-    }
-    .rank-badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 900;
-      border: 1px solid #e5e7eb;
-    }
-    .rank-1 { background: #fef3c7; color: #92400e; border-color: #fde68a; }
-    .rank-2 { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
-    .rank-3 { background: #ffedd5; color: #9a3412; border-color: #fed7aa; }
-
-    .sign-grid { display: table; width: 100%; table-layout: fixed; margin-top: 24px; }
-    .sign-col { display: table-cell; width: 50%; text-align: center; }
-    .sign-line { width: 75%; margin: 0 auto 6px; border-bottom: 1px solid #111827; height: 10px; }
-    .sign-name { font-weight: 900; font-size: 10px; text-transform: uppercase; color: #111827; }
-    .sign-role { font-size: 9px; color: #6b7280; font-weight: 900; letter-spacing: 0.2em; text-transform: uppercase; margin-top: 2px; }
-
-    .qr-wrap {
+    .performance-score {
       margin-top: 2px;
       text-align: right;
-      page-break-inside: avoid;
+      font-size: 22px;
+      font-weight: 900;
+      line-height: 1;
+      color: #1d4ed8;
     }
-    .qr-wrap img {
-      height: 56px;
-      width: 56px;
-      border: 1px solid #e5e7eb;
-      padding: 3px;
-      background: #fff;
+    .performance-score small {
+      font-size: 11px;
+      color: #6b7280;
+      font-weight: 800;
+      margin-left: 5px;
     }
-    .qr-text {
-      margin-top: 2px;
+    .performance-reading-footnote {
+      margin: 7px 0 0;
+      font-size: 8px;
+      font-style: italic;
+      font-weight: 300;
+      line-height: 1.25;
+      color: #6b7280;
+      text-align: left;
+    }
+    .performance-reading-title {
+      display: block;
+      margin-bottom: 1px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .section-title {
       font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #374151;
+      font-weight: 800;
+      margin: 0 0 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .academic-block { margin-bottom: 10px; }
+    .area-simple {
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      padding: 10px;
+      margin-bottom: 5px;
+    }
+    .area-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 8px;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+    }
+    .area-name {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #111827;
+    }
+    .area-metrics {
+      font-size: 10px;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 700;
+      display: flex;
+      gap: 14px;
+      white-space: nowrap;
+      padding-right: 6px;
+    }
+    .area-metrics strong { color: #111827; font-size: 14px; }
+    .metric-scale {
+      margin-left: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      color: #6b7280;
+      text-transform: none;
+    }
+
+    .indicator-grid {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+      border-spacing: 6px 0;
+      margin: 0 -6px;
+    }
+    .indicator-col {
+      display: table-cell;
+      vertical-align: top;
+      background: #f9fafb;
+      border: 0;
+      border-radius: 0;
+      padding: 7px;
+      width: 33.33%;
+    }
+    .indicator-title {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 9px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1e3a8a;
+      font-weight: 800;
+      border-bottom: 1px solid #dbeafe;
+      padding-bottom: 3px;
+    }
+    .indicator-list {
+      margin: 0;
+      padding-left: 13px;
+      color: #374151;
+      font-size: 9px;
+      line-height: 1.35;
+    }
+    .indicator-list li { margin-bottom: 2px; }
+    .indicator-empty {
+      font-size: 9px;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    .area-composite {
+      border: 1px solid #bfdbfe;
+      border-radius: 10px;
+      background: #ffffff;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+    .area-composite-head {
+      background: #eff6ff;
+      border-bottom: 1px solid #dbeafe;
+      padding: 7px 16px 7px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .area-composite-name {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 800;
+      color: #1e3a8a;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .area-badge {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #1e40af;
+      background: #dbeafe;
+      border: 1px solid #bfdbfe;
+      border-radius: 999px;
+      padding: 2px 6px;
+      vertical-align: middle;
+    }
+    .subject-card {
+      background: #ffffff;
+      border-top: 1px solid #f3f4f6;
+      padding: 9px 10px;
+    }
+    .subject-card:first-child { border-top: 0; }
+    .composite-subject {
+      background: #ffffff;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 8px;
+      padding-bottom: 10px;
+    }
+    .composite-subject .subject-head {
+      border-left: 0;
+      padding-left: 0;
+    }
+    .subject-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 8px;
+      margin-bottom: 7px;
+      border-left: 2px solid #d1d5db;
+      padding-left: 8px;
+    }
+    .subject-name {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      color: #1f2937;
+      text-transform: uppercase;
+    }
+    .subject-name small {
+      margin-left: 4px;
+      font-size: 8px;
+      color: #6b7280;
+      text-transform: none;
+      font-weight: 600;
+    }
+    .subject-metrics {
+      font-size: 9px;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 700;
+      display: flex;
+      gap: 10px;
+      white-space: nowrap;
+      padding-right: 6px;
+    }
+    .subject-metrics strong { color: #111827; font-size: 12px; }
+
+    .indicator-grid-duo {
+      border-spacing: 6px 0;
+      margin: 0 -6px;
+    }
+    .indicator-col-duo {
+      width: 50%;
+      background: #f8fafc;
+      border: 0;
+    }
+    .indicator-list-alert {
+      margin-top: 5px;
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .grade-superior { color: #15803d; font-weight: 800; }
+    .grade-alto { color: #0369a1; font-weight: 800; }
+    .grade-basico { color: #b45309; font-weight: 800; }
+    .grade-bajo { color: #dc2626; font-weight: 800; }
+
+    .summary-box {
+      margin-top: 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #f9fafb;
+      padding: 8px 10px;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 10px;
+    }
+    .summary-box strong { text-transform: uppercase; letter-spacing: 0.08em; color: #374151; font-size: 9px; }
+    .summary-score {
+      font-size: 28px;
+      font-weight: 900;
+      line-height: 1;
+      color: #1f2937;
+    }
+
+    .observations-wrap {
+      margin-top: 7px;
+      margin-bottom: 8px;
+    }
+    .observations-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+    .observations-title {
+      margin: 0;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 800;
       color: #374151;
     }
-    .verify-link { color: #2563eb; text-decoration: underline; font-weight: 900; }
-    .verify-url, .verify-token {
-      font-family: "Courier New", Courier, monospace;
+    .recognition {
+      font-size: 9px;
+      font-weight: 800;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      border-radius: 999px;
+      padding: 3px 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .observations-box {
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #ffffff;
+      padding: 8px;
+      min-height: 52px;
       font-size: 10px;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      hyphens: none;
-    }
-    .verify-url {
-      white-space: normal;
-    }
-    .verify-token {
-      white-space: nowrap;
-      overflow-wrap: normal;
+      line-height: 1.35;
+      color: #374151;
+      white-space: pre-line;
     }
 
-    .fit-l1 .student-card { padding: 4px; margin-bottom: 4px; }
-    .fit-l1 table.grades tbody td { padding: 2px 3px; font-size: 9px; }
-    .fit-l1 .subject-desc { font-size: 9px; line-height: 1.15; }
-    .fit-l1 .summary { padding: 4px; margin-bottom: 4px; }
-    .fit-l1 .sign-grid { margin-top: 10px; }
-
-    .fit-l2 .header { padding-bottom: 3px; margin-bottom: 4px; }
-    .fit-l2 .student-card { padding: 3px; margin-bottom: 3px; }
-    .fit-l2 table.grades { margin-top: 1px; }
-    .fit-l2 table.grades thead th { padding: 2px 3px; font-size: 9px; }
-    .fit-l2 table.grades tbody td { padding: 1px 2px; font-size: 8px; }
-    .fit-l2 .subject-title,
-    .fit-l2 .area-title,
-    .fit-l2 .k,
-    .fit-l2 .v,
-    .fit-l2 .v-lg,
-    .fit-l2 .grade-cell,
-    .fit-l2 .grade-final,
-    .fit-l2 .subject-desc,
-    .fit-l2 .summary,
-    .fit-l2 .rank-pill,
-    .fit-l2 .rank-badge,
-    .fit-l2 .sign-name,
-    .fit-l2 .sign-role,
-    .fit-l2 .qr-text,
-    .fit-l2 .verify-url,
-    .fit-l2 .verify-token {
+    .signature-wrap {
+      margin-top: 12px;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 22px;
+      text-align: center;
+    }
+    .signature-line {
+      width: 250px;
+      height: 40px;
+      margin: 0 auto 4px;
+      border-bottom: 1px solid #111827;
+    }
+    .signature-name {
+      margin: 0;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #111827;
+    }
+    .signature-role {
+      margin: 2px 0 0;
+      font-size: 9px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #6b7280;
+      font-weight: 700;
+    }
+    .signature-foot {
+      margin-top: 12px;
       font-size: 8px;
-      line-height: 1.1;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #9ca3af;
+      font-weight: 600;
     }
-    .fit-l2 .summary { padding: 3px; margin-bottom: 3px; }
-    .fit-l2 .sign-grid { margin-top: 6px; }
 
-    /* Extra guards for long words in content */
-    .v, .v-lg, .subject-title { overflow-wrap: anywhere; word-break: break-word; }
-    </style>
+    .layout-p1 .institution-header { margin-bottom: 12px; }
+    .layout-p1 .student-block { margin-bottom: 10px; padding-top: 3px; }
+    .layout-p1 .student-meta { margin-top: 8px; padding-top: 6px; }
+    .layout-p1 .performance-card { padding: 10px; margin-bottom: 11px; }
+    .layout-p1 .performance-reading-footnote { margin-top: 6px; font-size: 7.6px; }
+    .layout-p1 .section-title { margin-bottom: 7px; padding-bottom: 5px; }
+    .layout-p1 .academic-block { margin-bottom: 8px; }
+    .layout-p1 .area-simple,
+    .layout-p1 .subject-card,
+    .layout-p1 .composite-subject { padding-top: 7px; padding-bottom: 8px; }
+    .layout-p1 .indicator-col,
+    .layout-p1 .indicator-col-duo { padding: 6px; }
+    .layout-p1 .indicator-title { margin-bottom: 4px; }
+    .layout-p1 .indicator-list { font-size: 8.5px; line-height: 1.3; }
+    .layout-p1 .summary-box { margin-top: 6px; padding: 7px 9px; }
+    .layout-p1 .observations-wrap { margin-top: 6px; margin-bottom: 8px; }
+    .layout-p1 .observations-box { min-height: 44px; padding: 7px; line-height: 1.3; }
+    .layout-p1 .signature-wrap { margin-top: 9px; padding-top: 16px; }
+    .layout-p1 .signature-line { height: 30px; }
+
+    .layout-p2 .institution-header { margin-bottom: 10px; }
+    .layout-p2 .institution-divider { margin: 8px auto 6px; }
+    .layout-p2 .student-block { margin-bottom: 8px; padding-top: 2px; }
+    .layout-p2 .student-name { font-size: 18px; }
+    .layout-p2 .student-doc { font-size: 10px; padding: 3px 8px; }
+    .layout-p2 .student-meta { margin-top: 6px; padding-top: 5px; gap: 7px 14px; font-size: 9px; }
+    .layout-p2 .performance-card { padding: 9px; margin-bottom: 10px; }
+    .layout-p2 .performance-reading-footnote { margin-top: 5px; font-size: 7px; line-height: 1.2; }
+    .layout-p2 .performance-score { font-size: 20px; }
+    .layout-p2 .section-title { margin-bottom: 6px; padding-bottom: 4px; font-size: 9px; }
+    .layout-p2 .academic-block { margin-bottom: 7px; }
+    .layout-p2 .area-simple,
+    .layout-p2 .subject-card,
+    .layout-p2 .composite-subject { padding-top: 6px; padding-bottom: 7px; }
+    .layout-p2 .area-head,
+    .layout-p2 .subject-head { margin-bottom: 5px; padding-bottom: 4px; }
+    .layout-p2 .subject-name { font-size: 10px; }
+    .layout-p2 .subject-metrics,
+    .layout-p2 .area-metrics { font-size: 8px; gap: 8px; padding-right: 4px; }
+    .layout-p2 .metric-scale { font-size: 7px; }
+    .layout-p2 .indicator-grid,
+    .layout-p2 .indicator-grid-duo { border-spacing: 4px 0; margin: 0 -4px; }
+    .layout-p2 .indicator-col,
+    .layout-p2 .indicator-col-duo { padding: 5px; }
+    .layout-p2 .indicator-title { margin-bottom: 3px; font-size: 8px; }
+    .layout-p2 .indicator-list { font-size: 8px; line-height: 1.22; padding-left: 11px; }
+    .layout-p2 .indicator-list li { margin-bottom: 1px; }
+    .layout-p2 .summary-box { margin-top: 5px; padding: 6px 8px; font-size: 9px; }
+    .layout-p2 .summary-score { font-size: 24px; }
+    .layout-p2 .observations-wrap { margin-top: 6px; margin-bottom: 7px; }
+    .layout-p2 .observations-head { margin-bottom: 4px; }
+    .layout-p2 .observations-title { font-size: 9px; }
+    .layout-p2 .recognition { font-size: 8px; padding: 2px 6px; }
+    .layout-p2 .observations-box { min-height: 36px; padding: 6px; font-size: 9px; line-height: 1.22; }
+    .layout-p2 .signature-wrap { margin-top: 8px; padding-top: 12px; }
+    .layout-p2 .signature-line { height: 22px; width: 220px; }
+    .layout-p2 .signature-foot { margin-top: 8px; }
+
+    @media print {
+      html, body { background: #ffffff; }
+      .page {
+        margin: 0;
+        width: auto;
+        min-height: auto;
+        box-shadow: none;
+      }
+    }
+  </style>
 </head>
-
 <body>
   {% for page in pages %}
-  <div class="page fit-{{ page.report_fit.level|default:'l0' }}">
-    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows scale_equivalences=page.scale_equivalences overall_score=page.overall_score overall_scale=page.overall_scale rank_position=page.rank_position rank_total=page.rank_total rank_badge_label=page.rank_badge_label verify_url=page.verify_url verify_url_prefix=page.verify_url_prefix verify_token=page.verify_token qr_image_src=page.qr_image_src report_fit=page.report_fit %}
+  <div class="page layout-{{ page.report_layout.profile|default:'p0' }}">
+    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows_page_1 scale_equivalences=page.scale_equivalences overall_score=page.overall_score overall_scale=page.overall_scale rank_position=page.rank_position rank_total=page.rank_total rank_badge_label=page.rank_badge_label observations=page.observations performance_chart=page.performance_chart show_student_card=True show_footer=False report_page_number=1 %}
+  </div>
+  <div class="page layout-{{ page.report_layout.profile|default:'p0' }}">
+    {% include "students/reports/_academic_period_report_page.html" with institution=page.institution student_name=page.student_name student_code=page.student_code group_name=page.group_name shift_name=page.shift_name period_name=page.period_name year_name=page.year_name director_name=page.director_name report_date=page.report_date rows=page.rows_page_2 scale_equivalences=page.scale_equivalences overall_score=page.overall_score overall_scale=page.overall_scale rank_position=page.rank_position rank_total=page.rank_total rank_badge_label=page.rank_badge_label observations=page.observations performance_chart=page.performance_chart show_student_card=False show_footer=True report_page_number=2 %}
   </div>
   {% endfor %}
 </body>

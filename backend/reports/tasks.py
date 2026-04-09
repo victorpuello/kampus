@@ -25,8 +25,9 @@ from students.academic_period_report import (
     build_academic_period_report_context,
     build_preschool_academic_period_group_report_context,
     build_preschool_academic_period_report_context,
+    group_report_rows_for_visual_blocks,
 )
-from students.single_page_report_fit import fit_report_to_single_page
+from students.single_page_report_fit import layout_report_to_two_pages
 from students.academic_period_sabana_report import build_academic_period_sabana_context
 from students.models import Enrollment
 
@@ -585,7 +586,7 @@ def _render_report_html(job: ReportJob) -> str:
         else:
             ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
 
-        ctx = fit_report_to_single_page(
+        ctx = layout_report_to_two_pages(
             ctx,
             template_name=(
                 "students/reports/academic_period_report_preschool_pdf.html"
@@ -594,6 +595,9 @@ def _render_report_html(job: ReportJob) -> str:
             ),
             is_preschool=is_preschool,
         )
+        if not is_preschool:
+            ctx["rows_page_1"] = group_report_rows_for_visual_blocks(ctx.get("rows_page_1") or [])
+            ctx["rows_page_2"] = group_report_rows_for_visual_blocks(ctx.get("rows_page_2") or [])
 
         rows_public = []
         for r in (ctx.get("rows") or [])[:80]:
@@ -704,7 +708,7 @@ def _render_report_html(job: ReportJob) -> str:
                 if not isinstance(page, dict):
                     continue
                 fitted_pages.append(
-                    fit_report_to_single_page(
+                    layout_report_to_two_pages(
                         page,
                         template_name=(
                             "students/reports/academic_period_report_preschool_pdf.html"
@@ -714,6 +718,13 @@ def _render_report_html(job: ReportJob) -> str:
                         is_preschool=is_preschool_group,
                     )
                 )
+                if not is_preschool_group and fitted_pages:
+                    fitted_pages[-1]["rows_page_1"] = group_report_rows_for_visual_blocks(
+                        fitted_pages[-1].get("rows_page_1") or []
+                    )
+                    fitted_pages[-1]["rows_page_2"] = group_report_rows_for_visual_blocks(
+                        fitted_pages[-1].get("rows_page_2") or []
+                    )
             ctx["pages"] = fitted_pages
 
         # One verification token per student/page.

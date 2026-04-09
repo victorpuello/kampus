@@ -1,122 +1,98 @@
-<header class="header">
-  <div class="header-left">
-    <span class="logo">
-      {% if institution and institution.pdf_show_logo and institution.logo %}
-        <img src="{{ institution.logo.url }}" alt="Logo" />
-      {% else %}
-        IE
-      {% endif %}
-    </span>
-    <div class="inst">
-      <p class="inst-name">{{ institution.name|default:"Institución Educativa" }}</p>
-      {% if institution.pdf_header_line2 %}
-        <p class="inst-line">{{ institution.pdf_header_line2 }}</p>
-      {% endif %}
-      <div class="inst-meta">
-        {% if institution.dane_code %}<span>DANE: {{ institution.dane_code }}</span>{% endif %}
-        {% if institution.nit %}<span>NIT: {{ institution.nit }}</span>{% endif %}
-      </div>
-    </div>
+<header class="institution-header avoid-break">
+  <div class="institution-logo">
+    {% if institution and institution.pdf_show_logo and institution.logo %}
+      <img src="{{ institution.logo.url }}" alt="Logo" />
+    {% else %}
+      IE
+    {% endif %}
   </div>
-  <div class="header-right">
-    <div class="period-kicker">Periodo</div>
-    <div class="period-number">
-      {% if period_name %}{% if period_name|length == 1 %}0{{ period_name }}{% else %}{{ period_name }}{% endif %}{% else %}--{% endif %}
-    </div>
-    <div class="period-year">Año Lectivo {{ year_name|default:"" }}</div>
-  </div>
+  <p class="institution-name">{{ institution.name|default:"Institución Educativa" }}</p>
+  <p class="institution-line">{{ institution.pdf_header_line2|default:"San Bernardo del Viento - Córdoba" }}</p>
+  <p class="institution-meta">
+    {% if institution.dane_code %}DANE: {{ institution.dane_code }}{% endif %}
+    {% if institution.nit %}&nbsp;&nbsp;|&nbsp;&nbsp;NIT: {{ institution.nit }}{% endif %}
+  </p>
+  <div class="institution-divider"></div>
+  <p class="report-title">Informe Académico Cualitativo</p>
 </header>
 
-<section class="student-card avoid-break">
-  <div class="row">
-    <div class="col" style="width: 50%; padding-right: 8px;">
-      <div class="k">Estudiante</div>
-      <div class="v-lg">{{ student_name|default:"-" }}</div>
-      {% if student_code %}
-        <div class="k" style="margin-top: 8px;">Documento</div>
-        <div class="v">{{ student_code }}</div>
-      {% endif %}
-    </div>
+{% if report_page_number == 2 %}
+  <p class="section-title">Continuación del informe cualitativo (hoja 2 de 2)</p>
+{% endif %}
 
-    <div class="col" style="width: 16%; padding-right: 8px;">
-      <div class="k">Grado / Grupo</div>
-      <div class="v">{{ group_name|default:"-" }}</div>
-    </div>
-
-    <div class="col" style="width: 16%; padding-right: 8px;">
-      <div class="k">Jornada</div>
-      <div class="v">{{ shift_name|default:"-" }}</div>
-    </div>
-
-    <div class="col" style="width: 18%; text-align: right;">
-      <div class="k">Fecha</div>
-      <div class="v"><span class="pill" style="max-width: 100%;">{{ report_date|default:"" }}</span></div>
-    </div>
+{% if show_student_card %}
+<section class="student-block avoid-break">
+  <div class="student-main">
+    <h1 class="student-name">{{ student_name|default:"-" }}</h1>
+    <span class="student-doc">Doc: {{ student_code|default:"-" }}</span>
   </div>
-
-  <div class="divider">
-    <span class="k">Director de Grupo:</span>
-    <span class="v" style="display:inline; font-size: 11px; font-weight: 800; color:#374151;"> {{ director_name|default:"-" }}</span>
+  <div class="student-meta">
+    <div>Grado/Grupo: <strong>{{ group_name|default:"-" }}</strong></div>
+    <div>Jornada: <strong>{{ shift_name|default:"-" }}</strong></div>
+    <div>Periodo: <strong>{{ period_name|default:"-" }} ({{ year_name|default:"-" }})</strong></div>
+    <div>Fecha: <span class="student-chip">{{ report_date|default:"" }}</span></div>
+    <div>Director: <strong>{{ director_name|default:"-" }}</strong></div>
   </div>
 </section>
+{% endif %}
 
-<table class="grades">
-  <thead>
-    <tr>
-      <th class="subject" style="width: 68%;">Dimensión / Logro</th>
-      <th style="width: 32%; background:#f3f4f6; color:#111827;">Valoración</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% if rows and rows|length > 0 %}
-      {% for row in rows %}
-        {% if row.row_type == 'SUBJECT' %}
-          <tr class="avoid-break achievement-row">
-            <td class="subject" colspan="2" style="background:#f9fafb;">
-              <div class="achievement-title" style="font-weight: 800;">{{ row.title|default:"" }}</div>
-            </td>
-          </tr>
-        {% else %}
-          <tr class="avoid-break achievement-row">
-            <td class="subject">
-              <div class="achievement-title">• {{ row.description|default:"" }}</div>
-            </td>
-            <td class="grade-cell grade-final">
-              {% if row.label %}
-                {{ row.label }}
-              {% else %}
-                <span class="muted">—</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% endif %}
-      {% endfor %}
-    {% else %}
+<section class="preschool-block">
+  <p class="section-title">Detalle de dimensiones y logros</p>
+
+  <table class="qualitative-table">
+    <thead>
       <tr>
-        <td colspan="2" class="muted" style="padding: 12px 6px;">
-          No hay logros configurados para este periodo.
-        </td>
+        <th style="width: 72%;">Dimensión / Logro</th>
+        <th style="width: 28%;">Valoración</th>
       </tr>
-    {% endif %}
-  </tbody>
-</table>
+    </thead>
+    <tbody>
+      {% if rows and rows|length > 0 %}
+        {% for row in rows %}
+          {% if row.row_type == 'SUBJECT' %}
+            <tr class="avoid-break dimension-row">
+              <td colspan="2">
+                <p class="dimension-title">{{ row.title|default:"" }}</p>
+              </td>
+            </tr>
+          {% else %}
+            <tr class="avoid-break achievement-row">
+              <td>
+                <div class="achievement-title">
+                  • {% if row.indicator_type %}<strong>{{ row.indicator_type }}:</strong> {% endif %}{{ row.description|default:"" }}
+                </div>
+              </td>
+              <td class="rating-cell">
+                {% if row.label %}
+                  <span class="rating-pill rating-{{ row.label|lower }}">{{ row.label }}</span>
+                {% else %}
+                  <span class="muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endif %}
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="2" class="muted" style="padding: 12px 10px;">
+            No hay logros configurados para este periodo.
+          </td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</section>
 
-<div class="footer">
-  <div class="summary avoid-break">
-    <div style="display: table; width: 100%; table-layout: fixed;">
-      <div style="display: table-cell; width: 100%; vertical-align: top;">
-        <span style="font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em;">Escala cualitativa:</span>
-        <span style="margin-left: 6px;">{{ scale_equivalences|default:"" }}</span>
-      </div>
-    </div>
-  </div>
+{% if show_footer %}
+  <section class="summary-box avoid-break">
+    <strong>Escala cualitativa:</strong>
+    <span style="margin-left: 6px;">{{ scale_equivalences|default:"" }}</span>
+  </section>
 
-  <div class="sign-grid avoid-break">
-    <div class="sign-col" style="width: 100%;">
-      <div class="sign-line"></div>
-      <div class="sign-name">{{ director_name|default:"" }}</div>
-      <div class="sign-role">Director de grupo</div>
-    </div>
-  </div>
-
-</div>
+  <section class="signature-wrap avoid-break">
+    <div class="signature-line"></div>
+    <p class="signature-name">{{ director_name|default:"" }}</p>
+    <p class="signature-role">Director de grupo</p>
+    <p class="signature-foot">Plataforma de gestión académica Kampus | Informe oficial</p>
+  </section>
+{% endif %}

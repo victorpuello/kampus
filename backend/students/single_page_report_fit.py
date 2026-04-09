@@ -12,92 +12,62 @@ from reports.weasyprint_utils import render_pdf_bytes_from_html
 
 
 @dataclass(frozen=True)
-class FitProfile:
-    level: str
-    max_lines_per_subject: int
-    max_line_chars: int
-    max_preschool_desc_chars: int
-    hide_rank: bool
-    hide_qr: bool
-    remove_area_rows: bool
+class LayoutProfile:
+    name: str
+    split_target_ratio: float
 
 
-FIT_PROFILES: tuple[FitProfile, ...] = (
-    FitProfile(
-        level="l0",
-        max_lines_per_subject=6,
-        max_line_chars=160,
-        max_preschool_desc_chars=220,
-        hide_rank=False,
-        hide_qr=False,
-        remove_area_rows=False,
-    ),
-    FitProfile(
-        level="l1",
-        max_lines_per_subject=4,
-        max_line_chars=120,
-        max_preschool_desc_chars=150,
-        hide_rank=True,
-        hide_qr=False,
-        remove_area_rows=False,
-    ),
-    FitProfile(
-        level="l2",
-        max_lines_per_subject=2,
-        max_line_chars=90,
-        max_preschool_desc_chars=105,
-        hide_rank=True,
-        hide_qr=True,
-        remove_area_rows=True,
-    ),
+@dataclass(frozen=True)
+class SplitBlock:
+    start: int
+    end: int
+    weight: float
+
+
+LAYOUT_PROFILES: tuple[LayoutProfile, ...] = (
+    LayoutProfile(name="p0", split_target_ratio=0.50),
+    LayoutProfile(name="p1", split_target_ratio=0.52),
+    LayoutProfile(name="p2", split_target_ratio=0.48),
 )
 
 
-def fit_report_to_single_page(
+def layout_report_to_two_pages(
     report_context: dict[str, Any],
     *,
     template_name: str,
     is_preschool: bool,
 ) -> dict[str, Any]:
-    """Return a context optimized to fit a single PDF page.
+    """Return a context distributed in exactly two pages.
 
-    The function validates page count with a real PDF render and applies
-    progressive compactation levels until the report fits one page.
+    The function preserves the full text and validates with real PDF rendering
+    when available, trying profile adjustments until the result is exactly
+    two pages.
     """
 
     base_context = deepcopy(report_context)
     last_candidate = deepcopy(base_context)
 
-    for profile in FIT_PROFILES:
-        candidate = _apply_compactation(base_context, profile=profile, is_preschool=is_preschool)
+    for profile in LAYOUT_PROFILES:
+        candidate = _apply_two_page_layout(base_context, profile=profile, is_preschool=is_preschool)
+        measured_candidate = _context_for_visual_measurement(candidate, is_preschool=is_preschool)
         try:
-            pages = _count_pdf_pages(template_name=template_name, context=candidate)
+            pages = _count_pdf_pages(template_name=template_name, context=measured_candidate)
         except Exception:
-            return _fallback_without_pdf_measurement(base_context, is_preschool=is_preschool)
-        if pages <= 1:
+            return _fallback_without_pdf_measurement(base_context, profile=profile, is_preschool=is_preschool)
+        if pages == 2:
             return candidate
         last_candidate = candidate
 
-    # Extreme fallback: keep shrinking non-essential content until one page.
-    candidate = deepcopy(last_candidate)
-    for _ in range(6):
-        candidate = _apply_extreme_trim(candidate, is_preschool=is_preschool)
-        try:
-            pages = _count_pdf_pages(template_name=template_name, context=candidate)
-        except Exception:
-            return _fallback_without_pdf_measurement(base_context, is_preschool=is_preschool)
-        if pages <= 1:
-            return candidate
+    exact_candidate = _search_exact_two_page_layout(
+        base_context,
+        template_name=template_name,
+        is_preschool=is_preschool,
+    )
+    if exact_candidate is not None:
+        return exact_candidate
 
-    # Hard fallback to avoid second page even in pathological cases.
-    final_candidate = _force_single_page_minimal(candidate, is_preschool=is_preschool)
-    final_candidate["report_fit"] = {
-        "level": "l2",
-        "hide_rank": True,
-        "hide_qr": True,
-        "is_extreme": True,
-    }
-    return final_candidate
+    # Final fallback: keep the densest readable profile, preserving full text.
+    return last_candidate
 
 
 def _count_pdf_pages(*, template_name: str, context: dict[str, Any]) -> int:
@@ -109,223 +79,360 @@ def _count_pdf_pages(*, template_name: str, context: dict[str, Any]) -> int:
     return len(reader.pages)
 
 
-def _fallback_without_pdf_measurement(context: dict[str, Any], *, is_preschool: bool) -> dict[str, Any]:
-    """Fallback for environments without PDF rendering dependencies.
-
-    This keeps preview/report HTML paths working without WeasyPrint while still
-    applying progressive compactation heuristics.
-    """
-
-    rows = context.get("rows") or []
-    if not isinstance(rows, list):
-        return _apply_compactation(context, profile=FIT_PROFILES[0], is_preschool=is_preschool)
-
-    if is_preschool:
-        achievement_rows = [r for r in rows if isinstance(r, dict) and str(r.get("row_type") or "").upper() == "ACHIEVEMENT"]
-        if len(achievement_rows) > 26:
-            return _apply_compactation(context, profile=FIT_PROFILES[2], is_preschool=True)
-        if len(achievement_rows) > 18:
-            return _apply_compactation(context, profile=FIT_PROFILES[1], is_preschool=True)
-        return _apply_compactation(context, profile=FIT_PROFILES[0], is_preschool=True)
-
-    subjects = [r for r in rows if isinstance(r, dict) and str(r.get("row_type") or "").upper() == "SUBJECT"]
-    total_lines = 0
-    for subject in subjects:
-        lines = subject.get("lines") or []
-        if isinstance(lines, list):
-            total_lines += len(lines)
-
-    complexity_score = len(subjects) * 2 + total_lines
-    if complexity_score > 80:
-        return _apply_compactation(context, profile=FIT_PROFILES[2], is_preschool=False)
-    if complexity_score > 55:
-        return _apply_compactation(context, profile=FIT_PROFILES[1], is_preschool=False)
-    return _apply_compactation(context, profile=FIT_PROFILES[0], is_preschool=False)
-
-
-def _apply_compactation(
+def _fallback_without_pdf_measurement(
     context: dict[str, Any],
     *,
-    profile: FitProfile,
+    profile: LayoutProfile,
+    is_preschool: bool,
+) -> dict[str, Any]:
+    """Fallback for environments without PDF rendering dependencies."""
+
+    return _apply_two_page_layout(context, profile=profile, is_preschool=is_preschool)
+
+
+def _apply_two_page_layout(
+    context: dict[str, Any],
+    *,
+    profile: LayoutProfile,
     is_preschool: bool,
 ) -> dict[str, Any]:
     optimized = deepcopy(context)
-    optimized["report_fit"] = {
-        "level": profile.level,
-        "hide_rank": profile.hide_rank,
-        "hide_qr": profile.hide_qr,
-        "is_extreme": False,
+    optimized["report_layout"] = {
+        "profile": profile.name,
+        "target_pages": 2,
     }
 
     rows = optimized.get("rows") or []
-    if not isinstance(rows, list):
+    if not isinstance(rows, list) or not rows:
+        optimized["rows_page_1"] = []
+        optimized["rows_page_2"] = []
         return optimized
 
-    if is_preschool:
-        optimized["rows"] = _compact_preschool_rows(rows, profile=profile)
-    else:
-        optimized["rows"] = _compact_regular_rows(rows, profile=profile)
+    split_index = _split_index_balanced(rows=rows, target_ratio=profile.split_target_ratio, is_preschool=is_preschool)
+    optimized["rows_page_1"] = rows[:split_index]
+    optimized["rows_page_2"] = rows[split_index:]
+
+    if not optimized["rows_page_2"]:
+        # Guarantee a two-page distribution even for very short reports.
+        tail = optimized["rows_page_1"][-1:]
+        optimized["rows_page_1"] = optimized["rows_page_1"][:-1]
+        optimized["rows_page_2"] = tail
+
+    if not optimized["rows_page_1"] and optimized["rows_page_2"]:
+        optimized["rows_page_1"] = optimized["rows_page_2"][:1]
+        optimized["rows_page_2"] = optimized["rows_page_2"][1:]
 
     return optimized
 
 
-def _compact_regular_rows(rows: list[dict[str, Any]], *, profile: FitProfile) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
+def _search_exact_two_page_layout(
+    context: dict[str, Any],
+    *,
+    template_name: str,
+    is_preschool: bool,
+) -> dict[str, Any] | None:
+    rows = context.get("rows") or []
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+
+    best_candidate: dict[str, Any] | None = None
+    best_tuple: tuple[int, int, float, int] | None = None
+
+    for profile_index, profile in enumerate(LAYOUT_PROFILES):
+        blocks = _build_split_blocks(rows=rows, is_preschool=is_preschool)
+        if len(blocks) < 2:
             continue
-        row_type = str(row.get("row_type") or "").upper()
-        if profile.remove_area_rows and row_type == "AREA":
-            continue
 
-        current = dict(row)
-        lines = current.get("lines") or []
-        if isinstance(lines, list):
-            trimmed_lines = [str(line or "").strip()[: profile.max_line_chars].strip() for line in lines if str(line or "").strip()]
-            current["lines"] = trimmed_lines[: profile.max_lines_per_subject]
-        out.append(current)
-    return out
-
-
-def _compact_preschool_rows(rows: list[dict[str, Any]], *, profile: FitProfile) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        current = dict(row)
-        row_type = str(current.get("row_type") or "").upper()
-        if row_type == "ACHIEVEMENT":
-            description = str(current.get("description") or "").strip()
-            current["description"] = description[: profile.max_preschool_desc_chars].strip()
-        out.append(current)
-
-    if profile.level != "l2":
-        return out
-
-    # Keep all SUBJECT rows and a bounded amount of ACHIEVEMENT rows.
-    bounded: list[dict[str, Any]] = []
-    achievements_kept = 0
-    max_achievements = 20
-    hidden_achievements = 0
-    for row in out:
-        row_type = str(row.get("row_type") or "").upper()
-        if row_type == "SUBJECT":
-            bounded.append(row)
-            continue
-        if row_type == "ACHIEVEMENT":
-            if achievements_kept < max_achievements:
-                bounded.append(row)
-                achievements_kept += 1
-            else:
-                hidden_achievements += 1
-            continue
-        bounded.append(row)
-
-    if hidden_achievements:
-        bounded.append(
-            {
-                "row_type": "ACHIEVEMENT",
-                "description": f"Logros adicionales compactados: {hidden_achievements}",
-                "label": "",
-            }
+        candidate_splits = sorted(
+            (blocks[idx].start for idx in range(1, len(blocks))),
+            key=lambda split_index: _split_score_tuple(
+                rows=rows,
+                blocks=blocks,
+                split_index=split_index,
+                target_ratio=profile.split_target_ratio,
+                is_preschool=is_preschool,
+            ),
         )
-    return bounded
+
+        for split_index in candidate_splits:
+            candidate = _apply_two_page_layout_with_split(context, profile=profile, split_index=split_index)
+            measured_candidate = _context_for_visual_measurement(candidate, is_preschool=is_preschool)
+            try:
+                pages = _count_pdf_pages(template_name=template_name, context=measured_candidate)
+            except Exception:
+                return None
+
+            score, balance, _ = _split_score_tuple(
+                rows=rows,
+                blocks=blocks,
+                split_index=split_index,
+                target_ratio=profile.split_target_ratio,
+                is_preschool=is_preschool,
+            )
+            candidate_tuple = (pages, profile_index, int(score * 1000), split_index)
+
+            if pages == 2:
+                return candidate
+
+            if best_tuple is None or candidate_tuple < best_tuple:
+                best_tuple = candidate_tuple
+                best_candidate = candidate
+
+    return best_candidate
 
 
-def _apply_extreme_trim(context: dict[str, Any], *, is_preschool: bool) -> dict[str, Any]:
+def _apply_two_page_layout_with_split(
+    context: dict[str, Any],
+    *,
+    profile: LayoutProfile,
+    split_index: int,
+) -> dict[str, Any]:
     optimized = deepcopy(context)
-    fit = dict(optimized.get("report_fit") or {})
-    fit.update({"level": "l2", "hide_rank": True, "hide_qr": True, "is_extreme": True})
-    optimized["report_fit"] = fit
+    optimized["report_layout"] = {
+        "profile": profile.name,
+        "target_pages": 2,
+    }
 
     rows = optimized.get("rows") or []
-    if not isinstance(rows, list):
-        return optimized
+    optimized["rows_page_1"] = rows[:split_index]
+    optimized["rows_page_2"] = rows[split_index:]
 
-    if is_preschool:
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            if str(row.get("row_type") or "").upper() == "ACHIEVEMENT":
-                row["description"] = str(row.get("description") or "")[:80].strip()
-        return optimized
+    if not optimized["rows_page_2"]:
+        tail = optimized["rows_page_1"][-1:]
+        optimized["rows_page_1"] = optimized["rows_page_1"][:-1]
+        optimized["rows_page_2"] = tail
 
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        row["lines"] = []
-    optimized["rows"] = [r for r in rows if str(r.get("row_type") or "").upper() != "AREA"]
+    if not optimized["rows_page_1"] and optimized["rows_page_2"]:
+        optimized["rows_page_1"] = optimized["rows_page_2"][:1]
+        optimized["rows_page_2"] = optimized["rows_page_2"][1:]
+
     return optimized
 
 
-def _force_single_page_minimal(context: dict[str, Any], *, is_preschool: bool) -> dict[str, Any]:
-    optimized = deepcopy(context)
-    rows = optimized.get("rows") or []
-    if not isinstance(rows, list):
-        return optimized
-
+def _context_for_visual_measurement(context: dict[str, Any], *, is_preschool: bool) -> dict[str, Any]:
+    measured = deepcopy(context)
     if is_preschool:
-        out: list[dict[str, Any]] = []
-        achievement_count = 0
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            row_type = str(row.get("row_type") or "").upper()
-            if row_type == "SUBJECT":
-                out.append(row)
-                continue
-            if row_type == "ACHIEVEMENT":
-                if achievement_count < 12:
-                    short = dict(row)
-                    short["description"] = str(short.get("description") or "")[:60].strip()
-                    out.append(short)
-                    achievement_count += 1
-                continue
-            out.append(row)
-        optimized["rows"] = out
-        return optimized
+        return measured
 
-    out = []
-    subject_count = 0
-    hidden_subjects = 0
-    for row in rows:
+    rows_page_1 = measured.get("rows_page_1") or []
+    rows_page_2 = measured.get("rows_page_2") or []
+    measured["rows_page_1"] = _group_rows_for_visual_blocks(rows_page_1)
+    measured["rows_page_2"] = _group_rows_for_visual_blocks(rows_page_2)
+    return measured
+
+
+def _group_rows_for_visual_blocks(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: list[dict[str, Any]] = []
+    idx = 0
+    total = len(rows)
+
+    while idx < total:
+        row = rows[idx] if isinstance(rows[idx], dict) else None
         if not isinstance(row, dict):
+            idx += 1
             continue
+
         row_type = str(row.get("row_type") or "").upper()
         if row_type == "AREA":
-            continue
-        if row_type == "SUBJECT":
-            if subject_count < 22:
-                short = dict(row)
-                short["lines"] = []
-                out.append(short)
-                subject_count += 1
-            else:
-                hidden_subjects += 1
-            continue
-        out.append(row)
+            subjects: list[dict[str, Any]] = []
+            next_idx = idx + 1
+            while next_idx < total:
+                nxt = rows[next_idx] if isinstance(rows[next_idx], dict) else None
+                if not isinstance(nxt, dict):
+                    break
+                nxt_type = str(nxt.get("row_type") or "").upper()
+                if nxt_type != "SUBJECT" or bool(nxt.get("is_single_area")):
+                    break
+                subjects.append(nxt)
+                next_idx += 1
 
-    if hidden_subjects:
-        out.append(
-            {
-                "row_type": "SUBJECT",
-                "title": f"Asignaturas adicionales compactadas: {hidden_subjects}",
-                "absences": "",
-                "p1_score": "",
-                "p2_score": "",
-                "p3_score": "",
-                "p4_score": "",
-                "final_score": "",
-                "p1_scale": "",
-                "p2_scale": "",
-                "p3_scale": "",
-                "p4_scale": "",
-                "final_scale": "",
-                "lines": [],
-                "is_single_area": False,
-                "lines_as_paragraph": False,
-            }
+            if subjects:
+                block = dict(row)
+                block["row_type"] = "AREA_COMPOSITE"
+                block["subjects"] = subjects
+                grouped.append(block)
+                idx = next_idx
+                continue
+
+        grouped.append(row)
+        idx += 1
+
+    return grouped
+
+
+def _split_index_balanced(*, rows: list[dict[str, Any]], target_ratio: float, is_preschool: bool) -> int:
+    blocks = _build_split_blocks(rows=rows, is_preschool=is_preschool)
+    if len(blocks) < 2:
+        return 1 if rows else 0
+
+    best_split = blocks[1].start
+    best_tuple: tuple[float, float, int] | None = None
+
+    for boundary_idx in range(1, len(blocks)):
+        split_index = blocks[boundary_idx].start
+        candidate_tuple = _split_score_tuple(
+            rows=rows,
+            blocks=blocks,
+            split_index=split_index,
+            target_ratio=target_ratio,
+            is_preschool=is_preschool,
         )
 
-    optimized["rows"] = out
-    return optimized
+        if best_tuple is None or candidate_tuple < best_tuple:
+            best_tuple = candidate_tuple
+            best_split = split_index
+
+    return best_split
+
+
+def _split_score_tuple(
+    *,
+    rows: list[dict[str, Any]],
+    blocks: list[SplitBlock],
+    split_index: int,
+    target_ratio: float,
+    is_preschool: bool,
+) -> tuple[float, float, int]:
+    total_weight = sum(block.weight for block in blocks)
+    if total_weight <= 0:
+        return (0.0, 0.0, split_index)
+
+    target_weight = total_weight * target_ratio
+    left_weight = sum(block.weight for block in blocks if block.end <= split_index)
+    right_weight = total_weight - left_weight
+    left_blocks = sum(1 for block in blocks if block.end <= split_index)
+    right_blocks = len(blocks) - left_blocks
+
+    score = abs(left_weight - target_weight)
+    if not is_preschool and len(blocks) >= 4 and (left_blocks == 1 or right_blocks == 1):
+        score += total_weight
+
+    balance = abs(left_weight - right_weight)
+    return (score, balance, split_index)
+
+
+def _build_split_blocks(*, rows: list[dict[str, Any]], is_preschool: bool) -> list[SplitBlock]:
+    blocks: list[SplitBlock] = []
+    total = len(rows)
+    idx = 0
+
+    while idx < total:
+        row = rows[idx]
+        if not isinstance(row, dict):
+            blocks.append(SplitBlock(start=idx, end=idx + 1, weight=1.0))
+            idx += 1
+            continue
+
+        row_type = str(row.get("row_type") or "").upper()
+        if not is_preschool and row_type == "AREA":
+            end = idx + 1
+            subject_count = 0
+            while end < total:
+                nxt = rows[end]
+                if not isinstance(nxt, dict):
+                    break
+                nxt_type = str(nxt.get("row_type") or "").upper()
+                if nxt_type == "SUBJECT" and not bool(nxt.get("is_single_area")):
+                    subject_count += 1
+                    end += 1
+                    continue
+                break
+
+            if subject_count > 0:
+                weight = 0.0
+                for part_idx in range(idx, end):
+                    part = rows[part_idx] if isinstance(rows[part_idx], dict) else {}
+                    weight += _row_weight(row=part, is_preschool=is_preschool)
+                blocks.append(SplitBlock(start=idx, end=end, weight=weight))
+                idx = end
+                continue
+
+        blocks.append(
+            SplitBlock(
+                start=idx,
+                end=idx + 1,
+                weight=_row_weight(row=row, is_preschool=is_preschool),
+            )
+        )
+        idx += 1
+
+    return blocks
+
+
+def _is_inside_compound_area(*, rows: list[dict[str, Any]], split_index: int) -> bool:
+    return _compound_area_bounds_for_split(rows=rows, split_index=split_index) is not None
+
+
+def _compound_area_bounds_for_split(
+    *, rows: list[dict[str, Any]], split_index: int
+) -> tuple[int, int] | None:
+    """Return (area_start, area_end_exclusive) if split is inside a composite area."""
+
+    if split_index <= 0 or split_index >= len(rows):
+        return None
+
+    idx = split_index - 1
+    while idx >= 0:
+        row = rows[idx]
+        if not isinstance(row, dict):
+            return None
+        row_type = str(row.get("row_type") or "").upper()
+        if row_type == "SUBJECT" and not bool(row.get("is_single_area")):
+            idx -= 1
+            continue
+        break
+
+    if idx < 0:
+        return None
+
+    area_row = rows[idx]
+    if not isinstance(area_row, dict):
+        return None
+    if str(area_row.get("row_type") or "").upper() != "AREA":
+        return None
+
+    end = idx + 1
+    subject_count = 0
+    while end < len(rows):
+        row = rows[end]
+        if not isinstance(row, dict):
+            break
+        row_type = str(row.get("row_type") or "").upper()
+        if row_type == "SUBJECT" and not bool(row.get("is_single_area")):
+            subject_count += 1
+            end += 1
+            continue
+        break
+
+    if subject_count == 0:
+        return None
+    if idx < split_index < end:
+        return idx, end
+    return None
+
+
+def _row_weight(*, row: dict[str, Any], is_preschool: bool) -> float:
+    if not isinstance(row, dict):
+        return 1.0
+
+    row_type = str(row.get("row_type") or "").upper()
+    if is_preschool:
+        if row_type == "SUBJECT":
+            return 1.1
+        description = str(row.get("description") or "")
+        return 0.9 + (len(description) / 140.0)
+
+    if row_type == "AREA":
+        return 1.0
+
+    lines = row.get("lines") or []
+    line_weight = 0.0
+    if isinstance(lines, list):
+        for line in lines:
+            text = str(line or "")
+            line_weight += 0.45 + (len(text) / 120.0)
+
+    base = 1.2
+    if bool(row.get("is_single_area")):
+        base += 0.6
+    return base + line_weight
