@@ -169,6 +169,8 @@ services:
       - DISCIPLINE_DESCARGOS_NOTIFY_INTERVAL_SECONDS=900
       - ATTENDANCE_AUTO_CLOSE_HOURS=1
       - ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS=60
+      - ACADEMIC_PERIOD_AUTO_CLOSE_ENABLED=true
+      - ACADEMIC_PERIOD_AUTO_CLOSE_INTERVAL_SECONDS=300
       - ELECTION_CENSUS_SYNC_ENABLED=true
       - ELECTION_CENSUS_SYNC_INTERVAL_SECONDS=1800
       - ELECTION_CENSUS_SYNC_SOURCE_MODE=ACTIVE_ENROLLMENTS
@@ -204,7 +206,7 @@ services:
       - redis
     command: >
       sh -c "
-        echo 'Starting backend scheduler (descargos + attendance + reports + election census sync + novelties SLA)';
+        echo 'Starting backend scheduler (descargos + attendance + academic periods + reports + election census sync + novelties SLA)';
 
         ( while true; do
             python manage.py notify_descargos_deadlines --hours-before ${DISCIPLINE_DESCARGOS_NOTIFY_HOURS_BEFORE:-24};
@@ -214,6 +216,13 @@ services:
         ( while true; do
             python manage.py close_expired_attendance_sessions --hours ${ATTENDANCE_AUTO_CLOSE_HOURS:-1};
             sleep ${ATTENDANCE_AUTO_CLOSE_INTERVAL_SECONDS:-60};
+          done ) &
+
+        ( while true; do
+            if [ "$${ACADEMIC_PERIOD_AUTO_CLOSE_ENABLED:-true}" = "true" ]; then
+              python manage.py close_expired_periods;
+            fi;
+            sleep $${ACADEMIC_PERIOD_AUTO_CLOSE_INTERVAL_SECONDS:-300};
           done ) &
 
         ( while true; do

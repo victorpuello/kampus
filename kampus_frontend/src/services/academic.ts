@@ -172,6 +172,14 @@ export interface Period {
   grades_edit_until?: string | null
   planning_edit_until?: string | null
 }
+
+interface PeriodActionResponse {
+  period: {
+    id: number
+    name: string
+    is_closed: boolean
+  }
+}
 export interface AcademicLevel { id: number; name: string; level_type: string; min_age: number; max_age: number }
 export interface Grade { id: number; name: string; level: number | null; level_name?: string; ordinal?: number | null }
 export interface Group { 
@@ -851,6 +859,8 @@ export const academicApi = {
   createPeriod: (data: Partial<Period>) => api.post<Period>('/api/periods/', data),
   updatePeriod: (id: number, data: Partial<Period>) => api.put<Period>(`/api/periods/${id}/`, data),
   deletePeriod: (id: number) => api.delete(`/api/periods/${id}/`),
+  closePeriod: (id: number) => api.post<PeriodActionResponse>(`/api/periods/${id}/close/`, {}),
+  reopenPeriod: (id: number) => api.post<PeriodActionResponse>(`/api/periods/${id}/reopen/`, {}),
   
   // Academic Levels
   listLevels: () => api.get<AcademicLevel[]>('/api/academic-levels/'),

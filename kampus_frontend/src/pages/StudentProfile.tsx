@@ -119,7 +119,7 @@ export default function StudentProfile() {
     )
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 px-3 py-4 sm:p-6">
+    <div className="space-y-6 px-3 py-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Perfil de Estudiante</h2>

@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from unittest.mock import patch
 import uuid as py_uuid
-from students.models import Student, Enrollment
+from students.models import Student, Enrollment, ObserverAnnotation
 from students.models import FamilyMember
 from students.models import CertificateIssue
 from students.serializers import StudentSerializer
@@ -14,8 +14,9 @@ from django.core.cache import cache
 from django.conf import settings
 from pathlib import Path
 from io import StringIO
-from academic.models import AcademicYear, Grade, Group
+from academic.models import AcademicYear, Grade, Group, Period
 from academic.models import TeacherAssignment
+from core.models import Campus, Institution
 from reports.models import ReportJob
 from notifications.models import Notification
 from audit.models import AuditLog
@@ -52,6 +53,117 @@ class StudentSerializerTest(TestCase):
         self.assertEqual(data['user']['first_name'], "Maria")
         self.assertEqual(data['user']['email'], "maria@example.com")
         self.assertEqual(data['document_number'], "987654321")
+
+
+class ObserverAnnotationCommitmentActaAPITest(APITestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin_observer_acta",
+            password="admin123",
+            email="admin_observer_acta@example.com",
+            role=getattr(User, "ROLE_ADMIN", "ADMIN"),
+        )
+        self.teacher = User.objects.create_user(
+            username="director_grupo_acta",
+            password="pass123",
+            first_name="Dora",
+            last_name="Directora",
+            role=User.ROLE_TEACHER,
+        )
+        self.client.force_authenticate(user=self.admin)
+
+        self.institution = Institution.objects.create(name="Institución Educativa Demo")
+        self.campus = Campus.objects.create(
+            institution=self.institution,
+            name="Sede Principal",
+            municipality="Bogotá",
+        )
+        self.year = AcademicYear.objects.create(year=2026, status="ACTIVE")
+        self.period = Period.objects.create(
+            academic_year=self.year,
+            name="Periodo 1",
+            start_date="2026-01-01",
+            end_date="2026-03-31",
+        )
+        self.grade = Grade.objects.create(name="Sexto", ordinal=6)
+        self.group = Group.objects.create(
+            name="A",
+            grade=self.grade,
+            campus=self.campus,
+            academic_year=self.year,
+            director=self.teacher,
+        )
+
+        student_user = User.objects.create_user(
+            username="student_observer_acta",
+            password="pass123",
+            first_name="Samuel",
+            last_name="Estudiante",
+            role=User.ROLE_STUDENT,
+        )
+        self.student = Student.objects.create(user=student_user, document_number="123456789")
+        Enrollment.objects.create(
+            student=self.student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            campus=self.campus,
+            status="ACTIVE",
+        )
+        FamilyMember.objects.create(
+            student=self.student,
+            full_name="Ana Acudiente",
+            relationship="Madre",
+            document_number="987654321",
+            is_main_guardian=True,
+        )
+
+        self.commitment_annotation = ObserverAnnotation.objects.create(
+            student=self.student,
+            period=self.period,
+            annotation_type=ObserverAnnotation.TYPE_COMMITMENT,
+            title="Compromiso por seguimiento académico",
+            text="El estudiante debe fortalecer hábitos de estudio y cumplir con el plan de apoyo.",
+            commitments="- Asistir a refuerzos.\n- Entregar actividades pendientes.\n- Mantener comunicación con el director de grupo.",
+            commitment_due_date="2026-04-30",
+            commitment_responsible="Estudiante y acudiente",
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+        self.observation_annotation = ObserverAnnotation.objects.create(
+            student=self.student,
+            period=self.period,
+            annotation_type=ObserverAnnotation.TYPE_OBSERVATION,
+            title="Observación general",
+            text="Texto de observación.",
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+
+    def test_commitment_acta_html_renders_expected_content(self):
+        res = self.client.get(f"/api/observer-annotations/{self.commitment_annotation.id}/commitment-acta/?format=html")
+        html = res.content.decode("utf-8")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn("ACTA DE COMPROMISO", html)
+        self.assertIn(self.student.user.get_full_name(), html)
+        self.assertIn("Ana Acudiente", html)
+        self.assertIn(self.teacher.get_full_name(), html)
+
+    @patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 test")
+    def test_commitment_acta_pdf_returns_pdf_response(self, mock_render_pdf):
+        res = self.client.get(f"/api/observer-annotations/{self.commitment_annotation.id}/commitment-acta/")
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(res["Content-Type"], "application/pdf")
+        self.assertIn("acta-compromiso-anotacion", res["Content-Disposition"])
+        mock_render_pdf.assert_called_once()
+
+    def test_non_commitment_annotation_acta_returns_400(self):
+        res = self.client.get(f"/api/observer-annotations/{self.observation_annotation.id}/commitment-acta/")
+
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Solo las anotaciones de tipo Compromiso", str(res.data.get("detail", "")))
 
 
 class StudentBulkImportFileValidationAPITest(APITestCase):

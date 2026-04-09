@@ -66,6 +66,44 @@ def _parse_commitments_payload(raw_value: str | None) -> dict[str, list[str]]:
 	return defaults
 
 
+def _build_commitment_location(campus, institution: Institution | None) -> str:
+	parts = [
+		(getattr(campus, "municipality", "") or "").strip(),
+		(getattr(campus, "department", "") or "").strip(),
+	]
+	location = ", ".join(part for part in parts if part)
+	if location:
+		return location
+	return (
+		(getattr(campus, "name", "") or "").strip()
+		or (getattr(institution, "pdf_header_line3", "") or "").strip()
+		or (getattr(institution, "name", "") or "").strip()
+	)
+
+
+def _build_commitment_reason_text(*, student_name: str, period_name: str, grade_group_label: str, failed_subject_names: list[str]) -> str:
+	base = (
+		f"Como resultado de la comisión de evaluación de {period_name or 'seguimiento académico'}, "
+		f"{student_name} asume un compromiso académico de mejoramiento"
+	)
+	if grade_group_label:
+		base += f" en {grade_group_label}"
+	base += "."
+	if failed_subject_names:
+		subjects = ", ".join(subject for subject in failed_subject_names if subject)
+		base += (
+			f" Se prioriza el fortalecimiento en {subjects}, con seguimiento conjunto entre estudiante, "
+			"familia e institución para verificar avances, cumplimiento de actividades y recuperación "
+			"de los aprendizajes priorizados."
+		)
+	else:
+		base += (
+			" Se establecerá seguimiento conjunto entre estudiante, familia e institución para verificar "
+			"avances, cumplimiento de actividades y recuperación de los aprendizajes priorizados."
+		)
+	return base
+
+
 def get_failed_subject_names_for_decision(decision: CommissionStudentDecision) -> list[str]:
 	commission = decision.commission
 	enrollment = decision.enrollment
@@ -108,6 +146,183 @@ def get_failed_subject_names_for_decision(decision: CommissionStudentDecision) -
 	return list(
 		Subject.objects.filter(id__in=failed_subject_ids).order_by("name").values_list("name", flat=True)
 	)
+
+
+def build_commission_performance_snapshot(*, commission: Commission) -> dict[str, Any]:
+	def _subject_code(subject_name: str) -> str:
+		name = (subject_name or "").strip().upper()
+		if not name:
+			return "N/A"
+		mapping = {
+			"MATEMATICAS": "MATE",
+			"MATEMÁTICAS": "MATE",
+			"QUIMICA": "QUIM",
+			"QUÍMICA": "QUIM",
+			"INGLES": "INGL",
+			"INGLÉS": "INGL",
+			"LENGUA CASTELLANA": "LENG",
+			"LENGUAJE": "LENG",
+			"FILOSOFIA": "FILO",
+			"FILOSOFÍA": "FILO",
+			"FISICA": "FISI",
+			"FÍSICA": "FISI",
+			"SOCIALES": "SOCI",
+			"TECNOLOGIA": "TECN",
+			"TECNOLOGÍA": "TECN",
+			"ARTISTICA": "ARTI",
+			"ARTÍSTICA": "ARTI",
+			"BIOLOGIA": "BIOL",
+			"BIOLOGÍA": "BIOL",
+		}
+		for key, value in mapping.items():
+			if key in name:
+				return value
+		clean = "".join(ch for ch in name if ch.isalpha())
+		return (clean[:4] or "N/A").ljust(4, "X")[:4]
+
+	group = commission.group
+	enrollments = list(
+		Enrollment.objects.select_related("student", "student__user", "group", "grade")
+		.filter(
+			academic_year_id=commission.academic_year_id,
+			group_id=getattr(group, "id", None),
+			status="ACTIVE",
+		)
+		.order_by("student__user__last_name", "student__user__first_name")
+	)
+	enrollment_ids = [int(item.id) for item in enrollments]
+
+	passing_score = Decimal(PASSING_SCORE_DEFAULT)
+	scores_by_enrollment: dict[int, list[Decimal]] = {int(item.id): [] for item in enrollments}
+	failed_subject_ids_by_enrollment: dict[int, set[int]] = {int(item.id): set() for item in enrollments}
+
+	if commission.commission_type == Commission.TYPE_EVALUATION and commission.period_id and enrollment_ids:
+		assignments = (
+			TeacherAssignment.objects.filter(
+				academic_year_id=commission.academic_year_id,
+				group_id=getattr(group, "id", None),
+				academic_load__subject__isnull=False,
+			)
+			.select_related("academic_load", "academic_load__subject")
+			.only("id", "academic_load__subject_id")
+		)
+		for assignment in assignments:
+			subject_id = int(getattr(assignment.academic_load, "subject_id", 0) or 0)
+			if not subject_id:
+				continue
+			finals = _compute_subject_final_for_enrollments(
+				teacher_assignment=assignment,
+				period=commission.period,
+				enrollment_ids=enrollment_ids,
+			)
+			for enrollment_id, score in finals.items():
+				if enrollment_id not in scores_by_enrollment:
+					continue
+				if score is None:
+					continue
+				try:
+					score_decimal = Decimal(str(score))
+				except Exception:
+					continue
+				scores_by_enrollment[enrollment_id].append(score_decimal)
+				if score_decimal < passing_score:
+					failed_subject_ids_by_enrollment[enrollment_id].add(subject_id)
+
+	all_failed_subject_ids = {
+		subject_id
+		for subject_ids in failed_subject_ids_by_enrollment.values()
+		for subject_id in subject_ids
+	}
+	subject_names_by_id = {
+		int(row["id"]): str(row["name"])
+		for row in Subject.objects.filter(id__in=all_failed_subject_ids).values("id", "name")
+	}
+
+	low_rows: list[dict[str, Any]] = []
+	for enrollment in enrollments:
+		enrollment_id = int(enrollment.id)
+		failed_ids = sorted(failed_subject_ids_by_enrollment.get(enrollment_id, set()))
+		if not failed_ids:
+			continue
+		subject_names = [subject_names_by_id.get(subject_id, "Sin detalle") for subject_id in failed_ids]
+		low_rows.append(
+			{
+				"enrollment_id": enrollment_id,
+				"student_id": int(enrollment.student_id),
+				"student_name": enrollment.student.user.get_full_name().upper(),
+				"subjects": subject_names,
+				"subject_codes": [_subject_code(subject_name) for subject_name in subject_names],
+				"failed_count": len(failed_ids),
+			}
+		)
+
+	low_rows.sort(key=lambda item: (-int(item.get("failed_count", 0)), str(item.get("student_name", ""))))
+	low_performance_students: list[dict[str, Any]] = [
+		{
+			"index": index,
+			"enrollment_id": item["enrollment_id"],
+			"student_id": item["student_id"],
+			"student_name": item["student_name"],
+			"subjects": item["subjects"],
+			"subject_codes": item["subject_codes"],
+			"failed_count": item["failed_count"],
+			"status_label": "Reportado",
+		}
+		for index, item in enumerate(low_rows, start=1)
+	]
+
+	best_candidates: list[dict[str, Any]] = []
+	for enrollment in enrollments:
+		enrollment_id = int(enrollment.id)
+		scores = scores_by_enrollment.get(enrollment_id, [])
+		if not scores:
+			continue
+		average = sum(scores) / Decimal(len(scores))
+		failed_count = len(failed_subject_ids_by_enrollment.get(enrollment_id, set()))
+		best_candidates.append(
+			{
+				"enrollment_id": enrollment_id,
+				"student_id": int(enrollment.student_id),
+				"student_name": enrollment.student.user.get_full_name().upper(),
+				"average": average,
+				"failed_count": failed_count,
+			}
+		)
+
+	best_candidates.sort(key=lambda item: (-item["average"], item["failed_count"], item["student_name"]))
+	best_performance_students: list[dict[str, Any]] = []
+	for item in best_candidates:
+		if len(best_performance_students) >= 2:
+			break
+		average_value = item["average"]
+		average_label = f"{average_value.quantize(Decimal('0.1'))}"
+		highlight = "Desempeño académico destacado durante el periodo."
+		if average_value >= Decimal("4.6"):
+			highlight = "Rendimiento superior y compromiso académico constante."
+		elif average_value >= Decimal("4.0"):
+			highlight = "Desempeño alto con cumplimiento sostenido en las áreas evaluadas."
+		best_performance_students.append(
+			{
+				"index": len(best_performance_students) + 1,
+				"enrollment_id": item["enrollment_id"],
+				"student_id": item["student_id"],
+				"student_name": item["student_name"],
+				"highlight": highlight,
+				"average": average_value,
+				"average_label": average_label,
+				"failed_count": item["failed_count"],
+			}
+		)
+
+	return {
+		"enrollments": enrollments,
+		"enrollment_ids": enrollment_ids,
+		"student_ids": [int(item.student_id) for item in enrollments],
+		"scores_by_enrollment": scores_by_enrollment,
+		"failed_subject_ids_by_enrollment": failed_subject_ids_by_enrollment,
+		"low_performance_students": low_performance_students,
+		"best_performance_students": best_performance_students,
+	}
 
 
 def user_can_access_group(user, group: Group) -> bool:
@@ -253,7 +468,7 @@ def build_commitment_acta_context(
 	student_user = student.user
 	group = getattr(enrollment, "group", None)
 	director = getattr(group, "director", None) if group else None
-	campus = getattr(enrollment, "campus", None)
+	campus = getattr(enrollment, "campus", None) or getattr(group, "campus", None)
 	institution = getattr(campus, "institution", None) if campus else None
 	if institution is None:
 		institution = Institution.objects.first() or Institution(name="")
@@ -284,17 +499,22 @@ def build_commitment_acta_context(
 		12: "diciembre",
 	}.get(meeting_date.month, "")
 	year = meeting_date.year
-	location = (
-		getattr(campus, "municipality", "")
-		or getattr(campus, "name", "")
-		or getattr(institution, "pdf_header_line3", "")
-		or ""
-	)
+	location = _build_commitment_location(campus, institution)
 	place_line = f"Dado en {location}" if location else "Dado en"
 	rector_user = getattr(institution, "rector", None)
 	rector_name = ""
 	if rector_user is not None:
 		rector_name = (rector_user.get_full_name() or rector_user.username or "").strip()
+	grade_name = getattr(getattr(enrollment, "grade", None), "name", "") or ""
+	group_name = getattr(group, "name", "") if group else ""
+	grade_group_label = " ".join(part for part in [grade_name, group_name] if part).strip()
+	responsible_name = director.get_full_name() if director is not None else (rector_name or (generated_by.get_full_name() if generated_by is not None else ""))
+	reason_text = _build_commitment_reason_text(
+		student_name=student_user.get_full_name(),
+		period_name=getattr(getattr(commission, "period", None), "name", "") if commission.period_id else "",
+		grade_group_label=grade_group_label,
+		failed_subject_names=failed_subject_names,
+	)
 
 	return {
 		"institution": institution,
@@ -305,13 +525,18 @@ def build_commitment_acta_context(
 		"student": student,
 		"student_name": student_user.get_full_name(),
 		"student_document": student.document_number or "",
-		"grade_name": getattr(getattr(enrollment, "grade", None), "name", "") or "",
-		"group_name": getattr(group, "name", "") if group else "",
+		"grade_name": grade_name,
+		"group_name": group_name,
+		"grade_group_label": grade_group_label,
 		"director_name": director.get_full_name() if director is not None else "",
 		"guardian_name": getattr(guardian, "full_name", "") or "",
 		"period_name": getattr(getattr(commission, "period", None), "name", "") if commission.period_id else "",
 		"academic_year": getattr(getattr(commission, "academic_year", None), "year", ""),
 		"failed_subject_names": failed_subject_names,
+		"responsible_name": responsible_name,
+		"reason_text": reason_text,
+		"institution_location": location,
+		"institution_motto": (getattr(institution, "pdf_header_line2", "") or "").strip(),
 		"meeting_day": day,
 		"meeting_month_name": month_name,
 		"meeting_year": year,
@@ -331,167 +556,18 @@ def build_commission_group_acta_context(
 	generated_by,
 	ai_blocks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-	def _subject_code(subject_name: str) -> str:
-		name = (subject_name or "").strip().upper()
-		if not name:
-			return "N/A"
-		mapping = {
-			"MATEMATICAS": "MATE",
-			"MATEMÁTICAS": "MATE",
-			"QUIMICA": "QUIM",
-			"QUÍMICA": "QUIM",
-			"INGLES": "INGL",
-			"INGLÉS": "INGL",
-			"LENGUA CASTELLANA": "LENG",
-			"LENGUAJE": "LENG",
-			"FILOSOFIA": "FILO",
-			"FILOSOFÍA": "FILO",
-			"FISICA": "FISI",
-			"FÍSICA": "FISI",
-			"SOCIALES": "SOCI",
-			"TECNOLOGIA": "TECN",
-			"TECNOLOGÍA": "TECN",
-			"ARTISTICA": "ARTI",
-			"ARTÍSTICA": "ARTI",
-			"BIOLOGIA": "BIOL",
-			"BIOLOGÍA": "BIOL",
-		}
-		for key, value in mapping.items():
-			if key in name:
-				return value
-		clean = "".join(ch for ch in name if ch.isalpha())
-		return (clean[:4] or "N/A").ljust(4, "X")[:4]
-
 	group = commission.group
 	campus = getattr(group, "campus", None) if group else None
 	institution = getattr(campus, "institution", None) if campus else None
 	if institution is None:
 		institution = commission.institution or Institution.objects.first() or Institution(name="")
 
-	enrollments = list(
-		Enrollment.objects.select_related("student", "student__user", "group", "grade")
-		.filter(
-			academic_year_id=commission.academic_year_id,
-			group_id=getattr(group, "id", None),
-			status="ACTIVE",
-		)
-		.order_by("student__user__last_name", "student__user__first_name")
-	)
-	enrollment_ids = [int(item.id) for item in enrollments]
+	performance_snapshot = build_commission_performance_snapshot(commission=commission)
+	enrollments = performance_snapshot["enrollments"]
+	low_performance_students = performance_snapshot["low_performance_students"]
+	best_performance_students = performance_snapshot["best_performance_students"]
 
-	passing_score = Decimal(PASSING_SCORE_DEFAULT)
-	scores_by_enrollment: dict[int, list[Decimal]] = {int(item.id): [] for item in enrollments}
-	failed_subject_ids_by_enrollment: dict[int, set[int]] = {int(item.id): set() for item in enrollments}
-
-	if commission.commission_type == Commission.TYPE_EVALUATION and commission.period_id and enrollment_ids:
-		assignments = (
-			TeacherAssignment.objects.filter(
-				academic_year_id=commission.academic_year_id,
-				group_id=getattr(group, "id", None),
-				academic_load__subject__isnull=False,
-			)
-			.select_related("academic_load", "academic_load__subject")
-			.only("id", "academic_load__subject_id")
-		)
-		for assignment in assignments:
-			subject_id = int(getattr(assignment.academic_load, "subject_id", 0) or 0)
-			if not subject_id:
-				continue
-			finals = _compute_subject_final_for_enrollments(
-				teacher_assignment=assignment,
-				period=commission.period,
-				enrollment_ids=enrollment_ids,
-			)
-			for enrollment_id, score in finals.items():
-				if enrollment_id not in scores_by_enrollment:
-					continue
-				if score is None:
-					continue
-				try:
-					score_decimal = Decimal(str(score))
-				except Exception:
-					continue
-				scores_by_enrollment[enrollment_id].append(score_decimal)
-				if score_decimal < passing_score:
-					failed_subject_ids_by_enrollment[enrollment_id].add(subject_id)
-
-	all_failed_subject_ids = {
-		subject_id
-		for subject_ids in failed_subject_ids_by_enrollment.values()
-		for subject_id in subject_ids
-	}
-	subject_names_by_id = {
-		int(row["id"]): str(row["name"])
-		for row in Subject.objects.filter(id__in=all_failed_subject_ids).values("id", "name")
-	}
-
-	low_rows: list[dict[str, Any]] = []
-	for enrollment in enrollments:
-		enrollment_id = int(enrollment.id)
-		failed_ids = sorted(failed_subject_ids_by_enrollment.get(enrollment_id, set()))
-		if not failed_ids:
-			continue
-		subject_names = [subject_names_by_id.get(subject_id, "Sin detalle") for subject_id in failed_ids]
-		low_rows.append(
-			{
-				"enrollment_id": enrollment_id,
-				"student_name": enrollment.student.user.get_full_name().upper(),
-				"subjects": subject_names,
-				"subject_codes": [_subject_code(subject_name) for subject_name in subject_names],
-				"failed_count": len(failed_ids),
-			}
-		)
-
-	low_rows.sort(key=lambda item: (-int(item.get("failed_count", 0)), str(item.get("student_name", ""))))
-	low_performance_students: list[dict[str, Any]] = [
-		{
-			"index": index,
-			"student_name": item["student_name"],
-			"subjects": item["subjects"],
-			"subject_codes": item["subject_codes"],
-			"status_label": "Reportado",
-		}
-		for index, item in enumerate(low_rows, start=1)
-	]
-
-	best_candidates: list[dict[str, Any]] = []
-	for enrollment in enrollments:
-		enrollment_id = int(enrollment.id)
-		scores = scores_by_enrollment.get(enrollment_id, [])
-		if not scores:
-			continue
-		average = sum(scores) / Decimal(len(scores))
-		failed_count = len(failed_subject_ids_by_enrollment.get(enrollment_id, set()))
-		best_candidates.append(
-			{
-				"student_name": enrollment.student.user.get_full_name().upper(),
-				"average": average,
-				"failed_count": failed_count,
-			}
-		)
-
-	best_candidates.sort(key=lambda item: (-item["average"], item["failed_count"], item["student_name"]))
-	best_performance_students: list[dict[str, Any]] = []
-	for item in best_candidates:
-		if len(best_performance_students) >= 2:
-			break
-		average_value = item["average"]
-		average_label = f"{average_value.quantize(Decimal('0.1'))}"
-		highlight = "Desempeño académico destacado durante el periodo."
-		if average_value >= Decimal("4.6"):
-			highlight = "Rendimiento superior y compromiso académico constante."
-		elif average_value >= Decimal("4.0"):
-			highlight = "Desempeño alto con cumplimiento sostenido en las áreas evaluadas."
-		best_performance_students.append(
-			{
-				"index": len(best_performance_students) + 1,
-				"student_name": item["student_name"],
-				"highlight": highlight,
-				"average_label": average_label,
-			}
-		)
-
-	student_ids = [int(item.student_id) for item in enrollments]
+	student_ids = performance_snapshot["student_ids"]
 	annotations_qs = ObserverAnnotation.objects.select_related("student", "student__user").filter(
 		is_deleted=False,
 		student_id__in=student_ids,

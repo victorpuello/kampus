@@ -21,6 +21,7 @@ import unicodedata
 
 from audit.models import AuditLog
 from audit.services import log_event
+from academic.period_closure import close_period, get_period_close_blocker
 
 
 def _period_end_of_day(period: "Period"):
@@ -1000,31 +1001,11 @@ class PeriodViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_200_OK,
             )
 
-        academic_year = getattr(period, "academic_year", None)
-        if academic_year is not None and getattr(academic_year, "status", None) == AcademicYear.STATUS_CLOSED:
-            return Response(
-                {"detail": "No se pueden cerrar periodos de un año lectivo finalizado."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        blocker = get_period_close_blocker(period)
+        if blocker is not None:
+            return Response(blocker, status=status.HTTP_400_BAD_REQUEST)
 
-        # Block closure if there are OPEN PAP plans due on this period.
-        from students.models import ConditionalPromotionPlan
-
-        pending_qs = ConditionalPromotionPlan.objects.filter(due_period=period, status=ConditionalPromotionPlan.STATUS_OPEN)
-        pending_count = pending_qs.count()
-        if pending_count > 0:
-            enrollment_ids = list(pending_qs.values_list("enrollment_id", flat=True)[:50])
-            return Response(
-                {
-                    "detail": "No se puede cerrar el periodo: hay PAP pendientes.",
-                    "pending_pap_count": pending_count,
-                    "pending_enrollment_ids_sample": enrollment_ids,
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        period.is_closed = True
-        period.save(update_fields=["is_closed"])
+        close_period(period)
         return Response({"period": {"id": period.id, "name": period.name, "is_closed": True}}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="reopen")

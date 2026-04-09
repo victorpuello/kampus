@@ -588,6 +588,52 @@ Contexto (JSON):
                 raise
             raise AIProviderError(str(e)) from e
 
+    def generate_commission_observer_annotation(self, context: dict) -> dict:
+        """Genera el texto de una anotación del observador originada en cierre de comisión.
+
+        Retorna JSON:
+        {
+          "text": "..."
+        }
+        """
+        self._ensure_available()
+
+        prompt = f"""
+Actúa como coordinador académico y orientador escolar en Colombia.
+
+Tu tarea es redactar el texto de una anotación del observador del estudiante derivada del cierre de una comisión de evaluación.
+
+REGLAS ESTRICTAS:
+- Responde SOLO con un objeto JSON válido.
+- Usa exactamente esta clave: "text".
+- "text" debe ser un párrafo breve en español, de 2 a 4 oraciones.
+- El tono debe ser institucional, respetuoso, claro, pedagógico y personalizado.
+- Si el tipo es "PRAISE", felicita el desempeño y reconoce fortalezas concretas.
+- Si el tipo es "ALERT", realiza un llamado de atención pedagógico por bajo rendimiento sin lenguaje humillante ni sancionatorio extremo.
+- Si el tipo es "COMMITMENT", deja explícito que existe un compromiso de mejoramiento y seguimiento.
+- No incluyas listas, viñetas, comillas, markdown ni texto adicional fuera del JSON.
+
+Contexto (JSON):
+{json.dumps(context, ensure_ascii=False)}
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            payload = self._extract_json_object(getattr(response, "text", "") or "")
+            if not isinstance(payload, dict):
+                raise AIParseError("AI response must be a JSON object.")
+
+            text = str(payload.get("text") or "").strip()
+            if not text:
+                raise AIParseError("AI response key 'text' must be a non-empty string.")
+
+            return {"text": text}
+        except Exception as e:
+            logger.exception("Error generating commission observer annotation")
+            if isinstance(e, AIServiceError):
+                raise
+            raise AIProviderError(str(e)) from e
+
     def generate_class_plan_draft(self, context: dict) -> dict:
         """Genera un borrador estructurado de plan de clase.
 

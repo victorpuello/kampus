@@ -44,6 +44,7 @@ from .reports import (
     build_commission_group_acta_context,
     get_failed_subject_names_for_decision,
 )
+from .tasks import generate_commission_observer_annotations_task
 
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,7 @@ class CommissionViewSet(viewsets.ModelViewSet):
             deleted_annotations, _ = ObserverAnnotation.objects.filter(
                 Q(id__in=annotation_ids)
                 | Q(rule_key__startswith=f"COMMISSION_ACTA:{commission.id}:")
+                | Q(rule_key__startswith=f"COMMISSION_CLOSE:{commission.id}:")
             ).delete()
 
             deleted_notifications, _ = Notification.objects.filter(
@@ -644,13 +646,24 @@ class CommissionViewSet(viewsets.ModelViewSet):
         commission.closed_at = timezone.now()
         commission.save(update_fields=["status", "closed_by", "closed_at", "updated_at"])
 
+        if commission.commission_type == Commission.TYPE_EVALUATION:
+            transaction.on_commit(
+                lambda: generate_commission_observer_annotations_task.delay(
+                    int(commission.id),
+                    int(request.user.id),
+                )
+            )
+
         log_event(
             request,
             event_type="COMMISSION_CLOSED",
             object_type="academic.Commission",
             object_id=commission.id,
             status_code=status.HTTP_200_OK,
-            metadata={"commission_type": commission.commission_type},
+            metadata={
+                "commission_type": commission.commission_type,
+                "observer_annotations_task_queued": commission.commission_type == Commission.TYPE_EVALUATION,
+            },
         )
 
         return Response(self.get_serializer(commission).data, status=status.HTTP_200_OK)

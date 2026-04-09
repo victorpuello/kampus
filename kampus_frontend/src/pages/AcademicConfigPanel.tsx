@@ -238,6 +238,9 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
   const [deleteModalOpen, setDeleteModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<number | null>(null)
   const [deleteType, setDeleteType] = useState<'year' | 'period' | 'campus' | 'level' | 'grade' | 'area' | 'subject' | 'group' | null>(null)
+  const [periodActionTarget, setPeriodActionTarget] = useState<Period | null>(null)
+  const [periodActionType, setPeriodActionType] = useState<'close' | 'reopen' | null>(null)
+  const [periodActionLoading, setPeriodActionLoading] = useState(false)
 
   // Filter states
   const [selectedPeriodYear, setSelectedPeriodYear] = useState<number | null>(null)
@@ -791,12 +794,16 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
         return
       }
 
+      const existingPeriod = editingPeriodId
+        ? periods.find((period) => period.id === editingPeriodId)
+        : null
+
       const data = {
         name: periodInput.name,
         start_date: periodInput.start_date,
         end_date: periodInput.end_date,
         academic_year: parseInt(periodInput.academic_year),
-        is_closed: false,
+        is_closed: existingPeriod?.is_closed ?? false,
         grades_edit_until: gradesEditUntilIso,
         planning_edit_until: planningEditUntilIso,
       }
@@ -845,6 +852,67 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
     setItemToDelete(id)
     setDeleteType('period')
     setDeleteModalOpen(true)
+  }
+
+  const onRequestPeriodAction = (period: Period, action: 'close' | 'reopen') => {
+    const yearObj = years.find(y => y.id === period.academic_year)
+    if (yearObj?.status === 'CLOSED') {
+      showToast(
+        action === 'close'
+          ? 'No se pueden cerrar periodos de un año lectivo finalizado.'
+          : 'No se pueden reabrir periodos de un año lectivo finalizado.',
+        'error'
+      )
+      return
+    }
+
+    setPeriodActionTarget(period)
+    setPeriodActionType(action)
+  }
+
+  const closePeriodActionModal = () => {
+    if (periodActionLoading) return
+    setPeriodActionTarget(null)
+    setPeriodActionType(null)
+  }
+
+  const confirmPeriodAction = async () => {
+    if (!periodActionTarget || !periodActionType) return
+
+    const targetId = periodActionTarget.id
+    const actionType = periodActionType
+
+    try {
+      setPeriodActionLoading(true)
+      if (actionType === 'close') {
+        await academicApi.closePeriod(targetId)
+        showToast('Periodo cerrado correctamente', 'success')
+      } else {
+        await academicApi.reopenPeriod(targetId)
+        showToast('Periodo reabierto correctamente', 'success')
+      }
+
+      setEditingPeriodId((currentId) => (currentId === targetId ? null : currentId))
+      setPeriodInput((currentInput) => (
+        editingPeriodId === targetId
+          ? { name: '', start_date: '', end_date: '', academic_year: '', grades_edit_until: '', planning_edit_until: '' }
+          : currentInput
+      ))
+      setPeriodActionTarget(null)
+      setPeriodActionType(null)
+      await load()
+    } catch (error: unknown) {
+      console.error(error)
+      showToast(
+        getErrorMessage(
+          error,
+          actionType === 'close' ? 'Error al cerrar el periodo' : 'Error al reabrir el periodo'
+        ),
+        'error'
+      )
+    } finally {
+      setPeriodActionLoading(false)
+    }
   }
 
   const onDeleteCampus = (id: number) => {
@@ -1842,7 +1910,12 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                   return filteredPeriods.map((p) => (
                     <div key={p.id} className="p-3 bg-white hover:bg-indigo-50 rounded-lg border border-slate-200 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 shadow-sm transition-colors group dark:bg-slate-900 dark:border-slate-800 dark:hover:bg-slate-800/60">
                       <div>
-                        <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-300">{p.name}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-bold text-slate-800 dark:text-slate-100 group-hover:text-indigo-700 dark:group-hover:text-indigo-300">{p.name}</div>
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${p.is_closed ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'}`}>
+                            {p.is_closed ? 'Cerrado' : 'Abierto'}
+                          </span>
+                        </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2 mt-1">
                           <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-600 border dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700">
                             {p.start_date} - {p.end_date}
@@ -1868,9 +1941,19 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
                         const yearObj = years.find(y => y.id === p.academic_year)
                         if (yearObj?.status === 'CLOSED') return null
                         return (
-                          <div className="flex gap-1 opacity-100 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
-                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditPeriod(p)}>✎</Button>
-                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeletePeriod(p.id)}>×</Button>
+                          <div className="flex flex-wrap gap-1 opacity-100 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity w-full sm:w-auto justify-end">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={p.is_closed
+                                ? 'text-emerald-700 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-300 dark:border-emerald-900 dark:hover:bg-emerald-950/30'
+                                : 'text-amber-700 border-amber-200 hover:bg-amber-50 dark:text-amber-300 dark:border-amber-900 dark:hover:bg-amber-950/30'}
+                              onClick={() => onRequestPeriodAction(p, p.is_closed ? 'reopen' : 'close')}
+                            >
+                              {p.is_closed ? 'Reabrir' : 'Cerrar'}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-indigo-600 hover:bg-indigo-100 dark:text-indigo-300 dark:hover:bg-slate-800" onClick={() => onEditPeriod(p)} aria-label={`Editar ${p.name}`}>✎</Button>
+                            <Button size="sm" variant="ghost" className="h-10 w-10 p-0 sm:h-8 sm:w-8 text-red-500 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-950/30" onClick={() => onDeletePeriod(p.id)} aria-label={`Eliminar ${p.name}`}>×</Button>
                           </div>
                         )
                       })()}
@@ -3533,6 +3616,21 @@ export default function AcademicConfigPanel({ mode = 'full' }: { mode?: Academic
         description={`¿Estás seguro de que deseas eliminar ${deleteType === 'year' ? 'este año lectivo' : deleteType === 'period' ? 'este periodo' : 'esta sede'}? Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         variant="destructive"
+      />
+
+      <ConfirmationModal
+        isOpen={periodActionTarget !== null && periodActionType !== null}
+        onClose={closePeriodActionModal}
+        onConfirm={confirmPeriodAction}
+        title={periodActionType === 'close' ? 'Cerrar periodo' : 'Reabrir periodo'}
+        description={periodActionTarget
+          ? periodActionType === 'close'
+            ? `Se marcará como cerrado el periodo ${periodActionTarget.name}. Esto bloqueará operaciones que dependen de is_closed.`
+            : `Se reabrirá el periodo ${periodActionTarget.name}. Esto volverá a dejarlo disponible como periodo abierto.`
+          : ''}
+        confirmText={periodActionType === 'close' ? 'Cerrar' : 'Reabrir'}
+        variant={periodActionType === 'close' ? 'destructive' : 'default'}
+        loading={periodActionLoading}
       />
 
       <ConfirmationModal

@@ -2,6 +2,8 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.test import override_settings
 from rest_framework.test import APITestCase
 
 from academic.commission_services import CommissionDifficultyResult, compute_difficulties_for_commission
@@ -13,6 +15,7 @@ from academic.models import (
     Area,
     Commission,
     CommissionStudentDecision,
+    Dimension,
     Grade,
     GradeSheet,
     Group,
@@ -20,6 +23,7 @@ from academic.models import (
     Subject,
     TeacherAssignment,
 )
+from academic.tasks import generate_commission_observer_annotations_task
 from discipline.models import DisciplineCase
 from notifications.models import Notification
 from reports.models import ReportJob
@@ -34,8 +38,17 @@ class CommissionWorkflowApiTests(APITestCase):
             username="admin_commission",
             password="pass",
             role=User.ROLE_ADMIN,
+            email="admin_commission@example.com",
             first_name="Admin",
             last_name="Comisiones",
+        )
+        self.superadmin = User.objects.create_user(
+            username="superadmin_commission",
+            password="pass",
+            role=User.ROLE_SUPERADMIN,
+            email="superadmin_commission@example.com",
+            first_name="Super",
+            last_name="Admin",
         )
         self.teacher = User.objects.create_user(
             username="teacher_commission",
@@ -100,6 +113,51 @@ class CommissionWorkflowApiTests(APITestCase):
             group=group,
             academic_year=self.year,
         )
+        return assignment
+
+    def _create_student_enrollment(self, *, username, document_number, first_name, last_name):
+        User = get_user_model()
+        student_user = User.objects.create_user(
+            username=username,
+            password="pass",
+            role=User.ROLE_STUDENT,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        student = Student.objects.create(user=student_user, document_number=document_number)
+        enrollment = Enrollment.objects.create(
+            student=student,
+            academic_year=self.year,
+            grade=self.grade,
+            group=self.group,
+            status="ACTIVE",
+        )
+        return student, enrollment
+
+    def _create_grades_for_assignment(self, *, suffix, score_by_enrollment):
+        assignment = self._create_assignment(group=self.group, suffix=suffix)
+        dimension = Dimension.objects.create(
+            academic_year=self.year,
+            name=f"Dimensión {suffix}",
+            percentage=100,
+        )
+        achievement = Achievement.objects.create(
+            academic_load=assignment.academic_load,
+            subject=assignment.academic_load.subject,
+            group=self.group,
+            period=self.period,
+            dimension=dimension,
+            description=f"Logro {suffix}",
+            percentage=100,
+        )
+        gradesheet = GradeSheet.objects.create(teacher_assignment=assignment, period=self.period)
+        for enrollment, score in score_by_enrollment.items():
+            AchievementGrade.objects.create(
+                gradesheet=gradesheet,
+                enrollment=enrollment,
+                achievement=achievement,
+                score=str(score),
+            )
         return assignment
 
     def test_create_commission_blocks_when_period_is_open(self):
@@ -263,7 +321,8 @@ class CommissionWorkflowApiTests(APITestCase):
         self.assertEqual(response.status_code, 204)
         self.assertFalse(Commission.objects.filter(id=self.commission.id).exists())
 
-    def test_delete_closed_commission_removes_observer_annotations(self):
+    @patch("academic.commission_views.generate_commission_observer_annotations_task.delay")
+    def test_delete_closed_commission_removes_observer_annotations(self, mock_delay):
         self.client.force_authenticate(user=self.admin)
         self.client.post(f"/api/commissions/{self.commission.id}/start/", {}, format="json")
 
@@ -284,8 +343,21 @@ class CommissionWorkflowApiTests(APITestCase):
         self.assertEqual(ObserverAnnotation.objects.filter(student=self.student).count(), 1)
         self.assertEqual(Notification.objects.filter(recipient=self.teacher, type="COMMISSION_ACTA").count(), 1)
 
-        close_response = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
+        ObserverAnnotation.objects.create(
+            student=self.student,
+            period=self.period,
+            annotation_type=ObserverAnnotation.TYPE_PRAISE,
+            title="Felicitación por desempeño académico destacado",
+            text="Texto automático de comisión cerrada.",
+            created_by=self.admin,
+            is_automatic=True,
+            rule_key=f"COMMISSION_CLOSE:{self.commission.id}:PRAISE:{self.student.pk}",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            close_response = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
         self.assertEqual(close_response.status_code, 200)
+        mock_delay.assert_called_once_with(self.commission.id, self.admin.id)
 
         delete_response = self.client.delete(f"/api/commissions/{self.commission.id}/")
         self.assertEqual(delete_response.status_code, 204)
@@ -449,14 +521,29 @@ class CommissionWorkflowApiTests(APITestCase):
         self.assertEqual(response.data["summary"]["total_flagged"], 1)
         self.assertEqual(response.data["summary"]["total_not_flagged"], 1)
 
-    def test_close_commission_requires_in_progress(self):
+    @patch("academic.commission_views.generate_commission_observer_annotations_task.delay")
+    def test_close_commission_requires_in_progress(self, mock_delay):
         self.client.force_authenticate(user=self.admin)
         response = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
         self.assertEqual(response.status_code, 400)
+        mock_delay.assert_not_called()
 
         self.client.post(f"/api/commissions/{self.commission.id}/start/", {}, format="json")
-        response2 = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response2 = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
         self.assertEqual(response2.status_code, 200)
+        mock_delay.assert_called_once_with(self.commission.id, self.admin.id)
+
+    @patch("academic.commission_views.generate_commission_observer_annotations_task.delay")
+    def test_close_commission_queues_observer_annotation_task(self, mock_delay):
+        self.client.force_authenticate(user=self.admin)
+        self.client.post(f"/api/commissions/{self.commission.id}/start/", {}, format="json")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(f"/api/commissions/{self.commission.id}/close/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        mock_delay.assert_called_once_with(self.commission.id, self.admin.id)
 
     def test_generate_acta_creates_observer_entry_and_is_idempotent(self):
         self.client.force_authenticate(user=self.admin)
@@ -813,3 +900,145 @@ class CommissionWorkflowApiTests(APITestCase):
         self.assertEqual(results[0].failed_subjects_count, 2)
         self.assertEqual(results[0].failed_areas_count, 1)
         self.assertTrue(results[0].is_flagged)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        NOTIFICATIONS_EMAIL_ENABLED=True,
+        KAMPUS_FRONTEND_BASE_URL="http://localhost:5173",
+    )
+    @patch("academic.commission_annotation_services.AIService.generate_commitments_blocks")
+    @patch("academic.commission_annotation_services.AIService.generate_commission_observer_annotation")
+    def test_generate_commission_observer_annotations_task_creates_annotations_and_notifies_superadmin(
+        self,
+        mock_generate_annotation,
+        mock_generate_commitments,
+    ):
+        self._create_grades_for_assignment(
+            suffix="matematicas",
+            score_by_enrollment={
+                self.enrollment: "4.8",
+            },
+        )
+
+        low_student, low_enrollment = self._create_student_enrollment(
+            username="student_commission_low",
+            document_number="DOC-COM-LOW",
+            first_name="Bajo",
+            last_name="Rendimiento",
+        )
+        self._create_grades_for_assignment(
+            suffix="lenguaje",
+            score_by_enrollment={
+                self.enrollment: "4.7",
+                low_enrollment: "2.1",
+            },
+        )
+        self._create_grades_for_assignment(
+            suffix="ciencias",
+            score_by_enrollment={
+                self.enrollment: "4.9",
+                low_enrollment: "2.4",
+            },
+        )
+
+        mock_generate_annotation.side_effect = lambda context: {
+            "text": f"Texto IA {context['annotation_type']} para {context['student_name']}."
+        }
+        mock_generate_commitments.return_value = {
+            "student_commitments": ["Asistir a nivelaciones."],
+            "guardian_commitments": ["Acompañar el plan de estudio en casa."],
+            "institution_commitments": ["Realizar seguimiento académico quincenal."],
+        }
+
+        summary = generate_commission_observer_annotations_task(self.commission.id, self.admin.id)
+
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["praise_created"], 1)
+        self.assertEqual(summary["alert_created"], 1)
+        self.assertEqual(summary["commitment_created"], 1)
+
+        praise = ObserverAnnotation.objects.get(
+            student=self.student,
+            annotation_type=ObserverAnnotation.TYPE_PRAISE,
+            rule_key=f"COMMISSION_CLOSE:{self.commission.id}:PRAISE:{self.student.pk}",
+        )
+        self.assertIn("Texto IA PRAISE", praise.text)
+
+        alert = ObserverAnnotation.objects.get(
+            student=low_student,
+            annotation_type=ObserverAnnotation.TYPE_ALERT,
+            rule_key=f"COMMISSION_CLOSE:{self.commission.id}:ALERT:{low_student.pk}",
+        )
+        self.assertIn("Texto IA ALERT", alert.text)
+
+        commitment = ObserverAnnotation.objects.get(
+            student=low_student,
+            annotation_type=ObserverAnnotation.TYPE_COMMITMENT,
+            rule_key=f"COMMISSION_CLOSE:{self.commission.id}:COMMITMENT:{low_student.pk}",
+        )
+        self.assertIn("Texto IA COMMITMENT", commitment.text)
+        self.assertIn("Compromisos del estudiante", commitment.commitments)
+
+        self.assertEqual(Notification.objects.filter(recipient=self.admin, type="COMMISSION_CLOSE_AI_USER").count(), 1)
+        self.assertEqual(
+            Notification.objects.filter(recipient=self.superadmin, type="COMMISSION_CLOSE_AI_SUPERADMIN").count(),
+            1,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, [self.superadmin.email])
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        NOTIFICATIONS_EMAIL_ENABLED=True,
+        KAMPUS_FRONTEND_BASE_URL="http://localhost:5173",
+    )
+    @patch("academic.commission_annotation_services.AIService.generate_commitments_blocks")
+    @patch("academic.commission_annotation_services.AIService.generate_commission_observer_annotation")
+    def test_generate_commission_observer_annotations_task_is_idempotent(
+        self,
+        mock_generate_annotation,
+        mock_generate_commitments,
+    ):
+        low_student, low_enrollment = self._create_student_enrollment(
+            username="student_commission_low_retry",
+            document_number="DOC-COM-LOW-RETRY",
+            first_name="Bajo",
+            last_name="Retry",
+        )
+        self._create_grades_for_assignment(
+            suffix="sociales",
+            score_by_enrollment={
+                self.enrollment: "4.8",
+                low_enrollment: "2.0",
+            },
+        )
+        self._create_grades_for_assignment(
+            suffix="ingles",
+            score_by_enrollment={
+                self.enrollment: "4.6",
+                low_enrollment: "2.3",
+            },
+        )
+
+        mock_generate_annotation.side_effect = lambda context: {
+            "text": f"Texto IA {context['annotation_type']} para {context['student_name']}."
+        }
+        mock_generate_commitments.return_value = {
+            "student_commitments": ["Asistir a nivelaciones."],
+            "guardian_commitments": ["Acompañar el plan de estudio en casa."],
+            "institution_commitments": ["Realizar seguimiento académico quincenal."],
+        }
+
+        generate_commission_observer_annotations_task(self.commission.id, self.admin.id)
+        generate_commission_observer_annotations_task(self.commission.id, self.admin.id)
+
+        self.assertEqual(
+            ObserverAnnotation.objects.filter(rule_key__startswith=f"COMMISSION_CLOSE:{self.commission.id}:").count(),
+            3,
+        )
+        self.assertEqual(Notification.objects.filter(recipient=self.admin, type="COMMISSION_CLOSE_AI_USER").count(), 1)
+        self.assertEqual(
+            Notification.objects.filter(recipient=self.superadmin, type="COMMISSION_CLOSE_AI_SUPERADMIN").count(),
+            1,
+        )
+        self.assertEqual(len(mail.outbox), 1)

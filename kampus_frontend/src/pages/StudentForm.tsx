@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { studentsApi, familyMembersApi, observerAnnotationsApi, documentsApi } from '../services/students'
 import type {
@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
+import { Modal } from '../components/ui/Modal'
 import { Toast, type ToastType } from '../components/ui/Toast'
 import { ConfirmationModal } from '../components/ui/ConfirmationModal'
 import {
@@ -22,6 +23,7 @@ import {
     Activity,
     Heart,
     Users,
+    Eye,
     Plus,
     Trash2,
     Edit2,
@@ -48,6 +50,45 @@ const getErrorDetail = (err: unknown): string | undefined => {
     const maybe = err as { response?: { data?: { detail?: unknown } } }
     const detail = maybe.response?.data?.detail
     return typeof detail === 'string' ? detail : undefined
+}
+
+function AnnotationActionButton({
+    label,
+    icon,
+    onClick,
+    tone = 'default',
+    disabled = false,
+}: {
+    label: string
+    icon: ReactNode
+    onClick: () => void
+    tone?: 'default' | 'danger'
+    disabled?: boolean
+}) {
+    const toneClasses =
+        tone === 'danger'
+            ? 'text-rose-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:ring-rose-500 dark:text-rose-300 dark:hover:border-rose-900/60 dark:hover:bg-rose-950/30 dark:hover:text-rose-200'
+            : 'text-slate-600 hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 focus-visible:ring-sky-500 dark:text-slate-300 dark:hover:border-sky-900/60 dark:hover:bg-slate-800 dark:hover:text-sky-300'
+
+    return (
+        <div className="group/tooltip relative">
+            <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={`h-9 w-9 rounded-lg border border-slate-200 bg-white/90 p-0 shadow-sm transition-all duration-150 hover:-translate-y-0.5 dark:border-slate-700 dark:bg-slate-900/80 ${toneClasses}`}
+                onClick={onClick}
+                disabled={disabled}
+                title={label}
+                aria-label={label}
+            >
+                {icon}
+            </Button>
+            <span className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white opacity-0 transition-opacity duration-150 group-hover/tooltip:opacity-100 group-focus-within/tooltip:opacity-100 dark:bg-slate-700">
+                {label}
+            </span>
+        </div>
+    )
 }
 
 const disciplineStatusLabel = (s: string) => {
@@ -609,6 +650,83 @@ function ObserverAnnotationForm({
     )
 }
 
+function ObserverAnnotationViewModal({
+    annotation,
+    downloadingCommitmentActa,
+    onDownloadCommitmentActa,
+    onClose,
+}: {
+    annotation: ObserverAnnotation | null
+    downloadingCommitmentActa: boolean
+    onDownloadCommitmentActa: (annotation: ObserverAnnotation) => void
+    onClose: () => void
+}) {
+    return (
+        <Modal
+            isOpen={!!annotation}
+            onClose={onClose}
+            title={annotation?.title?.trim() || 'Detalle de anotación'}
+            description={annotation ? `Registrada el ${new Date(annotation.created_at).toLocaleString()}` : undefined}
+            size="md"
+            footer={(
+                <>
+                    {annotation?.annotation_type === 'COMMITMENT' ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => onDownloadCommitmentActa(annotation)}
+                            disabled={downloadingCommitmentActa}
+                        >
+                            <Download className="mr-2 h-4 w-4" />
+                            {downloadingCommitmentActa ? 'Generando acta…' : 'Acta de compromiso'}
+                        </Button>
+                    ) : null}
+                    <Button onClick={onClose}>Cerrar</Button>
+                </>
+            )}
+        >
+            {annotation ? (
+                <div className="space-y-5">
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                        <span className="inline-flex items-center rounded-full border border-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-200">
+                            {annotation.annotation_type}
+                            {annotation.is_automatic ? ' (Auto)' : ''}
+                        </span>
+                        <span>Autor: {annotation.created_by_name || '—'}</span>
+                        {annotation.updated_by_name ? <span>Actualizó: {annotation.updated_by_name}</span> : null}
+                    </div>
+
+                    <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Descripción</h4>
+                        <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-4 text-sm whitespace-pre-wrap text-slate-700 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-200">
+                            {annotation.text}
+                        </div>
+                    </div>
+
+                    {(annotation.commitments || annotation.commitment_due_date || annotation.commitment_responsible) ? (
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2 md:col-span-2">
+                                <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Compromisos</h4>
+                                <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm whitespace-pre-wrap text-slate-700 dark:border-slate-800 dark:bg-slate-900/40 dark:text-slate-200">
+                                    {annotation.commitments || '—'}
+                                </div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                                <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Fecha compromiso</div>
+                                <div className="mt-1 text-sm text-slate-900 dark:text-slate-100">{annotation.commitment_due_date || '—'}</div>
+                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900/40">
+                                <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Responsable</div>
+                                <div className="mt-1 text-sm text-slate-900 dark:text-slate-100">{annotation.commitment_responsible || '—'}</div>
+                            </div>
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
+        </Modal>
+    )
+}
+
 export default function StudentForm() {
   const navigate = useNavigate()
   const { id } = useParams()
@@ -658,6 +776,16 @@ export default function StudentForm() {
         link.click()
         link.remove()
         window.URL.revokeObjectURL(url)
+    }
+
+    const openPdfBlob = (blob: Blob) => {
+        const url = window.URL.createObjectURL(blob)
+        const popup = window.open(url, '_blank', 'noopener,noreferrer')
+        if (!popup) {
+            window.URL.revokeObjectURL(url)
+            throw new Error('No se pudo abrir la vista previa del PDF.')
+        }
+        window.setTimeout(() => window.URL.revokeObjectURL(url), 60000)
     }
 
     const showAxiosBlobError = async (err: unknown, fallbackMessage: string) => {
@@ -715,6 +843,20 @@ export default function StudentForm() {
             await showAxiosBlobError(err, 'Error descargando PDF')
         } finally {
             setDownloadingIssueUuid(null)
+        }
+    }
+
+    const handleOpenCommitmentActa = async (annotation: ObserverAnnotation) => {
+        setDownloadingCommitmentAnnotationId(annotation.id)
+        try {
+            const res = await observerAnnotationsApi.downloadCommitmentActaPdf(annotation.id)
+            const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: 'application/pdf' })
+            openPdfBlob(blob)
+        } catch (err: unknown) {
+            console.error(err)
+            await showAxiosBlobError(err, 'No se pudo generar el acta de compromiso')
+        } finally {
+            setDownloadingCommitmentAnnotationId(null)
         }
     }
 
@@ -1276,7 +1418,11 @@ export default function StudentForm() {
     const [annotations, setAnnotations] = useState<ObserverAnnotation[]>([])
     const [annotationFormOpen, setAnnotationFormOpen] = useState(false)
     const [annotationEditing, setAnnotationEditing] = useState<ObserverAnnotation | undefined>(undefined)
+    const [annotationViewing, setAnnotationViewing] = useState<ObserverAnnotation | null>(null)
     const [annotationToDelete, setAnnotationToDelete] = useState<ObserverAnnotation | null>(null)
+    const [downloadingCommitmentAnnotationId, setDownloadingCommitmentAnnotationId] = useState<number | null>(null)
+
+    const canManageAnnotation = (annotation: ObserverAnnotation) => !annotation.is_automatic || !isTeacher
 
     const refreshAnnotations = async () => {
         if (!studentId) return
@@ -1509,7 +1655,7 @@ export default function StudentForm() {
     }
 
   return (
-        <div className="max-w-5xl mx-auto space-y-6 px-3 py-4 sm:p-6">
+      <div className="space-y-6 px-3 py-4 sm:p-6">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <Button variant="ghost" size="sm" onClick={() => navigate('/students')}>
           <ArrowLeft className="h-4 w-4 mr-2" />
@@ -2262,34 +2408,35 @@ export default function StudentForm() {
                                                     <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">Autor: {a.created_by_name || '—'}</div>
                                                 </div>
 
-                                                <div className="mt-3">
-                                                    {!a.is_automatic ? (
-                                                        <div className="flex items-center gap-2">
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="w-full"
-                                                                onClick={() => {
-                                                                    setAnnotationEditing(a)
-                                                                    setAnnotationFormOpen(true)
-                                                                }}
-                                                            >
-                                                                Editar
-                                                            </Button>
-                                                            <Button
-                                                                type="button"
-                                                                variant="outline"
-                                                                size="sm"
-                                                                className="w-full"
-                                                                onClick={() => setAnnotationToDelete(a)}
-                                                            >
-                                                                Eliminar
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="text-xs text-slate-500 text-center">—</div>
-                                                    )}
+                                                <div className="mt-3 flex items-center justify-between gap-3">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <AnnotationActionButton
+                                                            label="Ver anotación"
+                                                            icon={<Eye className="h-4 w-4" />}
+                                                            onClick={() => setAnnotationViewing(a)}
+                                                        />
+                                                        {canManageAnnotation(a) ? (
+                                                            <>
+                                                                <AnnotationActionButton
+                                                                    label="Editar anotación"
+                                                                    icon={<Edit2 className="h-4 w-4" />}
+                                                                    onClick={() => {
+                                                                        setAnnotationEditing(a)
+                                                                        setAnnotationFormOpen(true)
+                                                                    }}
+                                                                />
+                                                                <AnnotationActionButton
+                                                                    label="Eliminar anotación"
+                                                                    icon={<Trash2 className="h-4 w-4" />}
+                                                                    tone="danger"
+                                                                    onClick={() => setAnnotationToDelete(a)}
+                                                                />
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                    {!canManageAnnotation(a) ? (
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">Automática</div>
+                                                    ) : null}
                                                 </div>
                                             </div>
                                         ))}
@@ -2329,31 +2476,31 @@ export default function StudentForm() {
                                                     <td className="px-6 py-4">{a.created_by_name || '—'}</td>
                                                     <td className="px-6 py-4">{new Date(a.created_at).toLocaleString()}</td>
                                                     <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-2">
-                                                            {!a.is_automatic ? (
+                                                        <div className="flex flex-wrap items-center gap-1.5">
+                                                            <AnnotationActionButton
+                                                                label="Ver anotación"
+                                                                icon={<Eye className="h-4 w-4" />}
+                                                                onClick={() => setAnnotationViewing(a)}
+                                                            />
+                                                            {canManageAnnotation(a) ? (
                                                                 <>
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
+                                                                    <AnnotationActionButton
+                                                                        label="Editar anotación"
+                                                                        icon={<Edit2 className="h-4 w-4" />}
                                                                         onClick={() => {
                                                                             setAnnotationEditing(a)
                                                                             setAnnotationFormOpen(true)
                                                                         }}
-                                                                    >
-                                                                        <Edit2 className="h-4 w-4" />
-                                                                    </Button>
-                                                                    <Button
-                                                                        type="button"
-                                                                        variant="outline"
-                                                                        size="sm"
+                                                                    />
+                                                                    <AnnotationActionButton
+                                                                        label="Eliminar anotación"
+                                                                        icon={<Trash2 className="h-4 w-4" />}
+                                                                        tone="danger"
                                                                         onClick={() => setAnnotationToDelete(a)}
-                                                                    >
-                                                                        <Trash2 className="h-4 w-4" />
-                                                                    </Button>
+                                                                    />
                                                                 </>
                                                             ) : (
-                                                                <span className="text-xs text-slate-500">—</span>
+                                                                <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">Automática</span>
                                                             )}
                                                         </div>
                                                     </td>
@@ -2980,6 +3127,13 @@ export default function StudentForm() {
                         }}
                     />
                 )}
+
+                <ObserverAnnotationViewModal
+                    annotation={annotationViewing}
+                    downloadingCommitmentActa={downloadingCommitmentAnnotationId === annotationViewing?.id}
+                    onDownloadCommitmentActa={handleOpenCommitmentActa}
+                    onClose={() => setAnnotationViewing(null)}
+                />
 
                 <ConfirmationModal
                     isOpen={!!certificateIssueToConfirm}

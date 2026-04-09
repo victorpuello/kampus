@@ -370,6 +370,11 @@ export const observerAnnotationsApi = {
   create: (data: Record<string, unknown>) => api.post<ObserverAnnotation>('/api/observer-annotations/', data),
   update: (id: number, data: Record<string, unknown>) => api.patch<ObserverAnnotation>(`/api/observer-annotations/${id}/`, data),
   delete: (id: number) => api.delete(`/api/observer-annotations/${id}/`),
+  downloadCommitmentActaPdf: (id: number) =>
+    api.get<Blob>(`/api/observer-annotations/${id}/commitment-acta/`, {
+      params: { format: 'pdf' },
+      responseType: 'blob',
+    }),
 }
 
 export const noveltiesApi = {

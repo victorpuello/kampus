@@ -101,6 +101,62 @@ from students.reports import sort_enrollments_for_enrollment_list
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
+_MONTH_NAMES_ES = {
+    1: "enero",
+    2: "febrero",
+    3: "marzo",
+    4: "abril",
+    5: "mayo",
+    6: "junio",
+    7: "julio",
+    8: "agosto",
+    9: "septiembre",
+    10: "octubre",
+    11: "noviembre",
+    12: "diciembre",
+}
+
+
+def _parse_commitment_sections_from_text(raw_value: str | None) -> dict[str, list[str]]:
+    sections = {
+        "student_commitments": [],
+        "guardian_commitments": [],
+        "institution_commitments": [],
+    }
+    current_key = None
+    loose_items: list[str] = []
+
+    for raw_line in (raw_value or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        normalized = unicodedata.normalize("NFKD", line)
+        normalized = normalized.encode("ascii", "ignore").decode("ascii").lower().rstrip(":")
+
+        if normalized.startswith("compromisos del estudiante"):
+            current_key = "student_commitments"
+            continue
+        if normalized.startswith("compromisos del acudiente"):
+            current_key = "guardian_commitments"
+            continue
+        if normalized.startswith("compromisos de la institucion"):
+            current_key = "institution_commitments"
+            continue
+
+        item = line.lstrip("-*•\t ").strip()
+        if not item:
+            continue
+        if current_key is None:
+            loose_items.append(item)
+        else:
+            sections[current_key].append(item)
+
+    if loose_items and not any(sections.values()):
+        sections["student_commitments"] = loose_items
+
+    return sections
+
 try:
     from PIL import Image, ImageOps  # type: ignore
 except Exception:  # pragma: no cover
@@ -2622,6 +2678,100 @@ class ObserverAnnotationViewSet(viewsets.ModelViewSet):
             return qs.filter(student_id__in=allowed_ids)
         return qs
 
+    def _build_commitment_acta_context(self, annotation: ObserverAnnotation, generated_by) -> dict[str, object]:
+        student = annotation.student
+        period = getattr(annotation, "period", None)
+
+        enrollments = Enrollment.objects.select_related(
+            "academic_year",
+            "grade",
+            "group",
+            "group__director",
+            "campus",
+            "campus__institution",
+        ).filter(student=student)
+
+        if period is not None:
+            scoped_enrollments = enrollments.filter(academic_year_id=getattr(period, "academic_year_id", None))
+            enrollment = scoped_enrollments.filter(status="ACTIVE").order_by("-id").first()
+            if enrollment is None:
+                enrollment = scoped_enrollments.order_by("-id").first()
+        else:
+            enrollment = enrollments.filter(status="ACTIVE").order_by("-id").first()
+
+        if enrollment is None:
+            enrollment = enrollments.order_by("-id").first()
+
+        group = getattr(enrollment, "group", None) if enrollment is not None else None
+        campus = getattr(enrollment, "campus", None) if enrollment is not None else None
+        if campus is None and group is not None:
+            campus = getattr(group, "campus", None)
+        institution = getattr(campus, "institution", None) if campus is not None else None
+        if institution is None and group is not None:
+            institution = getattr(getattr(group, "campus", None), "institution", None)
+        if institution is None:
+            institution = Institution.objects.first() or Institution(name="")
+
+        guardian = (
+            FamilyMember.objects.filter(student=student)
+            .order_by("-is_main_guardian", "id")
+            .first()
+        )
+        director = getattr(group, "director", None) if group is not None else None
+        commitment_sections = _parse_commitment_sections_from_text(getattr(annotation, "commitments", ""))
+
+        meeting_date = date.today()
+        location_parts = [
+            getattr(campus, "municipality", "").strip(),
+            getattr(campus, "department", "").strip(),
+        ]
+        location = ", ".join(part for part in location_parts if part)
+        if not location:
+            location = (
+                getattr(campus, "name", "")
+                or getattr(institution, "pdf_header_line3", "")
+                or getattr(institution, "name", "")
+            )
+        place_line = f"Dado {location}" if location else "Dado"
+        grade_name = getattr(getattr(enrollment, "grade", None), "name", "") if enrollment is not None else ""
+        group_name = getattr(group, "name", "") if group is not None else ""
+        grade_group_label = " ".join(part for part in [grade_name, group_name] if part).strip()
+        responsible_name = (
+            getattr(annotation, "commitment_responsible", "")
+            or (director.get_full_name() if director is not None else "")
+            or (generated_by.get_full_name() if generated_by is not None else "")
+        )
+        institution_motto = (getattr(institution, "pdf_header_line2", "") or "").strip()
+
+        return {
+            "institution": institution,
+            "annotation": annotation,
+            "student": student,
+            "student_name": student.user.get_full_name(),
+            "student_document": student.document_number or "",
+            "grade_name": grade_name,
+            "group_name": group_name,
+            "grade_group_label": grade_group_label,
+            "director_name": director.get_full_name() if director is not None else "",
+            "guardian_name": getattr(guardian, "full_name", "") or "",
+            "period_name": getattr(period, "name", "") if period is not None else "",
+            "academic_year": getattr(getattr(enrollment, "academic_year", None), "year", "") if enrollment is not None else "",
+            "place_line": place_line,
+            "institution_location": location,
+            "institution_motto": institution_motto,
+            "responsible_name": responsible_name,
+            "reason_text": getattr(annotation, "text", "") or "",
+            "student_commitments": commitment_sections["student_commitments"],
+            "guardian_commitments": commitment_sections["guardian_commitments"],
+            "institution_commitments": commitment_sections["institution_commitments"],
+            "meeting_day": meeting_date.day,
+            "meeting_month_name": _MONTH_NAMES_ES.get(meeting_date.month, ""),
+            "meeting_year": meeting_date.year,
+            "meeting_date": meeting_date,
+            "generated_by": generated_by,
+            "generated_at": datetime.now(),
+        }
+
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user, updated_by=self.request.user)
 
@@ -2630,6 +2780,41 @@ class ObserverAnnotationViewSet(viewsets.ModelViewSet):
         if getattr(self.request.user, "role", None) == "TEACHER" and bool(getattr(instance, "is_automatic", False)):
             raise serializers.ValidationError({"detail": "Las anotaciones automáticas no se pueden editar."})
         serializer.save(updated_by=self.request.user)
+
+    @action(detail=True, methods=["get"], url_path="commitment-acta")
+    def commitment_acta(self, request, pk=None):
+        annotation: ObserverAnnotation = self.get_object()
+        if annotation.annotation_type != ObserverAnnotation.TYPE_COMMITMENT:
+            return Response(
+                {"detail": "Solo las anotaciones de tipo Compromiso tienen acta asociada."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        want_pdf = (request.query_params.get("format") or "pdf").strip().lower() == "pdf"
+        context = self._build_commitment_acta_context(annotation, request.user)
+        html = render_to_string("students/reports/observer_annotation_commitment_acta_pdf.html", context)
+
+        if not want_pdf:
+            response = HttpResponse(html, content_type="text/html; charset=utf-8")
+            response["Content-Disposition"] = f'inline; filename="acta-compromiso-anotacion-{annotation.id}.html"'
+            return response
+
+        try:
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+        except WeasyPrintUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception:
+            logger.exception("Error generando PDF de acta de compromiso de anotación", extra={"annotation_id": annotation.id})
+            return Response(
+                {"detail": "No fue posible generar el PDF en este momento."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="acta-compromiso-anotacion-{annotation.id}.pdf"'
+        return response
 
     def destroy(self, request, *args, **kwargs):
         annotation: ObserverAnnotation = self.get_object()
