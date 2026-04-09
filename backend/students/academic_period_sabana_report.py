@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from academic.grading import final_grade_from_dimensions, match_scale
+from academic.grading import final_grade_from_achievement_scores, match_scale
 from academic.models import AcademicLoad, AchievementGrade, Group, Period, TeacherAssignment
 from core.models import Institution
 from students.models import Enrollment
@@ -178,16 +178,6 @@ def build_academic_period_sabana_context(*, group: Group, period: Period) -> Dic
         for g in grade_qs:
             score_by_enroll_gs_ach[(int(g.enrollment_id), int(g.gradesheet_id), int(g.achievement_id))] = g.score
 
-    def weighted_average_ignore_missing(items: Iterable[Tuple[Optional[Decimal], int]]) -> Optional[Decimal]:
-        present = [(Decimal(s), int(w) if w else 1) for s, w in items if s is not None]
-        if not present:
-            return None
-        total_weight = sum(w for _, w in present)
-        if total_weight <= 0:
-            return None
-        total = sum(score * Decimal(weight) for score, weight in present)
-        return (total / Decimal(total_weight)).quantize(Decimal("0.01"))
-
     def compute_subject_score(enrollment_id: int, teacher_assignment_id: Optional[int]) -> Tuple[Optional[Decimal], str]:
         if not teacher_assignment_id:
             return None, ""
@@ -200,35 +190,17 @@ def build_academic_period_sabana_context(*, group: Group, period: Period) -> Dic
         if not achievements:
             return None, ""
 
-        achievements_by_dimension: Dict[int, List[Dict[str, Any]]] = {}
-        for a in achievements:
-            dim_id = a.get("dimension_id")
-            if not dim_id:
-                continue
-            achievements_by_dimension.setdefault(int(dim_id), []).append(a)
-
-        dim_items: List[Tuple[Decimal, int]] = []
-        for dim_id, dim_achievements in achievements_by_dimension.items():
-            items = [
+        final_score = final_grade_from_achievement_scores(
+            [
                 (
+                    a.get("dimension_id"),
+                    a.get("percentage"),
                     score_by_enroll_gs_ach.get((enrollment_id, int(gs_id), int(a["id"]))),
-                    int(a.get("percentage") or 1),
                 )
-                for a in dim_achievements
-            ]
-            dim_grade = weighted_average_ignore_missing(items)
-            if dim_grade is None:
-                continue
-
-            dim_weight = int(dim_percentage_by_id.get(dim_id, 0) or 0)
-            if dim_weight <= 0:
-                continue
-            dim_items.append((dim_grade, dim_weight))
-
-        if not dim_items:
-            return None, ""
-
-        final_score = final_grade_from_dimensions(dim_items)
+                for a in achievements
+            ],
+            dimension_percentage_by_id=dim_percentage_by_id,
+        )
 
         scale = match_scale(period.academic_year_id, Decimal(final_score))
         return final_score, (scale.name if scale else "")

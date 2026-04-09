@@ -8,7 +8,7 @@ from django.conf import settings
 from django.db.models import Count
 from django.template.loader import render_to_string
 
-from academic.grading import DEFAULT_EMPTY_SCORE, final_grade_from_dimensions, match_scale, weighted_average
+from academic.grading import DEFAULT_EMPTY_SCORE, final_grade_from_achievement_scores, match_scale, weighted_average
 from academic.models import (
     Achievement,
     AchievementGrade,
@@ -24,7 +24,7 @@ from students.models import Enrollment
 
 from reports.weasyprint_utils import render_pdf_bytes_from_html
 
-from .single_page_report_fit import fit_report_to_single_page
+from .single_page_report_fit import layout_report_to_two_pages
 
 
 def _group_label(group: Any) -> str:
@@ -181,6 +181,233 @@ def _compute_rankings(
     return out
 
 
+def _classify_indicator_lines(lines: List[str]) -> Dict[str, List[str]]:
+    buckets: Dict[str, List[str]] = {
+        "cognitivo": [],
+        "procedimental": [],
+        "actitudinal": [],
+        "general": [],
+    }
+
+    for raw in lines:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+
+        lowered = text.lower()
+        if "cognitiv" in lowered or "saber" in lowered:
+            buckets["cognitivo"].append(text)
+        elif "procedimental" in lowered or "hacer" in lowered:
+            buckets["procedimental"].append(text)
+        elif "actitudinal" in lowered or "ser" in lowered:
+            buckets["actitudinal"].append(text)
+        else:
+            buckets["general"].append(text)
+
+    return buckets
+
+
+def _classify_indicator_entries(entries: List[Dict[str, str]]) -> Dict[str, List[str]]:
+    buckets: Dict[str, List[str]] = {
+        "cognitivo": [],
+        "procedimental": [],
+        "actitudinal": [],
+        "general": [],
+    }
+
+    for entry in entries:
+        text = str(entry.get("text") or "").strip()
+        if not text:
+            continue
+
+        dimension_name = str(entry.get("dimension_name") or "").strip().lower()
+        if "cognitiv" in dimension_name:
+            buckets["cognitivo"].append(text)
+            continue
+        if "procedimental" in dimension_name:
+            buckets["procedimental"].append(text)
+            continue
+        if "actitudinal" in dimension_name:
+            buckets["actitudinal"].append(text)
+            continue
+
+        lowered = text.lower()
+        if "cognitiv" in lowered or "saber" in lowered:
+            buckets["cognitivo"].append(text)
+        elif "procedimental" in lowered or "hacer" in lowered:
+            buckets["procedimental"].append(text)
+        elif "actitudinal" in lowered or "ser" in lowered:
+            buckets["actitudinal"].append(text)
+        else:
+            buckets["general"].append(text)
+
+    return buckets
+
+
+def _period_performance_series_from_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    measured_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        row_type = str(row.get("row_type") or "").upper()
+        if row_type == "AREA" or (row_type == "SUBJECT" and bool(row.get("is_single_area"))):
+            measured_rows.append(row)
+
+    series: List[Dict[str, Any]] = []
+    last_percent: Optional[int] = None
+    for idx in range(1, 5):
+        period_key = f"p{idx}_score"
+        scores: List[Decimal] = []
+        for row in measured_rows:
+            raw = str(row.get(period_key) or "").strip()
+            if not raw:
+                continue
+            try:
+                scores.append(Decimal(raw))
+            except Exception:
+                continue
+
+        if scores:
+            avg = (sum(scores) / Decimal(len(scores))).quantize(Decimal("0.01"))
+            percent = int(max(0, min(100, round(float(avg) * 20))))
+            last_percent = percent
+            series.append(
+                {
+                    "label": f"Período {idx}",
+                    "score": f"{avg:.2f}",
+                    "percent": percent,
+                    "active": True,
+                }
+            )
+        else:
+            series.append(
+                {
+                    "label": f"Período {idx}",
+                    "score": "",
+                    "percent": last_percent if last_percent is not None else 0,
+                    "active": False,
+                }
+            )
+
+    return series
+
+
+def _performance_chart_model(series: List[Dict[str, Any]]) -> Dict[str, Any]:
+    width = 520
+    height = 170
+    padding_left = 58
+    padding_right = 28
+    padding_top = 20
+    padding_bottom = 30
+
+    data_left = padding_left + 10
+    data_right = width - padding_right
+    plot_bottom = height - padding_bottom
+    usable_w = data_right - data_left
+    usable_h = plot_bottom - padding_top
+
+    points: List[Dict[str, Any]] = []
+    total = len(series)
+    last_labeled_percent: Optional[int] = None
+    for idx, item in enumerate(series):
+        x_pct = int(round(100.0 * idx / (max(1, total - 1))))
+        x = data_left + (usable_w * idx / (max(1, total - 1)))
+        pct = int(item.get("percent") or 0)
+        y_pct = int(round(100.0 - pct))
+        y = padding_top + ((100 - pct) / 100.0) * usable_h
+        active = bool(item.get("active"))
+        show_value_label = active and (last_labeled_percent is None or pct != last_labeled_percent)
+        if active:
+            last_labeled_percent = pct
+        points.append(
+            {
+                "x": int(round(x)),
+                "y": int(round(y)),
+                "x_pct": x_pct,
+                "y_pct": y_pct,
+                "label": item.get("label") or f"Período {idx + 1}",
+                "percent": pct,
+                "active": active,
+                "show_value_label": show_value_label,
+            }
+        )
+
+    polyline = " ".join(f"{p['x']},{p['y']}" for p in points)
+    polyline_pct = " ".join(f"{p['x_pct']},{p['y_pct']}" for p in points)
+    area_polygon = ""
+    area_polygon_pct = ""
+    if points:
+        area_polygon = f"{polyline} {data_right},{plot_bottom} {data_left},{plot_bottom}"
+        area_polygon_pct = f"{polyline_pct} 100,100 0,100"
+
+    y_ticks: List[Dict[str, Any]] = []
+    for value in (100, 80, 60, 40, 20, 0):
+        y = padding_top + ((100 - value) / 100.0) * usable_h
+        y_ticks.append({"value": value, "y": int(round(y)), "y_pct": int(round(100.0 - value))})
+
+    return {
+        "width": width,
+        "height": height,
+        "padding_left": padding_left,
+        "padding_right": padding_right,
+        "data_left": data_left,
+        "data_right": data_right,
+        "padding_top": padding_top,
+        "padding_bottom": padding_bottom,
+        "plot_bottom": plot_bottom,
+        "usable_h": usable_h,
+        "y_ticks": y_ticks,
+        "points": points,
+        "polyline": polyline,
+        "polyline_pct": polyline_pct,
+        "area_polygon": area_polygon,
+        "area_polygon_pct": area_polygon_pct,
+    }
+
+
+def group_report_rows_for_visual_blocks(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group flat AREA + SUBJECT rows into visual composite blocks for templates.
+
+    Input rows remain untouched for scoring/pagination logic; this helper is intended
+    only for final template rendering of each already-split page.
+    """
+
+    grouped: List[Dict[str, Any]] = []
+    idx = 0
+    total = len(rows)
+
+    while idx < total:
+        row = rows[idx] if isinstance(rows[idx], dict) else None
+        if not isinstance(row, dict):
+            idx += 1
+            continue
+
+        row_type = str(row.get("row_type") or "").upper()
+        if row_type == "AREA":
+            subjects: List[Dict[str, Any]] = []
+            next_idx = idx + 1
+            while next_idx < total:
+                nxt = rows[next_idx] if isinstance(rows[next_idx], dict) else None
+                if not isinstance(nxt, dict):
+                    break
+                nxt_type = str(nxt.get("row_type") or "").upper()
+                if nxt_type != "SUBJECT" or bool(nxt.get("is_single_area")):
+                    break
+                subjects.append(nxt)
+                next_idx += 1
+
+            if subjects:
+                block = dict(row)
+                block["row_type"] = "AREA_COMPOSITE"
+                block["subjects"] = subjects
+                grouped.append(block)
+                idx = next_idx
+                continue
+
+        grouped.append(row)
+        idx += 1
+
+    return grouped
+
+
 def _teacher_assignments(group_id: int, academic_year_id: int) -> List[TeacherAssignment]:
     return list(
         TeacherAssignment.objects.filter(group_id=group_id, academic_year_id=academic_year_id)
@@ -284,6 +511,8 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
             rank_total = int(info.get("total") or 0) or None
             rank_badge_label = str(info.get("badge_label") or "")
 
+    performance_series = _period_performance_series_from_rows(rows)
+
     return {
         "institution": institution,
         "student_name": enrollment.student.user.get_full_name() if enrollment.student and enrollment.student.user else "",
@@ -302,6 +531,8 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
         "rank_badge_label": rank_badge_label,
         "observations": "",
         "scale_equivalences": _scale_equivalences(enrollment.academic_year_id),
+        "performance_series": performance_series,
+        "performance_chart": _performance_chart_model(performance_series),
     }
 
 
@@ -355,6 +586,35 @@ def _build_preschool_rows_for_enrollment(
     """
 
     period_id = selected_period.id
+
+    def _extract_indicator_type(text: str) -> tuple[str, str]:
+        import re
+        import unicodedata
+
+        raw_text = str(text or "").strip()
+        if not raw_text:
+            return "", ""
+
+        normalized = unicodedata.normalize("NFKD", raw_text)
+        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+
+        indicator_type = ""
+        if "cognitiv" in normalized:
+            indicator_type = "Cognitivo"
+        elif "procedimental" in normalized:
+            indicator_type = "Procedimental"
+        elif "actitudinal" in normalized:
+            indicator_type = "Actitudinal"
+
+        cleaned = raw_text
+        if indicator_type:
+            cleaned = re.sub(
+                r"(?i)^\s*(indicador\s*:?)?\s*(cognitiv[oa]?|procedimental|actitudinal)\s*[:\-\u2013\u2014]?\s*",
+                "",
+                cleaned,
+            ).strip()
+
+        return indicator_type, cleaned or raw_text
 
     def _strip_trailing_dimension_line(text: str) -> str:
         import unicodedata
@@ -460,11 +720,13 @@ def _build_preschool_rows_for_enrollment(
             last_subject_key = subject_key
 
         label = label_by_cell.get((int(it["gradesheet_id"]), int(it["achievement_id"])), "")
+        indicator_type, description = _extract_indicator_type(str(it.get("description") or ""))
         rows.append(
             {
                 "row_type": "ACHIEVEMENT",
                 "subject_name": it.get("subject_name") or "",
-                "description": it.get("description") or "",
+                "description": description,
+                "indicator_type": indicator_type,
                 "label": label,
             }
         )
@@ -525,7 +787,7 @@ def build_preschool_academic_period_report_context(enrollment: Enrollment, perio
 
 def generate_preschool_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
     ctx = build_preschool_academic_period_report_context(enrollment=enrollment, period=period)
-    ctx = fit_report_to_single_page(
+    ctx = layout_report_to_two_pages(
         ctx,
         template_name="students/reports/academic_period_report_preschool_pdf.html",
         is_preschool=True,
@@ -573,6 +835,8 @@ def build_preschool_academic_period_group_report_context(
             achievements_by_ta_period=achievements_by_ta_period,
         )
 
+        performance_series = _period_performance_series_from_rows(rows)
+
         pages.append(
             {
                 "enrollment_id": enrollment.id,
@@ -610,7 +874,7 @@ def generate_preschool_academic_period_group_report_pdf(
     pages = ctx.get("pages") or []
     if isinstance(pages, list):
         ctx["pages"] = [
-            fit_report_to_single_page(
+            layout_report_to_two_pages(
                 page,
                 template_name="students/reports/academic_period_report_preschool_pdf.html",
                 is_preschool=True,
@@ -646,7 +910,16 @@ def _precompute_achievements(
     all_achievements = list(
         Achievement.objects.filter(academic_load_id__in=load_ids, period_id__in=period_ids)
         .select_related("dimension")
-        .only("id", "academic_load_id", "period_id", "group_id", "percentage", "dimension_id", "description")
+        .only(
+            "id",
+            "academic_load_id",
+            "period_id",
+            "group_id",
+            "percentage",
+            "dimension_id",
+            "dimension__name",
+            "description",
+        )
         .order_by("id")
     )
 
@@ -703,6 +976,7 @@ def _precompute_achievements(
                 {
                     "id": a.id,
                     "dimension_id": a.dimension_id,
+                    "dimension_name": getattr(getattr(a, "dimension", None), "name", "") or "",
                     "percentage": int(a.percentage) if a.percentage else 1,
                     "description": a.description or "",
                     "indicators": indicators_by_achievement_id.get(a.id, {}),
@@ -771,26 +1045,17 @@ def _build_rows_for_enrollment(
         if not achievements:
             return None, ""
 
-        achievements_by_dimension: Dict[int, List[Dict[str, Any]]] = {}
-        for a in achievements:
-            dim_id = a.get("dimension_id")
-            if not dim_id:
-                continue
-            achievements_by_dimension.setdefault(dim_id, []).append(a)
-
-        dim_items: List[Tuple[Decimal, int]] = []
-        for dim_id, dim_achievements in achievements_by_dimension.items():
-            items = [
+        final_score = final_grade_from_achievement_scores(
+            [
                 (
+                    a.get("dimension_id"),
+                    a.get("percentage"),
                     score_by_gs_ach.get((gs_id, int(a["id"]))),
-                    int(a.get("percentage") or 1),
                 )
-                for a in dim_achievements
-            ]
-            dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-            dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-        final_score = final_grade_from_dimensions(dim_items)
+                for a in achievements
+            ],
+            dimension_percentage_by_id=dim_percentage_by_id,
+        )
         return final_score, _scale_name(enrollment.academic_year_id, final_score)
 
     rows: List[Dict[str, Any]] = []
@@ -914,13 +1179,16 @@ def _build_rows_for_enrollment(
         # logro/dificultad lines: use achievements descriptions for selected period
         selected_achievements = achievements_by_ta_period.get((ta.id, selected_period.id), [])
         selected_lines: List[str] = []
+        selected_entries: List[Dict[str, str]] = []
         gs_id_for_selected = gradesheet_id_by_ta_period.get((ta.id, selected_period.id))
         for a in selected_achievements:
             ach_id = int(a.get("id") or 0)
             fallback = (a.get("description") or "").strip()
+            dimension_name = str(a.get("dimension_name") or "").strip()
             if not ach_id:
                 if fallback:
                     selected_lines.append(fallback)
+                    selected_entries.append({"text": fallback, "dimension_name": dimension_name})
                 continue
 
             score = None
@@ -934,9 +1202,12 @@ def _build_rows_for_enrollment(
 
             indicators = a.get("indicators") or {}
             if level and indicators.get(level):
-                selected_lines.append(str(indicators[level]).strip())
+                indicator_text = str(indicators[level]).strip()
+                selected_lines.append(indicator_text)
+                selected_entries.append({"text": indicator_text, "dimension_name": dimension_name})
             elif fallback:
                 selected_lines.append(fallback)
+                selected_entries.append({"text": fallback, "dimension_name": dimension_name})
 
         def cell_score(idx: int) -> str:
             if idx < 0 or idx >= 4:
@@ -975,7 +1246,8 @@ def _build_rows_for_enrollment(
             "p3_scale": cell_scale(2),
             "p4_scale": cell_scale(3),
             "final_scale": _scale_name(enrollment.academic_year_id, final_score),
-            "lines": selected_lines[:6],
+            "lines": selected_lines,
+            "indicator_buckets": _classify_indicator_entries(selected_entries),
             "is_single_area": False,
             "lines_as_paragraph": False,
         }
@@ -995,11 +1267,13 @@ def _build_rows_for_enrollment(
 
 def generate_academic_period_report_pdf(enrollment: Enrollment, period: Period) -> bytes:
     ctx = build_academic_period_report_context(enrollment=enrollment, period=period)
-    ctx = fit_report_to_single_page(
+    ctx = layout_report_to_two_pages(
         ctx,
         template_name="students/reports/academic_period_report_pdf.html",
         is_preschool=False,
     )
+    ctx["rows_page_1"] = group_report_rows_for_visual_blocks(ctx.get("rows_page_1") or [])
+    ctx["rows_page_2"] = group_report_rows_for_visual_blocks(ctx.get("rows_page_2") or [])
 
     html_string = render_to_string("students/reports/academic_period_report_pdf.html", ctx)
     try:
@@ -1033,15 +1307,19 @@ def generate_academic_period_group_report_pdf(
     ctx = build_academic_period_group_report_context(enrollments=enrollments, period=period)
     pages = ctx.get("pages") or []
     if isinstance(pages, list):
-        ctx["pages"] = [
-            fit_report_to_single_page(
+        fitted_pages: List[Dict[str, Any]] = []
+        for page in pages:
+            if not isinstance(page, dict):
+                continue
+            fitted = layout_report_to_two_pages(
                 page,
                 template_name="students/reports/academic_period_report_pdf.html",
                 is_preschool=False,
             )
-            for page in pages
-            if isinstance(page, dict)
-        ]
+            fitted["rows_page_1"] = group_report_rows_for_visual_blocks(fitted.get("rows_page_1") or [])
+            fitted["rows_page_2"] = group_report_rows_for_visual_blocks(fitted.get("rows_page_2") or [])
+            fitted_pages.append(fitted)
+        ctx["pages"] = fitted_pages
     html_string = render_to_string("students/reports/academic_period_report_group_pdf.html", ctx)
 
     try:
@@ -1099,6 +1377,7 @@ def build_academic_period_group_report_context(
 
         overall_score, overall_scale = _compute_overall_from_rows(academic_year_id, rows)
         score_items.append((enrollment.id, _overall_decimal_from_rows(rows)))
+        performance_series = _period_performance_series_from_rows(rows)
 
         pages.append(
             {
@@ -1122,6 +1401,8 @@ def build_academic_period_group_report_context(
                 "rank_badge_label": "",
                 "observations": "",
                 "scale_equivalences": scale_equivalences,
+                "performance_series": performance_series,
+                "performance_chart": _performance_chart_model(performance_series),
                 "final_status": getattr(enrollment, "final_status", "") or "",
             }
         )

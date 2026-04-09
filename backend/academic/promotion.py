@@ -7,7 +7,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from django.db import transaction
 
-from .grading import DEFAULT_EMPTY_SCORE, final_grade_from_dimensions, weighted_average
+from .grading import DEFAULT_EMPTY_SCORE, final_grade_from_achievement_scores
 from .models import (
     AcademicYear,
     Achievement,
@@ -70,13 +70,7 @@ def _compute_subject_final_for_enrollments(
     if not achievements or not enrollment_ids:
         return {enrollment_id: DEFAULT_EMPTY_SCORE for enrollment_id in enrollment_ids}
 
-    achievements_by_dimension: Dict[int, List[Achievement]] = {}
-    for a in achievements:
-        if not a.dimension_id:
-            continue
-        achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
-
-    dim_ids = list(achievements_by_dimension.keys())
+    dim_ids = sorted({int(a.dimension_id) for a in achievements if a.dimension_id})
     dimensions = (
         Dimension.objects.filter(academic_year_id=teacher_assignment.academic_year_id, id__in=dim_ids)
         .only("id", "percentage")
@@ -103,19 +97,13 @@ def _compute_subject_final_for_enrollments(
 
     finals: Dict[int, Decimal] = {}
     for enrollment_id in enrollment_ids:
-        dim_items = []
-        for dim_id, dim_achievements in achievements_by_dimension.items():
-            items = [
-                (
-                    score_by_cell.get((enrollment_id, a.id)),
-                    int(a.percentage) if a.percentage else 1,
-                )
-                for a in dim_achievements
-            ]
-            dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-            dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-        finals[enrollment_id] = final_grade_from_dimensions(dim_items)
+        finals[enrollment_id] = final_grade_from_achievement_scores(
+            [
+                (a.dimension_id, a.percentage, score_by_cell.get((enrollment_id, a.id)))
+                for a in achievements
+            ],
+            dimension_percentage_by_id=dim_percentage_by_id,
+        )
 
     return finals
 

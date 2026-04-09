@@ -29,6 +29,7 @@ from academic.models import (
     TeacherAssignment,
     AchievementGrade,
 )
+from students.academic_period_sabana_report import build_academic_period_sabana_context
 from students.models import Student, Enrollment
 
 
@@ -215,6 +216,43 @@ class GradebookApiTests(APITestCase):
         )
         row = next(x for x in resp2.data["computed"] if x["enrollment_id"] == self.enrollment.id)
         self.assertEqual(Decimal(str(row["final_score"])), Decimal("4.00"))
+
+    def test_sabana_uses_same_definitive_as_gradebook_with_partial_achievements(self):
+        achievement_two = Achievement.objects.create(
+            academic_load=self.load,
+            group=self.group,
+            period=self.period,
+            dimension=self.dimension,
+            description="Resolución de problemas",
+            percentage=50,
+        )
+        self.achievement.percentage = 50
+        self.achievement.save(update_fields=["percentage"])
+
+        resp = self.client.post(
+            "/api/grade-sheets/bulk-upsert/",
+            {
+                "teacher_assignment": self.assignment.id,
+                "period": self.period.id,
+                "grades": [
+                    {
+                        "enrollment": self.enrollment.id,
+                        "achievement": self.achievement.id,
+                        "score": "5.00",
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        gradebook_row = next(x for x in resp.data["computed"] if x["enrollment_id"] == self.enrollment.id)
+        self.assertEqual(Decimal(str(gradebook_row["final_score"])), Decimal("3.00"))
+
+        sabana = build_academic_period_sabana_context(group=self.group, period=self.period)
+        sabana_row = next(r for r in sabana["rows"] if r["student_name"] == self.student.user.get_full_name())
+        self.assertEqual(sabana_row["scores"][0]["score"], "3.00")
+        self.assertEqual(Decimal(str(gradebook_row["final_score"])), Decimal(sabana_row["scores"][0]["score"]))
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     @patch("reports.weasyprint_utils.render_pdf_bytes_from_html", return_value=b"%PDF-1.4 test")

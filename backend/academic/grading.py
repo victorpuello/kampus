@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 
 from .models import EvaluationScale
 
@@ -42,6 +42,29 @@ def final_grade_from_dimensions(
 
     total = sum(grade * Decimal(int(p)) for grade, p in dimension_items)
     return (total / Decimal(total_percentage)).quantize(Decimal("0.01"))
+
+
+def final_grade_from_achievement_scores(
+    achievement_scores: Sequence[Tuple[Optional[int], Optional[int], Optional[Decimal]]],
+    *,
+    dimension_percentage_by_id: Mapping[int, int],
+) -> Decimal:
+    grouped_scores: dict[int, list[Tuple[Optional[Decimal], int]]] = {}
+    for dimension_id, achievement_percentage, score in achievement_scores:
+        if not dimension_id:
+            continue
+        grouped_scores.setdefault(int(dimension_id), []).append(
+            (score, int(achievement_percentage) if achievement_percentage else 1)
+        )
+
+    dim_items = [
+        (
+            weighted_average(items) if items else DEFAULT_EMPTY_SCORE,
+            int(dimension_percentage_by_id.get(dim_id, 0) or 0),
+        )
+        for dim_id, items in grouped_scores.items()
+    ]
+    return final_grade_from_dimensions(dim_items)
 
 
 @dataclass(frozen=True)

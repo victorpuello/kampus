@@ -402,9 +402,8 @@ from .grade_ordinals import guess_ordinal
 from .grading import (
     DEFAULT_EMPTY_SCORE,
     coalesce_score,
-    final_grade_from_dimensions,
+    final_grade_from_achievement_scores,
     match_scale,
-    weighted_average,
 )
 from .promotion import compute_promotions_for_year, PASSING_SCORE_DEFAULT
 from communications.email_service import send_email
@@ -3436,16 +3435,10 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
             for a in achievements
         ]
 
-        achievements_by_dimension: dict[int, list[Achievement]] = {}
-        for a in achievements:
-            if not a.dimension_id:
-                continue
-            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
-
         dimensions = (
             Dimension.objects.filter(
                 academic_year_id=teacher_assignment.academic_year_id,
-                id__in=list(achievements_by_dimension.keys()),
+                id__in=sorted({int(a.dimension_id) for a in achievements if a.dimension_id}),
             )
             .only("id", "name", "percentage")
             .order_by("id")
@@ -3458,16 +3451,13 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         computed = []
         for e in enrollments:
-            dim_items = []
-            for dim_id, dim_achievements in achievements_by_dimension.items():
-                items = [
-                    (score_by_cell.get((e.id, a.id)), int(a.percentage) if a.percentage else 1)
-                    for a in dim_achievements
-                ]
-                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-            final_score = final_grade_from_dimensions(dim_items)
+            final_score = final_grade_from_achievement_scores(
+                [
+                    (a.dimension_id, a.percentage, score_by_cell.get((e.id, a.id)))
+                    for a in achievements
+                ],
+                dimension_percentage_by_id=dim_percentage_by_id,
+            )
             scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
             computed.append(
                 {
@@ -4516,15 +4506,9 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         achievements = achievements_qs.select_related("dimension").order_by("id")
 
-        achievements_by_dimension: dict[int, list[Achievement]] = {}
-        for a in achievements:
-            if not a.dimension_id:
-                continue
-            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
-
         dimensions = Dimension.objects.filter(
             academic_year_id=teacher_assignment.academic_year_id,
-            id__in=list(achievements_by_dimension.keys()),
+            id__in=sorted({int(a.dimension_id) for a in achievements if a.dimension_id}),
         ).only("id", "percentage")
         dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
 
@@ -4537,19 +4521,13 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         computed = []
         for enrollment_id in impacted_enrollment_ids_sorted:
-            dim_items = []
-            for dim_id, dim_achievements in achievements_by_dimension.items():
-                items = [
-                    (
-                        score_by_cell.get((enrollment_id, a.id)),
-                        int(a.percentage) if a.percentage else 1,
-                    )
-                    for a in dim_achievements
-                ]
-                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-            final_score = final_grade_from_dimensions(dim_items)
+            final_score = final_grade_from_achievement_scores(
+                [
+                    (a.dimension_id, a.percentage, score_by_cell.get((enrollment_id, a.id)))
+                    for a in achievements
+                ],
+                dimension_percentage_by_id=dim_percentage_by_id,
+            )
             scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
             computed.append(
                 {
@@ -4745,15 +4723,9 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         achievements = achievements.select_related("dimension").order_by("id")
 
-        achievements_by_dimension: dict[int, list[Achievement]] = {}
-        for a in achievements:
-            if not a.dimension_id:
-                continue
-            achievements_by_dimension.setdefault(a.dimension_id, []).append(a)
-
         dimensions = Dimension.objects.filter(
             academic_year_id=teacher_assignment.academic_year_id,
-            id__in=list(achievements_by_dimension.keys()),
+            id__in=sorted({int(a.dimension_id) for a in achievements if a.dimension_id}),
         ).only("id", "percentage")
         dim_percentage_by_id = {d.id: int(d.percentage) for d in dimensions}
 
@@ -4767,19 +4739,13 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
 
         computed = []
         for enrollment_id in impacted_enrollment_ids:
-            dim_items = []
-            for dim_id, dim_achievements in achievements_by_dimension.items():
-                items = [
-                    (
-                        score_by_cell.get((enrollment_id, a.id)),
-                        int(a.percentage) if a.percentage else 1,
-                    )
-                    for a in dim_achievements
-                ]
-                dim_grade = weighted_average(items) if items else DEFAULT_EMPTY_SCORE
-                dim_items.append((dim_grade, dim_percentage_by_id.get(dim_id, 0)))
-
-            final_score = final_grade_from_dimensions(dim_items)
+            final_score = final_grade_from_achievement_scores(
+                [
+                    (a.dimension_id, a.percentage, score_by_cell.get((enrollment_id, a.id)))
+                    for a in achievements
+                ],
+                dimension_percentage_by_id=dim_percentage_by_id,
+            )
             scale_match = match_scale(teacher_assignment.academic_year_id, final_score)
             computed.append(
                 {
