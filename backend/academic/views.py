@@ -402,6 +402,7 @@ from .throttles import AcademicAIUserRateThrottle
 from .grade_ordinals import guess_ordinal
 from .grading import (
     DEFAULT_EMPTY_SCORE,
+    achievement_queryset_for_assignment_period,
     coalesce_score,
     final_grade_from_achievement_scores,
     match_scale,
@@ -3166,15 +3167,7 @@ class GradeSheetViewSet(viewsets.ModelViewSet):
         teacher_assignment: TeacherAssignment,
         period: Period,
     ):
-        base_achievements = Achievement.objects.filter(
-            academic_load=teacher_assignment.academic_load,
-            period=period,
-        )
-
-        group_achievements = base_achievements.filter(group=teacher_assignment.group)
-        if group_achievements.exists():
-            return group_achievements
-        return base_achievements.filter(group__isnull=True)
+        return achievement_queryset_for_assignment_period(teacher_assignment, period)
 
     def _recompute_achievement_grades_from_activities(
         self,
@@ -4877,15 +4870,7 @@ class PreschoolGradebookViewSet(viewsets.ViewSet):
         teacher_assignment: TeacherAssignment,
         period: Period,
     ):
-        base_achievements = Achievement.objects.filter(
-            academic_load=teacher_assignment.academic_load,
-            period=period,
-        )
-
-        group_achievements = base_achievements.filter(group=teacher_assignment.group)
-        if group_achievements.exists():
-            return group_achievements
-        return base_achievements.filter(group__isnull=True)
+        return achievement_queryset_for_assignment_period(teacher_assignment, period)
 
     def _get_preschool_labels(self, *, academic_year_id: int):
         preschool = EvaluationScale.objects.filter(

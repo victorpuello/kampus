@@ -47,6 +47,12 @@
         {{ overall_score|default:"-" }}
         {% if overall_scale %}<small>({{ overall_scale }})</small>{% endif %}
       </div>
+      {% if exact_overall_score %}
+      <div class="performance-score-exact">
+        Promedio exacto: {{ exact_overall_score }}
+        <span class="performance-score-exact-note">Desempate por décimas</span>
+      </div>
+      {% endif %}
     </div>
   </div>
 

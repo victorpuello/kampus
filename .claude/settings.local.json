@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -rn \"include.*academic\\\\|path.*academic\" backend/*/urls.py backend/kampus/urls.py)",
+      "Bash(python manage.py test academic.test_grade_consistency --verbosity=2)",
+      "Bash(grep -rn \"class KampusModelPermissions\\\\|KampusModelPermissions\" backend/*/permissions.py)",
+      "Bash(grep -n \"post_save\\\\|m2m_changed\\\\|role.*permission\\\\|permission.*role\\\\|assign_permissions\\\\|auto.*perm\" backend/*/signals.py backend/*/apps.py backend/users/models.py)",
+      "Bash(python manage.py test academic students --verbosity=1)"
+    ]
+  }
+}

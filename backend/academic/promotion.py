@@ -7,10 +7,13 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 from django.db import transaction
 
-from .grading import DEFAULT_EMPTY_SCORE, final_grade_from_achievement_scores
+from .grading import (
+    DEFAULT_EMPTY_SCORE,
+    achievement_queryset_for_assignment_period as _achievement_queryset_for_assignment_period,
+    final_grade_from_achievement_scores,
+)
 from .models import (
     AcademicYear,
-    Achievement,
     AchievementGrade,
     Dimension,
     GradeSheet,
@@ -40,14 +43,6 @@ def _get_periods_for_year(academic_year_id: int) -> List[Period]:
         .only("id", "is_closed")
         .order_by("start_date")
     )
-
-
-def _achievement_queryset_for_assignment_period(teacher_assignment: TeacherAssignment, period: Period):
-    base = Achievement.objects.filter(academic_load=teacher_assignment.academic_load, period=period)
-    group_specific = base.filter(group=teacher_assignment.group)
-    if group_specific.exists():
-        return group_specific
-    return base.filter(group__isnull=True)
 
 
 def _compute_subject_final_for_enrollments(

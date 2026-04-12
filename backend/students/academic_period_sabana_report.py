@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from academic.grading import final_grade_from_achievement_scores, match_scale
+from academic.grading import DEFAULT_EMPTY_SCORE, final_grade_from_achievement_scores, match_scale
 from academic.models import AcademicLoad, AchievementGrade, Group, Period, TeacherAssignment
 from core.models import Institution
 from students.models import Enrollment
@@ -180,15 +180,16 @@ def build_academic_period_sabana_context(*, group: Group, period: Period) -> Dic
 
     def compute_subject_score(enrollment_id: int, teacher_assignment_id: Optional[int]) -> Tuple[Optional[Decimal], str]:
         if not teacher_assignment_id:
+            # Sin docente asignado: la asignatura existe en el plan pero no tiene TA
             return None, ""
 
         gs_id = gradesheet_id_by_ta_period.get((teacher_assignment_id, period.id))
-        if not gs_id:
-            return None, ""
-
         achievements = achievements_by_ta_period.get((teacher_assignment_id, period.id), [])
-        if not achievements:
-            return None, ""
+
+        if not gs_id or not achievements:
+            # Sin planilla o sin logros → DEFAULT_EMPTY_SCORE, igual que gradebook y promotion
+            scale = match_scale(period.academic_year_id, DEFAULT_EMPTY_SCORE)
+            return DEFAULT_EMPTY_SCORE, (scale.name if scale else "")
 
         final_score = final_grade_from_achievement_scores(
             [

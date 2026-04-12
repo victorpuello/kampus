@@ -274,6 +274,23 @@
       font-weight: 700;
     }
 
+    .best-average-exact {
+      clear: both;
+      text-align: right;
+      font-size: 8px;
+      font-weight: 700;
+      color: #6b7280;
+      margin-top: 2px;
+      line-height: 1.3;
+    }
+
+    .best-average-exact-note {
+      font-size: 7px;
+      font-weight: 400;
+      color: #9ca3af;
+      font-style: italic;
+    }
+
     .split {
       display: table;
       width: 100%;
@@ -463,6 +480,12 @@
                 <span class="student-name" style="font-size:10px;">{{ student.student_name }}</span>
                 <span class="best-average">{{ student.average_label|default:"N/D" }}</span>
               </div>
+              {% if student.exact_average_label %}
+              <div class="best-average-exact">
+                Promedio exacto: {{ student.exact_average_label }}
+                <span class="best-average-exact-note"><br>Desempate por décimas</span>
+              </div>
+              {% endif %}
               <p class="best-note">{{ student.highlight }}</p>
             </div>
           </div>

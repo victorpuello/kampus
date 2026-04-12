@@ -132,7 +132,9 @@ def _overall_decimal_from_rows(rows: List[Dict[str, Any]]) -> Optional[Decimal]:
 
     if not scores:
         return None
-    return (sum(scores) / Decimal(len(scores))).quantize(Decimal("0.01"))
+    # Full precision: used as sort key for ranking so apparent ties (same 2-decimal display)
+    # are broken by the actual unrounded average rather than insertion order.
+    return sum(scores) / Decimal(len(scores))
 
 
 def _rank_label(position: int) -> str:
@@ -148,7 +150,15 @@ def _rank_label(position: int) -> str:
 def _compute_rankings(
     enrollment_ids_with_score: List[Tuple[int, Optional[Decimal]]],
 ) -> Dict[int, Dict[str, Any]]:
-    """Competition ranking (1,2,2,4) by score desc. None scores go to the bottom."""
+    """Competition ranking (1,2,2,4) by score desc. None scores go to the bottom.
+
+    Ranking is resolved using full-precision averages so students with the same
+    2-decimal display score are ordered by their actual unrounded value.
+    When two students share the same 2-decimal display value but have different
+    full-precision scores (and therefore different ranks), both are flagged with
+    ``has_display_tie=True`` so the boletín can show the exact average as a
+    transparency note for parents.
+    """
 
     total = len(enrollment_ids_with_score)
     ordered = sorted(
@@ -177,7 +187,30 @@ def _compute_rankings(
             "position": rank,
             "total": total,
             "badge_label": _rank_label(rank) if rank in (1, 2, 3) else "",
+            "exact_score": score,
         }
+
+    # Detect "display ties": students whose 2-decimal display value is the same
+    # but who rank differently because their full-precision average differs.
+    # Group enrollment_ids by rounded (2-decimal) display value.
+    display_rounded_groups: Dict[Optional[Decimal], List[int]] = {}
+    for enrollment_id, score in enrollment_ids_with_score:
+        rounded = score.quantize(Decimal("0.01")) if score is not None else None
+        display_rounded_groups.setdefault(rounded, []).append(enrollment_id)
+
+    display_tied_ids: set[int] = set()
+    for ids in display_rounded_groups.values():
+        if len(ids) <= 1:
+            continue
+        # If the group members have different positions they were broken by
+        # full-precision, making this a visible-tie situation.
+        positions = {out[eid]["position"] for eid in ids if eid in out}
+        if len(positions) > 1:
+            display_tied_ids.update(ids)
+
+    for enrollment_id in out:
+        out[enrollment_id]["has_display_tie"] = enrollment_id in display_tied_ids
+
     return out
 
 
@@ -481,6 +514,7 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
     rank_position: Optional[int] = None
     rank_total: Optional[int] = None
     rank_badge_label: str = ""
+    exact_overall_score: str = ""
     if enrollment.group_id:
         # NOTE: Don't combine select_related("student__user") with .only(...) that defers
         # the FK field itself (Django raises: cannot be both deferred and traversed).
@@ -510,6 +544,13 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
             rank_position = int(info.get("position") or 0) or None
             rank_total = int(info.get("total") or 0) or None
             rank_badge_label = str(info.get("badge_label") or "")
+            # Only expose the exact average when there is a visible tie, i.e. two or
+            # more students share the same 2-decimal display score but rank differently.
+            # This gives parents a transparent tiebreaker without cluttering every boletín.
+            if info.get("has_display_tie"):
+                raw_exact = info.get("exact_score")
+                if raw_exact is not None:
+                    exact_overall_score = f"{Decimal(raw_exact):.4f}"
 
     performance_series = _period_performance_series_from_rows(rows)
 
@@ -526,6 +567,7 @@ def build_academic_period_report_context(enrollment: Enrollment, period: Period)
         "rows": rows,
         "overall_score": overall_score,
         "overall_scale": overall_scale,
+        "exact_overall_score": exact_overall_score,
         "rank_position": rank_position,
         "rank_total": rank_total,
         "rank_badge_label": rank_badge_label,
@@ -924,6 +966,9 @@ def _precompute_achievements(
     )
 
     # Partition by (academic_load_id, period_id) into group-specific vs global.
+    # REGLA: grupo-específico si existe; global si no.
+    # Versión batch de achievement_queryset_for_assignment_period() en academic/grading.py.
+    # Si se cambia la regla de selección, actualizar ambos sitios.
     partition: Dict[Tuple[int, int], Dict[str, List[Achievement]]] = {}
     for a in all_achievements:
         key = (a.academic_load_id, a.period_id)
@@ -1036,14 +1081,13 @@ def _build_rows_for_enrollment(
         total = sum(score * Decimal(weight) for score, weight in present)
         return (total / Decimal(total_weight)).quantize(Decimal("0.01"))
 
-    def compute_subject_score(ta: TeacherAssignment, p: Period) -> Tuple[Optional[Decimal], str]:
+    def compute_subject_score(ta: TeacherAssignment, p: Period) -> Tuple[Decimal, str]:
         gs_id = gradesheet_id_by_ta_period.get((ta.id, p.id))
-        if not gs_id:
-            return None, ""
-
         achievements = achievements_by_ta_period.get((ta.id, p.id), [])
-        if not achievements:
-            return None, ""
+
+        if not gs_id or not achievements:
+            # Sin planilla o sin logros → DEFAULT_EMPTY_SCORE, igual que gradebook y promotion
+            return DEFAULT_EMPTY_SCORE, _scale_name(enrollment.academic_year_id, DEFAULT_EMPTY_SCORE)
 
         final_score = final_grade_from_achievement_scores(
             [
@@ -1164,17 +1208,19 @@ def _build_rows_for_enrollment(
             scores_by_period[p.id] = s
             scales_by_period[p.id] = sc
             if area_key and p_idx <= selected_period_idx:
-                # If the subject has no grade for this period, default to 1.00 so it
-                # is not silently ignored when computing the area weighted average.
-                area_score = s if s is not None else Decimal("1.00")
-                current_area_items_by_period.setdefault(p.id, []).append((area_score, weight_pct))
+                # s is always a Decimal (DEFAULT_EMPTY_SCORE when no gradesheet/achievements)
+                current_area_items_by_period.setdefault(p.id, []).append((s, weight_pct))
 
-        filled = [Decimal(s) for s in scores_by_period.values() if s is not None]
-        filled = [Decimal(s) for s in scores_by_period.values() if s is not None]
+        # Nota anual: promedio de todos los periodos hasta el seleccionado (incluye 1.00
+        # para periodos sin planilla, igual que el gradebook y el motor de promoción).
+        calc_scores = [
+            Decimal(scores_by_period[p.id])
+            for p in year_periods
+            if period_index_by_id.get(p.id, 999) <= selected_period_idx
+        ]
         final_score = None
-        if filled:
-            avg = sum(filled) / Decimal(len(filled))
-            final_score = avg.quantize(Decimal("0.01"))
+        if calc_scores:
+            final_score = (sum(calc_scores) / Decimal(len(calc_scores))).quantize(Decimal("0.01"))
 
         # logro/dificultad lines: use achievements descriptions for selected period
         selected_achievements = achievements_by_ta_period.get((ta.id, selected_period.id), [])
@@ -1396,6 +1442,7 @@ def build_academic_period_group_report_context(
                 "rows": rows,
                 "overall_score": overall_score,
                 "overall_scale": overall_scale,
+                "exact_overall_score": "",
                 "rank_position": None,
                 "rank_total": None,
                 "rank_badge_label": "",
@@ -1415,6 +1462,10 @@ def build_academic_period_group_report_context(
         page["rank_position"] = int(info.get("position") or 0) or None
         page["rank_total"] = int(info.get("total") or 0) or None
         page["rank_badge_label"] = str(info.get("badge_label") or "")
+        if info.get("has_display_tie"):
+            raw_exact = info.get("exact_score")
+            if raw_exact is not None:
+                page["exact_overall_score"] = f"{Decimal(raw_exact):.4f}"
 
     return {"pages": pages}
 

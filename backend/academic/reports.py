@@ -310,9 +310,22 @@ def build_commission_performance_snapshot(*, commission: Commission) -> dict[str
 				"highlight": highlight,
 				"average": average_value,
 				"average_label": average_label,
+				# Populated below when there is a display tie within the top-2 group.
+				"exact_average_label": "",
 				"failed_count": item["failed_count"],
 			}
 		)
+
+	# Detect a "display tie" among the selected cuadro-de-honor students:
+	# when two students share the same 1-decimal label but different ranks (full-precision
+	# averages differ), expose the exact value so the acta can explain the tiebreaker.
+	if len(best_performance_students) == 2:
+		label_0 = best_performance_students[0]["average_label"]
+		label_1 = best_performance_students[1]["average_label"]
+		if label_0 == label_1:
+			for student in best_performance_students:
+				avg_exact = student["average"]
+				student["exact_average_label"] = f"{avg_exact:.4f}"
 
 	return {
 		"enrollments": enrollments,

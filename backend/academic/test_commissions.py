@@ -408,7 +408,7 @@ class CommissionWorkflowApiTests(APITestCase):
         ids = [item["id"] for item in response.data]
         self.assertIn(orphan_commission.id, ids)
 
-    @patch("academic.commission_views.compute_difficulties_for_commission")
+    @patch("academic.commission_services.compute_difficulties_for_commission")
     def test_refresh_difficulties_creates_and_updates_decisions(self, mock_compute):
         self.client.force_authenticate(user=self.admin)
         mock_compute.return_value = [
@@ -477,6 +477,43 @@ class CommissionWorkflowApiTests(APITestCase):
         self.commission.refresh_from_db()
         self.assertEqual(self.commission.status, Commission.STATUS_IN_PROGRESS)
 
+    @patch("academic.commission_services.compute_difficulties_for_commission")
+    def test_start_promotion_commission_syncs_existing_decisions_before_opening(self, mock_compute):
+        self.client.force_authenticate(user=self.admin)
+
+        promotion_commission = Commission.objects.create(
+            commission_type=Commission.TYPE_PROMOTION,
+            academic_year=self.year,
+            period=None,
+            group=self.group,
+            created_by=self.admin,
+        )
+        decision = CommissionStudentDecision.objects.create(
+            commission=promotion_commission,
+            enrollment=self.enrollment,
+            failed_subjects_count=0,
+            failed_areas_count=0,
+            is_flagged=False,
+        )
+        mock_compute.return_value = [
+            CommissionDifficultyResult(
+                enrollment_id=self.enrollment.id,
+                failed_subjects_count=3,
+                failed_areas_count=2,
+                is_flagged=True,
+            )
+        ]
+
+        response = self.client.post(f"/api/commissions/{promotion_commission.id}/start/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        promotion_commission.refresh_from_db()
+        decision.refresh_from_db()
+        self.assertEqual(promotion_commission.status, Commission.STATUS_IN_PROGRESS)
+        self.assertEqual(decision.failed_subjects_count, 3)
+        self.assertEqual(decision.failed_areas_count, 2)
+        self.assertTrue(decision.is_flagged)
+
     def test_list_commission_decisions_is_paginated_with_summary(self):
         self.client.force_authenticate(user=self.admin)
         CommissionStudentDecision.objects.create(
@@ -520,6 +557,48 @@ class CommissionWorkflowApiTests(APITestCase):
         self.assertEqual(response.data["summary"]["total_students"], 2)
         self.assertEqual(response.data["summary"]["total_flagged"], 1)
         self.assertEqual(response.data["summary"]["total_not_flagged"], 1)
+
+    @patch("academic.commission_services.compute_difficulties_for_commission")
+    def test_list_promotion_commission_decisions_syncs_stale_rows_when_open(self, mock_compute):
+        self.client.force_authenticate(user=self.admin)
+
+        promotion_commission = Commission.objects.create(
+            commission_type=Commission.TYPE_PROMOTION,
+            academic_year=self.year,
+            period=None,
+            group=self.group,
+            created_by=self.admin,
+            status=Commission.STATUS_IN_PROGRESS,
+        )
+        decision = CommissionStudentDecision.objects.create(
+            commission=promotion_commission,
+            enrollment=self.enrollment,
+            failed_subjects_count=0,
+            failed_areas_count=0,
+            is_flagged=False,
+        )
+        mock_compute.return_value = [
+            CommissionDifficultyResult(
+                enrollment_id=self.enrollment.id,
+                failed_subjects_count=2,
+                failed_areas_count=1,
+                is_flagged=True,
+            )
+        ]
+
+        response = self.client.get(f"/api/commission-decisions/?commission={promotion_commission.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["summary"]["total_flagged"], 1)
+        self.assertEqual(response.data["results"][0]["failed_subjects_count"], 2)
+        self.assertEqual(response.data["results"][0]["failed_areas_count"], 1)
+        self.assertTrue(response.data["results"][0]["is_flagged"])
+
+        decision.refresh_from_db()
+        self.assertEqual(decision.failed_subjects_count, 2)
+        self.assertEqual(decision.failed_areas_count, 1)
+        self.assertTrue(decision.is_flagged)
 
     @patch("academic.commission_views.generate_commission_observer_annotations_task.delay")
     def test_close_commission_requires_in_progress(self, mock_delay):

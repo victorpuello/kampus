@@ -86,3 +86,22 @@ def match_scale(academic_year_id: int, score: Decimal) -> Optional[EvaluationSca
     if not scale:
         return None
     return EvaluationScaleMatch(name=scale.name, description=scale.description)
+
+
+def achievement_queryset_for_assignment_period(teacher_assignment, period):
+    """Fuente única de verdad: achievements de grupo específico si existen; globales si no.
+
+    Todos los módulos que calculan la nota definitiva (gradebook, boletín, sábana,
+    comisión) deben usar esta función para seleccionar los achievements válidos de un
+    (teacher_assignment, period).
+    """
+    from .models import Achievement
+
+    base = Achievement.objects.filter(
+        academic_load=teacher_assignment.academic_load,
+        period=period,
+    )
+    group_specific = base.filter(group=teacher_assignment.group)
+    if group_specific.exists():
+        return group_specific
+    return base.filter(group__isnull=True)

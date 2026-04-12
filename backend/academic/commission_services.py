@@ -15,7 +15,7 @@ from academic.promotion import (
 )
 from students.models import Enrollment
 
-from .models import Commission, CommissionRuleConfig, TeacherAssignment
+from .models import Commission, CommissionRuleConfig, CommissionStudentDecision, TeacherAssignment
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,14 @@ class CommissionDifficultyResult:
     failed_subjects_count: int
     failed_areas_count: int
     is_flagged: bool
+
+
+@dataclass(frozen=True)
+class CommissionDifficultySyncResult:
+    created: int
+    updated: int
+    deleted: int
+    summary: dict
 
 
 def summarize_difficulty_results(results: List[CommissionDifficultyResult]) -> dict:
@@ -177,3 +185,59 @@ def compute_difficulties_for_commission(commission: Commission) -> List[Commissi
         )
 
     return out
+
+
+def sync_commission_difficulties(commission: Commission) -> CommissionDifficultySyncResult:
+    results = compute_difficulties_for_commission(commission)
+    summary = summarize_difficulty_results(results)
+    result_by_enrollment = {int(result.enrollment_id): result for result in results}
+
+    existing = {
+        int(decision.enrollment_id): decision
+        for decision in CommissionStudentDecision.objects.select_for_update().filter(commission=commission)
+    }
+
+    created = 0
+    updated = 0
+
+    for enrollment_id, item in result_by_enrollment.items():
+        decision = existing.get(enrollment_id)
+        if decision is None:
+            CommissionStudentDecision.objects.create(
+                commission=commission,
+                enrollment_id=enrollment_id,
+                failed_subjects_count=int(item.failed_subjects_count),
+                failed_areas_count=int(item.failed_areas_count),
+                is_flagged=bool(item.is_flagged),
+            )
+            created += 1
+            continue
+
+        if (
+            decision.failed_subjects_count == int(item.failed_subjects_count)
+            and decision.failed_areas_count == int(item.failed_areas_count)
+            and decision.is_flagged == bool(item.is_flagged)
+        ):
+            continue
+
+        decision.failed_subjects_count = int(item.failed_subjects_count)
+        decision.failed_areas_count = int(item.failed_areas_count)
+        decision.is_flagged = bool(item.is_flagged)
+        decision.save(update_fields=["failed_subjects_count", "failed_areas_count", "is_flagged", "updated_at"])
+        updated += 1
+
+    stale_ids = [
+        int(decision.id)
+        for enrollment_id, decision in existing.items()
+        if enrollment_id not in result_by_enrollment
+    ]
+    deleted = 0
+    if stale_ids:
+        deleted, _ = CommissionStudentDecision.objects.filter(id__in=stale_ids).delete()
+
+    return CommissionDifficultySyncResult(
+        created=created,
+        updated=updated,
+        deleted=deleted,
+        summary=summary,
+    )

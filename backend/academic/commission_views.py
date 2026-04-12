@@ -26,7 +26,11 @@ from reports.tasks import generate_report_job_pdf
 from discipline.models import DisciplineCase
 
 from .ai import AIService, AIServiceError
-from .commission_services import compute_difficulties_for_commission, summarize_difficulty_results
+from .commission_services import (
+    compute_difficulties_for_commission,
+    summarize_difficulty_results,
+    sync_commission_difficulties,
+)
 from .commission_serializers import (
     CommissionRuleConfigSerializer,
     CommissionSerializer,
@@ -576,45 +580,7 @@ class CommissionViewSet(viewsets.ModelViewSet):
             return invalid
 
         with transaction.atomic():
-            results = compute_difficulties_for_commission(commission)
-            summary = summarize_difficulty_results(results)
-            result_by_enrollment = {int(r.enrollment_id): r for r in results}
-
-            existing = {
-                int(d.enrollment_id): d
-                for d in CommissionStudentDecision.objects.select_for_update().filter(commission=commission)
-            }
-
-            created = 0
-            updated = 0
-
-            for enrollment_id, item in result_by_enrollment.items():
-                decision = existing.get(enrollment_id)
-                if decision is None:
-                    CommissionStudentDecision.objects.create(
-                        commission=commission,
-                        enrollment_id=enrollment_id,
-                        failed_subjects_count=int(item.failed_subjects_count),
-                        failed_areas_count=int(item.failed_areas_count),
-                        is_flagged=bool(item.is_flagged),
-                    )
-                    created += 1
-                    continue
-
-                decision.failed_subjects_count = int(item.failed_subjects_count)
-                decision.failed_areas_count = int(item.failed_areas_count)
-                decision.is_flagged = bool(item.is_flagged)
-                decision.save(update_fields=["failed_subjects_count", "failed_areas_count", "is_flagged", "updated_at"])
-                updated += 1
-
-            stale_ids = [
-                int(decision.id)
-                for enrollment_id, decision in existing.items()
-                if enrollment_id not in result_by_enrollment
-            ]
-            deleted = 0
-            if stale_ids:
-                deleted, _ = CommissionStudentDecision.objects.filter(id__in=stale_ids).delete()
+            sync_result = sync_commission_difficulties(commission)
 
         log_event(
             request,
@@ -622,11 +588,20 @@ class CommissionViewSet(viewsets.ModelViewSet):
             object_type="academic.Commission",
             object_id=commission.id,
             status_code=status.HTTP_200_OK,
-            metadata={"created": created, "updated": updated, "deleted": deleted},
+            metadata={
+                "created": sync_result.created,
+                "updated": sync_result.updated,
+                "deleted": sync_result.deleted,
+            },
         )
 
         return Response(
-            {"created": created, "updated": updated, "deleted": deleted, "summary": summary},
+            {
+                "created": sync_result.created,
+                "updated": sync_result.updated,
+                "deleted": sync_result.deleted,
+                "summary": sync_result.summary,
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -679,8 +654,12 @@ class CommissionViewSet(viewsets.ModelViewSet):
         if invalid is not None:
             return invalid
 
-        commission.status = Commission.STATUS_IN_PROGRESS
-        commission.save(update_fields=["status", "updated_at"])
+        with transaction.atomic():
+            if commission.commission_type == Commission.TYPE_PROMOTION:
+                sync_commission_difficulties(commission)
+
+            commission.status = Commission.STATUS_IN_PROGRESS
+            commission.save(update_fields=["status", "updated_at"])
 
         log_event(
             request,
@@ -763,6 +742,17 @@ class CommissionStudentDecisionViewSet(viewsets.ModelViewSet):
     pagination_class = CommissionDecisionPagination
 
     def list(self, request, *args, **kwargs):
+        commission_id = request.query_params.get("commission")
+        if commission_id:
+            commission = Commission.objects.filter(pk=commission_id).only("id", "commission_type", "status").first()
+            if (
+                commission is not None
+                and commission.commission_type == Commission.TYPE_PROMOTION
+                and commission.status in {Commission.STATUS_DRAFT, Commission.STATUS_IN_PROGRESS}
+            ):
+                with transaction.atomic():
+                    sync_commission_difficulties(commission)
+
         queryset = self.filter_queryset(self.get_queryset())
 
         total_students = queryset.count()
