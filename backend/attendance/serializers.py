@@ -36,6 +36,15 @@ class AttendanceSessionCreateSerializer(serializers.Serializer):
         if ta.academic_year_id != period.academic_year_id:
             raise serializers.ValidationError("La clase debe pertenecer al mismo año académico del periodo.")
 
+        if period.is_closed:
+            raise serializers.ValidationError("No se pueden crear planillas en periodos cerrados.")
+
+        effective_date = attrs.get("class_date") or timezone.localdate()
+        if effective_date < period.start_date or effective_date > period.end_date:
+            raise serializers.ValidationError(
+                f"La fecha debe estar dentro del periodo '{period.name}' ({period.start_date} – {period.end_date})."
+            )
+
         if getattr(user, "role", None) == "TEACHER":
             if ta.teacher_id != getattr(user, "id", None):
                 raise serializers.ValidationError("No tienes permiso para crear clases en esta asignación.")

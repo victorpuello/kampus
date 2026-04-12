@@ -15,6 +15,10 @@ class TeacherStatisticsAIAnalysis(models.Model):
     MODE_ACCUMULATED = "accumulated"
     MODE_CHOICES = [(MODE_PERIOD, "Periodo"), (MODE_ACCUMULATED, "Acumulado")]
 
+    AUDIENCE_TEACHER = "teacher"
+    AUDIENCE_PARENTS = "parents"
+    AUDIENCE_CHOICES = [(AUDIENCE_TEACHER, "Docente"), (AUDIENCE_PARENTS, "Padres/Acudientes")]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -35,6 +39,7 @@ class TeacherStatisticsAIAnalysis(models.Model):
     # 0 = "Todos" (todos los grupos dirigidos). Otherwise a concrete Group.id
     director_group_id = models.IntegerField(default=0)
     passing_score = models.DecimalField(max_digits=6, decimal_places=2)
+    audience = models.CharField(max_length=12, choices=AUDIENCE_CHOICES, default=AUDIENCE_TEACHER)
 
     context = models.JSONField(default=dict, blank=True)
     analysis = models.TextField()
@@ -52,13 +57,14 @@ class TeacherStatisticsAIAnalysis(models.Model):
                     "director_mode",
                     "director_group_id",
                     "passing_score",
+                    "audience",
                 ],
                 name="uniq_teacher_stats_ai_scope",
             )
         ]
 
     def __str__(self):
-        return f"AI analysis {self.user_id} y{self.academic_year_id} p{self.period_id} g{self.director_group_id}"
+        return f"AI analysis {self.user_id} y{self.academic_year_id} p{self.period_id} g{self.director_group_id} [{self.audience}]"
 
 
 class Teacher(models.Model):

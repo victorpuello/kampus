@@ -31,6 +31,7 @@ from .commission_views import (
     CommissionViewSet,
     CommissionStudentDecisionViewSet,
     CommitmentActaViewSet,
+    TeacherCommissionViewSet,
 )
 
 router = DefaultRouter()
@@ -65,6 +66,7 @@ router.register(r"commission-rule-configs", CommissionRuleConfigViewSet, basenam
 router.register(r"commissions", CommissionViewSet, basename="commission")
 router.register(r"commission-decisions", CommissionStudentDecisionViewSet, basename="commission-decision")
 router.register(r"commission-actas", CommitmentActaViewSet, basename="commission-acta")
+router.register(r"teacher-commissions", TeacherCommissionViewSet, basename="teacher-commission")
 
 urlpatterns = [
     path("", include(router.urls)),

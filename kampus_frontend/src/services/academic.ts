@@ -82,6 +82,7 @@ export interface Commission {
   updated_at: string
   period_name?: string
   group_name?: string
+  grade_name?: string
 }
 
 export interface CommissionDecision {
@@ -102,6 +103,8 @@ export interface CommissionDecision {
   student_document?: string
   group_name?: string
   acta_id?: number | null
+  student_photo_url?: string | null
+  average?: number | null
 }
 
 export interface CommissionDisciplineStudent {
@@ -842,6 +845,10 @@ export const academicApi = {
     `/api/commissions/${commissionId}/generate-actas-async/`,
     data ?? {}
   ),
+  downloadCommissionActasZip: (commissionId: number, jobIds?: number[]) =>
+    api.post<Blob>(`/api/commissions/${commissionId}/download-actas-zip/`, jobIds && jobIds.length > 0 ? { job_ids: jobIds } : {}, {
+      responseType: 'blob',
+    }),
   downloadCommissionGroupActaPdf: (commissionId: number) =>
     api.get<Blob>(`/api/commissions/${commissionId}/group-acta/`, {
       params: { format: 'pdf' },
@@ -853,6 +860,26 @@ export const academicApi = {
     }),
   listCommissionActas: (params?: Record<string, unknown>) =>
     api.get<CommitmentActa[]>('/api/commission-actas/', { params }),
+
+  // Teacher read-only commission access (director de grupo)
+  listTeacherCommissions: (params?: Record<string, unknown>) =>
+    api.get<Commission[]>('/api/teacher-commissions/', { params }),
+  getTeacherCommission: (id: number) =>
+    api.get<Commission>(`/api/teacher-commissions/${id}/`),
+  listTeacherCommissionDecisions: (commissionId: number) =>
+    api.get<CommissionDecision[]>(`/api/teacher-commissions/${commissionId}/decisions/`),
+  downloadTeacherCommissionActasZip: (commissionId: number) =>
+    api.post<Blob>(`/api/teacher-commissions/${commissionId}/download-actas-zip/`, {}, {
+      responseType: 'blob',
+    }),
+  downloadTeacherCommissionDecisionActa: (commissionId: number, decisionId: number) =>
+    api.get<Blob>(`/api/teacher-commissions/${commissionId}/decisions/${decisionId}/acta/`, {
+      responseType: 'blob',
+    }),
+  downloadTeacherCommissionGroupActa: (commissionId: number) =>
+    api.get<Blob>(`/api/teacher-commissions/${commissionId}/group-acta/`, {
+      responseType: 'blob',
+    }),
   
   // Periods
   listPeriods: () => api.get<Period[]>('/api/periods/'),

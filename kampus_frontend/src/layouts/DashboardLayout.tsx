@@ -533,6 +533,7 @@ export default function DashboardLayout() {
 
       if (teacherHasDirectedGroup) {
         items.push({ name: 'Estudiantes', href: '/students', icon: Users })
+        items.push({ name: 'Mis comisiones', href: '/my-commissions', icon: GraduationCap })
       }
 
       items.push({

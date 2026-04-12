@@ -29,6 +29,7 @@ class CommissionSerializer(serializers.ModelSerializer):
     closed_by_name = serializers.SerializerMethodField()
     period_name = serializers.SerializerMethodField()
     group_name = serializers.SerializerMethodField()
+    grade_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Commission
@@ -60,6 +61,16 @@ class CommissionSerializer(serializers.ModelSerializer):
         try:
             group = obj.group
             return getattr(group, "name", "") if group is not None else ""
+        except ObjectDoesNotExist:
+            return ""
+
+    def get_grade_name(self, obj):
+        try:
+            group = obj.group
+            if group is None:
+                return ""
+            grade = getattr(group, "grade", None)
+            return getattr(grade, "name", "") if grade is not None else ""
         except ObjectDoesNotExist:
             return ""
 
@@ -148,6 +159,7 @@ class CommissionStudentDecisionSerializer(serializers.ModelSerializer):
     student_document = serializers.CharField(source="enrollment.student.document_number", read_only=True)
     group_name = serializers.CharField(source="enrollment.group.name", read_only=True)
     acta_id = serializers.IntegerField(source="commitment_acta.id", read_only=True)
+    student_photo_url = serializers.SerializerMethodField()
 
     class Meta:
         model = CommissionStudentDecision
@@ -159,6 +171,17 @@ class CommissionStudentDecisionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_student_photo_url(self, obj):
+        request = self.context.get("request")
+        try:
+            student = obj.enrollment.student
+            photo = getattr(student, "photo_thumb", None) or getattr(student, "photo", None)
+            if photo and getattr(photo, "name", None) and request:
+                return request.build_absolute_uri(photo.url)
+        except Exception:
+            pass
+        return None
 
 
 class CommitmentActaSerializer(serializers.ModelSerializer):

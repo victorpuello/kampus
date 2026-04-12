@@ -44,6 +44,7 @@ const DisciplineCaseDetail = lazy(() => import('./pages/DisciplineCaseDetail'))
 const PapPlans = lazy(() => import('./pages/PapPlans'))
 const PromotionWorkflow = lazy(() => import('./pages/PromotionWorkflow'))
 const CommissionsWorkflow = lazy(() => import('./pages/CommissionsWorkflow'))
+const MyCommissions = lazy(() => import('./pages/MyCommissions'))
 const TeacherStatistics = lazy(() => import('./pages/TeacherStatistics'))
 const DirectorCompliance = lazy(() => import('./pages/DirectorCompliance'))
 const SystemSettings = lazy(() => import('./pages/SystemSettings'))
@@ -169,6 +170,7 @@ export default function App() {
             <Route path="/pap" element={<PapPlans />} />
             <Route path="/promotion" element={<PromotionWorkflow />} />
             <Route path="/commissions" element={<CommissionsWorkflow />} />
+            <Route path="/my-commissions" element={<MyCommissions />} />
             <Route path="/teacher-stats" element={<TeacherStatistics />} />
             <Route path="/teachers/director-compliance" element={<DirectorCompliance />} />
             <Route path="/attendance" element={<AttendanceHome />} />

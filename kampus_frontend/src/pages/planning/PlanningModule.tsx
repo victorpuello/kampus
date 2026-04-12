@@ -9,7 +9,7 @@ export default function PlanningModule() {
   const [activeTab, setActiveTab] = useState<PlanningTab>('planning')
 
   return (
-    <div className="max-w-7xl mx-auto px-2 sm:px-0">
+    <div className="px-2 sm:px-0">
       <div className="bg-white dark:bg-slate-900 shadow-sm dark:shadow-none border border-slate-200 dark:border-slate-800 mb-4 sm:mb-6 rounded-lg overflow-hidden">
         <div className="grid grid-cols-1 gap-2 border-b border-slate-200 p-2 dark:border-slate-800 sm:grid-cols-2 sm:gap-0 sm:p-0">
           <button

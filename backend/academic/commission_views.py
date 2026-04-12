@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
+import unicodedata
+import zipfile
 
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from django.template.loader import render_to_string
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from pathlib import Path
 from rest_framework import pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -19,7 +24,7 @@ from audit.services import log_event
 from notifications.models import Notification
 from notifications.services import create_notification
 from students.models import Enrollment, FamilyMember, ObserverAnnotation
-from users.permissions import IsCoordinator
+from users.permissions import IsCoordinator, IsTeacher
 from reports.models import ReportJob
 from reports.serializers import ReportJobSerializer
 from reports.tasks import generate_report_job_pdf
@@ -42,7 +47,9 @@ from .models import (
     CommissionRuleConfig,
     CommissionStudentDecision,
     CommitmentActa,
+    TeacherAssignment,
 )
+from .promotion import PASSING_SCORE_DEFAULT, _compute_subject_final_for_enrollments
 from .reports import (
     build_commitment_acta_context,
     build_commission_group_acta_context,
@@ -724,6 +731,19 @@ class CommissionViewSet(viewsets.ModelViewSet):
 
         return Response({"count": len(out), "jobs": out}, status=status.HTTP_202_ACCEPTED)
 
+    @action(detail=True, methods=["post"], url_path="download-actas-zip")
+    def download_actas_zip(self, request, pk=None):
+        """Bundle all completed individual acta PDFs for this commission into a single ZIP."""
+        commission = self.get_object()
+        job_ids_raw = request.data.get("job_ids")
+        job_ids: list[int] | None = None
+        if isinstance(job_ids_raw, list) and job_ids_raw:
+            try:
+                job_ids = [int(x) for x in job_ids_raw]
+            except (TypeError, ValueError):
+                return Response({"detail": "job_ids inválido"}, status=status.HTTP_400_BAD_REQUEST)
+        return _build_actas_zip_response(commission=commission, job_ids=job_ids)
+
 
 class CommissionStudentDecisionViewSet(viewsets.ModelViewSet):
     queryset = CommissionStudentDecision.objects.select_related(
@@ -997,3 +1017,354 @@ class CommitmentActaViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, IsCoordinator]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["decision__commission", "decision__enrollment", "generated_by"]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _build_actas_zip_response(
+    *,
+    commission: Commission,
+    job_ids: list[int] | None = None,
+) -> HttpResponse | Response:
+    """Build a ZIP HttpResponse with all SUCCEEDED acta PDFs for a commission.
+
+    If *job_ids* is provided, only those jobs are included; otherwise every
+    SUCCEEDED ``ACADEMIC_COMMISSION_ACTA`` job linked to the commission's
+    decisions is included.
+
+    Returns an ``HttpResponse`` with the ZIP content on success, or a DRF
+    ``Response`` with an error payload when no files are available.
+    """
+    decision_ids = list(
+        CommissionStudentDecision.objects.filter(commission=commission).values_list("id", flat=True)
+    )
+
+    qs = ReportJob.objects.filter(
+        report_type=ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA,
+        status=ReportJob.Status.SUCCEEDED,
+        params__decision_id__in=decision_ids,
+    )
+
+    if job_ids:
+        qs = qs.filter(id__in=job_ids)
+
+    jobs = list(qs)
+    if not jobs:
+        return Response(
+            {"detail": "No hay actas completadas disponibles para descargar."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # Build a lookup {decision_id: student_full_name} for readable filenames
+    decision_ids_in_jobs = {
+        int(job.params["decision_id"])
+        for job in jobs
+        if isinstance((job.params or {}).get("decision_id"), (int, float, str))
+    }
+    student_name_by_decision: dict[int, str] = {}
+    if decision_ids_in_jobs:
+        rows = (
+            CommissionStudentDecision.objects.filter(id__in=decision_ids_in_jobs)
+            .select_related("enrollment__student__user")
+            .values_list("id", "enrollment__student__user__first_name", "enrollment__student__user__last_name")
+        )
+        for d_id, first, last in rows:
+            full = f"{(last or '').strip()} {(first or '').strip()}".strip()
+            student_name_by_decision[d_id] = full
+
+    def _safe_filename(name: str) -> str:
+        """Normalize a student name to a safe ASCII-ish filename segment."""
+        normalized = unicodedata.normalize("NFD", name)
+        ascii_approx = normalized.encode("ascii", "ignore").decode("ascii")
+        safe = "".join(c if c.isalnum() or c in " _-" else "_" for c in ascii_approx)
+        return "_".join(safe.split())  # collapse spaces
+
+    base_root = Path(settings.PRIVATE_STORAGE_ROOT)
+    buffer = io.BytesIO()
+    added = 0
+    used_arcnames: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for job in jobs:
+            if not job.output_relpath:
+                continue
+            try:
+                # Guard against path traversal
+                rel = Path(job.output_relpath)
+                if rel.is_absolute():
+                    continue
+                abs_path = (base_root / rel).resolve()
+                if base_root.resolve() not in abs_path.parents:
+                    continue
+                if not abs_path.exists():
+                    continue
+                raw_decision_id = (job.params or {}).get("decision_id")
+                try:
+                    d_id = int(raw_decision_id)
+                except (TypeError, ValueError):
+                    d_id = None
+                student_name = student_name_by_decision.get(d_id, "") if d_id else ""
+                if student_name:
+                    safe_name = _safe_filename(student_name)
+                    base_arcname = f"acta_{safe_name}.pdf"
+                else:
+                    base_arcname = job.output_filename or f"acta-decision-{d_id or job.id}.pdf"
+                # Deduplicate in case two decisions share the same name
+                arcname = base_arcname
+                suffix = 1
+                while arcname in used_arcnames:
+                    stem = base_arcname[:-4]  # strip .pdf
+                    arcname = f"{stem}_{suffix}.pdf"
+                    suffix += 1
+                used_arcnames.add(arcname)
+                zf.write(abs_path, arcname)
+                added += 1
+            except Exception:
+                logger.exception("Error adding file to ZIP", extra={"job_id": job.id})
+                continue
+
+    if added == 0:
+        return Response(
+            {"detail": "Los archivos no están disponibles en disco. Verifica que los jobs hayan terminado."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    buffer.seek(0)
+    response = HttpResponse(buffer.read(), content_type="application/zip")
+    response["Content-Disposition"] = (
+        f'attachment; filename="actas-comision-{commission.id}.zip"'
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Teacher read-only view
+# ---------------------------------------------------------------------------
+
+class TeacherCommissionViewSet(viewsets.ReadOnlyModelViewSet):
+    """Read-only commission access for teachers who are directors of a group.
+
+    Returns only CLOSED commissions where the teacher is the director of the
+    commission's group.  Teachers can view decisions and download a ZIP with
+    all completed individual actas.
+    """
+
+    serializer_class = CommissionSerializer
+    permission_classes = [IsAuthenticated, IsTeacher]
+
+    def get_queryset(self):
+        return (
+            Commission.objects.filter(
+                status=Commission.STATUS_CLOSED,
+                group__director=self.request.user,
+            )
+            .select_related("academic_year", "period", "group")
+            .order_by("-id")
+        )
+
+    @action(detail=True, methods=["get"], url_path="decisions")
+    def decisions(self, request, pk=None):
+        commission = self.get_object()
+        decisions_qs = (
+            CommissionStudentDecision.objects.filter(commission=commission)
+            .select_related(
+                "enrollment",
+                "enrollment__student",
+                "enrollment__student__user",
+                "enrollment__group",
+                "commitment_acta",
+            )
+            .order_by("enrollment__student__user__last_name")
+        )
+        decisions_list = list(decisions_qs)
+
+        # Determine which decisions have a SUCCEEDED acta ReportJob (single extra query).
+        # CommitmentActa records may not exist when actas were generated asynchronously.
+        decision_ids = [d.id for d in decisions_list]
+        decisions_with_acta: set[int] = set()
+        if decision_ids:
+            decisions_with_acta = set(
+                ReportJob.objects.filter(
+                    report_type=ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA,
+                    status=ReportJob.Status.SUCCEEDED,
+                    params__decision_id__in=decision_ids,
+                ).values_list("params__decision_id", flat=True)
+            )
+
+        serializer = CommissionStudentDecisionSerializer(
+            decisions_list, many=True, context={"request": request}
+        )
+
+        # Compute per-enrollment average (same logic as reports.py best_performance calc).
+        from decimal import Decimal
+        enrollment_ids_list = [d.enrollment_id for d in decisions_list]
+        scores_by_enrollment: dict[int, list[Decimal]] = {eid: [] for eid in enrollment_ids_list}
+        assignments = (
+            TeacherAssignment.objects.filter(
+                academic_year_id=commission.academic_year_id,
+                group_id=commission.group_id,
+                academic_load__subject__isnull=False,
+            )
+            .select_related("academic_load", "academic_load__subject")
+            .only("id", "academic_load__subject_id")
+        )
+        for assignment in assignments:
+            finals = _compute_subject_final_for_enrollments(
+                teacher_assignment=assignment,
+                period=commission.period,
+                enrollment_ids=enrollment_ids_list,
+            )
+            for eid, score in finals.items():
+                if eid not in scores_by_enrollment or score is None:
+                    continue
+                try:
+                    scores_by_enrollment[eid].append(Decimal(str(score)))
+                except Exception:
+                    pass
+
+        enrollment_average: dict[int, float] = {}
+        for eid, scores in scores_by_enrollment.items():
+            if scores:
+                avg = sum(scores) / Decimal(len(scores))
+                enrollment_average[eid] = float(round(avg, 2))
+
+        # Augment: if CommitmentActa doesn't exist but a succeeded job does, expose acta_id
+        # as the decision's own id (truthy sentinel so the frontend shows the download button).
+        # Also expose the computed average so the frontend can rank honor-roll students correctly.
+        data = [
+            {
+                **record,
+                "acta_id": record.get("acta_id") or (item.id if item.id in decisions_with_acta else None),
+                "average": enrollment_average.get(item.enrollment_id),
+            }
+            for record, item in zip(serializer.data, decisions_list)
+        ]
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="download-actas-zip")
+    def download_actas_zip(self, request, pk=None):
+        commission = self.get_object()
+        return _build_actas_zip_response(commission=commission)
+
+    @action(detail=True, methods=["get"], url_path=r"decisions/(?P<decision_pk>[0-9]+)/acta")
+    def decision_acta(self, request, pk=None, decision_pk=None):
+        commission = self.get_object()
+        decision = get_object_or_404(
+            CommissionStudentDecision.objects.select_related(
+                "enrollment",
+                "enrollment__student",
+                "enrollment__student__user",
+            ),
+            pk=decision_pk,
+            commission=commission,
+        )
+        # Locate the most recent SUCCEEDED ReportJob for this decision's acta PDF.
+        job = (
+            ReportJob.objects.filter(
+                report_type=ReportJob.ReportType.ACADEMIC_COMMISSION_ACTA,
+                status=ReportJob.Status.SUCCEEDED,
+                params__decision_id=decision.id,
+            )
+            .order_by("-id")
+            .first()
+        )
+        if not job or not job.output_relpath:
+            return Response(
+                {"detail": "No hay acta generada para esta decisión."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        base_root = Path(settings.PRIVATE_STORAGE_ROOT)
+        try:
+            rel = Path(job.output_relpath)
+            if rel.is_absolute():
+                raise ValueError("absolute path")
+            abs_path = (base_root / rel).resolve()
+            if base_root.resolve() not in abs_path.parents:
+                raise ValueError("path traversal")
+            if not abs_path.exists():
+                return Response(
+                    {"detail": "El archivo del acta no está disponible."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            pdf_bytes = abs_path.read_bytes()
+        except ValueError:
+            return Response(
+                {"detail": "El archivo del acta no está disponible."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        student_name = (
+            decision.enrollment.student.user.get_full_name().strip().replace(" ", "_")
+            or f"decision-{decision.id}"
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="acta_{student_name}.pdf"'
+        return response
+
+    @action(detail=True, methods=["get"], url_path="group-acta")
+    def group_acta(self, request, pk=None):
+        commission = self.get_object()
+        if commission.commission_type != Commission.TYPE_EVALUATION:
+            return Response(
+                {"detail": "El acta grupal está disponible únicamente para comisiones de evaluación."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        total_students = commission.student_decisions.count()
+        flagged_count = commission.student_decisions.filter(is_flagged=True).count()
+        pending_count = commission.student_decisions.filter(
+            is_flagged=True,
+            decision__in=[
+                CommissionStudentDecision.DECISION_PENDING,
+                CommissionStudentDecision.DECISION_FOLLOW_UP,
+            ],
+        ).count()
+        reprobated_count = max(0, flagged_count - pending_count)
+        group = commission.group
+        institution_name = (
+            getattr(getattr(commission, "institution", None), "name", "")
+            or "Institución Educativa"
+        )
+        grade_name = getattr(getattr(group, "grade", None), "name", "") if group else ""
+        group_name = getattr(group, "name", "") if group else ""
+        grade_group_label = (
+            f"{grade_name} ({group_name})"
+            if grade_name and group_name
+            else (grade_name or group_name or "General")
+        )
+        period_name = (
+            getattr(getattr(commission, "period", None), "name", "")
+            if commission.period_id
+            else "Cierre anual"
+        )
+        ai_blocks = _resolve_group_acta_ai_blocks(
+            commission=commission,
+            institution_name=institution_name,
+            grade_group_label=grade_group_label,
+            period_name=period_name,
+            total_students=total_students,
+            flagged_count=flagged_count,
+            pending_count=pending_count,
+            reprobated_count=reprobated_count,
+        )
+        ctx = build_commission_group_acta_context(
+            commission=commission,
+            generated_by=request.user,
+            ai_blocks=ai_blocks,
+        )
+        html = render_to_string("academic/reports/commission_group_acta.html", ctx)
+        try:
+            from reports.weasyprint_utils import WeasyPrintUnavailableError, render_pdf_bytes_from_html  # noqa: PLC0415
+
+            pdf_bytes = render_pdf_bytes_from_html(html=html, base_url=str(settings.BASE_DIR))
+        except WeasyPrintUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        except Exception:
+            logger.exception("Error generando acta grupal (docente)", extra={"commission_id": commission.id})
+            return Response(
+                {"detail": "No fue posible generar el acta grupal."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="comision-grupal-{commission.id}.pdf"'
+        return response
+

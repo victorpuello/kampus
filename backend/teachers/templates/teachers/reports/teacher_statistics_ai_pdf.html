@@ -1,84 +1,599 @@
 <!doctype html>
-<html>
+<html lang="es">
   <head>
     <meta charset="utf-8" />
     <style>
+      /* ── Página ── */
       @page {
-        size: A4;
-        /* APA-style margins ~ 1 inch */
-        margin: 0 25.4mm 25.4mm 25.4mm;
-
-        @frame footer_frame {
-          /* Bottom-left footer */
-          -pdf-frame-content: footerContent;
-          left: 25.4mm;
-          width: 159.2mm;
-          top: 282mm;
-          height: 10mm;
-        }
+        size: Letter;
+        margin: 14mm 18mm 14mm 18mm;
       }
+
+      * { box-sizing: border-box; }
 
       body {
         font-family: Arial, Helvetica, sans-serif;
-        font-size: 12pt;
-        line-height: 2;
-        color: #111;
+        font-size: 9pt;
+        line-height: 1.4;
+        color: #1f2937;
         margin: 0;
         padding: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
       }
-      .masthead { width: 100%; border-collapse: collapse; margin-top: 0; }
-      .masthead td { vertical-align: middle; }
-      .masthead-left { width: 140px; }
-      .masthead-center { text-align: center; }
-      .masthead-right { width: 140px; text-align: right; }
 
-      .masthead-left img { width: auto; }
-      .masthead-right img { width: auto; }
-
-      .inst-line1 { font-size: 12pt; font-weight: bold; text-transform: uppercase; }
-      .inst-line2 { font-size: 10pt; }
-      .inst-line3 { font-size: 10pt; }
-
-      .title {
-        margin: 18pt 0 12pt 0;
-        font-size: 12pt;
-        font-weight: bold;
-        text-align: center;
+      /* ── ENCABEZADO INSTITUCIONAL ── */
+      .header-wrap {
+        border-bottom: 2px solid #1f2937;
+        padding-bottom: 8px;
+        margin-bottom: 10px;
+        position: relative;
+      }
+      .ai-badge {
+        position: absolute;
+        top: 0;
+        right: 0;
+        background: #e0e7ff;
+        color: #3730a3;
+        font-size: 7pt;
+        font-weight: 700;
+        padding: 2px 6px;
+        border: 1px solid #c7d2fe;
+        border-radius: 3px;
         text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .header-country {
+        text-align: center;
+        font-size: 7pt;
+        font-weight: 700;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 4px;
+      }
+      .header-inst-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 3px;
+      }
+      .header-logo-circle {
+        width: 34px;
+        height: 34px;
+        background: #f3f4f6;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .header-logo-circle img {
+        width: 34px;
+        height: 34px;
+        object-fit: contain;
+      }
+      .header-inst-name {
+        font-size: 10.5pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #111827;
+        text-align: center;
+      }
+      .header-inst-sub {
+        font-size: 7pt;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        text-align: center;
+        margin-top: 1px;
+      }
+      .header-ids {
+        text-align: center;
+        font-size: 7pt;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        margin-top: 3px;
       }
 
-      .meta {
-        margin-top: 10pt;
-        font-size: 12pt;
+      /* ── TÍTULO DOCUMENTO ── */
+      .doc-title-wrap {
+        text-align: center;
+        margin-bottom: 10px;
       }
-      .meta .label { font-weight: bold; }
+      .doc-title {
+        display: inline-block;
+        font-size: 10pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        padding: 4px 16px;
+        color: #111827;
+      }
 
-      .content { margin-top: 12pt; line-height: 2; }
-      .content p { margin: 0 0 12pt 0; text-indent: 0.5in; line-height: 2; }
-      .content .section-title { margin: 12pt 0 6pt 0; font-weight: bold; text-indent: 0; }
-      .content ul { margin: 0 0 12pt 0; padding-left: 0.35in; }
-      .content li { margin: 0 0 6pt 0; text-indent: 0; }
+      /* ── DATOS BÁSICOS ── */
+      .meta-box {
+        border: 1px solid #e5e7eb;
+        border-radius: 5px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        background: #fff;
+      }
+      .meta-grid {
+        display: table;
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .meta-row { display: table-row; }
+      .meta-cell {
+        display: table-cell;
+        padding: 2px 8px 4px 0;
+        vertical-align: top;
+      }
+      .meta-label {
+        font-size: 7pt;
+        font-weight: 700;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        display: block;
+        margin-bottom: 1px;
+      }
+      .meta-value {
+        font-size: 9pt;
+        font-weight: 700;
+        color: #111827;
+      }
+      .meta-value-group {
+        font-size: 9pt;
+        font-weight: 700;
+        color: #1e3a8a;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 3px;
+        padding: 1px 6px;
+        display: inline-block;
+      }
+      .badge-closed {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fecaca;
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 7pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: inline-block;
+      }
+      .badge-open {
+        background: #d1fae5;
+        color: #065f46;
+        border: 1px solid #a7f3d0;
+        border-radius: 3px;
+        padding: 2px 6px;
+        font-size: 7pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        display: inline-block;
+      }
 
-      #footerContent { text-align: left; font-size: 9pt; color: #666; }
+      /* ── KPI CARDS ── */
+      .kpi-row {
+        display: table;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 5px 0;
+        margin-bottom: 10px;
+      }
+      .kpi-cell {
+        display: table-cell;
+        border-radius: 5px;
+        padding: 7px 8px;
+        text-align: center;
+        vertical-align: middle;
+        width: 25%;
+      }
+      .kpi-cell-risk {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+      }
+      .kpi-cell-warn {
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+      }
+      .kpi-label {
+        font-size: 7pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+      }
+      .kpi-label-risk { color: #dc2626; }
+      .kpi-label-warn { color: #c2410c; }
+      .kpi-number-risk {
+        font-size: 18pt;
+        font-weight: 900;
+        color: #b91c1c;
+        line-height: 1.1;
+      }
+      .kpi-number-warn {
+        font-size: 14pt;
+        font-weight: 700;
+        color: #9a3412;
+        line-height: 1.1;
+      }
+      .kpi-sub {
+        font-size: 7pt;
+        margin-top: 2px;
+      }
+      .kpi-sub-risk { color: #ef4444; }
+      .kpi-sub-warn { color: #f97316; }
+
+      /* ── DOS COLUMNAS ── */
+      .two-col {
+        display: table;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 12px 0;
+        margin-bottom: 10px;
+      }
+      .col-left { display: table-cell; width: 50%; vertical-align: top; }
+      .col-right { display: table-cell; width: 50%; vertical-align: top; }
+
+      .section-heading {
+        font-size: 8pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 3px;
+        margin-bottom: 8px;
+        color: #111827;
+      }
+
+      /* Texto del análisis */
+      .analysis-text {
+        font-size: 8.5pt;
+        color: #374151;
+        line-height: 1.5;
+      }
+      .analysis-text p {
+        margin: 0 0 5px 0;
+        text-align: justify;
+      }
+      .analysis-text .section-title {
+        font-size: 8pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #111827;
+        margin: 8px 0 3px 0;
+        border-bottom: 1px solid #e5e7eb;
+        padding-bottom: 2px;
+      }
+      .analysis-text ul {
+        margin: 0 0 5px 0;
+        padding-left: 14px;
+      }
+      .analysis-text li {
+        margin-bottom: 3px;
+      }
+      .analysis-note {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+        border-radius: 3px;
+        padding: 5px 8px;
+        font-size: 8pt;
+        font-weight: 500;
+        margin-top: 6px;
+      }
+
+      /* Timeline plan de acción */
+      .timeline {
+        border-left: 2px solid #d1d5db;
+        margin-left: 6px;
+        padding-left: 10px;
+      }
+      .timeline-item {
+        position: relative;
+        margin-bottom: 9px;
+      }
+      .timeline-dot {
+        position: absolute;
+        left: -16px;
+        top: 2px;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        border: 2px solid #6366f1;
+        border-radius: 50%;
+      }
+      .timeline-title {
+        font-size: 8pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #1f2937;
+        letter-spacing: 0.04em;
+      }
+      .timeline-desc {
+        font-size: 7.5pt;
+        color: #6b7280;
+        margin-top: 1px;
+        line-height: 1.4;
+      }
+
+      /* ── INDICADORES / BARRAS ── */
+      .indicators-box {
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 5px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        page-break-inside: avoid;
+      }
+      .indicators-heading {
+        font-size: 8pt;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        color: #111827;
+        margin-bottom: 8px;
+      }
+      .indicator-item { margin-bottom: 7px; }
+      .indicator-label-row {
+        display: table;
+        width: 100%;
+      }
+      .indicator-name {
+        display: table-cell;
+        font-size: 8pt;
+        font-weight: 700;
+        color: #1f2937;
+      }
+      .indicator-values {
+        display: table-cell;
+        text-align: right;
+        font-size: 8pt;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .bar-track {
+        background: #e5e7eb;
+        border-radius: 99px;
+        height: 9px;
+        position: relative;
+        margin-top: 2px;
+        overflow: visible;
+      }
+      .bar-fill-red { background: #ef4444; border-radius: 99px; height: 9px; }
+      .bar-fill-orange { background: #f97316; border-radius: 99px; height: 9px; }
+      .bar-fill-yellow { background: #eab308; border-radius: 99px; height: 9px; }
+      .bar-fill-green { background: #22c55e; border-radius: 99px; height: 9px; }
+      .bar-goal-line {
+        position: absolute;
+        top: -2px;
+        bottom: -2px;
+        border-left: 2px dashed #111827;
+        z-index: 10;
+      }
+
+      /* ── PIE DE PÁGINA ── */
+      .footer {
+        border-top: 1px solid #e5e7eb;
+        padding-top: 6px;
+        display: table;
+        width: 100%;
+        margin-top: 12px;
+      }
+      .footer-left {
+        display: table-cell;
+        font-size: 7pt;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+      .footer-right {
+        display: table-cell;
+        text-align: right;
+        font-size: 7pt;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      /* ── Colores texto indicadores ── */
+      .text-red   { color: #dc2626; }
+      .text-orange { color: #c2410c; }
+      .text-yellow { color: #a16207; }
+      .text-green  { color: #15803d; }
+
+      /* Avoid breaking sections across pages */
+      .avoid-break { page-break-inside: avoid; }
     </style>
   </head>
   <body>
-    {% include "reports/partials/pdf_masthead.html" %}
 
-    <div class="title">Análisis  — Estado del grupo</div>
-
-    <div class="meta">
-      <span class="label">Institución:</span> {{ institution.name }}<br />
-      {% if teacher_name %}<span class="label">Docente:</span> {{ teacher_name }}<br />{% endif %}
-      <span class="label">Año lectivo:</span> {{ year_name }}<br />
-      <span class="label">Periodo:</span> {{ period_name }}<br />
-      {% if grade_name %}<span class="label">Grado:</span> {{ grade_name }}<br />{% endif %}
-      {% if group_name %}<span class="label">Grupo:</span> {{ group_name }}<br />{% endif %}
-      <span class="label">Fecha:</span> {{ report_date }}
+    <!-- ENCABEZADO INSTITUCIONAL -->
+    <div class="header-wrap">
+      <div class="ai-badge">&#x1F916; Análisis IA</div>
+      <div class="header-country">República de Colombia</div>
+      <div class="header-inst-row">
+        {% if institution and institution.logo %}
+          <div class="header-logo-circle">
+            <img src="{{ institution.logo.url }}" alt="Logo" />
+          </div>
+        {% endif %}
+        <div>
+          <div class="header-inst-name">
+            {% if institution and institution.pdf_header_line1 %}{{ institution.pdf_header_line1 }}{% elif institution %}{{ institution.name }}{% else %}Institución Educativa{% endif %}
+          </div>
+          <div class="header-inst-sub">
+            {% if institution and institution.pdf_header_line2 %}{{ institution.pdf_header_line2 }}{% endif %}
+          </div>
+        </div>
+      </div>
+      {% if institution and institution.pdf_header_line3 %}
+      <div class="header-ids">{{ institution.pdf_header_line3 }}</div>
+      {% endif %}
     </div>
 
-    <div class="content">
-      {{ analysis_html|safe }}
+    <!-- TÍTULO DEL DOCUMENTO -->
+    <div class="doc-title-wrap">
+      <div class="doc-title">Análisis de Estado del Grupo</div>
+    </div>
+
+    <!-- DATOS BÁSICOS -->
+    <div class="meta-box avoid-break">
+      <table style="width:100%; border-collapse:collapse;">
+        <tr>
+          <td style="padding:2px 8px 4px 0; vertical-align:top; width:35%;">
+            <span class="meta-label">Docente / Director</span>
+            <span class="meta-value">{{ teacher_name|upper|default:"—" }}</span>
+          </td>
+          <td style="padding:2px 8px 4px 0; vertical-align:top; width:20%;">
+            <span class="meta-label">Grado / Grupo</span>
+            {% if grade_name or group_name %}
+              <span class="meta-value-group">{{ grade_name }}{% if grade_name and group_name %} · {% endif %}{{ group_name }}</span>
+            {% else %}
+              <span class="meta-value">Todos los grupos</span>
+            {% endif %}
+          </td>
+          <td style="padding:2px 8px 4px 0; vertical-align:top; width:22%;">
+            <span class="meta-label">Periodo Analizado</span>
+            <span class="meta-value">{{ period_name|default:"—" }}</span>
+          </td>
+          <td style="padding:2px 0 4px 0; vertical-align:top; width:23%;">
+            <span class="meta-label">Año Lectivo</span>
+            <span class="meta-value">{{ year_name|default:"—" }}</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:2px 8px 4px 0; vertical-align:top;">
+            <span class="meta-label">Fecha de Emisión</span>
+            <span class="meta-value">{{ report_date_display|default:report_date }}</span>
+          </td>
+          <td style="padding:2px 8px 4px 0; vertical-align:top;">
+            <span class="meta-label">Estudiantes Activos</span>
+            <span class="meta-value">{{ students_active|default:"—" }}</span>
+          </td>
+          <td style="padding:2px 8px 4px 0; vertical-align:top;">
+            <span class="meta-label">Nota Aprobatoria</span>
+            <span class="meta-value">{{ passing_score|default:"3.00" }}</span>
+          </td>
+          <td style="padding:2px 0 4px 0; vertical-align:top; text-align:right;">
+            {% if period_is_closed %}
+              <span class="badge-closed">&#x1F512; Periodo Cerrado</span>
+            {% else %}
+              <span class="badge-open">&#x1F7E2; Periodo en Curso</span>
+            {% endif %}
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- DASHBOARD KPI -->
+    {% if kpi_cards %}
+    <table class="kpi-row avoid-break" style="width:100%; border-collapse:separate; border-spacing:5px 0; margin-bottom:10px;">
+      <tr>
+        <!-- KPI: Riesgo General -->
+        <td class="kpi-cell kpi-cell-risk" style="width:25%;">
+          <div class="kpi-label kpi-label-risk">Riesgo Académico</div>
+          <div class="kpi-number-risk">{{ risk_pct|default:"—" }}%</div>
+          <div class="kpi-sub kpi-sub-risk">{{ at_risk|default:"0" }} de {{ students_active|default:"0" }} activos</div>
+        </td>
+        {% for card in kpi_cards %}
+        <td class="kpi-cell kpi-cell-warn" style="width:25%;">
+          <div class="kpi-label kpi-label-warn" title="{{ card.subject }}">{{ card.subject }}</div>
+          <div class="kpi-number-warn">{{ card.failure_rate }}%</div>
+          <div class="kpi-sub kpi-sub-warn">Tasa de Reprobación</div>
+        </td>
+        {% endfor %}
+        {% for _i in kpi_empty_cells %}<td style="width:25%;"></td>{% endfor %}
+      </tr>
+    </table>
+    {% endif %}
+
+    <!-- DOS COLUMNAS: ANÁLISIS + PLAN DE ACCIÓN -->
+    <table class="two-col" style="width:100%; border-collapse:separate; border-spacing:12px 0; margin-bottom:10px;">
+      <tr>
+        <!-- Columna Izquierda: Resumen / Análisis docente -->
+        <td class="col-left" style="width:50%; vertical-align:top;">
+          <div class="section-heading">&#x1F4C4; Resumen Ejecutivo</div>
+          <div class="analysis-text">
+            {{ summary_html|safe }}
+          </div>
+          {% if period_is_closed %}
+          <div class="analysis-note">
+            Dado que el periodo se encuentra cerrado, las intervenciones deben enfocarse en el siguiente periodo.
+          </div>
+          {% endif %}
+        </td>
+
+        <!-- Columna Derecha: Plan de acción -->
+        <td class="col-right" style="width:50%; vertical-align:top;">
+          <div class="section-heading">&#x1F4CB; Plan de Acción · Próximas 2 Semanas</div>
+          <div class="timeline">
+            {% for item in action_items %}
+            <div class="timeline-item">
+              <div class="timeline-dot"></div>
+              <div class="timeline-title">{{ item.title }}</div>
+              <div class="timeline-desc">{{ item.desc }}</div>
+            </div>
+            {% empty %}
+            <div style="font-size:8pt; color:#6b7280;">Ver sección «Plan de acción» en el análisis completo.</div>
+            {% endfor %}
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- ANÁLISIS COMPLETO (secciones restantes del texto IA) -->
+    {% if full_analysis_html %}
+    <div style="margin-bottom:10px;">
+      <div class="section-heading">&#x1F4CA; Análisis Completo</div>
+      <div class="analysis-text">{{ full_analysis_html|safe }}</div>
+    </div>
+    {% endif %}
+
+    <!-- INDICADORES A MONITOREAR -->
+    {% if indicator_bars %}
+    <div class="indicators-box avoid-break">
+      <div class="indicators-heading">&#x1F3AF; Metas e Indicadores a Monitorear</div>
+      {% for bar in indicator_bars %}
+      <div class="indicator-item">
+        <div class="indicator-label-row" style="display:table; width:100%;">
+          <span class="indicator-name" style="display:table-cell;">{{ bar.name }}</span>
+          <span class="indicator-values {{ bar.color_class }}" style="display:table-cell; text-align:right; font-size:8pt; font-weight:700; white-space:nowrap;">
+            Actual: {{ bar.actual }}% &rarr; Meta: &le; {{ bar.goal }}%
+          </span>
+        </div>
+        <div class="bar-track" style="background:#e5e7eb; border-radius:99px; height:9px; position:relative; margin-top:2px; overflow:visible;">
+          <div class="bar-fill-{{ bar.fill_color }}" style="background:{{ bar.fill_hex }}; border-radius:99px; height:9px; width:{{ bar.actual|floatformat:1 }}%;"></div>
+          <div class="bar-goal-line" style="position:absolute; top:-2px; bottom:-2px; border-left:2px dashed #111827; z-index:10; left:{{ bar.goal }}%;"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- PIE DE PÁGINA -->
+    <div class="footer">
+      <div class="footer-left">Sistema de Alertas Tempranas · Kampus IA</div>
+      <div class="footer-right">Documento Confidencial · Uso Docente</div>
     </div>
 
   </body>

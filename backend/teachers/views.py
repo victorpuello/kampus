@@ -94,8 +94,8 @@ def _ai_analysis_to_pdf_html(text: str) -> str:
             html_parts.append(f"<div class=\"section-title\">{inline_format(stripped)}</div>")
             continue
 
-        # Bullet list items
-        m = re.match(r"^\s*([-*])\s+(.*)$", line)
+        # Bullet list items (includes Unicode bullets used by AI: ○ •)
+        m = re.match(r"^\s*([-*○•·])\s+(.*)$", line)
         if m:
             flush_paragraph()
             if not in_list:
@@ -113,6 +113,164 @@ def _ai_analysis_to_pdf_html(text: str) -> str:
     close_list()
 
     return "\n".join(html_parts)
+
+
+def _build_pdf_context(stats_payload: dict, analysis_text: str, audience: str = "teacher") -> dict:
+    """Extract structured data from stats_payload for the PDF template.
+
+    Returns a dict with KPI cards, indicator bars, action items, and split analysis sections.
+    """
+    director = (stats_payload or {}).get("director") or {}
+    performance = (director or {}).get("performance") or {}
+    risk_summary = performance.get("risk_summary") or {}
+    scope = performance.get("scope") or {}
+
+    students_active = int(risk_summary.get("students_active") or 0)
+    at_risk = int(risk_summary.get("at_risk") or 0)
+    risk_pct = round(at_risk / students_active * 100, 1) if students_active > 0 else 0
+
+    # Top 3 worst subjects by failure rate for KPI cards
+    worst_subjects = (performance.get("subjects_by_failure_rate") or [])[:3]
+    kpi_cards = []
+    for s in worst_subjects:
+        failure_rate = float(s.get("failure_rate") or 0)
+        if failure_rate > 0:
+            kpi_cards.append({
+                "subject": s.get("subject_name") or s.get("subject") or "",
+                "failure_rate": round(failure_rate, 1),
+            })
+
+    # Indicator bars: risk + subjects with failure_rate > 0 (max 5 total)
+    GOAL_RISK = 50
+    GOAL_SUBJECT = 25
+
+    def _bar_color(actual: float, goal: float) -> tuple[str, str]:
+        "Returns (color_class, fill_hex)"
+        if actual >= goal * 1.5:
+            return ("text-red", "#ef4444")
+        if actual >= goal:
+            return ("text-orange", "#f97316")
+        if actual >= goal * 0.8:
+            return ("text-yellow", "#eab308")
+        return ("text-green", "#22c55e")
+
+    indicator_bars = []
+    if students_active > 0:
+        color_class, fill_hex = _bar_color(risk_pct, GOAL_RISK)
+        indicator_bars.append({
+            "name": "Estudiantes en Riesgo General",
+            "actual": risk_pct,
+            "goal": GOAL_RISK,
+            "color_class": color_class,
+            "fill_hex": fill_hex,
+        })
+
+    for s in (performance.get("subjects_by_failure_rate") or [])[:4]:
+        fr = float(s.get("failure_rate") or 0)
+        if fr <= 0:
+            continue
+        color_class, fill_hex = _bar_color(fr, GOAL_SUBJECT)
+        indicator_bars.append({
+            "name": f"Reprobación: {s.get('subject_name') or s.get('subject') or ''}",
+            "actual": round(fr, 1),
+            "goal": GOAL_SUBJECT,
+            "color_class": color_class,
+            "fill_hex": fill_hex,
+        })
+
+    # How many empty KPI cells to fill the 4-cell row
+    kpi_empty_cells = range(max(0, 3 - len(kpi_cards)))
+
+    # Split analysis text into sections
+    summary_html = ""
+    action_items = []
+    full_analysis_html = ""
+
+    if analysis_text:
+        lines = analysis_text.strip().splitlines()
+
+        SUMMARY_TITLES = {"RESUMEN EJECUTIVO", "¿CÓMO VA EL GRUPO?"}
+        ACTION_TITLES = {"PLAN DE ACCIÓN (PRÓXIMAS 2 SEMANAS)", "PLAN DE ACCION (PROXIMAS 2 SEMANAS)"}
+        EXCLUDE_FROM_FULL = SUMMARY_TITLES | ACTION_TITLES
+
+        summary_lines: list[str] = []
+        action_lines: list[str] = []
+        full_lines: list[str] = []
+        current_section: str | None = None
+
+        title_re = re.compile(r"^[A-ZÁÉÍÓÚÑ¿][A-ZÁÉÍÓÚÑ0-9 \-—()?¿]{3,}$")
+
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped:
+                continue
+
+            is_title = bool(title_re.match(stripped)) and not stripped.startswith(("-", "*"))
+
+            if is_title:
+                # Normalise for matching
+                upper = stripped.upper().rstrip(":")
+                if upper in SUMMARY_TITLES:
+                    current_section = "summary"
+                    continue
+                elif upper in ACTION_TITLES:
+                    current_section = "action"
+                    continue
+                else:
+                    current_section = "full"
+                    if upper not in EXCLUDE_FROM_FULL:
+                        full_lines.append(raw)
+                    continue
+
+            if current_section == "summary":
+                summary_lines.append(raw)
+            elif current_section == "action":
+                action_lines.append(raw)
+            elif current_section == "full":
+                full_lines.append(raw)
+
+        # Build summary HTML
+        if summary_lines:
+            summary_html = _ai_analysis_to_pdf_html("\n".join(summary_lines))
+
+        def _strip_md(s: str) -> str:
+            """Remove **bold** markers from a plain-text string."""
+            return re.sub(r"\*\*(.+?)\*\*", r"\1", s).strip()
+
+        # Parse action items: "- Semana X: title\n  description" pattern
+        # Bullet chars include Unicode variants used by AI (○, •, ·)
+        cur_title = ""
+        cur_desc_parts: list[str] = []
+        for raw in action_lines:
+            stripped = raw.strip()
+            m = re.match(r"^[-*○•·]\s+(.+)$", stripped)
+            if m:
+                if cur_title:
+                    action_items.append({"title": _strip_md(cur_title), "desc": _strip_md(" ".join(cur_desc_parts))})
+                cur_title = m.group(1).strip()
+                cur_desc_parts = []
+            elif stripped and cur_title:
+                cur_desc_parts.append(stripped)
+        if cur_title:
+            action_items.append({"title": _strip_md(cur_title), "desc": _strip_md(" ".join(cur_desc_parts))})
+
+        # Full analysis (remaining sections)
+        if full_lines:
+            full_analysis_html = _ai_analysis_to_pdf_html("\n".join(full_lines))
+
+    return {
+        "risk_pct": risk_pct,
+        "at_risk": at_risk,
+        "students_active": students_active,
+        "passing_score": str(scope.get("passing_score") or "3.00"),
+        "period_is_closed": bool((stats_payload or {}).get("period", {}).get("is_closed")),
+        "kpi_cards": kpi_cards,
+        "kpi_empty_cells": kpi_empty_cells,
+        "indicator_bars": indicator_bars,
+        "summary_html": summary_html,
+        "action_items": action_items,
+        "full_analysis_html": full_analysis_html,
+    }
 
 
 class TeacherViewSet(viewsets.ModelViewSet):
@@ -394,7 +552,6 @@ class TeacherViewSet(viewsets.ModelViewSet):
         for g in (director.get("groups") or []):
             if group_id is None or int(g.get("group_id") or 0) == int(group_id):
                 group_ctx = {
-                    "group_id": g.get("group_id"),
                     "group_name": g.get("group_name"),
                     "grade_name": g.get("grade_name"),
                     "students_active": g.get("students_active"),
@@ -405,7 +562,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         risk_summary = performance.get("risk_summary") or {}
 
-        # Aggregate completion across subjects (director performance)
+        # Aggregate completion across all subjects (director performance)
         perf_subjects = performance.get("subjects_by_average") or []
         perf_cells_expected = 0
         perf_cells_filled = 0
@@ -413,19 +570,32 @@ class TeacherViewSet(viewsets.ModelViewSet):
             c = (s or {}).get("gradebook_cells") or {}
             perf_cells_expected += int(c.get("expected") or 0)
             perf_cells_filled += int(c.get("filled") or 0)
+        data_coverage_pct = (
+            int(perf_cells_filled / perf_cells_expected * 100)
+            if perf_cells_expected > 0
+            else 0
+        )
 
-        # Rankings (aggregated only; no student names)
-        top_avg = []
-        for s in (performance.get("subjects_by_average") or [])[:5]:
-            top_avg.append(
+        # Full subject list ordered by average (all subjects, not just top 5)
+        all_subjects_by_avg = []
+        for s in (performance.get("subjects_by_average") or []):
+            c = (s or {}).get("gradebook_cells") or {}
+            cells_exp = int(c.get("expected") or 0)
+            cells_fill = int(c.get("filled") or 0)
+            all_subjects_by_avg.append(
                 {
                     "area": s.get("area_name") or "",
                     "subject": s.get("subject_name") or "",
                     "average": s.get("average"),
                     "failure_rate": s.get("failure_rate"),
+                    "students_evaluated": s.get("students_evaluated"),
+                    "gradebook_coverage_pct": (
+                        int(cells_fill / cells_exp * 100) if cells_exp > 0 else 0
+                    ),
                 }
             )
 
+        # Top 5 worst subjects by failure rate
         top_fail = []
         for s in (performance.get("subjects_by_failure_rate") or [])[:5]:
             top_fail.append(
@@ -434,6 +604,20 @@ class TeacherViewSet(viewsets.ModelViewSet):
                     "subject": s.get("subject_name") or "",
                     "average": s.get("average"),
                     "failure_rate": s.get("failure_rate"),
+                    "students_evaluated": s.get("students_evaluated"),
+                }
+            )
+
+        # At-risk students (anonymised: no names, sequential labels)
+        at_risk_anon = []
+        for i, stu in enumerate((performance.get("at_risk_students") or [])[:10], start=1):
+            at_risk_anon.append(
+                {
+                    "label": f"Estudiante {i}",
+                    "average": stu.get("average"),
+                    "failed_subjects": stu.get("failed_subjects"),
+                    "subjects_count": stu.get("subjects_count"),
+                    "group_name": stu.get("group_name"),
                 }
             )
 
@@ -442,31 +626,38 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         return {
             "scope": {
-                "academic_year": year,
-                "period": period,
+                "academic_year_label": year.get("year"),
+                "period_name": period.get("name"),
+                "period_is_closed": period.get("is_closed"),
                 "director_mode": scope.get("director_mode"),
-                "director_group_id": scope.get("group_id"),
                 "passing_score": scope.get("passing_score"),
+                "scale": "1.0 a 5.0 (escala colombiana SIEE)",
             },
             "group": group_ctx,
-            "completion": {
-                "subject_teacher": {
-                    "grade_sheets": {"expected": gs_expected, "published": gs_published},
-                    "gradebook_cells": {"expected": gb_expected, "filled": gb_filled},
-                },
-                "director": {
-                    "gradebook_cells": {"expected": perf_cells_expected, "filled": perf_cells_filled},
-                },
+            "data_coverage": {
+                "gradebook_cells_expected": perf_cells_expected,
+                "gradebook_cells_filled": perf_cells_filled,
+                "data_coverage_pct": data_coverage_pct,
+                "students_active": risk_summary.get("students_active"),
+                "students_evaluated": risk_summary.get("students_evaluated"),
+                "students_without_data": risk_summary.get("students_without_data"),
+            },
+            "completion_subject_teacher": {
+                "grade_sheets_expected": gs_expected,
+                "grade_sheets_published": gs_published,
+                "gradebook_cells_expected": gb_expected,
+                "gradebook_cells_filled": gb_filled,
             },
             "risk": {
-                "students_total": risk_summary.get("students_total"),
                 "at_risk": risk_summary.get("at_risk"),
                 "ok": risk_summary.get("ok"),
+                "at_risk_detail": at_risk_anon,
             },
-            "subjects": {"best_by_average": top_avg, "worst_by_failure_rate": top_fail},
+            "subjects_by_average": all_subjects_by_avg,
+            "subjects_worst_failure_rate": top_fail,
             "notes": [
-                "Las métricas dependen del diligenciamiento de calificaciones (cobertura).",
-                "En riesgo = promedio < umbral SIEE o >=1 asignatura perdida.",
+                "En riesgo = promedio < nota aprobatoria (passing_score) O >=1 asignatura perdida.",
+                "gradebook_coverage_pct < 100 indica calificaciones aún no diligenciadas.",
             ],
         }
 
@@ -488,7 +679,9 @@ class TeacherViewSet(viewsets.ModelViewSet):
         parts = [p for p in parts if not forbidden.search(p)]
         return "\n\n".join(parts).strip()
 
-    def _get_or_generate_ai_analysis(self, request, stats_payload: dict) -> tuple[str, bool, TeacherStatisticsAIAnalysis | None]:
+    def _get_or_generate_ai_analysis(
+        self, request, stats_payload: dict, audience: str = "teacher"
+    ) -> tuple[str, bool, TeacherStatisticsAIAnalysis | None]:
         """Returns (analysis_text, cached, obj)."""
         user = request.user
         refresh_raw = request.query_params.get("refresh")
@@ -511,6 +704,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
         except Exception:
             passing_score = Decimal(PASSING_SCORE_DEFAULT)
 
+        audience_key = audience if audience in (
+            TeacherStatisticsAIAnalysis.AUDIENCE_TEACHER,
+            TeacherStatisticsAIAnalysis.AUDIENCE_PARENTS,
+        ) else TeacherStatisticsAIAnalysis.AUDIENCE_TEACHER
+
         if not year_id or not period_id:
             # Should not happen if stats endpoint is healthy.
             raise AIProviderError("No se pudo determinar año/periodo para el análisis.")
@@ -523,6 +721,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
                 director_mode=director_mode,
                 director_group_id=group_key,
                 passing_score=passing_score,
+                audience=audience_key,
             )
             .order_by("-updated_at")
             .first()
@@ -537,7 +736,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         svc = AIService()
         context = self._build_ai_group_context(stats_payload)
-        analysis = self._sanitize_ai_analysis_text(svc.analyze_group_state(context))
+        if audience_key == TeacherStatisticsAIAnalysis.AUDIENCE_PARENTS:
+            raw_analysis = svc.analyze_group_state_for_parents(context)
+        else:
+            raw_analysis = svc.analyze_group_state(context)
+        analysis = self._sanitize_ai_analysis_text(raw_analysis)
 
         obj, _created = TeacherStatisticsAIAnalysis.objects.update_or_create(
             user=user,
@@ -546,6 +749,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
             director_mode=director_mode,
             director_group_id=group_key,
             passing_score=passing_score,
+            audience=audience_key,
             defaults={"analysis": analysis, "context": context},
         )
 
@@ -563,14 +767,16 @@ class TeacherViewSet(viewsets.ModelViewSet):
             return base_resp
 
         stats_payload = getattr(base_resp, "data", None) or {}
+        audience = str(request.query_params.get("audience") or "teacher").strip().lower()
 
         try:
-            analysis, cached, obj = self._get_or_generate_ai_analysis(request, stats_payload)
+            analysis, cached, obj = self._get_or_generate_ai_analysis(request, stats_payload, audience=audience)
             updated_at = getattr(obj, "updated_at", None)
             return Response(
                 {
                     "analysis": analysis,
                     "cached": bool(cached),
+                    "audience": audience,
                     "updated_at": updated_at.isoformat() if updated_at else None,
                 },
                 status=status.HTTP_200_OK,
@@ -593,8 +799,9 @@ class TeacherViewSet(viewsets.ModelViewSet):
             return base_resp
 
         stats_payload = getattr(base_resp, "data", None) or {}
+        audience = str(request.query_params.get("audience") or "teacher").strip().lower()
         try:
-            analysis, _cached, _obj = self._get_or_generate_ai_analysis(request, stats_payload)
+            analysis, _cached, _obj = self._get_or_generate_ai_analysis(request, stats_payload, audience=audience)
         except AIConfigError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except AIProviderError as e:
@@ -632,6 +839,29 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         analysis_html = _ai_analysis_to_pdf_html(analysis or "")
 
+        # Build enriched PDF context
+        pdf_ctx = _build_pdf_context(stats_payload, analysis or "", audience=audience)
+
+        today = date.today()
+        _MONTHS_ES = [
+            "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+            "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+        ]
+        report_date_display = f"{today.day} de {_MONTHS_ES[today.month]} de {today.year}"
+
+        base_template_ctx = {
+            "institution": institution,
+            "year_name": year_label,
+            "period_name": period_label,
+            "grade_name": grade_name,
+            "group_name": group_name,
+            "report_date": today.isoformat(),
+            "report_date_display": report_date_display,
+            "teacher_name": teacher_name,
+            "analysis_html": analysis_html,
+            **pdf_ctx,
+        }
+
         if async_requested:
             from datetime import timedelta  # noqa: PLC0415
             from django.utils import timezone  # noqa: PLC0415
@@ -650,9 +880,11 @@ class TeacherViewSet(viewsets.ModelViewSet):
                     "period_name": period_label,
                     "grade_name": grade_name,
                     "group_name": group_name,
-                    "report_date": date.today().isoformat(),
+                    "report_date": today.isoformat(),
+                    "report_date_display": report_date_display,
                     "teacher_name": teacher_name,
                     "analysis_html": analysis_html,
+                    **{k: v for k, v in pdf_ctx.items() if isinstance(v, (str, int, float, bool, list, dict, type(None)))},
                 },
                 expires_at=expires_at,
             )
@@ -662,16 +894,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
         html = render_to_string(
             "teachers/reports/teacher_statistics_ai_pdf.html",
-            {
-                "institution": institution,
-                "year_name": year_label,
-                "period_name": period_label,
-                "grade_name": grade_name,
-                "group_name": group_name,
-                "report_date": date.today().isoformat(),
-                "teacher_name": teacher_name,
-                "analysis_html": analysis_html,
-            },
+            base_template_ctx,
         )
 
         try:

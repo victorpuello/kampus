@@ -192,6 +192,7 @@ export default function CommissionsWorkflow() {
   const [jobsLoading, setJobsLoading] = useState(false)
   const [actaJobs, setActaJobs] = useState<ReportJob[]>([])
   const [groupActaJobByCommission, setGroupActaJobByCommission] = useState<Record<number, ReportJob>>({})
+  const [downloadingZip, setDownloadingZip] = useState(false)
   const [activeTab, setActiveTab] = useState<CommissionTabKey>('commissions')
   const [decisionsPage, setDecisionsPage] = useState(1)
   const [decisionsPageSize, setDecisionsPageSize] = useState(10)
@@ -860,6 +861,27 @@ export default function CommissionsWorkflow() {
       downloadBlob(res.data, job.output_filename || `reporte-${job.id}.pdf`)
     } catch {
       showToast('No se pudo descargar el archivo del job', 'error')
+    }
+  }
+
+  const handleDownloadActasZip = async () => {
+    if (!selectedCommissionId) return
+    const succeededJobIds = actaJobs
+      .filter((job) => job.report_type === 'ACADEMIC_COMMISSION_ACTA' && job.status === 'SUCCEEDED')
+      .map((job) => job.id)
+    if (succeededJobIds.length === 0) {
+      showToast('No hay actas completadas para descargar', 'warning')
+      return
+    }
+    setDownloadingZip(true)
+    try {
+      const res = await academicApi.downloadCommissionActasZip(selectedCommissionId, succeededJobIds)
+      downloadBlob(res.data, `actas-comision-${selectedCommissionId}.zip`)
+      showToast(`ZIP con ${succeededJobIds.length} actas descargado`, 'success')
+    } catch {
+      showToast('No se pudo generar el ZIP de actas', 'error')
+    } finally {
+      setDownloadingZip(false)
     }
   }
 
@@ -1844,15 +1866,30 @@ export default function CommissionsWorkflow() {
         <CardHeader>
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Jobs asíncronos de actas</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadCommissionActaJobs(selectedCommissionId)}
-              disabled={jobsLoading || selectedCommissionId === null}
-              className="w-full sm:w-auto"
-            >
-              {jobsLoading ? 'Actualizando...' : 'Actualizar'}
-            </Button>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                size="sm"
+                onClick={() => void handleDownloadActasZip()}
+                disabled={
+                  downloadingZip ||
+                  selectedCommissionId === null ||
+                  !actaJobs.some((job) => job.report_type === 'ACADEMIC_COMMISSION_ACTA' && job.status === 'SUCCEEDED')
+                }
+                title="Descargar todas las actas completadas en un ZIP"
+                className="w-full sm:w-auto"
+              >
+                {downloadingZip ? 'Generando ZIP...' : 'Descargar ZIP'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void loadCommissionActaJobs(selectedCommissionId)}
+                disabled={jobsLoading || selectedCommissionId === null}
+                className="w-full sm:w-auto"
+              >
+                {jobsLoading ? 'Actualizando...' : 'Actualizar'}
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

@@ -260,6 +260,13 @@ export default function TeacherStatistics() {
   const [aiError, setAiError] = useState<string | null>(null)
   const [aiText, setAiText] = useState<string | null>(null)
   const [aiNotice, setAiNotice] = useState<string | null>(null)
+  const [aiUpdatedAt, setAiUpdatedAt] = useState<string | null>(null)
+
+  const [aiParentsLoading, setAiParentsLoading] = useState(false)
+  const [aiParentsError, setAiParentsError] = useState<string | null>(null)
+  const [aiParentsText, setAiParentsText] = useState<string | null>(null)
+  const [aiParentsNotice, setAiParentsNotice] = useState<string | null>(null)
+  const [aiParentsUpdatedAt, setAiParentsUpdatedAt] = useState<string | null>(null)
 
   const renderAiInline = (text: string) => {
     // Supports **bold** without exposing literal asterisks.
@@ -453,6 +460,11 @@ export default function TeacherStatistics() {
     setAiError(null)
     setAiText(null)
     setAiNotice(null)
+    setAiUpdatedAt(null)
+    setAiParentsError(null)
+    setAiParentsText(null)
+    setAiParentsNotice(null)
+    setAiParentsUpdatedAt(null)
   }, [yearId, periodId, directorMode, directorGroupId])
 
   const subject = stats?.subject_teacher
@@ -520,8 +532,10 @@ export default function TeacherStatistics() {
         director_group_id: directorGroupId ? directorGroupId : undefined,
         director_subject_id: directorSubjectId ? directorSubjectId : undefined,
         refresh: opts?.refresh ? 1 : undefined,
+        audience: 'teacher',
       })
       setAiText(res.data.analysis)
+      setAiUpdatedAt(res.data.updated_at ?? null)
       if (opts?.refresh) setAiNotice('Análisis regenerado.')
       else if (res.data.cached) setAiNotice('Mostrando análisis guardado.')
     } catch (err: unknown) {
@@ -532,8 +546,42 @@ export default function TeacherStatistics() {
       const msg = typeof detail === 'string' && detail.trim() ? detail : 'No se pudo generar el análisis.'
       setAiError(msg)
       setAiText(null)
+      setAiUpdatedAt(null)
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  const generateAIParents = async (opts?: { refresh?: boolean }) => {
+    if (!yearId || !periodId) return
+    setAiParentsLoading(true)
+    setAiParentsError(null)
+    setAiParentsNotice(null)
+    try {
+      const res = await teachersApi.myStatisticsAI({
+        year_id: yearId,
+        period_id: periodId,
+        director_mode: directorMode,
+        director_group_id: directorGroupId ? directorGroupId : undefined,
+        director_subject_id: directorSubjectId ? directorSubjectId : undefined,
+        refresh: opts?.refresh ? 1 : undefined,
+        audience: 'parents',
+      })
+      setAiParentsText(res.data.analysis)
+      setAiParentsUpdatedAt(res.data.updated_at ?? null)
+      if (opts?.refresh) setAiParentsNotice('Informe regenerado.')
+      else if (res.data.cached) setAiParentsNotice('Mostrando informe guardado.')
+    } catch (err: unknown) {
+      const detail =
+        typeof err === 'object' && err && 'response' in err
+          ? (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+          : null
+      const msg = typeof detail === 'string' && detail.trim() ? detail : 'No se pudo generar el informe para padres.'
+      setAiParentsError(msg)
+      setAiParentsText(null)
+      setAiParentsUpdatedAt(null)
+    } finally {
+      setAiParentsLoading(false)
     }
   }
 
@@ -548,6 +596,32 @@ export default function TeacherStatistics() {
     }
   }
 
+  const copyAIParents = async () => {
+    if (!aiParentsText) return
+    setAiParentsNotice(null)
+    try {
+      await navigator.clipboard.writeText(aiParentsText)
+      setAiParentsNotice('Copiado al portapapeles.')
+    } catch {
+      setAiParentsNotice('No se pudo copiar automáticamente.')
+    }
+  }
+
+  const formatAiTimestamp = (isoStr: string | null): string | null => {
+    if (!isoStr) return null
+    try {
+      const d = new Date(isoStr)
+      const diffMs = Date.now() - d.getTime()
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+      const dateStr = d.toLocaleDateString('es-CO', { day: '2-digit', month: '2-digit' })
+      if (diffDays === 0) return `Generado hoy (${dateStr})`
+      if (diffDays === 1) return `Generado ayer (${dateStr})`
+      return `Generado el ${dateStr} · hace ${diffDays} días`
+    } catch {
+      return null
+    }
+  }
+
   const downloadAIPdf = async (opts?: { refresh?: boolean }) => {
     if (!yearId || !periodId) return
     setAiNotice(null)
@@ -559,6 +633,7 @@ export default function TeacherStatistics() {
         director_group_id: directorGroupId ? directorGroupId : undefined,
         director_subject_id: directorSubjectId ? directorSubjectId : undefined,
         refresh: opts?.refresh ? 1 : undefined,
+        audience: 'teacher',
       })
 
       const blob = new Blob([res.data], { type: 'application/pdf' })
@@ -686,7 +761,7 @@ export default function TeacherStatistics() {
   }, [directorSubjects, directorSubjectId])
 
   return (
-    <div className="max-w-6xl mx-auto px-3 py-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="px-3 py-4 sm:p-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Estadísticas docentes</h1>
         <p className="text-slate-600 dark:text-slate-300 mt-1">Indicadores de rendimiento, planeación y seguimiento por periodo.</p>
@@ -1612,51 +1687,149 @@ export default function TeacherStatistics() {
                 {!canGenerateAI ? (
                   <div className="text-sm text-slate-500 dark:text-slate-400">Disponible solo si eres director(a) de grupo.</div>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button onClick={() => generateAI()} disabled={aiLoading || loadingStats}>
-                        {aiLoading ? 'Generando…' : 'Generar análisis'}
-                      </Button>
-                      {aiText ? (
-                        <>
-                          <Button variant="outline" onClick={copyAI} disabled={aiLoading || loadingStats}>
-                            Copiar
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => generateAI({ refresh: true })}
-                            disabled={aiLoading || loadingStats}
-                          >
-                            Regenerar
-                          </Button>
-                          <Button variant="outline" onClick={() => downloadAIPdf()} disabled={aiLoading || loadingStats}>
-                            Descargar PDF
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => downloadAIPdf({ refresh: true })}
-                            disabled={aiLoading || loadingStats}
-                          >
-                            PDF (regenerar)
-                          </Button>
-                        </>
+                  <div className="flex flex-col gap-6">
+                    {/* ── Análisis para el docente ── */}
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Para el docente</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">· Datos agregados (sin nombres)</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+                          onClick={() => generateAI()}
+                          disabled={aiLoading || loadingStats}
+                        >
+                          {aiLoading ? 'Generando…' : 'Generar análisis'}
+                        </button>
+                        {aiText ? (
+                          <>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={copyAI}
+                              disabled={aiLoading || loadingStats}
+                            >
+                              Copiar
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={() => generateAI({ refresh: true })}
+                              disabled={aiLoading || loadingStats}
+                            >
+                              Regenerar
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={() => downloadAIPdf()}
+                              disabled={aiLoading || loadingStats}
+                            >
+                              PDF
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+
+                      {/* Timestamp + badge desactualizado */}
+                      {aiUpdatedAt ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {formatAiTimestamp(aiUpdatedAt)}
+                          </span>
+                          {(() => {
+                            const diffDays = aiUpdatedAt
+                              ? Math.floor((Date.now() - new Date(aiUpdatedAt).getTime()) / (1000 * 60 * 60 * 24))
+                              : 0
+                            return diffDays >= 2 ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                Puede estar desactualizado
+                              </span>
+                            ) : null
+                          })()}
+                        </div>
                       ) : null}
-                      <div className="text-xs text-slate-500 dark:text-slate-400">Usa datos agregados (sin nombres).</div>
+
+                      {aiNotice ? <div className="text-xs text-slate-600 dark:text-slate-300">{aiNotice}</div> : null}
+
+                      {aiError ? (
+                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3 dark:text-red-200 dark:bg-red-950/30 dark:border-red-900/50">{aiError}</div>
+                      ) : null}
+
+                      {aiText ? (
+                        <div className="text-sm rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+                          {renderAiAnalysis(aiText)}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">Genera un resumen interpretativo con señales, riesgos y recomendaciones por asignatura.</div>
+                      )}
                     </div>
 
-                    {aiNotice ? <div className="text-xs text-slate-600 dark:text-slate-300">{aiNotice}</div> : null}
-
-                    {aiError ? (
-                      <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3 dark:text-red-200 dark:bg-red-950/30 dark:border-red-900/50">{aiError}</div>
-                    ) : null}
-
-                    {aiText ? (
-                      <div className="text-sm rounded-md border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
-                        {renderAiAnalysis(aiText)}
+                    {/* ── Informe para padres/acudientes ── */}
+                    <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">Para padres y acudientes</span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">· Lenguaje sencillo, acciones desde casa</span>
                       </div>
-                    ) : (
-                      <div className="text-sm text-slate-500 dark:text-slate-400">Genera un resumen interpretativo con señales y recomendaciones.</div>
-                    )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="inline-flex items-center gap-1.5 rounded-md bg-teal-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-teal-700 disabled:opacity-50"
+                          onClick={() => generateAIParents()}
+                          disabled={aiParentsLoading || loadingStats}
+                        >
+                          {aiParentsLoading ? 'Generando…' : 'Generar informe para padres'}
+                        </button>
+                        {aiParentsText ? (
+                          <>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={copyAIParents}
+                              disabled={aiParentsLoading || loadingStats}
+                            >
+                              Copiar
+                            </button>
+                            <button
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                              onClick={() => generateAIParents({ refresh: true })}
+                              disabled={aiParentsLoading || loadingStats}
+                            >
+                              Regenerar
+                            </button>
+                          </>
+                        ) : null}
+                      </div>
+
+                      {/* Timestamp + badge desactualizado padres */}
+                      {aiParentsUpdatedAt ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {formatAiTimestamp(aiParentsUpdatedAt)}
+                          </span>
+                          {(() => {
+                            const diffDays = aiParentsUpdatedAt
+                              ? Math.floor((Date.now() - new Date(aiParentsUpdatedAt).getTime()) / (1000 * 60 * 60 * 24))
+                              : 0
+                            return diffDays >= 2 ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                Puede estar desactualizado
+                              </span>
+                            ) : null
+                          })()}
+                        </div>
+                      ) : null}
+
+                      {aiParentsNotice ? <div className="text-xs text-slate-600 dark:text-slate-300">{aiParentsNotice}</div> : null}
+
+                      {aiParentsError ? (
+                        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md p-3 dark:text-red-200 dark:bg-red-950/30 dark:border-red-900/50">{aiParentsError}</div>
+                      ) : null}
+
+                      {aiParentsText ? (
+                        <div className="text-sm rounded-md border border-teal-100 bg-teal-50/40 p-3 dark:border-teal-900/40 dark:bg-teal-950/20">
+                          {renderAiAnalysis(aiParentsText)}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-slate-500 dark:text-slate-400">Genera un informe en lenguaje sencillo para socializar con los padres en reuniones de grupo.</div>
+                      )}
+                    </div>
                   </div>
                 )}
               </CardContent>

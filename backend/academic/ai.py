@@ -489,50 +489,116 @@ Requisitos:
         """
         self._ensure_available()
 
+        coverage_pct = int((context.get("data_coverage") or {}).get("data_coverage_pct") or 0)
+        coverage_note = (
+            ""
+            if coverage_pct >= 40
+            else "IMPORTANTE: La cobertura de datos es baja (<40%). Menciona esta limitación en ALCANCE Y SUPUESTOS y no extraigas conclusiones definitivas."
+        )
+
         prompt = f"""
-    Actúa como un coordinador académico y orientador pedagógico.
+Actúa como coordinador académico y orientador pedagógico en una institución educativa colombiana.
 
-    Objetivo: redactar un INFORME EJECUTIVO sobre el estado del grupo usando SOLO los datos suministrados.
+Objetivo: redactar un INFORME EJECUTIVO detallado sobre el estado académico del grupo, útil para que el docente director diseñe una estrategia de mejora.
 
-    Reglas estrictas:
-    - No uses nombres propios ni datos personales.
-    - No inventes cifras ni supongas cosas que no estén en los datos.
-    - No incluyas saludos ni frases de introducción tipo carta (por ejemplo: "Estimado docente", "A continuación...").
-    - Evita párrafos largos de advertencia. Si necesitas mencionar limitaciones por cobertura, hazlo en 1-2 viñetas dentro de la sección "Alcance y supuestos".
-    - Escribe en español, tono profesional, claro, accionable y orientado a decisiones.
+Contexto del sistema de evaluación:
+- Escala de calificación: 1.0 a 5.0 (escala SIEE colombiana).
+- Nota aprobatoria mínima (passing_score): valor indicado en el campo scope.passing_score del JSON.
+- "En riesgo" significa promedio < nota aprobatoria O al menos 1 asignatura perdida.
+- gradebook_coverage_pct indica qué porcentaje de las calificaciones ya está diligenciado (100% = completo).
+{coverage_note}
 
-    Formato de salida (usa exactamente estos títulos y viñetas con "-"):
+Reglas estrictas:
+- Cita SIEMPRE las asignaturas por su nombre exacto (campo "subject" del JSON) al hacer hallazgos o recomendaciones.
+- Usa los números exactos del JSON: promedios, tasas de pérdida, cantidad de estudiantes en riesgo.
+- NO inventes cifras ni generalices sin datos.
+- NO uses nombres propios ni datos personales (los estudiantes vienen anonimizados como "Estudiante 1", "Estudiante 2"...).
+- NO incluyas saludos ni frases tipo carta ("Estimado docente", "A continuación...").
+- Si data_coverage_pct >= 40, redacta el análisis completo sin disclaimers de cobertura.
+- Si hay asignaturas con failure_rate > 0, menciónalas explícitamente en HALLAZGOS CLAVE y RIESGOS.
+- Escribe en español, tono profesional, claro y orientado a decisiones.
 
-    RESUMEN EJECUTIVO
-    - (2-4 viñetas con lo más importante)
+Formato de salida (usa exactamente estos títulos de sección y viñetas con "-"):
 
-    HALLAZGOS CLAVE
-    - (3-6 viñetas)
+RESUMEN EJECUTIVO
+- (2-4 viñetas con las conclusiones más importantes sobre el rendimiento del grupo)
 
-    RIESGOS
-    - (2-5 viñetas)
+HALLAZGOS CLAVE
+- (4-8 viñetas; menciona asignaturas específicas, promedios concretos y comparaciones relevantes)
 
-    RECOMENDACIONES
-    - (3-6 viñetas concretas)
+RIESGOS
+- (2-6 viñetas; identifica asignaturas críticas, cantidad de estudiantes en riesgo y patrones)
 
-    PLAN DE ACCIÓN (PRÓXIMAS 2 SEMANAS)
-    - (3-8 viñetas, acciones operativas)
+RECOMENDACIONES
+- (4-8 viñetas concretas y accionables por asignatura o grupo de asignaturas)
 
-    INDICADORES A MONITOREAR
-    - (3-6 viñetas con métricas observables)
+PLAN DE ACCIÓN (PRÓXIMAS 2 SEMANAS)
+- (4-8 viñetas operativas: qué hacer, con quién, cuándo)
 
-    ALCANCE Y SUPUESTOS
-    - (1-2 viñetas, opcional)
+INDICADORES A MONITOREAR
+- (3-6 métricas observables con valores de referencia tomados del JSON)
 
-    Datos (JSON):
-    {json.dumps(context, ensure_ascii=False)}
-    """
+ALCANCE Y SUPUESTOS
+- (incluir SOLO si data_coverage_pct < 40; máx 2 viñetas sobre limitaciones de datos)
+
+Datos del grupo (JSON):
+{json.dumps(context, ensure_ascii=False)}
+"""
 
         try:
             response = self.model.generate_content(prompt)
             return (response.text or "").strip()
         except Exception as e:
             logger.exception("Error generating group state analysis")
+            raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
+
+    def analyze_group_state_for_parents(self, context: dict) -> str:
+        """Genera un informe del estado del grupo en lenguaje sencillo para padres/acudientes.
+
+        Usa el mismo contexto agregado que analyze_group_state (sin PII de estudiantes).
+        """
+        self._ensure_available()
+
+        prompt = f"""
+Actúa como docente director de grupo de una institución educativa colombiana.
+Vas a redactar un informe breve sobre el estado académico del grupo para compartir con los padres y acudientes durante una reunión o entrega de notas.
+
+El informe debe:
+- Usar lenguaje sencillo, cálido y comprensible para cualquier padre de familia (sin tecnicismos estadísticos).
+- Mencionar las áreas donde el grupo va bien y las que necesitan refuerzo, usando los nombres reales de las asignaturas del JSON.
+- Incluir sugerencias prácticas y concretas que los padres puedan hacer DESDE CASA para apoyar a sus hijos.
+- Recordarles la escala de notas: 1.0 a 5.0, y que la nota para pasar es {(context.get("scope") or {}).get("passing_score", "3.0")}.
+- NO mencionar nombres de estudiantes ni datos personales.
+- NO usar tablas ni listas de números complejas.
+- NO incluir saludos tipo carta ("Estimados padres...") ni frases de cierre.
+- Escribe en español, en párrafos cortos y con viñetas simples.
+
+Formato de salida (usa exactamente estos títulos y viñetas con "-"):
+
+¿CÓMO VA EL GRUPO?
+- (2-3 viñetas con un resumen general del desempeño académico; usa lenguaje positivo y honesto)
+
+ÁREAS QUE NECESITAN ATENCIÓN
+- (2-5 viñetas; menciona asignaturas por nombre y explica brevemente por qué se necesita refuerzo)
+
+ÁREAS DONDE EL GRUPO ESTÁ BIEN
+- (1-4 viñetas; reconoce los logros con los nombres de las asignaturas)
+
+¿QUÉ PUEDEN HACER DESDE CASA?
+- (4-7 sugerencias prácticas, concretas y fáciles de aplicar por los padres)
+
+COMPROMISOS DEL COLEGIO
+- (2-4 acciones que el colegio / docente se compromete a realizar para apoyar al grupo)
+
+Datos del grupo (JSON):
+{json.dumps(context, ensure_ascii=False)}
+"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            return (response.text or "").strip()
+        except Exception as e:
+            logger.exception("Error generating group state analysis for parents")
             raise AIProviderError(f"Error calling Gemini API: {str(e)}") from e
 
     def generate_commitments_blocks(self, context: dict) -> dict:

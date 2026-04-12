@@ -162,6 +162,7 @@ export interface TeacherStatisticsResponse {
 export interface TeacherStatisticsAIResponse {
   analysis: string
   cached?: boolean
+  audience?: string
   updated_at?: string | null
 }
 
@@ -309,6 +310,7 @@ export const teachersApi = {
     director_group_id?: number
     director_subject_id?: number
     refresh?: 1
+    audience?: 'teacher' | 'parents'
   }) => api.get<TeacherStatisticsAIResponse>('/api/teachers/me/statistics/ai/', { params }),
 
   myStatisticsAIPdf: (params: {
@@ -318,6 +320,7 @@ export const teachersApi = {
     director_group_id?: number
     director_subject_id?: number
     refresh?: 1
+    audience?: 'teacher' | 'parents'
   }) => api.get('/api/teachers/me/statistics/ai/pdf/', { params, responseType: 'blob' }),
   myDashboardSummary: (params?: { year_id?: number; period_id?: number }) =>
     api.get<TeacherDashboardSummaryResponse>('/api/teachers/me/dashboard-summary/', { params }),

@@ -138,6 +138,11 @@ export default function TeacherAttendance() {
     return assignments.filter((a) => a.academic_year === activeYearId)
   }, [assignments, activeYearId])
 
+  const selectedPeriodObj = useMemo(
+    () => filteredPeriods.find((p) => p.id === Number(selectedPeriod)) ?? null,
+    [filteredPeriods, selectedPeriod],
+  )
+
   useEffect(() => {
     let mounted = true
 
@@ -203,6 +208,17 @@ export default function TeacherAttendance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, page, pageSize, ordering])
 
+  // Clamp classDate within the selected period's date range.
+  useEffect(() => {
+    if (!selectedPeriodObj) return
+    const { start_date, end_date } = selectedPeriodObj
+    if (classDate < start_date) {
+      setClassDate(start_date)
+    } else if (classDate > end_date) {
+      setClassDate(end_date)
+    }
+  }, [selectedPeriod]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleCreate = async () => {
     setError(null)
     setQueueStatus(null)
@@ -214,6 +230,22 @@ export default function TeacherAttendance() {
     if (!selectedAssignment) {
       setError('Selecciona una asignación.')
       return
+    }
+
+    if (selectedPeriodObj?.is_closed) {
+      const msg = 'No se pueden crear planillas en periodos cerrados.'
+      setError(msg)
+      showToast(msg, 'error')
+      return
+    }
+
+    if (selectedPeriodObj && classDate) {
+      if (classDate < selectedPeriodObj.start_date || classDate > selectedPeriodObj.end_date) {
+        const msg = `La fecha debe estar dentro del periodo '${selectedPeriodObj.name}' (${selectedPeriodObj.start_date} – ${selectedPeriodObj.end_date}).`
+        setError(msg)
+        showToast(msg, 'error')
+        return
+      }
     }
 
     setSubmitting(true)
@@ -243,6 +275,9 @@ export default function TeacherAttendance() {
             : base
         setError(withTime)
         showToast(withTime, 'error')
+      } else if (statusCode === 400 && (detailText.toLowerCase().includes('cerrado') || detailText.toLowerCase().includes('dentro del periodo'))) {
+        setError(detailText)
+        showToast(detailText, 'error')
       } else {
         const msg = 'No se pudo crear la clase. Verifica tu conexión y permisos.'
         setError(msg)
@@ -348,8 +383,8 @@ export default function TeacherAttendance() {
                 >
                   <option value="">Selecciona…</option>
                   {filteredPeriods.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} {p.is_closed ? '(Cerrado)' : ''}
+                    <option key={p.id} value={p.id} disabled={p.is_closed}>
+                      {p.name} {p.is_closed ? '(Cerrado — no disponible)' : ''}
                     </option>
                   ))}
                 </select>
@@ -373,7 +408,13 @@ export default function TeacherAttendance() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Fecha (opcional)</label>
-                <Input type="date" value={classDate} onChange={(e) => setClassDate(e.target.value)} />
+                <Input
+                  type="date"
+                  value={classDate}
+                  min={selectedPeriodObj?.start_date}
+                  max={selectedPeriodObj?.end_date}
+                  onChange={(e) => setClassDate(e.target.value)}
+                />
               </div>
             </div>
 
