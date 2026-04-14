@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Printer, ChevronLeft, School, UserRound, Download } from 'lucide-react'
 import { studentsApi, type ObserverReport } from '../services/students'
-import { reportsApi, type ReportJob } from '../services/reports'
+import { reportsApi } from '../services/reports'
 import { pollJobUntilDone } from '../utils/reportPolling'
 
 function formatDateTime(value?: string | null) {

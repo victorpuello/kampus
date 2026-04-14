@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/auth'
 import { certificatesApi, type CertificateStudiesIssuePayload } from '../services/certificates'
 import { academicApi, type AcademicYear, type Grade, type Group } from '../services/academic'
 import { enrollmentsApi } from '../services/enrollments'
-import { reportsApi, type ReportJob } from '../services/reports'
+import { reportsApi } from '../services/reports'
 import { pollJobUntilDone } from '../utils/reportPolling'
 
 type EnrollmentOption = {

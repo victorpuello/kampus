@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { coreApi, type Institution, type User } from '../services/core'
-import { reportsApi, type ReportJob } from '../services/reports'
+import { reportsApi } from '../services/reports'
 import { pollJobUntilDone } from '../utils/reportPolling'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
