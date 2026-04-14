@@ -4,6 +4,7 @@ import { GraduationCap, Printer, ChevronLeft, Download } from 'lucide-react'
 import { studentsApi, type ObserverReport } from '../services/students'
 import { coreApi, type Institution } from '../services/core'
 import { reportsApi, type ReportJob } from '../services/reports'
+import { pollJobUntilDone } from '../utils/reportPolling'
 
 function monthNameEs(monthIndex: number) {
   const months = [
@@ -156,18 +157,6 @@ export default function StudentStudyCertificationPrint() {
     }
   }, [previewHtmlWithBase, resizeIframeToContent])
 
-  const pollJobUntilFinished = async (jobId: number): Promise<ReportJob> => {
-    let attempt = 0
-    const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
-
-    for (;;) {
-      const res = await reportsApi.getJob(jobId)
-      const job = res.data
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
-      attempt += 1
-      await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
-    }
-  }
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = window.URL.createObjectURL(blob)
@@ -286,7 +275,7 @@ export default function StudentStudyCertificationPrint() {
         })
       ).data.id
 
-      const job = await pollJobUntilFinished(jobId)
+      const job = await pollJobUntilDone(jobId)
       if (job.status !== 'SUCCEEDED') {
         setActionError(job.error_message || 'No se pudo generar el PDF.')
         return

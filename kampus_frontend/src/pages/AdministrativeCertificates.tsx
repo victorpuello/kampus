@@ -10,6 +10,7 @@ import { certificatesApi, type CertificateStudiesIssuePayload } from '../service
 import { academicApi, type AcademicYear, type Grade, type Group } from '../services/academic'
 import { enrollmentsApi } from '../services/enrollments'
 import { reportsApi, type ReportJob } from '../services/reports'
+import { pollJobUntilDone } from '../utils/reportPolling'
 
 type EnrollmentOption = {
   id: number
@@ -125,25 +126,6 @@ export default function AdministrativeCertificates() {
     showToast(`${fallbackMessage}${statusText}`, 'error')
   }
 
-  const pollJobUntilFinished = async (
-    jobId: number,
-    onUpdate?: (job: ReportJob) => void
-  ): Promise<ReportJob> => {
-    let attempt = 0
-    // ~0.8s to ~4s
-    const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
-
-    for (;;) {
-      const res = await reportsApi.getJob(jobId)
-      const job = res.data
-      onUpdate?.(job)
-
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
-
-      attempt += 1
-      await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
-    }
-  }
 
   const loadInlinePreview = async (payload: CertificateStudiesIssuePayload) => {
     setInlinePreviewPayload(payload)
@@ -319,7 +301,7 @@ export default function AdministrativeCertificates() {
         enrollment_id: Number(selectedEnrollmentId),
       })
 
-      const job = await pollJobUntilFinished(created.data.id)
+      const job = await pollJobUntilDone(created.data.id)
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
         return
@@ -384,7 +366,7 @@ export default function AdministrativeCertificates() {
         academic_year: archiveYear.trim(),
       })
 
-      const job = await pollJobUntilFinished(created.data.id)
+      const job = await pollJobUntilDone(created.data.id)
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el certificado.', 'error')
         return

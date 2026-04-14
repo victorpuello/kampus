@@ -368,6 +368,9 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_ALWAYS_EAGER = os.getenv("CELERY_TASK_ALWAYS_EAGER", "false").lower() == "true"
 CELERY_TASK_EAGER_PROPAGATES = os.getenv("CELERY_TASK_EAGER_PROPAGATES", "true").lower() == "true"
+# Hard kill after 11 min; soft signal at 10 min so the task can mark_failed cleanly.
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "600"))
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "660"))
 
 KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED = (os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_ENABLED") or "true").strip().lower() in {"1", "true", "yes"}
 KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED = (os.getenv("KAMPUS_NOVELTIES_SLA_NOTIFY_BEAT_ENABLED") or "false").strip().lower() in {"1", "true", "yes"}

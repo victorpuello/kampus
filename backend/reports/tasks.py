@@ -13,6 +13,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from django.conf import settings
 from django.template.loader import render_to_string
 
@@ -1700,6 +1701,24 @@ def generate_report_job_pdf(self, job_id: int) -> None:
                 "output_size_bytes": size,
             },
         )
+
+    except SoftTimeLimitExceeded:
+        # Worker hit the CELERY_TASK_SOFT_TIME_LIMIT (default 10 min).
+        # Mark the job as failed so the frontend receives a clean FAILED status
+        # instead of a job stuck in RUNNING indefinitely.
+        try:
+            job.mark_failed(
+                error_code="PDF_GENERATION_TIMEOUT",
+                error_message="La generación del PDF superó el tiempo máximo permitido.",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        duration_s = round(time.monotonic() - started_monotonic, 3)
+        logger.error(
+            "report_job.timeout",
+            extra={"job_id": job.id, "report_type": job.report_type, "duration_s": duration_s},
+        )
+        # Do NOT re-raise: a timed-out job should not be retried.
 
     except Exception as exc:  # noqa: BLE001
         if job.report_type == ReportJob.ReportType.CERTIFICATE_STUDIES:

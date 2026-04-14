@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { enrollmentsApi } from '../../services/enrollments'
 import { academicApi, type AcademicYear, type Grade, type Group, type Period } from '../../services/academic'
 import { reportsApi, type ReportJob } from '../../services/reports'
+import { pollJobUntilDone } from '../../utils/reportPolling'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Label } from '../../components/ui/Label'
@@ -93,26 +94,6 @@ export default function EnrollmentReports() {
     window.URL.revokeObjectURL(url)
   }
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-  const pollJobUntilFinished = async (
-    jobId: number,
-    onUpdate?: (job: ReportJob) => void
-  ): Promise<ReportJob> => {
-    // ~2 min worst-case with backoff.
-    const delaysMs = [400, 700, 1000, 1500, 2000, 2500, 3000, 3500]
-    for (let i = 0; i < 60; i++) {
-      const res = await reportsApi.getJob(jobId)
-      const job = res.data
-      onUpdate?.(job)
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') {
-        return job
-      }
-      const delay = delaysMs[Math.min(i, delaysMs.length - 1)]
-      await sleep(delay)
-    }
-    throw new Error('Timeout esperando la generación del PDF')
-  }
 
   useEffect(() => {
     if (isTeacher) return
@@ -194,7 +175,7 @@ export default function EnrollmentReports() {
         })
 
         setEnrollmentListJob(created.data)
-        const job = await pollJobUntilFinished(created.data.id, setEnrollmentListJob)
+        const job = await pollJobUntilDone(created.data.id, { onUpdate: setEnrollmentListJob })
 
         if (job.status !== 'SUCCEEDED') {
           showToast(job.error_message || 'No se pudo generar el PDF', 'error')
@@ -237,7 +218,7 @@ export default function EnrollmentReports() {
       })
 
       setFamilyDirectoryJob(created.data)
-      const job = await pollJobUntilFinished(created.data.id, setFamilyDirectoryJob)
+      const job = await pollJobUntilDone(created.data.id, { onUpdate: setFamilyDirectoryJob })
 
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el PDF', 'error')
@@ -370,7 +351,7 @@ export default function EnrollmentReports() {
 
         setBulletinJob(created.data)
 
-        const job = await pollJobUntilFinished(jobId, setBulletinJob)
+        const job = await pollJobUntilDone(jobId, { onUpdate: setBulletinJob })
         if (job.status !== 'SUCCEEDED') {
           showToast(job.error_message || 'No se pudo generar el PDF', 'error')
           return
@@ -401,7 +382,7 @@ export default function EnrollmentReports() {
 
       setBulletinJob(created.data)
 
-      const job = await pollJobUntilFinished(jobId, setBulletinJob)
+      const job = await pollJobUntilDone(jobId, { onUpdate: setBulletinJob })
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el PDF', 'error')
         return
@@ -445,7 +426,7 @@ export default function EnrollmentReports() {
       const jobId = created.data.id
       setSabanaJob(created.data)
 
-      const job = await pollJobUntilFinished(jobId, setSabanaJob)
+      const job = await pollJobUntilDone(jobId, { onUpdate: setSabanaJob })
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el PDF', 'error')
         return

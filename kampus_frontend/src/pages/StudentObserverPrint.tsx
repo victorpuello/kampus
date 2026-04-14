@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Printer, ChevronLeft, School, UserRound, Download } from 'lucide-react'
 import { studentsApi, type ObserverReport } from '../services/students'
 import { reportsApi, type ReportJob } from '../services/reports'
+import { pollJobUntilDone } from '../utils/reportPolling'
 
 function formatDateTime(value?: string | null) {
   if (!value) return ''
@@ -106,18 +107,6 @@ export default function StudentObserverPrint() {
   const [downloadingPdf, setDownloadingPdf] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const pollJobUntilFinished = async (jobId: number): Promise<ReportJob> => {
-    let attempt = 0
-    const nextDelayMs = () => Math.min(4000, 800 + attempt * 400)
-
-    for (;;) {
-      const res = await reportsApi.getJob(jobId)
-      const job = res.data
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') return job
-      attempt += 1
-      await new Promise((resolve) => setTimeout(resolve, nextDelayMs()))
-    }
-  }
 
   const downloadBlob = (blob: Blob, filename: string) => {
     const url = window.URL.createObjectURL(blob)
@@ -227,7 +216,7 @@ export default function StudentObserverPrint() {
         params: { student_id: studentId },
       })
 
-      const job = await pollJobUntilFinished(created.data.id)
+      const job = await pollJobUntilDone(created.data.id)
       if (job.status !== 'SUCCEEDED') {
         setActionError(job.error_message || 'No se pudo generar el PDF.')
         return

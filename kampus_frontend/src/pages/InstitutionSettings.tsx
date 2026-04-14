@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { coreApi, type Institution, type User } from '../services/core'
 import { reportsApi, type ReportJob } from '../services/reports'
+import { pollJobUntilDone } from '../utils/reportPolling'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -57,25 +58,6 @@ export default function InstitutionSettings() {
     window.URL.revokeObjectURL(url)
   }
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-  const pollJobUntilFinished = async (
-    jobId: number,
-    onUpdate?: (job: ReportJob) => void
-  ): Promise<ReportJob> => {
-    const delaysMs = [400, 700, 1000, 1500, 2000, 2500, 3000, 3500]
-    for (let i = 0; i < 60; i++) {
-      const res = await reportsApi.getJob(jobId)
-      const job = res.data
-      onUpdate?.(job)
-      if (job.status === 'SUCCEEDED' || job.status === 'FAILED' || job.status === 'CANCELED') {
-        return job
-      }
-      const delay = delaysMs[Math.min(i, delaysMs.length - 1)]
-      await sleep(delay)
-    }
-    throw new Error('Timeout esperando la generación del PDF')
-  }
 
   const getFilenameFromContentDisposition = (value?: string) => {
     if (!value) return null
@@ -354,7 +336,7 @@ export default function InstitutionSettings() {
         },
       })
 
-      const job = await pollJobUntilFinished(created.data.id)
+      const job = await pollJobUntilDone(created.data.id)
       if (job.status !== 'SUCCEEDED') {
         showToast(job.error_message || 'No se pudo generar el PDF de prueba', 'error')
         return
